@@ -1,6 +1,9 @@
 node_modules/
 dist/
+build/
 .env
+.env.*
+*.env
 *.log
 logs/
 uploads/
@@ -11,6 +14,11 @@ nginx/ssl/
 *.pem
 *.key
 *.p12
+*.p8
+*.pfx
 .DS_Store
+Thumbs.db
 .claude/
 tasks/
+*.local
+.vite/
