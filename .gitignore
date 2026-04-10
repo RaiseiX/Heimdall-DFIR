@@ -1,0 +1,16 @@
+node_modules/
+dist/
+.env
+*.log
+logs/
+uploads/
+evidence/
+temp/
+backups/
+nginx/ssl/
+*.pem
+*.key
+*.p12
+.DS_Store
+.claude/
+tasks/

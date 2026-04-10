@@ -1,0 +1,410 @@
+services:
+  # ─── PostgreSQL Database ───
+  db:
+    image: postgres:16-alpine
+    container_name: yggdrasil
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: forensiclab
+      POSTGRES_USER: forensiclab
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - aesir-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U forensiclab"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─── Redis Cache & Sessions ───
+  redis:
+    image: redis:7-alpine
+    container_name: hermod
+    restart: unless-stopped
+    command: redis-server --requirepass ${REDIS_PASSWORD}
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    volumes:
+      - redis_data:/data
+    networks:
+      - aesir-net
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─── Node.js Backend API ───
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      network: host
+    container_name: odin
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 4000
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_NAME: forensiclab
+      DB_USER: forensiclab
+      DB_PASSWORD: ${DB_PASSWORD}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      JWT_SECRET: ${JWT_SECRET}
+      UPLOAD_DIR: /app/uploads
+      ZIMMERMAN_TOOLS_DIR: /app/zimmerman-tools
+      HAYABUSA_BIN: /app/hayabusa/hayabusa
+      HAYABUSA_DIR: /app/hayabusa
+      NODE_OPTIONS: --max-old-space-size=4096
+      CLAMAV_HOST: clamav
+      CLAMAV_PORT: "3310"
+      ELASTICSEARCH_URL: http://elasticsearch:9200
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS}
+      DOCKER_GID: ${DOCKER_GID:-999}
+      VOLWEB_URL: ${VOLWEB_URL:-http://hel-api:8000}
+      VOLWEB_USER: ${VOLWEB_USER:-admin}
+      VOLWEB_PASSWORD: ${VOLWEB_PASSWORD}
+      VOLWEB_PUBLIC_URL: ${VOLWEB_PUBLIC_URL:-http://localhost:8888}
+      OLLAMA_URL: ${OLLAMA_URL:-http://ollama:11434}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+    volumes:
+      - uploads_data:/app/uploads
+      - zimmerman_tools:/app/zimmerman-tools
+      - evidence_data:/app/evidence
+      - collections_data:/app/collections
+      - temp_data:/app/temp
+      - backups_data:/app/backups
+      # Docker socket — read-write (required for Ollama install from admin panel)
+      # DOCKER_GID must match the host docker group: stat -c %g /var/run/docker.sock
+      - /var/run/docker.sock:/var/run/docker.sock
+    group_add:
+      - "${DOCKER_GID:-999}"
+    ports:
+      - "4000:4000"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+    networks:
+      - aesir-net
+
+  # ─── Elasticsearch — Super Timeline full-text search (M1) ───
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.13.0
+    container_name: mimir
+    restart: unless-stopped
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - xpack.security.http.ssl.enabled=false
+      - "ES_JAVA_OPTS=-Xms512m -Xmx1g"
+    volumes:
+      - es_data:/usr/share/elasticsearch/data
+    networks:
+      - aesir-net
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9200/_cluster/health?wait_for_status=yellow&timeout=5s || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
+
+  # ─── ClamAV Antivirus Scanner ───
+  clamav:
+    image: clamav/clamav:1.4.3
+    container_name: tyr
+    restart: unless-stopped
+    environment:
+      # Keep freshclam enabled so signatures stay up to date
+      CLAMAV_NO_FRESHCLAM: "false"
+    volumes:
+      - clamav_data:/var/lib/clamav
+    networks:
+      - aesir-net
+    # NOTE: start_period is long because ClamAV downloads ~300 MB of signatures on first boot.
+    # The backend will mark uploads as scan_status='error' while ClamAV is initializing.
+    healthcheck:
+      test: ["CMD", "clamdscan", "--ping", "3"]
+      interval: 60s
+      timeout: 30s
+      retries: 3
+      start_period: 300s
+
+  # ─── MinIO — Object Storage pour VolWeb ───
+  minio:
+    image: minio/minio:latest
+    container_name: njord
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    volumes:
+      - minio_data:/data
+    networks:
+      - aesir-net
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  # ─── VolWeb Backend (Django/Daphne) — v3.16.0 ───
+  # IMPORTANT: volweb_media MUST be mounted at /home/app/web/media (Django MEDIA_ROOT).
+  # The old /app/media mount was wrong — files went to ephemeral container storage,
+  # invisible to hel-worker, causing "No such file or directory" in Volatility tasks.
+  volweb-backend:
+    image: forensicxlab/volweb-backend:3.16.0
+    container_name: hel-api
+    restart: unless-stopped
+    # volweb-init.sh syncs the superuser from VOLWEB_USER/VOLWEB_PASSWORD,
+    # then starts daphne — no manual createsuperuser needed.
+    command: ["/init/volweb-init.sh"]
+    working_dir: /home/app/web
+    environment:
+      DJANGO_SECRET: ${VOLWEB_DJANGO_SECRET}
+      CSRF_TRUSTED_ORIGINS: http://localhost:8888
+      DATABASE_HOST: db
+      DATABASE_PORT: 5432
+      POSTGRES_DB: volweb
+      POSTGRES_USER: forensiclab
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      BROKER_HOST: redis
+      BROKER_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      CELERY_BROKER_URL: redis://:${REDIS_PASSWORD}@redis:6379/1
+      CELERY_RESULT_BACKEND: redis://:${REDIS_PASSWORD}@redis:6379/1
+      # Override Django settings module to patch CHANNEL_LAYERS with Redis auth
+      DJANGO_SETTINGS_MODULE: backend.local_settings
+      AWS_ENDPOINT_URL: http://minio:9000
+      AWS_ENDPOINT_HOST: minio:9000
+      AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER}
+      AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
+      AWS_REGION: us-east-1
+      # Superuser auto-provisioning — synced from .env at every restart
+      DJANGO_SUPERUSER_USERNAME: ${VOLWEB_USER:-admin}
+      DJANGO_SUPERUSER_PASSWORD: ${VOLWEB_PASSWORD}
+      DJANGO_SUPERUSER_EMAIL: admin@forensiclab.local
+    volumes:
+      - volweb_media:/home/app/web/media
+      - ./docker/volweb-init.sh:/init/volweb-init.sh:ro
+      - ./docker/volweb_local_settings.py:/home/app/web/backend/local_settings.py:ro
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    networks:
+      - aesir-net
+
+  # ─── VolWeb Worker (Celery + Volatility 3) ───
+  volweb-worker:
+    image: forensicxlab/volweb-backend:3.16.0
+    container_name: hel-worker
+    restart: unless-stopped
+    working_dir: /home/app/web
+    command: ["celery", "-A", "backend", "worker", "-l", "INFO"]
+    environment:
+      DJANGO_SECRET: ${VOLWEB_DJANGO_SECRET}
+      DATABASE_HOST: db
+      DATABASE_PORT: 5432
+      POSTGRES_DB: volweb
+      POSTGRES_USER: forensiclab
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      BROKER_HOST: redis
+      BROKER_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      CELERY_BROKER_URL: redis://:${REDIS_PASSWORD}@redis:6379/1
+      CELERY_RESULT_BACKEND: redis://:${REDIS_PASSWORD}@redis:6379/1
+      DJANGO_SETTINGS_MODULE: backend.local_settings
+      AWS_ENDPOINT_URL: http://minio:9000
+      AWS_ENDPOINT_HOST: minio:9000
+      AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER}
+      AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
+      AWS_REGION: us-east-1
+    volumes:
+      - volweb_media:/home/app/web/media
+      - ./docker/volweb_local_settings.py:/home/app/web/backend/local_settings.py:ro
+    depends_on:
+      - volweb-backend
+    networks:
+      - aesir-net
+
+  # ─── VolWeb YARA Scan Worker (v3.16.0) ───
+  volweb-worker-yarascan:
+    image: forensicxlab/volweb-backend:3.16.0
+    container_name: hel-worker-yara
+    restart: unless-stopped
+    working_dir: /home/app/web
+    command: ["celery", "-A", "backend", "worker", "-l", "INFO", "-Q", "yarascan", "-c", "1"]
+    environment:
+      DJANGO_SECRET: ${VOLWEB_DJANGO_SECRET}
+      DATABASE_HOST: db
+      DATABASE_PORT: 5432
+      POSTGRES_DB: volweb
+      POSTGRES_USER: forensiclab
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      BROKER_HOST: redis
+      BROKER_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      CELERY_BROKER_URL: redis://:${REDIS_PASSWORD}@redis:6379/1
+      CELERY_RESULT_BACKEND: redis://:${REDIS_PASSWORD}@redis:6379/1
+      DJANGO_SETTINGS_MODULE: backend.local_settings
+      AWS_ENDPOINT_URL: http://minio:9000
+      AWS_ENDPOINT_HOST: minio:9000
+      AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER}
+      AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
+      AWS_REGION: us-east-1
+      YARASCAN_CPU_LIMIT: ${YARASCAN_CPU_LIMIT:-2}
+      YARASCAN_MEM_LIMIT: ${YARASCAN_MEM_LIMIT:-4G}
+    volumes:
+      - volweb_media:/home/app/web/media
+      - ./docker/volweb_local_settings.py:/home/app/web/backend/local_settings.py:ro
+    depends_on:
+      - volweb-backend
+    networks:
+      - aesir-net
+
+  # ─── VolWeb Frontend (React SPA) ───
+  volweb-frontend:
+    image: forensicxlab/volweb-frontend:3.16.0
+    container_name: hel-ui
+    restart: unless-stopped
+    networks:
+      - aesir-net
+
+  # ─── VolWeb Nginx (port 8888) ───
+  volweb-nginx:
+    image: nginx:alpine
+    container_name: hel-proxy
+    restart: unless-stopped
+    ports:
+      - "8888:80"
+    volumes:
+      - ./nginx/volweb.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - volweb-backend
+      - volweb-frontend
+    networks:
+      - aesir-net
+
+  # ─── BullMQ Parser Worker ───
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      network: host
+    container_name: huginn
+    restart: unless-stopped
+    # Override the default entrypoint (entrypoint.sh) to run the BullMQ worker
+    entrypoint: ["node", "src/workers/startWorker.js"]
+    environment:
+      NODE_ENV: production
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_NAME: forensiclab
+      DB_USER: forensiclab
+      DB_PASSWORD: ${DB_PASSWORD}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      UPLOAD_DIR: /app/uploads
+      ZIMMERMAN_TOOLS_DIR: /app/zimmerman-tools
+      HAYABUSA_BIN: /app/hayabusa/hayabusa
+      HAYABUSA_DIR: /app/hayabusa
+      NODE_OPTIONS: --max-old-space-size=4096
+      ELASTICSEARCH_URL: http://elasticsearch:9200
+    volumes:
+      - uploads_data:/app/uploads
+      - zimmerman_tools:/app/zimmerman-tools
+      - evidence_data:/app/evidence
+      - collections_data:/app/collections
+      - temp_data:/app/temp
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+    networks:
+      - aesir-net
+
+  # ─── React Frontend ───
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      network: host
+    container_name: asgard
+    restart: unless-stopped
+    networks:
+      - aesir-net
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:3000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # ─── Nginx Reverse Proxy ───
+  nginx:
+    image: nginx:alpine
+    container_name: bifrost
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - backend
+      - frontend
+    networks:
+      - aesir-net
+
+  # ── Ollama (IA locale) ──────────────────────────────────────────────────────
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    restart: unless-stopped
+    networks:
+      - aesir-net
+    volumes:
+      - ollama_data:/root/.ollama
+    environment:
+      OLLAMA_HOST: "0.0.0.0"
+    # Expose port uniquement pour debug — le backend accède via le réseau interne
+    # Pour GPU : ajouter deploy.resources.reservations.devices (voir docs Ollama)
+
+volumes:
+  pg_data:
+  redis_data:
+  clamav_data:
+  es_data:
+  uploads_data:
+  zimmerman_tools:
+  evidence_data:
+  collections_data:
+  temp_data:
+  volweb_media:
+  minio_data:
+  backups_data:
+  ollama_data:
+
+networks:
+  aesir-net:
+    driver: bridge
