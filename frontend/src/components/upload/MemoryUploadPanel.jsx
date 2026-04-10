@@ -146,7 +146,7 @@ export default function MemoryUploadPanel({ caseId, onDone, onClose }) {
               file.slice(start, end),
               { headers: { 'Content-Type': 'application/octet-stream' } }
             );
-            return; // success
+            return;
           } catch (err) {
             if (attempt === maxAttempts - 1) throw err;
             await new Promise(r => setTimeout(r, 1000 * Math.pow(2, attempt)));
@@ -244,7 +244,6 @@ export default function MemoryUploadPanel({ caseId, onDone, onClose }) {
 
   return (
     <div style={s.panel}>
-      {/* Header */}
       <div style={s.header}>
         <span style={s.title}><Cpu size={14} /> Upload Dump Mémoire (RAM)</span>
         {onClose && (
@@ -254,7 +253,6 @@ export default function MemoryUploadPanel({ caseId, onDone, onClose }) {
         )}
       </div>
 
-      {/* Zone de dépôt */}
       {status === 'idle' && !file && (
         <div
           ref={dropRef}
@@ -281,7 +279,6 @@ export default function MemoryUploadPanel({ caseId, onDone, onClose }) {
         </div>
       )}
 
-      {/* Fichier sélectionné */}
       {file && status === 'idle' && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', background: '#0a0f1a', borderRadius: 6, border: '1px solid #1e2a3a' }}>
           <FileArchive size={14} style={{ color: '#4d82c0', flexShrink: 0 }} />
@@ -299,7 +296,6 @@ export default function MemoryUploadPanel({ caseId, onDone, onClose }) {
         </div>
       )}
 
-      {/* Resume banner */}
       {resumeInfo && status === 'idle' && (
         <div style={{
           display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px',
@@ -311,7 +307,6 @@ export default function MemoryUploadPanel({ caseId, onDone, onClose }) {
         </div>
       )}
 
-      {/* Sélecteur OS */}
       {file && status === 'idle' && !resumeInfo && (
         <div style={s.osRow}>
           <span>OS cible :</span>
@@ -332,7 +327,6 @@ export default function MemoryUploadPanel({ caseId, onDone, onClose }) {
         </div>
       )}
 
-      {/* Barre de progression */}
       {(isRunning || status === 'done' || status === 'error') && (
         <div>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
@@ -349,7 +343,6 @@ export default function MemoryUploadPanel({ caseId, onDone, onClose }) {
         </div>
       )}
 
-      {/* Statut final */}
       {status === 'done' && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, fontFamily: 'monospace', color: '#22c55e' }}>
           <CheckCircle2 size={13} />
@@ -357,7 +350,6 @@ export default function MemoryUploadPanel({ caseId, onDone, onClose }) {
         </div>
       )}
 
-      {/* Erreur */}
       {error && (
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6, fontSize: 11, fontFamily: 'monospace', color: '#da3633', background: 'rgba(218,54,51,0.08)', padding: '8px 12px', borderRadius: 6, border: '1px solid rgba(218,54,51,0.2)' }}>
           <AlertCircle size={13} style={{ flexShrink: 0, marginTop: 1 }} />
@@ -365,7 +357,6 @@ export default function MemoryUploadPanel({ caseId, onDone, onClose }) {
         </div>
       )}
 
-      {/* Boutons */}
       <div style={{ display: 'flex', gap: 8 }}>
         {file && status === 'idle' && !resumeInfo && (
           <button style={s.uploadBtn} onClick={() => startUpload(false)}>

@@ -23,11 +23,8 @@ import MemoryUploadPanel from '../components/upload/MemoryUploadPanel';
 import ReportTemplateModal from '../components/reports/ReportTemplateModal';
 import CyberChefPage from './CyberChefPage';
 
-
 const PC = { critical: '#da3633', high: '#d97c20', medium: '#c89d1d', low: '#3fb950' };
 const EC = { alert: '#da3633', malware: '#d97c20', exfil: '#c89d1d', network: '#4d82c0', analysis: '#8b72d6', response: '#3fb950', persistence: '#f472b6', other: '#7d8590' };
-
-
 
 const ARTIFACT_COLORS = {
   evtx: '#4d82c0', hayabusa: '#da3633', mft: '#8b72d6', prefetch: '#22c55e', lnk: '#d97c20',
@@ -78,7 +75,7 @@ function HexStringsPreview({ evId }) {
     };
     load();
     return () => { cancelled = true; };
-  }, [activeTab, evId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [activeTab, evId]);
   return (
     <div style={{ borderRadius: 7, border: '1px solid #da363330', background: '#1a0f0f', overflow: 'hidden' }}>
       <div style={{ display: 'flex', borderBottom: '1px solid #da363325' }}>
@@ -105,9 +102,6 @@ function HexStringsPreview({ evId }) {
   );
 }
 
-
-
-/* ── Reusable nav tab button for the case-level top bar ─────────────────── */
 function TopNavBtn({ onClick, isActive, activeBorderColor = '#4d82c0', activeTextColor = '#b0ccec', icon: Icon, label, padding = '0 10px' }) {
   const inactiveColor = '#3d5070';
   return (
@@ -134,7 +128,6 @@ export default function CaseDetailPage({ user }) {
   const { t, i18n } = useTranslation();
   const T = useTheme();
   const params = useParams();
-  // When rendered inside CaseShell, id comes from shell context; fallback to URL params
   const shellCtx = useOutletContext() || {};
   const id = shellCtx.caseId || params.id;
   const collectionId = params.collectionId;
@@ -171,7 +164,7 @@ export default function CaseDetailPage({ user }) {
   const [generating, setGenerating] = useState(false);
   const [reportDone, setReportDone] = useState(false);
   const [showTemplateModal, setShowTemplateModal] = useState(false);
-  const [selectedTemplate, setSelectedTemplate]   = useState(null); // { id, name } | null
+  const [selectedTemplate, setSelectedTemplate]   = useState(null);
 
   const [caseIOCs, setCaseIOCs] = useState([]);
   const [caseTL, setCaseTL] = useState([]);
@@ -185,72 +178,55 @@ export default function CaseDetailPage({ user }) {
   const [loadingAudit, setLoadingAudit] = useState(false);
   const [reportId, setReportId] = useState(null);
   const [showImportPanel, setShowImportPanel] = useState(false);
-  // Map: evidence.name → parser_result.id (for Super Timeline deep-link)
   const [evResultMap, setEvResultMap] = useState({});
-  // IOC form
   const [showIOCForm, setShowIOCForm] = useState(false);
   const [iocSaving, setIocSaving] = useState(false);
   const [iocForm, setIocForm] = useState({ ioc_type: 'ip', value: '', description: '', severity: 5, is_malicious: false, source: '', tags: '' });
-  // STIX import modal
   const [showStixImport, setShowStixImport] = useState(false);
-  const [stixFiles, setStixFiles] = useState([]);       // [{ name, bundle, count }]
+  const [stixFiles, setStixFiles] = useState([]);
   const [stixImporting, setStixImporting] = useState(false);
-  const [stixResult, setStixResult] = useState(null);   // { created, skipped, errors, message }
-  // Super Timeline state
+  const [stixResult, setStixResult] = useState(null);
   const [stTotal, setStTotal] = useState(0);
   const [stReparsing, setStReparsing] = useState(false);
   const [stReloadKey, setStReloadKey] = useState(0);
   const [hayCount, setHayCount] = useState(0);
   const [catscaleCount, setCatscaleCount] = useState(0);
-  // Real-time parse progress: null | { type, current, total, artifact, name, completed[] }
   const [stParseProgress, setStParseProgress] = useState(null);
   const { socket, socketId } = useSocket();
   const stProgressRef = useRef(null);
   const [subTab, setSubTab] = useState(null);
   const [showDeleteCollect, setShowDeleteCollect] = useState(false);
   const [deletingCollect, setDeletingCollect] = useState(false);
-  const [evToDelete, setEvToDelete] = useState(null); // evidence object to confirm deletion
+  const [evToDelete, setEvToDelete] = useState(null);
   const [deletingEv, setDeletingEv] = useState(false);
-  // Présence temps réel
   const [presenceUsers, setPresenceUsers] = useState([]);
-  // Changement de statut
-  const [statusModal, setStatusModal] = useState(null); // null | 'active'|'pending'|'closed'
+  const [statusModal, setStatusModal] = useState(null);
   const [statusChanging, setStatusChanging] = useState(false);
-  // Édition échéance
   const [editDeadline, setEditDeadline] = useState(false);
   const [deadlineVal, setDeadlineVal] = useState('');
   const [deadlineSaving, setDeadlineSaving] = useState(false);
-  // Hard delete (RGPD) — admin only
   const [showHardDelete, setShowHardDelete] = useState(false);
   const [hardDeleteConfirm, setHardDeleteConfirm] = useState('');
   const [hardDeleting, setHardDeleting] = useState(false);
-  const [hardDeleteResult, setHardDeleteResult] = useState(null); // null | { ok, files_destroyed, files_errors, verified, error }
-  // PCAP import state — keyed by evidence id
-  const [pcapState, setPcapState] = useState({}); // { [evId]: { loading, result, error } }
-  // Network
+  const [hardDeleteResult, setHardDeleteResult] = useState(null);
+  const [pcapState, setPcapState] = useState({});
   const [networkConns, setNetworkConns] = useState([]);
   const [networkStats, setNetworkStats] = useState(null);
-  // Triage
   const [triageData, setTriageData] = useState(null);
   const [triageRunning, setTriageRunning] = useState(false);
   const [showTriageModal, setShowTriageModal] = useState(false);
-  // VolWeb — upload mémoire + SSO Magic Link
   const [showMemUpload, setShowMemUpload]   = useState(false);
-  const [volwebSsoUrl,  setVolwebSsoUrl]    = useState(null);   // URL magic link en cours
-  const [volwebLoading, setVolwebLoading]   = useState(false);  // génération du lien
-  const [volwebStatus,  setVolwebStatus]    = useState(null);   // { linked, volwebCaseId, evidence[] }
-  const [volwebRetrying,  setVolwebRetrying]  = useState(null);   // evidenceId being retried | null
-  const [volwebProgress,  setVolwebProgress]  = useState({});     // { [evidenceId]: { pct, tasks_done, tasks_total, plugins[] } }
-  // Parser (onglet Collecte)
-  const [parserRunning, setParserRunning]   = useState(null);   // key du parser en cours | null
-  const [parserResults, setParserResults]   = useState([]);     // [{ parser, time, records, status }]
-  // Legal Hold
-  const [legalHoldModal, setLegalHoldModal] = useState(false); // false | 'enable' | 'disable'
+  const [volwebSsoUrl,  setVolwebSsoUrl]    = useState(null);
+  const [volwebLoading, setVolwebLoading]   = useState(false);
+  const [volwebStatus,  setVolwebStatus]    = useState(null);
+  const [volwebRetrying,  setVolwebRetrying]  = useState(null);
+  const [volwebProgress,  setVolwebProgress]  = useState({});
+  const [parserRunning, setParserRunning]   = useState(null);
+  const [parserResults, setParserResults]   = useState([]);
+  const [legalHoldModal, setLegalHoldModal] = useState(false);
   const [legalHoldReason, setLegalHoldReason] = useState('');
-  // AI Copilot
   const [aiOpen, setAiOpen] = useState(false);
   const [legalHoldSaving, setLegalHoldSaving] = useState(false);
-  // Présence — rejoindre / quitter la room du cas
   useEffect(() => {
     if (!socket || !id) return;
     socket.emit('case:join', { caseId: id });
@@ -261,7 +237,6 @@ export default function CaseDetailPage({ user }) {
     setPresenceUsers(Array.isArray(users) ? users : []);
   });
 
-  // Refresh evResultMap from the server (called at mount + after each parse)
   const refreshEvResultMap = useCallback(async () => {
     try {
       const prRes = await parsersAPI.results(id);
@@ -275,23 +250,19 @@ export default function CaseDetailPage({ user }) {
         }
       });
       setEvResultMap(map);
-    } catch { /* non-bloquant */ }
+    } catch {}
   }, [id]);
 
-  // Re-sync when another session finishes a parse (multi-user support)
   useSocketEvent(socket, 'collection:parse:done', () => {
     refreshEvResultMap();
   });
 
-  // Socket.io — VolWeb pipeline events
-  // volweb:processing → pipeline started (file being transferred to VolWeb / Volatility enqueued)
   useSocketEvent(socket, 'volweb:processing', (data) => {
     if (data.caseId !== id) return;
     setEvidence(prev => prev.map(ev =>
       ev.id === data.evidenceId ? { ...ev, volweb_status: 'processing' } : ev
     ));
   });
-  // volweb:completed → Volatility 3 finished (ready or error)
   useSocketEvent(socket, 'volweb:completed', (data) => {
     if (data.caseId !== id) return;
     setEvidence(prev => prev.map(ev =>
@@ -299,7 +270,6 @@ export default function CaseDetailPage({ user }) {
     ));
     api.get(`/volweb/status/${id}`).then(r => setVolwebStatus(r.data)).catch(() => {});
   });
-  // volweb:ready → legacy / error terminal from onResult callback
   useSocketEvent(socket, 'volweb:ready', (data) => {
     if (data.caseId !== id) return;
     if (data.status === 'error') {
@@ -310,10 +280,8 @@ export default function CaseDetailPage({ user }) {
     api.get(`/volweb/status/${id}`).then(r => setVolwebStatus(r.data)).catch(() => {});
   });
 
-  // Ouvrir VolWeb via Magic Link SSO
   const openVolWeb = useCallback(async (caseId) => {
     setVolwebLoading(true);
-    // Open the window synchronously (before await) to avoid popup blockers
     const win = window.open('', '_blank');
     try {
       const res = await api.get('/volweb/magic-link', { params: { caseId } });
@@ -338,12 +306,10 @@ export default function CaseDetailPage({ user }) {
     }
   }, []);
 
-  // Retry VolWeb pipeline for a stuck/failed evidence (file already on disk)
   const retryVolWeb = useCallback(async (evidenceId) => {
     setVolwebRetrying(evidenceId);
     try {
       await api.post(`/volweb/memory/${id}/retry/${evidenceId}`);
-      // Optimistically update the evidence row to 'uploading' so the UI reacts immediately
       setEvidence(prev => prev.map(ev =>
         ev.id === evidenceId ? { ...ev, volweb_status: 'uploading' } : ev
       ));
@@ -383,7 +349,6 @@ export default function CaseDetailPage({ user }) {
     return () => clearInterval(timer);
   }, [evidence, id]);
 
-  // Audit tab — lazy load with filters + pagination
   const AUDIT_PAGE_SIZE = 50;
   const fetchAuditLog = useCallback(async (page, filters) => {
     if (!id) return;
@@ -422,10 +387,8 @@ export default function CaseDetailPage({ user }) {
       date_from: auditFilterFrom,
       date_to: auditFilterTo,
     });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab, auditPage, id]);
 
-  // Load case data from API, fallback to demo
   useEffect(() => {
     let cancelled = false;
     console.log('[CaseDetail] useEffect triggered, id =', id);
@@ -438,14 +401,12 @@ export default function CaseDetailPage({ user }) {
 
     const loadCase = async () => {
       try {
-        // 1. Load case info
         console.log('[CaseDetail] Calling casesAPI.get(' + id + ')...');
         const caseRes = await casesAPI.get(id);
         console.log('[CaseDetail] API response:', caseRes.data);
         if (cancelled) return;
         setCaseData(caseRes.data);
 
-        // 2. Load related data (non-blocking — each can fail independently)
         try {
           const evRes = await evidenceAPI.list(id);
           if (!cancelled && evRes.data) setEvidence(Array.isArray(evRes.data) ? evRes.data : (evRes.data.evidence || []));
@@ -453,7 +414,6 @@ export default function CaseDetailPage({ user }) {
           if (!cancelled) setEvidence([]);
         }
 
-        // Build evidence name → { resultId, recordCount } map for Super Timeline deep-link
         if (!cancelled) await refreshEvResultMap();
 
         try {
@@ -470,24 +430,20 @@ export default function CaseDetailPage({ user }) {
           if (!cancelled) setCaseTL([]);
         }
 
-        // Audit log is loaded lazily when tab === 'audit'
-
-        // Load network connections
         try {
           const netRes = await (await import('../utils/api')).networkAPI.list(id);
           if (!cancelled && netRes.data) setNetworkConns(Array.isArray(netRes.data) ? netRes.data : []);
-        } catch { /* no network data yet */ }
+        } catch {}
 
         try {
           const statsRes = await (await import('../utils/api')).networkAPI.stats(id);
           if (!cancelled && statsRes.data) setNetworkStats(statsRes.data);
-        } catch { /* no stats */ }
+        } catch {}
 
-        // Load stored triage scores (non-blocking)
         try {
           const trRes = await casesAPI.getTriage(id);
           if (!cancelled && trRes.data) setTriageData(trRes.data);
-        } catch { /* no triage yet */ }
+        } catch {}
 
       } catch (err) {
         if (cancelled) return;
@@ -505,7 +461,6 @@ export default function CaseDetailPage({ user }) {
     return () => { cancelled = true; };
   }, [id, refreshEvResultMap]);
 
-  // Auto-select evidence from URL collectionId param
   useEffect(() => {
     if (!collectionId) {
       setSelEv(null);
@@ -516,8 +471,6 @@ export default function CaseDetailPage({ user }) {
     if (ev) setSelEv(ev);
   }, [collectionId, evidence]);
 
-
-  // Listen for real-time collection parse progress via socket.io
   useEffect(() => {
     if (!socket) return;
     function handleProgress(data) {
@@ -543,7 +496,6 @@ export default function CaseDetailPage({ user }) {
     return () => socket.off('collection:progress', handleProgress);
   }, [socket]);
 
-  // Alias for template compatibility
   const c = caseData;
 
   if (loading) {
@@ -596,7 +548,6 @@ export default function CaseDetailPage({ user }) {
     setShowTriageModal(true);
     try {
       const res = await casesAPI.runTriage(id);
-      // POST returns { machines, case_indicators, computed_at } — normalize to { scores, ... }
       const data = res.data;
       const normalized = {
         scores: data.scores ?? data.machines ?? [],
@@ -657,7 +608,6 @@ export default function CaseDetailPage({ user }) {
   const filteredIOC = caseIOCs.filter(i => !iocSearch || (i.value || '').toLowerCase().includes(iocSearch.toLowerCase()) || (i.description || '').toLowerCase().includes(iocSearch.toLowerCase()) || (i.tags || []).some(t => t.includes(iocSearch.toLowerCase())));
   const highlighted = evidence.filter(e => e.is_highlighted);
 
-  // Create IOC
   const createIOC = async () => {
     if (!iocForm.value) return;
     setIocSaving(true);
@@ -678,7 +628,6 @@ export default function CaseDetailPage({ user }) {
     setIocSaving(false);
   };
 
-  // Add network connection
   const addNetworkConn = async (conn) => {
     try {
       const { data } = await (await import('../utils/api')).networkAPI.create(id, conn);
@@ -692,18 +641,15 @@ export default function CaseDetailPage({ user }) {
     setParserRunning(key);
     try {
       if (key === 'hayabusa') {
-        // Run Hayabusa via collection API
         const res = await collectionAPI.runHayabusa(id);
         const total = res.data?.total || res.data?.detections?.length || 0;
         setParserResults(prev => [...prev, { parser: name, time: new Date().toISOString(), records: total, status: 'success', data: res.data }]);
       } else {
-        // Run Zimmerman parser via collection API
         const res = await collectionAPI.parse(id, { artifact_types: [key] });
         const total = res.data?.total_records || 0;
         setParserResults(prev => [...prev, { parser: name, time: new Date().toISOString(), records: total, status: 'success' }]);
       }
     } catch (err) {
-      // Fallback: simulated result
       setParserResults(prev => [...prev, { parser: name, time: new Date().toISOString(), records: Math.floor(Math.random() * 500) + 50, status: 'simulated' }]);
     }
     setParserRunning(null);
@@ -736,7 +682,6 @@ export default function CaseDetailPage({ user }) {
         return;
       } catch {}
     }
-    // Fallback: generate a simple PDF in browser
     const w = window.open('', '_blank');
     if (w) {
       w.document.write('<html><head><title>Rapport ' + c.case_number + '</title><style>body{font-family:sans-serif;padding:40px;color:#333}h1{color:#3a6aaa}table{width:100%;border-collapse:collapse;margin:20px 0}td,th{border:1px solid #ddd;padding:8px;text-align:left}th{background:#f5f5f5}</style></head><body>');
@@ -756,7 +701,6 @@ export default function CaseDetailPage({ user }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100%' }}>
 
-      {/* ════ Barre de navigation — masquée si CollectionLayout fournit déjà le contexte ════ */}
       <div style={{
         display: shellCtx.insideCollectionLayout ? 'none' : 'flex',
         alignItems: 'stretch', flexShrink: 0,
@@ -765,13 +709,11 @@ export default function CaseDetailPage({ user }) {
         borderBottom: `1px solid ${PC[c.priority] ? PC[c.priority] + '35' : 'var(--fl-border)'}`,
         position: 'sticky', top: 36, zIndex: 100,
       }}>
-        {/* ── Navigation contextuelle ── */}
         <div style={{ display: 'flex', alignItems: 'stretch', flex: 1, overflow: 'auto', scrollbarWidth: 'none' }}>
 
           <TopNavBtn onClick={() => navigate(`/cases/${id}/evidence`)} padding="0 12px"
             isActive={tab === 'evidence' && !selEv} icon={FolderOpen} label={t('casedetail.tab_evidence')} />
 
-          {/* Breadcrumb collecte + onglets — masqué si CollectionLayout fournit déjà la barre */}
           {selEv && !shellCtx.insideCollectionLayout && (() => {
             const evResult = evResultMap[selEv.name];
             const resultId = evResult?.resultId;
@@ -780,7 +722,6 @@ export default function CaseDetailPage({ user }) {
               <>
                 <span style={{ color: 'var(--fl-border)', fontSize: 13, alignSelf: 'center', margin: '0 1px', flexShrink: 0 }}>›</span>
 
-                {/* Nom de la collecte */}
                 <div style={{
                   display: 'flex', alignItems: 'center', gap: 5, padding: '0 8px',
                   fontFamily: 'monospace', fontSize: 10, color: 'var(--fl-dim)',
@@ -795,7 +736,6 @@ export default function CaseDetailPage({ user }) {
 
                 <span style={{ color: 'var(--fl-border)', fontSize: 13, alignSelf: 'center', margin: '0 1px', flexShrink: 0 }}>›</span>
 
-                {/* Onglets d'analyse — contextuels à la collecte */}
                 {TABS.filter(tb => tb.id !== 'evidence').map(tb => {
                   const Icon = tb.icon;
                   const isActive = tab === tb.id;
@@ -829,7 +769,6 @@ export default function CaseDetailPage({ user }) {
             );
           })()}
 
-          {/* Quand tab !== evidence mais aucune collecte sélectionnée → breadcrumb simple */}
           {!selEv && tab !== 'evidence' && (() => {
             const cur = TABS.find(tb => tb.id === tab);
             const Icon = cur?.icon;
@@ -850,7 +789,6 @@ export default function CaseDetailPage({ user }) {
           })()}
         </div>
 
-        {/* ── Droite : méta + présence + badges ── */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginLeft: 10, flexShrink: 0 }}>
           {c.investigator_name && (
             <span style={{ fontSize: 11, fontFamily: 'monospace', color: 'var(--fl-muted)' }}>
@@ -861,7 +799,6 @@ export default function CaseDetailPage({ user }) {
           <span style={{ fontSize: 11, fontFamily: 'monospace', color: 'var(--fl-muted)' }}>
             {new Date(c.created_at).toLocaleDateString(i18n.language)}
           </span>
-          {/* Deadline éditable */}
           {editDeadline ? (
             <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
               <input
@@ -892,7 +829,6 @@ export default function CaseDetailPage({ user }) {
             </button>
           )}
 
-          {/* Avatars des analystes présents */}
           {presenceUsers.length > 0 && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 2, marginLeft: 4 }}
               title={presenceUsers.map(u => u.full_name).join(', ')}>
@@ -923,15 +859,12 @@ export default function CaseDetailPage({ user }) {
                 title={t('casedetail.online')} />
             </div>
           )}
-          {/* Badge statut cliquable */}
           <div className="relative" style={{ position: 'relative' }}>
             <button
               onClick={() => {
                 const next = c.status === 'active' ? ['pending', 'closed']
                   : c.status === 'pending' ? ['active', 'closed']
                   : ['active', 'pending'];
-                // show a quick dropdown inline — we use statusModal to store target
-                // For simplicity, cycle: show modal with all 3 options except current
                 setStatusModal('_pick');
               }}
               title={t('casedetail.change_status')}
@@ -953,7 +886,6 @@ export default function CaseDetailPage({ user }) {
             {c.priority === 'critical' && <AlertTriangle size={9} />}
             {(c.priority || '').toUpperCase()}
           </ColorBadge>
-          {/* Bouton VolWeb — upload si pas encore lié, SSO si cas lié */}
           <Button
             variant="ghost"
             size="xs"
@@ -972,7 +904,6 @@ export default function CaseDetailPage({ user }) {
           >
             {t('casedetail.analyze_ram')}
           </Button>
-          {/* Triage button */}
           <Button
             variant="ghost"
             size="xs"
@@ -985,7 +916,6 @@ export default function CaseDetailPage({ user }) {
             TRIAGE
           </Button>
 
-          {/* AI Copilot */}
           <Button
             variant="ghost"
             size="xs"
@@ -997,7 +927,6 @@ export default function CaseDetailPage({ user }) {
             IA
           </Button>
 
-          {/* Legal Hold — admin only */}
           {user?.role === 'admin' && c.legal_hold ? (
             <>
               <span title={t('casedetail.legal_hold_active_title')} style={{
@@ -1048,9 +977,7 @@ export default function CaseDetailPage({ user }) {
                 a.click();
                 document.body.removeChild(a);
                 URL.revokeObjectURL(url);
-              } catch {
-                /* silently ignore */
-              }
+              } catch {}
             }}
           >
             {t('casedetail.export_rgpd')}
@@ -1071,14 +998,10 @@ export default function CaseDetailPage({ user }) {
         </div>
       </div>
 
-      {/* ════ Contenu ════ */}
       <div style={{ flex: 1, overflow: 'auto', padding: '12px 16px' }}>
 
-
-      {/* ════ EVIDENCE TAB ════ */}
       {tab === 'evidence' && (
         <div style={{ maxWidth: 900, margin: '0 auto' }}>
-          {/* Header */}
           <div className="flex justify-between items-center mb-4">
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <FolderOpen size={14} style={{ color: '#4d82c0' }} />
@@ -1117,7 +1040,6 @@ export default function CaseDetailPage({ user }) {
             </div>
           </div>
 
-          {/* Upload Dump Mémoire — chunked upload pour dumps RAM massifs */}
           {showMemUpload && (
             <div style={{ marginBottom: 16 }}>
               <MemoryUploadPanel
@@ -1133,7 +1055,6 @@ export default function CaseDetailPage({ user }) {
             </div>
           )}
 
-          {/* Import Collecte panel — intégré directement */}
           {showImportPanel && (
             <div style={{ marginBottom: 16 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
@@ -1153,7 +1074,6 @@ export default function CaseDetailPage({ user }) {
             </div>
           )}
 
-          {/* Empty state */}
           {evidence.length === 0 && !showImportPanel && (
             <div className="text-center py-12 rounded-xl" style={{ background: '#1c2333', border: '1px solid #30363d' }}>
               <FolderOpen size={36} style={{ color: '#30363d', margin: '0 auto 10px' }} />
@@ -1166,14 +1086,11 @@ export default function CaseDetailPage({ user }) {
             </div>
           )}
 
-          {/* Evidence cards — full-width workspace layout */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             {evidence.map((ev, _evIdx) => {
               const evResult = evResultMap[ev.name];
               const resultId = evResult?.resultId;
               const recordCount = evResult?.recordCount ?? 0;
-              // isParsed = true dès qu'un résultat existe (collecte Magnet → données dans
-              // collection_timeline, pas dans parser_results.record_count)
               const isParsed = Boolean(resultId);
               const isExpanded = selEv?.id === ev.id;
 
@@ -1185,14 +1102,12 @@ export default function CaseDetailPage({ user }) {
                   background: '#1c2333',
                   transition: 'border-color 0.15s',
                 }}>
-                  {/* ── Header ── */}
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', cursor: 'pointer' }}
                     onClick={() => { if (isExpanded) navigate(`/cases/${id}`); else navigate(`/cases/${id}/collections/${ev.id}`); }}>
                     <FolderOpen size={13} style={{ color: isParsed ? '#22c55e' : '#484f58', flexShrink: 0 }} />
                     <span style={{ fontWeight: 600, fontSize: 13, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#e6edf3' }}>
                       {ev.name}
                     </span>
-                    {/* Parsed badge */}
                     {isParsed ? (
                       <span style={{ fontSize: 10, fontFamily: 'monospace', padding: '2px 7px', borderRadius: 4, background: '#22c55e18', color: '#22c55e', border: '1px solid #22c55e30', flexShrink: 0 }}>
                         ✓ {recordCount > 0 ? `${recordCount.toLocaleString()} ${t('casedetail.records_short')}` : t('casedetail.analyzed')}
@@ -1210,10 +1125,8 @@ export default function CaseDetailPage({ user }) {
                     )}
                     {ev.scan_status === 'clean' && <Shield size={12} style={{ color: '#3fb950', flexShrink: 0 }} title="Clean" />}
                     {ev.is_highlighted && <Star size={12} style={{ color: '#c89d1d', flexShrink: 0 }} fill="#c89d1d" />}
-                    {/* Meta */}
                     <span style={{ fontSize: 11, color: '#484f58', fontFamily: 'monospace', flexShrink: 0 }}>{fmtSize(ev.file_size)}</span>
                     <span style={{ fontSize: 11, color: '#3d5070', flexShrink: 0 }}>{new Date(ev.created_at).toLocaleDateString(i18n.language)}</span>
-                    {/* Actions */}
                     {isParsed && (
                       <button
                         onClick={e => { e.stopPropagation(); navigate(`/cases/${id}/collections/${ev.id}/timeline`, { state: { evidenceName: ev.name, caseTitle: caseData?.title, caseNumber: caseData?.case_number } }); }}
@@ -1222,7 +1135,6 @@ export default function CaseDetailPage({ user }) {
                         <Clock size={11} /> Timeline →
                       </button>
                     )}
-                    {/* PCAP import — button + hidden file input per evidence card */}
                     {(() => {
                       const ps = pcapState[ev.id] || {};
                       return (
@@ -1370,7 +1282,6 @@ export default function CaseDetailPage({ user }) {
                     </button>
                   </div>
 
-                  {/* ── Détails expandables ── */}
                   {isExpanded && (
                     <div style={{ padding: '0 14px 10px', borderTop: '1px solid #1a2035' }}>
                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, paddingTop: 10 }}>
@@ -1383,7 +1294,6 @@ export default function CaseDetailPage({ user }) {
                         ) : null)}
                       </div>
                       {ev.notes && <p style={{ fontSize: 11, fontStyle: 'italic', color: '#7d8590', marginTop: 8, padding: '5px 8px', background: '#0d1117', borderRadius: 5 }}>{ev.notes}</p>}
-                      {/* ── Aperçu Hex / Strings — uniquement fichiers suspects ou en quarantaine ── */}
                       <div style={{ marginTop: 10 }}>
                         {(ev.scan_status === 'alert' || ev.scan_status === 'quarantined' || ev.is_suspicious === true) ? (
                           <HexStringsPreview evId={ev.id} />
@@ -1394,7 +1304,6 @@ export default function CaseDetailPage({ user }) {
                           </div>
                         )}
                       </div>
-                      {/* Commentaires inline */}
                     </div>
                   )}
 
@@ -1403,7 +1312,6 @@ export default function CaseDetailPage({ user }) {
             })}
           </div>
 
-          {/* ── Rapport de synthèse ─────────────────────────────────────────── */}
           {evidence.length > 0 && (() => {
             const totalRecords = Object.values(evResultMap).reduce((s, r) => s + (r.recordCount || 0), 0);
             const parsedCount  = Object.values(evResultMap).filter(r => r.recordCount > 0).length;
@@ -1422,7 +1330,6 @@ export default function CaseDetailPage({ user }) {
                   </span>
                 </div>
 
-                {/* Résumé des collectes */}
                 <div style={{ background: '#0d1117', border: '1px solid #1e2a3a', borderRadius: 8, padding: '12px 14px', marginBottom: 12 }}>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: parsedEvNames.length > 0 ? 12 : 0 }}>
                     {[
@@ -1461,7 +1368,6 @@ export default function CaseDetailPage({ user }) {
                   </div>
                 )}
 
-                {/* Template selector */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
                   <div style={{
                     flex: 1, display: 'flex', alignItems: 'center', gap: 6,
@@ -1532,10 +1438,8 @@ export default function CaseDetailPage({ user }) {
         </div>
       )}
 
-      {/* ════ SUPER TIMELINE TAB ════ */}
       {tab === 'timeline' && (
         <div>
-          {/* ── Bande de statut compacte ── */}
           <div style={{
             display: 'flex', alignItems: 'center', gap: 10,
             padding: '7px 14px', marginBottom: 6, borderRadius: 8,
@@ -1578,7 +1482,6 @@ export default function CaseDetailPage({ user }) {
             )}
           </div>
 
-          {/* ── Barre de progression parsing temps réel ── */}
           {stReparsing && stParseProgress && (
             <div style={{
               padding: '8px 14px', marginBottom: 6, borderRadius: 8,
@@ -1626,7 +1529,6 @@ export default function CaseDetailPage({ user }) {
             </div>
           )}
 
-          {/* ── Navigation sous-onglets ── */}
           <div style={{
             display: 'flex', gap: 0, marginBottom: 10,
             borderBottom: '1px solid #1a2035', alignItems: 'stretch',
@@ -1672,10 +1574,8 @@ export default function CaseDetailPage({ user }) {
             })}
           </div>
 
-          {/* ── Super Timeline : sélecteur de collectes isolées (affiché par défaut) ── */}
           {!subTab && (
             <div>
-              {/* En-tête avec compteur */}
               {(() => {
                 const parsedEvs = evidence.filter(ev => Boolean(evResultMap[ev.name]?.resultId));
                 const unparsedEvs = evidence.filter(ev => !evResultMap[ev.name]?.resultId);
@@ -1693,7 +1593,6 @@ export default function CaseDetailPage({ user }) {
                       )}
                     </div>
 
-                    {/* Collectes parsées — prêtes pour la timeline isolée */}
                     {parsedEvs.length === 0 ? (
                       <div style={{ padding: '20px 18px', borderRadius: 10, background: '#0d1117', border: '1px dashed #30363d', textAlign: 'center' }}>
                         <Clock size={28} style={{ color: '#30363d', margin: '0 auto 10px' }} />
@@ -1749,7 +1648,6 @@ export default function CaseDetailPage({ user }) {
                       </div>
                     )}
 
-                    {/* Collectes non-parsées — bouton de lancement ciblé */}
                     {unparsedEvs.length > 0 && (
                       <details style={{ marginBottom: 14 }}>
                         <summary style={{
@@ -1776,7 +1674,7 @@ export default function CaseDetailPage({ user }) {
                                     await collectionAPI.parse(id, { artifact_types: 'all', socketId, evidence_id: ev.id });
                                     await refreshEvResultMap();
                                     setStReloadKey(k => k + 1);
-                                  } catch { /* ignore */ }
+                                  } catch {}
                                   setStReparsing(false);
                                   setStParseProgress(null);
                                 }}
@@ -1803,7 +1701,6 @@ export default function CaseDetailPage({ user }) {
             </div>
           )}
 
-          {/* ── Hayabusa ── */}
           {subTab === 'hayabusa' && (
             <CaseHayabusaView
               caseId={id}
@@ -1812,7 +1709,6 @@ export default function CaseDetailPage({ user }) {
             />
           )}
 
-          {/* ── CatScale Linux IR ── */}
           {subTab === 'catscale' && (
             <CatScaleTimelineTab
               caseId={id}
@@ -1820,11 +1716,9 @@ export default function CaseDetailPage({ user }) {
             />
           )}
 
-
         </div>
       )}
 
-      {/* ════ IOCS TAB ════ */}
       {tab === 'iocs' && (
         <div>
           <div className="flex gap-3 mb-4">
@@ -1840,7 +1734,7 @@ export default function CaseDetailPage({ user }) {
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a'); a.href = url; a.download = `stix-${id}-${Date.now()}.json`; a.click();
                 URL.revokeObjectURL(url);
-              } catch { /* ignore */ }
+              } catch {}
             }} className="fl-btn fl-btn-ghost fl-btn-sm" style={{ color: '#8b72d6' }} title="Exporter les IOCs en bundle STIX 2.1">
               <Download size={14} /> Exporter STIX
             </button>
@@ -1851,7 +1745,6 @@ export default function CaseDetailPage({ user }) {
             <button onClick={() => setShowIOCForm(!showIOCForm)} className="fl-btn fl-btn-primary fl-btn-sm"><Plus size={14} /> {t('casedetail.add_ioc')}</button>
           </div>
 
-          {/* ── Modal Import STIX ─────────────────────────────────────────── */}
           {showStixImport && (
             <div style={{
               position: 'fixed', inset: 0, zIndex: 600,
@@ -1862,7 +1755,6 @@ export default function CaseDetailPage({ user }) {
                 width: 540, maxHeight: '80vh', display: 'flex', flexDirection: 'column',
                 boxShadow: '0 24px 64px rgba(0,0,0,0.7)',
               }}>
-                {/* Header */}
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                   padding: '14px 18px', borderBottom: '1px solid #30363d',
                   background: 'linear-gradient(90deg, rgba(34,197,94,0.08) 0%, transparent 100%)' }}>
@@ -1880,9 +1772,7 @@ export default function CaseDetailPage({ user }) {
                   </button>
                 </div>
 
-                {/* Body */}
                 <div style={{ flex: 1, overflowY: 'auto', padding: '16px 18px' }}>
-                  {/* Drop zone */}
                   {!stixResult && (
                     <>
                       <label style={{
@@ -1930,7 +1820,6 @@ export default function CaseDetailPage({ user }) {
                         </span>
                       </label>
 
-                      {/* File list */}
                       {stixFiles.length > 0 && (
                         <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 6 }}>
                           {stixFiles.map((f, i) => (
@@ -1964,7 +1853,6 @@ export default function CaseDetailPage({ user }) {
                     </>
                   )}
 
-                  {/* Result */}
                   {stixResult && (
                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center',
                       gap: 12, padding: '20px 0' }}>
@@ -1988,7 +1876,6 @@ export default function CaseDetailPage({ user }) {
                   )}
                 </div>
 
-                {/* Footer */}
                 <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8,
                   padding: '12px 18px', borderTop: '1px solid #21262d' }}>
                   {stixResult ? (
@@ -2005,7 +1892,6 @@ export default function CaseDetailPage({ user }) {
                           try {
                             const resp = await iocsAPI.importStix(id, stixFiles.map(f => f.bundle));
                             setStixResult(resp.data);
-                            // Reload IOC list
                             const r = await iocsAPI.list(id);
                             setIOCs(r.data);
                           } catch {
@@ -2111,7 +1997,6 @@ export default function CaseDetailPage({ user }) {
         </div>
       )}
 
-      {/* ════ DETECTIONS TAB ════ */}
       {tab === 'detections' && (
         <div>
           {triageData && (
@@ -2127,7 +2012,6 @@ export default function CaseDetailPage({ user }) {
         </div>
       )}
 
-      {/* ════ NETWORK TAB ════ */}
       {tab === 'network' && (
         <div>
           {networkStats && parseInt(networkStats.total_connections) > 0 && (
@@ -2158,13 +2042,10 @@ export default function CaseDetailPage({ user }) {
         </div>
       )}
 
-      {/* ════ MITRE ATT&CK TAB ════ */}
       {tab === 'mitre' && <MitreAttackTab caseId={id} />}
 
-      {/* ════ PLAYBOOKS TAB ════ */}
       {tab === 'playbooks' && <PlaybooksTab caseId={id} />}
 
-      {/* ════ HAYABUSA TAB ════ */}
       {tab === 'hayabusa' && (
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, height: '100%' }}>
           <CaseHayabusaView
@@ -2175,14 +2056,12 @@ export default function CaseDetailPage({ user }) {
         </div>
       )}
 
-      {/* ════ CYBERCHEF TAB ════ */}
       {tab === 'cyberchef' && (
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, height: '100%' }}>
           <CyberChefPage />
         </div>
       )}
 
-      {/* ════ AUDIT TAB ════ */}
       {tab === 'audit' && (() => {
         const AUDIT_COLORS = {
           login: '#22c55e', login_failed: '#da3633', login_blocked: '#c89d1d',
@@ -2224,8 +2103,7 @@ export default function CaseDetailPage({ user }) {
         };
         return (
           <div>
-            {/* Header */}
-            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center justify-between mb-4">
               <h3 className="text-xs font-mono uppercase tracking-wider flex items-center gap-2" style={{ color: '#7d8590' }}>
                 <ScrollText size={14} /> Journal d'Audit — {c.case_number}
               </h3>
@@ -2234,7 +2112,6 @@ export default function CaseDetailPage({ user }) {
               </span>
             </div>
 
-            {/* Filter bar */}
             <div style={{
               display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'flex-end',
               padding: '10px 14px', borderRadius: 8, marginBottom: 12,
@@ -2384,7 +2261,6 @@ export default function CaseDetailPage({ user }) {
                   </table>
                 </div>
 
-                {/* Pagination */}
                 <Pagination
                   page={auditPage + 1}
                   totalPages={totalPages}
@@ -2397,9 +2273,8 @@ export default function CaseDetailPage({ user }) {
         );
       })()}
 
-      </div>{/* ── fin contenu ── */}
+      </div>
 
-      {/* ════ MODAL — Supprimer une preuve ════ */}
       <Modal
         open={Boolean(evToDelete)}
         title={t('casedetail.delete_evidence_title')}
@@ -2446,7 +2321,6 @@ export default function CaseDetailPage({ user }) {
         </Modal.Footer>
       </Modal>
 
-      {/* ════ MODAL — Destruction définitive RGPD ════ */}
       <Modal
         open={showHardDelete}
         title={hardDeleteResult ? t('cases.report_title') : t('casedetail.hard_delete_title')}
@@ -2459,7 +2333,6 @@ export default function CaseDetailPage({ user }) {
             {hardDeleteResult ? 'VÉRIFICATION BASE DE DONNÉES' : 'ACTION IRRÉVERSIBLE · ADMIN UNIQUEMENT'}
           </div>
 
-          {/* Phase 1 : saisie de confirmation */}
           {!hardDeleting && !hardDeleteResult && (
             <>
               <div style={{ marginBottom: 16, padding: '10px 14px', borderRadius: 8, background: 'rgba(218,54,51,0.06)', border: '1px solid rgba(218,54,51,0.18)', fontSize: 12, color: 'var(--fl-muted)', lineHeight: 1.7 }}>
@@ -2482,7 +2355,6 @@ export default function CaseDetailPage({ user }) {
             </>
           )}
 
-          {/* Phase 2 : spinner */}
           {hardDeleting && (
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '32px 0', gap: 14 }}>
               <Spinner size={32} color="var(--fl-danger)" />
@@ -2491,7 +2363,6 @@ export default function CaseDetailPage({ user }) {
             </div>
           )}
 
-          {/* Phase 3 : rapport de vérification */}
           {hardDeleteResult && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               <div style={{
@@ -2590,7 +2461,6 @@ export default function CaseDetailPage({ user }) {
         </Modal.Footer>
       </Modal>
 
-      {/* ════ MODAL — Supprimer données de collecte ════ */}
       <Modal
         open={showDeleteCollect}
         title={t('casedetail.delete_collect_title')}
@@ -2633,7 +2503,6 @@ export default function CaseDetailPage({ user }) {
         </Modal.Footer>
       </Modal>
 
-      {/* ════ MODAL — Changement de statut ════ */}
       <Modal
         open={Boolean(statusModal) && Boolean(c)}
         title={t('casedetail.status_modal_title')}
@@ -2712,7 +2581,6 @@ export default function CaseDetailPage({ user }) {
         </Modal.Footer>
       </Modal>
 
-      {/* ════ MODAL — Triage Automatique ════ */}
       <Modal
         open={showTriageModal}
         title={t('casedetail.triage_modal_title')}
@@ -2734,7 +2602,6 @@ export default function CaseDetailPage({ user }) {
           )}
           {!triageRunning && triageData && (
             <div>
-              {/* Case indicators */}
               {triageData.case_indicators && (
                 <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
                   {[
@@ -2751,7 +2618,6 @@ export default function CaseDetailPage({ user }) {
                 </div>
               )}
 
-              {/* Machine scores */}
               {triageData.scores?.length === 0 && (
                 <div style={{ padding: '24px', textAlign: 'center', color: '#484f58',
                   fontFamily: 'monospace', fontSize: 11, borderRadius: 8,
@@ -2777,11 +2643,9 @@ export default function CaseDetailPage({ user }) {
                             {m.risk_level}
                           </span>
                         </div>
-                        {/* Score bar */}
                         <div style={{ height: 4, borderRadius: 2, background: '#1c2a3a', overflow: 'hidden', marginBottom: 6 }}>
                           <div style={{ height: '100%', width: `${Math.min(m.score, 100)}%`, background: color, borderRadius: 2 }} />
                         </div>
-                        {/* Breakdown factors */}
                         {Object.keys(breakdown).length > 0 && (
                           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
                             {Object.entries(breakdown).map(([rule, pts]) => (
@@ -2819,7 +2683,6 @@ export default function CaseDetailPage({ user }) {
         </Modal.Footer>
       </Modal>
 
-      {/* ════ MODAL — Legal Hold Enable ════ */}
       <Modal
         open={legalHoldModal === 'enable'}
         title="Activer le Legal Hold"
@@ -2856,7 +2719,6 @@ export default function CaseDetailPage({ user }) {
         </Modal.Footer>
       </Modal>
 
-      {/* ════ MODAL — Legal Hold Disable ════ */}
       <Modal
         open={legalHoldModal === 'disable'}
         title="Lever le Legal Hold"
@@ -2888,7 +2750,6 @@ export default function CaseDetailPage({ user }) {
         </Modal.Footer>
       </Modal>
 
-      {/* ════ REPORT TEMPLATE MODAL ════ */}
       {showTemplateModal && (
         <ReportTemplateModal
           onClose={() => setShowTemplateModal(false)}
@@ -2896,10 +2757,8 @@ export default function CaseDetailPage({ user }) {
         />
       )}
 
-      {/* ════ CHAT PANEL (floating, always rendered while on this page) ════ */}
       <CaseChatPanel caseId={id} socket={socket} currentUser={user} presenceUsers={presenceUsers} />
 
-      {/* ════ AI COPILOT (cloisonné par case via key) ════ */}
       <AiCopilotModal
         key={`ai-${id}`}
         caseId={id}
