@@ -4,7 +4,7 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
 <title>Heimdall — Open Source DFIR</title>
-<link id="dynamic-favicon" rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'></text></svg>"/>
+<link id="dynamic-favicon" rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🛡️</text></svg>"/>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&family=Noto+Sans+Runic&display=swap" rel="stylesheet"/>
 <style>
 /* ── THEME VARIABLES ── */
@@ -116,8 +116,8 @@ nav{ position:sticky; top:28px; z-index:1000; background: var(--glass); backdrop
 
 /* TERMINAL */
 .terminal{ max-width:680px; margin:0 auto 1.5rem; border-radius:var(--radius-lg); overflow:hidden; box-shadow:var(--shadow-lg); border:1px solid #1e1e2e; text-align:left; position:relative; z-index:2; background:#181825; }
-.terminal-bar{ background:#1e1e2e; padding:0.65rem 1rem; display:flex; align-items:center; gap:0.5rem; border-bottom:1px solid #313244; }
-.t-dot{ width:12px; height:12px; border-radius:50%; display:inline-block; }
+.terminal-bar{ background:#1e1e2e; padding:0.65rem 1rem; display:flex; align-items:center; gap:0.5rem; }
+.t-dot{ width:12px; height:12px; border-radius:50%; }
 .t-red{background:#ff5f57;} .t-yellow{background:#ffbd2e;} .t-green{background:#28c840;}
 .t-title{ margin-left:auto;margin-right:auto; font-family:'JetBrains Mono',monospace; font-size:0.72rem;color:#6c7086; }
 .terminal-body{ padding:1.25rem 1.5rem; font-family:'JetBrains Mono',monospace; font-size:0.8rem; line-height:2; color:#cdd6f4; }
@@ -338,7 +338,7 @@ body.alt-pressed .redacted:hover { background: var(--red-bg); color: var(--red);
 }
 
 .ee-inner { 
-  max-width:680px; width:100%; text-align:center; margin: 5vh auto; 
+  max-width:700px; width:100%; text-align:center; margin: 5vh auto; 
   animation:easterIn 0.5s cubic-bezier(0.16,1,0.3,1); position: relative; z-index: 2; padding: 2rem;
 }
 @keyframes easterIn{ from{opacity:0;transform:scale(0.9) translateY(20px);} to{opacity:1;transform:scale(1) translateY(0);} }
@@ -347,7 +347,7 @@ body.alt-pressed .redacted:hover { background: var(--red-bg); color: var(--red);
 .ee-runes { font-family:'Noto Sans Runic', 'Segoe UI Historic', 'Apple Symbols', sans-serif; font-size:1.8rem; letter-spacing:0.4em; color:#88c0d0; margin:1rem 0 2rem; }
 .ee-divider { height:1px; background:linear-gradient(90deg,transparent,#88c0d0,transparent); margin:1.5rem 0; opacity:0.3; }
 
-/* SVG Brand 3D */
+/* SVG Brand */
 .brand-wrap{margin:1.5rem auto;width:130px;height:170px; transition: transform 0.1s ease-out; position: relative; z-index: 3;}
 .brand-svg{width:130px;height:170px;animation:brandPulse 2.5s ease-in-out infinite alternate; display: block; margin: 0 auto;}
 @keyframes brandPulse{
@@ -355,30 +355,54 @@ body.alt-pressed .redacted:hover { background: var(--red-bg); color: var(--red);
   to{filter:drop-shadow(0 0 20px rgba(255,59,92,1)) drop-shadow(0 0 50px rgba(255,59,92,0.6)) drop-shadow(0 0 80px rgba(255,59,92,0.2));}
 }
 
+/* Typing Quote */
+.easter-quote-wrap { 
+  margin: 2rem auto; font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; color: #88c0d0; 
+  text-align: left; max-width: 580px; border-left: 2px solid #bf616a; padding-left: 1rem;
+}
+.ee-cursor { display: inline-block; width: 6px; height: 1em; background: #bf616a; animation: blink 1s step-end infinite; vertical-align: text-bottom; margin-left: 4px; }
+@keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
+
 /* Easter Egg Terminal */
-.easter-terminal { background:#0d1117; border:1px solid #1c2330; border-radius:10px; overflow:hidden; margin-bottom:1.5rem; text-align:left; position:relative; z-index:3; max-width: 100%; }
-.easter-term-bar { background:#161b22; padding:0.5rem 1rem; display:flex; align-items:center; gap:0.4rem; border-bottom:1px solid #1c2330; }
+.easter-terminal {
+  background:#0d1117; border:1px solid #1c2330; border-radius:10px;
+  overflow:hidden; margin-bottom:1.5rem; text-align:left; position:relative; z-index:3;
+  max-width: 100%;
+}
+.easter-term-bar {
+  background:#161b22; padding:0.5rem 1rem; display:flex; align-items:center; gap:0.4rem; border-bottom:1px solid #1c2330;
+}
 .easter-term-title { font-size:0.65rem;color:#4c566a;margin-left:auto;letter-spacing:0.1em; }
 .easter-term-body { padding:1rem 1.25rem; font-size:0.75rem;line-height:2; font-family:'JetBrains Mono',monospace;}
 .et-prompt{color:#a3be8c;} .et-cmd{color:#eceff4;} .et-out{color:#4c566a;} .et-val{color:#88c0d0;} .et-warn{color:#ebcb8b;} .et-ok{color:#a3be8c;}
 
 /* Shortcuts */
-.easter-shortcuts { display:grid;grid-template-columns:repeat(2, 1fr); gap:0.5rem;margin-bottom:1.5rem;text-align:left; position:relative; z-index:3; width: 100%; }
-.esc-row { background:#0d1117;border:1px solid #1c2330; border-radius:6px;padding:0.6rem 0.85rem; display:flex;align-items:center;gap:0.75rem; }
-.esc-key { font-family:'Inter', system-ui, sans-serif; font-size:0.68rem;font-weight:700; color:#88c0d0;background:#1c2330; border:1px solid #2d3748; padding:0.15rem 0.45rem;border-radius:4px; white-space:nowrap; }
+.easter-shortcuts {
+  display:grid;grid-template-columns:repeat(2, 1fr); gap:0.5rem;margin-bottom:1.5rem;text-align:left; position:relative; z-index:3;
+  width: 100%;
+}
+.esc-row {
+  background:#0d1117;border:1px solid #1c2330; border-radius:6px;padding:0.6rem 0.85rem; display:flex;align-items:center;gap:0.75rem;
+}
+.esc-key {
+  font-family:'Inter', system-ui, sans-serif;
+  font-size:0.68rem;font-weight:700; color:#88c0d0;background:#1c2330; border:1px solid #2d3748;
+  padding:0.15rem 0.45rem;border-radius:4px; white-space:nowrap;
+}
 .esc-desc { font-size:0.72rem;color:#4c566a; }
-
-/* Typing Quote */
-.easter-quote-wrap { margin: 2rem auto; font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; color: #88c0d0; text-align: left; max-width: 100%; border-left: 2px solid #bf616a; padding-left: 1rem; }
-.ee-cursor { display: inline-block; width: 6px; height: 1em; background: #bf616a; animation: blink 1s step-end infinite; vertical-align: text-bottom; margin-left: 4px; }
 
 .easter-close { background:none;border:1px solid #1c2330; color:#4c566a;font-family:'JetBrains Mono',monospace; font-size:0.72rem;padding:0.5rem 1.5rem;border-radius:6px; cursor:pointer;transition:all 0.2s;letter-spacing:0.1em; text-transform:uppercase; position:relative; z-index:3;}
 .easter-close:hover { border-color:#88c0d0;color:#88c0d0; }
 
-/* Konami Override Scroll Fix */
+/* Konami Overlay */
 #konami-overlay{ display:none;position:fixed;inset:0; background:rgba(0,0,0,0); z-index:99997; overflow-y:auto; transition:background 0.5s; }
 #konami-overlay.open{ display:block; background:rgba(0,0,0,0.95); }
-#konami-box{ max-width:580px;width:90%; background:#0a0a0f; border:1px solid #dc2626; border-radius:var(--radius-lg); padding:2.5rem 2rem;text-align:center; position:relative;overflow:hidden; margin: 10vh auto; opacity:0;transform:scale(0.88); transition:opacity 0.4s,transform 0.4s; box-shadow:0 0 60px rgba(220,38,38,0.25),0 0 120px rgba(220,38,38,0.1); }
+#konami-box{
+  max-width:580px;width:90%; background:#0a0a0f; border:1px solid #dc2626; border-radius:var(--radius-lg);
+  padding:2.5rem 2rem;text-align:center; position:relative;overflow:hidden; margin: 10vh auto;
+  opacity:0;transform:scale(0.88); transition:opacity 0.4s,transform 0.4s;
+  box-shadow:0 0 60px rgba(220,38,38,0.25),0 0 120px rgba(220,38,38,0.1);
+}
 #konami-overlay.open #konami-box{opacity:1;transform:scale(1);}
 
 /* ── FOOTER ── */
@@ -427,7 +451,7 @@ footer{ border-top:1px solid var(--border); background:var(--bg1); padding:4rem 
 </div>
 
 <nav>
-  <a href="#" class="nav-logo">HEIMDALL<span class="nav-logo-badge">DFIR</span></a>
+  <a href="#" class="nav-logo">🛡️ HEIMDALL <span class="nav-logo-badge">DFIR</span></a>
   <div class="nav-links">
     <a href="#how" class="nav-link" data-section="how">How it works</a>
     <a href="#features" class="nav-link" data-section="features">Features</a>
@@ -635,7 +659,7 @@ footer{ border-top:1px solid var(--border); background:var(--bg1); padding:4rem 
     
     <div class="tab-panel active" id="tab-disk">
       <div class="parser-block">
-        <div class="parser-block-header"><span>artifacts analysis — 16 parsers</span><span class="av-badge">AVAILABLE</span></div>
+        <div class="parser-block-header"><span>disk analysis — 16 parsers</span><span class="av-badge">AVAILABLE</span></div>
         <table class="data-table">
           <thead><tr><th>Parser</th><th>Artifact</th><th>Category</th></tr></thead>
           <tbody>
@@ -1090,7 +1114,7 @@ footer{ border-top:1px solid var(--border); background:var(--bg1); padding:4rem 
     <p class="section-sub fade-in">— planned releases and milestones</p>
     
     <div class="roadmap-line">
-      <div class="rm-item fade-in"><div class="rm-dot current"></div><div class="rm-version">v0.9 <span class="rm-badge beta">CURRENT BETA</span></div><div class="rm-desc">Core platform — artifacts analysis, YARA, Sigma, TAXII, SOAR playbooks, Ollama AI, Legal Hold, collaboration</div></div>
+      <div class="rm-item fade-in"><div class="rm-dot current"></div><div class="rm-version">v0.9 <span class="rm-badge beta">CURRENT BETA</span></div><div class="rm-desc">Core platform — disk analysis, YARA, Sigma, TAXII, SOAR playbooks, Ollama AI, Legal Hold, collaboration</div></div>
       <div class="rm-item fade-in"><div class="rm-dot"></div><div class="rm-version future">v1.0 <span class="rm-badge" style="background:var(--bg2);color:var(--text2);border-color:var(--border2);">PLANNED</span></div><div class="rm-desc">Full RAM forensics integration — VolWeb + Volatility 3 plugin execution and result display</div></div>
       <div class="rm-item fade-in"><div class="rm-dot"></div><div class="rm-version future">v1.1 <span class="rm-badge" style="background:var(--bg2);color:var(--text2);border-color:var(--border2);">PLANNED</span></div><div class="rm-desc">Disk image mounting — .E01, .dd, .vmdk support · WebCache · $UsnJrnl · WMI artifacts</div></div>
       <div class="rm-item fade-in"><div class="rm-dot"></div><div class="rm-version future">v1.2 <span class="rm-badge" style="background:var(--bg2);color:var(--text2);border-color:var(--border2);">PLANNED</span></div><div class="rm-desc">Extended artifact support — Thumbcache · ESE databases · $I30 · Windows Search index</div></div>
@@ -1140,7 +1164,7 @@ footer{ border-top:1px solid var(--border); background:var(--bg1); padding:4rem 
       <div class="code-bar">
         <div class="code-bar-dots"><span class="t-dot t-red"></span><span class="t-dot t-yellow"></span><span class="t-dot t-green"></span></div>
         <span>Linux / macOS — bash start.sh</span>
-        <button class="copy-btn" onclick="copyCode(this,'git clone https://github.com/RaiseiX/Heimdall-DFIR.git\ncd Heimdall-DFIR\nbash start.sh')">copy</button>
+        <button class="copy-btn" onclick="copyCode(this, 'git clone https://github.com/RaiseiX/Heimdall-DFIR.git\ncd Heimdall-DFIR\nbash start.sh')">copy</button>
       </div>
       <div class="code-body">
         <div><span class="c-muted"># Clone the repository</span></div>
@@ -1156,7 +1180,7 @@ footer{ border-top:1px solid var(--border); background:var(--bg1); padding:4rem 
       <div class="code-bar">
         <div class="code-bar-dots"><span class="t-dot t-red"></span><span class="t-dot t-yellow"></span><span class="t-dot t-green"></span></div>
         <span>Windows — PowerShell start.ps1</span>
-        <button class="copy-btn" onclick="copyCode(this,'git clone https://github.com/RaiseiX/Heimdall-DFIR.git\ncd Heimdall-DFIR\n.\\start.ps1')">copy</button>
+        <button class="copy-btn" onclick="copyCode(this, 'git clone https://github.com/RaiseiX/Heimdall-DFIR.git\ncd Heimdall-DFIR\n.\\start.ps1')">copy</button>
       </div>
       <div class="code-body">
         <div><span class="c-muted"># Clone the repository</span></div>
@@ -1456,6 +1480,7 @@ const bootSequence = [
   "Loading UI Interface..."
 ];
 let bootDelay = 0;
+// Removing sessionStorage check so the bootloader runs on EVERY reload
 bootSequence.forEach((text) => {
   setTimeout(() => {
     if(!preloader) return;
