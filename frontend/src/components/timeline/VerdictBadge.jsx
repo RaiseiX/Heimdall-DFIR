@@ -3,7 +3,7 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { collectionAPI } from '../../utils/api';
 
 export const VERDICTS = [
-  { id: 'malicious',  label: 'Malicious',  color: '#ef4444', bg: 'rgba(239,68,68,0.12)',  border: 'rgba(239,68,68,0.3)'  },
+  { id: 'malicious',  label: 'Malicious',  color: 'var(--fl-danger)', bg: 'rgba(239,68,68,0.12)',  border: 'rgba(239,68,68,0.3)'  },
   { id: 'suspicious', label: 'Suspicious', color: '#f59e0b', bg: 'rgba(245,158,11,0.12)', border: 'rgba(245,158,11,0.3)' },
   { id: 'benign',     label: 'Benign',     color: '#22c55e', bg: 'rgba(34,197,94,0.12)',  border: 'rgba(34,197,94,0.3)'  },
   { id: 'unknown',    label: 'Unknown',    color: '#6b7280', bg: 'rgba(107,114,128,0.1)', border: 'rgba(107,114,128,0.25)' },
@@ -42,7 +42,7 @@ export default function VerdictBadge({ record, caseId, verdictMap, onVerdictChan
         await collectionAPI.setVerdict(caseId, { event_ref: ref, verdict: verdictId });
         onVerdictChange?.(ref, verdictId);
       }
-    } catch  } finally {
+    } catch (_e) {} finally {
       setSaving(false);
       setOpen(false);
     }
@@ -85,7 +85,7 @@ export default function VerdictBadge({ record, caseId, verdictMap, onVerdictChan
           onClick={e => e.stopPropagation()}
           style={{
             position: 'absolute', bottom: '100%', left: 0, zIndex: 9000, marginBottom: 4,
-            background: '#0d1525', border: '1px solid #1a3a5c', borderRadius: 6,
+            background: 'var(--fl-bg)', border: '1px solid var(--fl-accent)', borderRadius: 6,
             padding: '6px 8px', boxShadow: '0 4px 16px rgba(0,0,0,0.5)',
             minWidth: 140,
           }}

@@ -27,7 +27,7 @@ export default function RightDrawer({ open, onClose, title, children, width = 44
           height: '100vh',
           width: `min(${width}px, 92vw)`,
           background: 'var(--fl-panel, #161b22)',
-          borderLeft: '1px solid var(--fl-border, #30363d)',
+          borderLeft: '1px solid var(--fl-border, var(--fl-border))',
           boxShadow: '-8px 0 32px rgba(0,0,0,0.5)',
           zIndex: 500,
           transform: open ? 'translateX(0)' : 'translateX(100%)',
@@ -41,7 +41,7 @@ export default function RightDrawer({ open, onClose, title, children, width = 44
         <div style={{
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
           padding: '10px 14px',
-          borderBottom: '1px solid var(--fl-border, #30363d)',
+          borderBottom: '1px solid var(--fl-border, var(--fl-border))',
           flexShrink: 0,
           background: 'var(--fl-surface, #0d1117)',
         }}>

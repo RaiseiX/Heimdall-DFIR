@@ -5,7 +5,7 @@ import {
   Shield, AlertTriangle, FileText, Crosshair,
   Plus, Search, FolderOpen, ChevronRight,
   Database, Activity, Clock, TrendingUp,
-  Circle, Zap, CalendarDays, ShieldAlert, Link2,
+  Circle, Zap, CalendarDays, ShieldAlert, Link2, Radio,
 } from 'lucide-react';
 import {
   AreaChart, Area, XAxis, YAxis, Tooltip as RechartsTooltip, ResponsiveContainer,
@@ -15,20 +15,20 @@ import { useSocket, useSocketEvent } from '../hooks/useSocket';
 import { PRIORITY_COLORS } from '../utils/colorScheme';
 
 const C = {
-  bg:      '#0d1117',
-  panel:   '#161b22',
-  card:    '#1c2333',
-  border:  '#30363d',
-  border2: '#21262d',
-  accent:  '#4d82c0',
-  danger:  '#da3633',
-  warn:    '#d97c20',
-  ok:      '#3fb950',
-  gold:    '#c89d1d',
-  purple:  '#8b72d6',
-  text:    '#e6edf3',
-  sub:     '#7d8590',
-  muted:   '#484f58',
+  bg:      'var(--fl-bg)',
+  panel:   'var(--fl-panel)',
+  card:    'var(--fl-card)',
+  border:  'var(--fl-border)',
+  border2: 'var(--fl-panel)',
+  accent:  'var(--fl-accent)',
+  danger:  'var(--fl-danger)',
+  warn:    'var(--fl-warn)',
+  ok:      'var(--fl-ok)',
+  gold:    'var(--fl-gold)',
+  purple:  'var(--fl-purple)',
+  text:    'var(--fl-text)',
+  sub:     'var(--fl-dim)',
+  muted:   'var(--fl-muted)',
 };
 
 function fmtBytes(b) {
@@ -380,7 +380,7 @@ function ThreatRadar({ s, deadlines, tl }) {
         const pts = dims.map((_, i) => pt(i, ring).map(v => v.toFixed(2)).join(',')).join(' ');
         return (
           <polygon key={ring} points={pts} fill="none"
-            stroke={ring === 1 ? '#30363d' : '#1e2530'}
+            stroke={ring === 1 ? 'var(--fl-border)' : '#1e2530'}
             strokeWidth={ring === 1 ? 1 : 0.5}
             strokeDasharray={ring < 1 ? '3,4' : undefined}
           />
@@ -594,9 +594,9 @@ function MiniCalendar({ deadlines, onNavigate }) {
 }
 
 const ARTIFACT_COLORS = {
-  evtx: '#4d82c0', prefetch: '#a855f7', mft: '#22c55e', lnk: '#eab308',
-  registry: '#f59e0b', amcache: '#ef4444', appcompat: '#3b82f6', shellbags: '#06b6d4',
-  jumplist: '#8b72d6', srum: '#10b981', wxtcmd: '#f97316', recycle: '#6b7280',
+  evtx: 'var(--fl-accent)', prefetch: '#a855f7', mft: '#22c55e', lnk: '#eab308',
+  registry: '#f59e0b', amcache: 'var(--fl-danger)', appcompat: '#3b82f6', shellbags: '#06b6d4',
+  jumplist: 'var(--fl-purple)', srum: '#10b981', wxtcmd: '#f97316', recycle: '#6b7280',
   bits: '#ec4899', sum: '#14b8a6', sqle: '#84cc16', hayabusa: '#dc2626',
 };
 
@@ -656,6 +656,76 @@ function ArtifactStats({ artifacts }) {
           +{breakdown.length - 8} autres types
         </div>
       )}
+    </div>
+  );
+}
+
+const ACTION_ICON = {
+  create_case:    { icon: '📁', color: '#4d82c0' },
+  update_case:    { icon: '✏️', color: '#8b72d6' },
+  close_case:     { icon: '✓',  color: '#22c55e' },
+  upload_evidence:{ icon: '⬆', color: '#4d82c0' },
+  delete_evidence:{ icon: '🗑', color: '#da3633' },
+  create_ioc:     { icon: '⚠', color: '#d97c20' },
+  parse_collection:{ icon: '⚙', color: '#06b6d4' },
+  login:          { icon: '🔑', color: '#8b72d6' },
+  default:        { icon: '·',  color: '#6e7681'  },
+};
+
+function fmtRelTime(iso) {
+  if (!iso) return '';
+  const diff = Date.now() - new Date(iso).getTime();
+  const m = Math.floor(diff / 60000);
+  if (m < 1)  return 'à l\'instant';
+  if (m < 60) return `il y a ${m} min`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `il y a ${h}h`;
+  return `il y a ${Math.floor(h / 24)}j`;
+}
+
+function ActivityFeed({ items }) {
+  if (!items || items.length === 0) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '24px 0', gap: 6 }}>
+        <Radio size={22} style={{ color: C.border }} />
+        <span style={{ fontSize: 11, fontFamily: 'monospace', color: C.muted }}>Aucune activité récente</span>
+      </div>
+    );
+  }
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+      {items.map((item, i) => {
+        const def = ACTION_ICON[item.action] || ACTION_ICON.default;
+        const details = typeof item.details === 'string'
+          ? (() => { try { return JSON.parse(item.details); } catch { return {}; } })()
+          : (item.details || {});
+        return (
+          <div key={i} style={{
+            display: 'flex', alignItems: 'flex-start', gap: 10, padding: '7px 4px',
+            borderBottom: i < items.length - 1 ? `1px solid ${C.border2}` : 'none',
+          }}>
+            <div style={{
+              width: 24, height: 24, borderRadius: '50%', flexShrink: 0,
+              background: def.color + '18', border: `1px solid ${def.color}30`,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: 11, marginTop: 1,
+            }}>
+              {def.icon}
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 11, fontFamily: 'monospace', color: C.text, lineHeight: 1.4 }}>
+                <span style={{ color: def.color, fontWeight: 600 }}>{item.full_name || 'Système'}</span>
+                {' — '}
+                <span style={{ color: C.dim }}>{(item.action || '').replace(/_/g, ' ')}</span>
+                {details.title && <span style={{ color: C.muted }}> · {String(details.title).slice(0, 40)}</span>}
+              </div>
+              <div style={{ fontSize: 9, fontFamily: 'monospace', color: C.muted, marginTop: 2 }}>
+                {fmtRelTime(item.created_at)}
+              </div>
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -757,7 +827,6 @@ export default function DashboardPage() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <Shield size={16} style={{ color: C.accent }} />
             <span style={{ fontSize: 15, fontWeight: 700, color: C.text, fontFamily: 'monospace', letterSpacing: '-0.01em' }}>Heimdall DFIR</span>
-            <span style={{ fontSize: 10, fontFamily: 'monospace', padding: '1px 6px', borderRadius: 4, background: `${C.accent}14`, color: C.accent, border: `1px solid ${C.accent}30` }}>v2.7</span>
           </div>
           <div style={{ fontSize: 11, color: C.muted, fontFamily: 'monospace', marginTop: 3, textTransform: 'capitalize' }}>{dateStr}</div>
         </div>
@@ -872,6 +941,20 @@ export default function DashboardPage() {
             </div>
           )}
         </div>
+      </div>
+
+      {/* F — Activity feed */}
+      <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 10, padding: '14px 16px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10 }}>
+          <Radio size={13} style={{ color: C.accent }} />
+          <span style={{ fontSize: 11, fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: '0.08em', color: C.sub }}>
+            Activité récente
+          </span>
+          {liveFlash && (
+            <span style={{ marginLeft: 4, width: 6, height: 6, borderRadius: '50%', background: C.accent, display: 'inline-block', boxShadow: `0 0 6px ${C.accent}` }} />
+          )}
+        </div>
+        <ActivityFeed items={s.recent_activity || []} />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">

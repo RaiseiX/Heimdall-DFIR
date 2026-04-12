@@ -18,8 +18,8 @@ export default function CollectionLayout() {
     padding: '0 8px', height: '100%',
     fontFamily: 'monospace', fontSize: 9,
     background: 'none', border: 'none', outline: 'none', cursor: 'pointer',
-    borderBottom: `2px solid ${isActive ? '#4d82c0' : 'transparent'}`,
-    color: isActive ? '#b0ccec' : '#3d5070',
+    borderBottom: `2px solid ${isActive ? 'var(--fl-accent)' : 'transparent'}`,
+    color: isActive ? 'var(--fl-on-dark)' : 'var(--fl-subtle)',
     transition: 'color 0.1s',
     marginBottom: -1,
     flexShrink: 0,
@@ -43,7 +43,7 @@ export default function CollectionLayout() {
         position: 'sticky', top: 36, zIndex: 101,
         display: 'flex', alignItems: 'center',
         height: 36, padding: '0 10px',
-        background: '#07101f',
+        background: 'var(--fl-bg)',
         borderBottom: '1px solid #1a2540',
         borderLeft: '3px solid #1e3a5f',
         flexShrink: 0,
@@ -91,8 +91,8 @@ export default function CollectionLayout() {
           to={`${base}/hayabusa`}
           style={({ isActive }) => ({
             ...tabSt(false),
-            color: isActive ? '#f87171' : '#3d5070',
-            borderBottom: `2px solid ${isActive ? '#da3633' : 'transparent'}`,
+            color: isActive ? '#f87171' : 'var(--fl-subtle)',
+            borderBottom: `2px solid ${isActive ? 'var(--fl-danger)' : 'transparent'}`,
           })}
         >
           <Activity size={9} />

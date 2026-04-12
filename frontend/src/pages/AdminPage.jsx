@@ -8,17 +8,17 @@ import { usersAPI, authAPI, casesAPI, adminAPI, feedbackAPI } from '../utils/api
 import { Button, Modal, TabGroup, Spinner, EmptyState, Pagination } from '../components/ui';
 
 const ACTION_COLORS = {
-  login: '#22c55e', login_failed: '#da3633', login_blocked: '#c89d1d',
-  logout: '#8b949e', token_refresh: '#4d82c0',
-  import_collection: '#4d82c0', parse_collection: '#8b72d6', delete_collection_data: '#da3633', pcap_parse: '#06b6d4',
-  create_case: '#d97c20', update_case: '#d97c20', hard_delete_case: '#da3633',
-  upload_evidence: '#3fb950', delete_evidence: '#da3633',
-  add_mitre_technique: '#06b6d4', update_mitre_technique: '#06b6d4', delete_mitre_technique: '#da3633',
-  create_user: '#06b6d4', update_user: '#d97c20', delete_user: '#da3633', change_password: '#c89d1d',
-  generate_report: '#8b72d6', create_ioc: '#c89d1d', delete_ioc: '#da3633',
+  login: '#22c55e', login_failed: 'var(--fl-danger)', login_blocked: 'var(--fl-gold)',
+  logout: 'var(--fl-dim)', token_refresh: 'var(--fl-accent)',
+  import_collection: 'var(--fl-accent)', parse_collection: 'var(--fl-purple)', delete_collection_data: 'var(--fl-danger)', pcap_parse: '#06b6d4',
+  create_case: 'var(--fl-warn)', update_case: 'var(--fl-warn)', hard_delete_case: 'var(--fl-danger)',
+  upload_evidence: 'var(--fl-ok)', delete_evidence: 'var(--fl-danger)',
+  add_mitre_technique: '#06b6d4', update_mitre_technique: '#06b6d4', delete_mitre_technique: 'var(--fl-danger)',
+  create_user: '#06b6d4', update_user: 'var(--fl-warn)', delete_user: 'var(--fl-danger)', change_password: 'var(--fl-gold)',
+  generate_report: 'var(--fl-purple)', create_ioc: 'var(--fl-gold)', delete_ioc: 'var(--fl-danger)',
   run_yara_scan: '#f472b6', run_sigma_hunt: '#8b5cf6', fetch_taxii: '#14b8a6', correlate_case: '#fb923c',
-  run_hayabusa: '#da3633', upload_evidence_chunked: '#3fb950', download_report: '#8b72d6',
-  backup_db: '#4d82c0', download_backup: '#4d82c0', run_soar: '#a855f7',
+  run_hayabusa: 'var(--fl-danger)', upload_evidence_chunked: 'var(--fl-ok)', download_report: 'var(--fl-purple)',
+  backup_db: 'var(--fl-accent)', download_backup: 'var(--fl-accent)', run_soar: '#a855f7',
 };
 
 const ACTION_LABELS = {
@@ -34,7 +34,7 @@ const ACTION_LABELS = {
   run_hayabusa: 'Analyse Hayabusa', upload_evidence_chunked: 'Upload (chunked)', download_report: 'Téléchargement PDF',
   backup_db: 'Sauvegarde DB', download_backup: 'Téléch. sauvegarde', run_soar: 'Exécution SOAR',
 };
-const PRIORITY_COLOR = { critical: 'var(--fl-danger)', high: '#d97c20', medium: '#c89d1d', low: 'var(--fl-ok)' };
+const PRIORITY_COLOR = { critical: 'var(--fl-danger)', high: 'var(--fl-warn)', medium: 'var(--fl-gold)', low: 'var(--fl-ok)' };
 const STATUS_LABEL   = { active: 'En cours', pending: 'En attente', closed: 'Clôturé' };
 const AUDIT_PAGE_SIZE = 50;
 
@@ -234,7 +234,7 @@ export default function AdminPage() {
         <div>
           <div className="grid grid-cols-3 gap-4 mb-6">
             {[
-              [t('admin.count_admins'),   users.filter(u => u.role === 'admin').length,   '#d97c20',          Shield],
+              [t('admin.count_admins'),   users.filter(u => u.role === 'admin').length,   'var(--fl-warn)',          Shield],
               [t('admin.count_analysts'), users.filter(u => u.role === 'analyst').length, 'var(--fl-accent)', UserCheck],
               [t('admin.count_inactive'), users.filter(u => !u.is_active).length,         'var(--fl-danger)', UserX],
             ].map(([l, v, c, Icon]) => (
@@ -272,7 +272,7 @@ export default function AdminPage() {
                         className="fl-select"
                         style={{
                           padding: '2px 6px', fontSize: 11, fontFamily: 'monospace', fontWeight: 700,
-                          color: u.role === 'admin' ? '#d97c20' : 'var(--fl-accent)',
+                          color: u.role === 'admin' ? 'var(--fl-warn)' : 'var(--fl-accent)',
                         }}
                       >
                         <option value="admin">admin</option>
@@ -542,9 +542,9 @@ export default function AdminPage() {
             </div>
 
             <div className="rounded-lg p-4 border" style={{ background: 'var(--fl-bg)', borderColor: 'var(--fl-border)' }}>
-              <h3 className="text-sm font-bold mb-1" style={{ color: '#d97c20' }}>Supprimer un utilisateur</h3>
+              <h3 className="text-sm font-bold mb-1" style={{ color: 'var(--fl-warn)' }}>Supprimer un utilisateur</h3>
               <p className="text-xs mb-1" style={{ color: 'var(--fl-dim)' }}>
-                Gérez les comptes depuis l'onglet <strong style={{ color: '#d97c20' }}>Comptes</strong> — bouton <Trash2 size={11} style={{ display: 'inline', verticalAlign: 'middle' }} /> sur chaque ligne.
+                Gérez les comptes depuis l'onglet <strong style={{ color: 'var(--fl-warn)' }}>Comptes</strong> — bouton <Trash2 size={11} style={{ display: 'inline', verticalAlign: 'middle' }} /> sur chaque ligne.
               </p>
             </div>
           </div>
@@ -706,9 +706,9 @@ export default function AdminPage() {
                     onClick={() => setNewUser(p => ({ ...p, role: r }))}
                     className="px-5 py-2 rounded-lg text-xs font-mono font-bold uppercase"
                     style={{
-                      background: newUser.role === r ? `${r === 'admin' ? '#d97c20' : 'var(--fl-accent)'}15` : 'var(--fl-bg)',
-                      color: r === 'admin' ? '#d97c20' : 'var(--fl-accent)',
-                      border: `1px solid ${newUser.role === r ? (r === 'admin' ? '#d97c20' : 'var(--fl-accent)') + '40' : 'var(--fl-border)'}`,
+                      background: newUser.role === r ? `${r === 'admin' ? 'var(--fl-warn)' : 'var(--fl-accent)'}15` : 'var(--fl-bg)',
+                      color: r === 'admin' ? 'var(--fl-warn)' : 'var(--fl-accent)',
+                      border: `1px solid ${newUser.role === r ? (r === 'admin' ? 'var(--fl-warn)' : 'var(--fl-accent)') + '40' : 'var(--fl-border)'}`,
                     }}
                   >
                     {r}
@@ -1058,10 +1058,10 @@ function FeedbackTab() {
   const [replies, setReplies] = useState({});
 
   const STATUS_CONFIG = {
-    open:        { label: 'Ouvert',   color: '#4d82c0' },
-    in_progress: { label: 'En cours', color: '#d97c20' },
-    resolved:    { label: 'Résolu',   color: '#3fb950' },
-    closed:      { label: 'Fermé',    color: '#7d8590' },
+    open:        { label: 'Ouvert',   color: 'var(--fl-accent)' },
+    in_progress: { label: 'En cours', color: 'var(--fl-warn)' },
+    resolved:    { label: 'Résolu',   color: 'var(--fl-ok)' },
+    closed:      { label: 'Fermé',    color: 'var(--fl-dim)' },
   };
   const TYPE_LABELS = { bug: '🐛 Bug', suggestion: '💡 Suggestion', autre: '📝 Autre' };
 
@@ -1106,7 +1106,7 @@ function FeedbackTab() {
         <h3 className="font-semibold" style={{ color: 'var(--fl-text)' }}>
           Tickets Feedback
           {openCount > 0 && (
-            <span style={{ marginLeft: 8, padding: '1px 7px', borderRadius: 10, fontSize: 10, fontWeight: 700, background: '#4d82c018', color: '#4d82c0', border: '1px solid #4d82c030' }}>
+            <span style={{ marginLeft: 8, padding: '1px 7px', borderRadius: 10, fontSize: 10, fontWeight: 700, background: '#4d82c018', color: 'var(--fl-accent)', border: '1px solid #4d82c030' }}>
               {openCount} ouvert{openCount > 1 ? 's' : ''}
             </span>
           )}
@@ -1323,7 +1323,7 @@ function DockerTab() {
                 />
                 <Bar dataKey="ram" radius={[0, 4, 4, 0]} barSize={12}>
                   {ramChartData.map((entry, i) => (
-                    <Cell key={i} fill={entry.ram > 80 ? '#ff7b72' : entry.ram > 60 ? '#e3b341' : '#3fb950'} />
+                    <Cell key={i} fill={entry.ram > 80 ? '#ff7b72' : entry.ram > 60 ? '#e3b341' : 'var(--fl-ok)'} />
                   ))}
                 </Bar>
               </BarChart>
@@ -1373,7 +1373,7 @@ function DockerTab() {
                       {c.state === 'running' ? (
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                           <div style={{ width: 64, height: 7, background: 'var(--fl-border)', borderRadius: 4, overflow: 'hidden' }}>
-                            <div style={{ height: '100%', width: `${Math.min(c.mem_percent, 100)}%`, background: c.mem_percent > 80 ? '#ff7b72' : c.mem_percent > 60 ? '#e3b341' : '#3fb950', borderRadius: 4, transition: 'width 0.3s' }} />
+                            <div style={{ height: '100%', width: `${Math.min(c.mem_percent, 100)}%`, background: c.mem_percent > 80 ? '#ff7b72' : c.mem_percent > 60 ? '#e3b341' : 'var(--fl-ok)', borderRadius: 4, transition: 'width 0.3s' }} />
                           </div>
                           <span style={{ fontSize: 12, color: 'var(--fl-text)', minWidth: 42, fontVariantNumeric: 'tabular-nums' }}>{c.mem_percent.toFixed(1)}%</span>
                         </div>
@@ -1409,7 +1409,7 @@ const MODEL_CATALOG = [
 const TAG_COLOR = {
   'recommandé':   '#22c55e',
   'qualité':      '#a855f7',
-  'raisonnement': '#4d82c0',
+  'raisonnement': 'var(--fl-accent)',
   'léger':        '#f97316',
 };
 
@@ -1627,7 +1627,7 @@ function AiSettingsTab() {
 
         {!ollamaRunning && ollamaInstall?.phase !== 'done' && (
           <p style={{ fontSize: 11, color: 'var(--fl-muted)', margin: '8px 0 0' }}>
-            Ollama sera démarré via l'API Docker. L'image <code style={{ color: 'var(--fl-accent)' }}>ollama/ollama:latest</code> sera téléchargée (~1.5 Go) puis un container sera créé sur le réseau interne <code style={{ color: 'var(--fl-accent)' }}>aesir-net</code>. Ajoutez ensuite <code style={{ color: 'var(--fl-accent)' }}>OLLAMA_URL=http:
+            Ollama sera démarré via l'API Docker. L'image <code style={{ color: 'var(--fl-accent)' }}>ollama/ollama:latest</code> sera téléchargée (~1.5 Go) puis un container sera créé sur le réseau interne <code style={{ color: 'var(--fl-accent)' }}>aesir-net</code>. Ajoutez ensuite <code style={{ color: 'var(--fl-accent)' }}>OLLAMA_URL=http://ollama:11434</code> dans votre configuration.
           </p>
         )}
       </div>
@@ -1652,7 +1652,7 @@ function AiSettingsTab() {
           <p style={{ fontSize: 12, color: 'var(--fl-muted)', marginBottom: 8 }}>1. Démarrer le service Ollama :</p>
           <pre style={{ background: 'var(--fl-bg)', borderRadius: 6, padding: '7px 12px', fontFamily: 'monospace', fontSize: 11, color: 'var(--fl-accent)', border: '1px solid var(--fl-border)', margin: '0 0 12px' }}>docker compose --profile ai up -d ollama</pre>
           <p style={{ fontSize: 12, color: 'var(--fl-muted)', marginBottom: 8 }}>2. Ajouter dans le <code style={{ color: 'var(--fl-accent)' }}>.env</code> du backend :</p>
-          <pre style={{ background: 'var(--fl-bg)', borderRadius: 6, padding: '7px 12px', fontFamily: 'monospace', fontSize: 11, color: 'var(--fl-accent)', border: '1px solid var(--fl-border)', margin: 0 }}>OLLAMA_URL=http:
+          <pre style={{ background: 'var(--fl-bg)', borderRadius: 6, padding: '7px 12px', fontFamily: 'monospace', fontSize: 11, color: 'var(--fl-accent)', border: '1px solid var(--fl-border)', margin: 0 }}>OLLAMA_URL=http://ollama:11434</pre>
           <p style={{ fontSize: 11, color: 'var(--fl-muted)', marginTop: 10 }}>Une fois Ollama connecté, installez un modèle depuis le catalogue ci-dessous en un seul clic.</p>
         </div>
       )}

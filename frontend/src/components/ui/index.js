@@ -9,3 +9,6 @@ export { default as Alert }      from './Alert';
 export { ToastProvider, useToast } from './Toast';
 export { default as RightDrawer }  from './RightDrawer';
 export { default as CommandPalette } from './CommandPalette';
+export { default as FilterChip }   from './FilterChip';
+export { default as SearchInput }  from './SearchInput';
+export { default as PanelShell }   from './PanelShell';

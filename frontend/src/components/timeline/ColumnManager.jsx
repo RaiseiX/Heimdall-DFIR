@@ -169,27 +169,27 @@ export default function ColumnManager({
         top: 0,
         width: 460,
         height: '100vh',
-        background: '#0d1117',
-        borderRight: '1px solid #30363d',
+        background: 'var(--fl-bg)',
+        borderRight: '1px solid var(--fl-border)',
         zIndex: 10000,
         display: 'flex',
         flexDirection: 'column',
         fontFamily: 'monospace',
-        color: '#e6edf3',
+        color: 'var(--fl-text)',
       }}
     >
       
       <div
         style={{
           padding: '12px 14px',
-          borderBottom: '1px solid #30363d',
+          borderBottom: '1px solid var(--fl-border)',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <Columns size={14} style={{ color: '#4d82c0' }} />
+          <Columns size={14} style={{ color: 'var(--fl-accent)' }} />
           <span
             style={{
               fontSize: 12,
@@ -201,7 +201,7 @@ export default function ColumnManager({
           >
             Colonnes
           </span>
-          <span style={{ fontSize: 11, color: '#7d8590' }}>
+          <span style={{ fontSize: 11, color: 'var(--fl-dim)' }}>
             ({visibleCount} visibles)
           </span>
         </div>
@@ -211,7 +211,7 @@ export default function ColumnManager({
             background: 'none',
             border: 'none',
             cursor: 'pointer',
-            color: '#7d8590',
+            color: 'var(--fl-dim)',
             padding: 0,
             display: 'flex',
             alignItems: 'center',
@@ -224,7 +224,7 @@ export default function ColumnManager({
       <div
         style={{
           padding: '8px 14px',
-          borderBottom: '1px solid #30363d',
+          borderBottom: '1px solid var(--fl-border)',
           display: 'flex',
           gap: 4,
         }}
@@ -237,9 +237,9 @@ export default function ColumnManager({
             borderRadius: 4,
             fontSize: 10,
             fontFamily: 'monospace',
-            background: '#161b22',
-            border: '1px solid #30363d',
-            color: '#7d8590',
+            background: 'var(--fl-panel)',
+            border: '1px solid var(--fl-border)',
+            color: 'var(--fl-dim)',
             cursor: 'pointer',
           }}
         >
@@ -253,9 +253,9 @@ export default function ColumnManager({
             borderRadius: 4,
             fontSize: 10,
             fontFamily: 'monospace',
-            background: '#161b22',
-            border: '1px solid #30363d',
-            color: '#7d8590',
+            background: 'var(--fl-panel)',
+            border: '1px solid var(--fl-border)',
+            color: 'var(--fl-dim)',
             cursor: 'pointer',
           }}
         >
@@ -269,9 +269,9 @@ export default function ColumnManager({
             borderRadius: 4,
             fontSize: 10,
             fontFamily: 'monospace',
-            background: '#161b22',
-            border: '1px solid #30363d',
-            color: '#7d8590',
+            background: 'var(--fl-panel)',
+            border: '1px solid var(--fl-border)',
+            color: 'var(--fl-dim)',
             cursor: 'pointer',
           }}
         >
@@ -303,11 +303,11 @@ export default function ColumnManager({
               onMouseLeave={handleRowMouseLeave}
               style={{
                 padding: '8px 10px',
-                borderTop: isDragOver ? '2px solid #4d82c0' : '1px solid transparent',
+                borderTop: isDragOver ? '2px solid var(--fl-accent)' : '1px solid transparent',
                 display: 'flex',
                 alignItems: 'center',
                 gap: 8,
-                background: isDragging ? '#1a2535' : 'transparent',
+                background: isDragging ? 'var(--fl-sep)' : 'transparent',
                 cursor: isDragging ? 'grabbing' : 'default',
               }}
             >
@@ -318,7 +318,7 @@ export default function ColumnManager({
                   background: 'none',
                   border: 'none',
                   cursor: 'grab',
-                  color: isDragging ? '#4d82c0' : '#3d5070',
+                  color: isDragging ? 'var(--fl-accent)' : 'var(--fl-subtle)',
                   padding: 0,
                   display: 'flex',
                   alignItems: 'center',
@@ -334,7 +334,7 @@ export default function ColumnManager({
                   background: 'none',
                   border: 'none',
                   cursor: 'pointer',
-                  color: isHidden ? '#3d5070' : '#4d82c0',
+                  color: isHidden ? 'var(--fl-subtle)' : 'var(--fl-accent)',
                   padding: 0,
                   display: 'flex',
                   alignItems: 'center',
@@ -348,7 +348,7 @@ export default function ColumnManager({
                 style={{
                   fontSize: 11,
                   flex: 1,
-                  color: isHidden ? '#3d5070' : '#c8d8ec',
+                  color: isHidden ? 'var(--fl-subtle)' : 'var(--fl-on-dark)',
                 }}
               >
                 {col.label}
@@ -364,9 +364,9 @@ export default function ColumnManager({
                   width: 50,
                   padding: '3px 5px',
                   borderRadius: 3,
-                  border: '1px solid #30363d',
-                  background: isFlex ? '#0a0f18' : '#161b22',
-                  color: isFlex ? '#2a3a4a' : '#c8d8ec',
+                  border: '1px solid var(--fl-border)',
+                  background: isFlex ? '#0a0f18' : 'var(--fl-panel)',
+                  color: isFlex ? '#2a3a4a' : 'var(--fl-on-dark)',
                   fontSize: 10,
                   fontFamily: 'monospace',
                   cursor: isFlex ? 'not-allowed' : 'text',
@@ -381,7 +381,7 @@ export default function ColumnManager({
       <div
         style={{
           padding: '10px 14px',
-          borderTop: '1px solid #30363d',
+          borderTop: '1px solid var(--fl-border)',
           display: 'flex',
           gap: 6,
         }}
@@ -394,9 +394,9 @@ export default function ColumnManager({
             borderRadius: 4,
             fontSize: 11,
             fontFamily: 'monospace',
-            background: '#161b22',
-            border: '1px solid #30363d',
-            color: '#7d8590',
+            background: 'var(--fl-panel)',
+            border: '1px solid var(--fl-border)',
+            color: 'var(--fl-dim)',
             cursor: 'pointer',
             display: 'flex',
             alignItems: 'center',
@@ -416,7 +416,7 @@ export default function ColumnManager({
             fontFamily: 'monospace',
             background: '#1a3a5a',
             border: '1px solid #2a5080',
-            color: '#4d82c0',
+            color: 'var(--fl-accent)',
             cursor: 'pointer',
           }}
         >

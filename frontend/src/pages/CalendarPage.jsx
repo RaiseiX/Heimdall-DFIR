@@ -5,7 +5,7 @@ import { useTheme } from '../utils/theme';
 import { casesAPI } from '../utils/api';
 
 const PRIORITY_COLOR = {
-  critical: '#ef4444',
+  critical: 'var(--fl-danger)',
   high: '#f97316',
   medium: '#eab308',
   low: '#22c55e',
@@ -142,7 +142,7 @@ export default function CalendarPage() {
                       </button>
                     ))}
                     {hasUrgent && (
-                      <div className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full" style={{ background: '#ef4444' }} />
+                      <div className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full" style={{ background: 'var(--fl-danger)' }} />
                     )}
                   </div>
                 );
@@ -164,8 +164,8 @@ export default function CalendarPage() {
           {urgent.length > 0 && (
             <div className="rounded-xl p-4" style={{ background: '#ef444410', border: '1px solid #ef444430' }}>
               <div className="flex items-center gap-2 mb-3">
-                <AlertTriangle size={15} style={{ color: '#ef4444' }} />
-                <span className="font-semibold text-sm" style={{ color: '#ef4444' }}>
+                <AlertTriangle size={15} style={{ color: 'var(--fl-danger)' }} />
+                <span className="font-semibold text-sm" style={{ color: 'var(--fl-danger)' }}>
                   Urgents — &lt; 48h ({urgent.length})
                 </span>
               </div>
@@ -179,7 +179,7 @@ export default function CalendarPage() {
                   >
                     <div className="flex items-center justify-between mb-0.5">
                       <span className="font-mono text-xs" style={{ color: T.accent }}>{d.case_number}</span>
-                      <span className="text-xs font-semibold" style={{ color: '#ef4444' }}>
+                      <span className="text-xs font-semibold" style={{ color: 'var(--fl-danger)' }}>
                         {hoursLabel(d.hours_remaining)}
                       </span>
                     </div>
@@ -252,7 +252,7 @@ export default function CalendarPage() {
                         </div>
                       </div>
                       <div className="text-xs font-mono shrink-0" style={{
-                        color: isUrgent ? '#ef4444' : isWeek ? '#f97316' : T.muted,
+                        color: isUrgent ? 'var(--fl-danger)' : isWeek ? '#f97316' : T.muted,
                       }}>
                         {hoursLabel(d.hours_remaining)}
                       </div>

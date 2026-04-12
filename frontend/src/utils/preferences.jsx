@@ -7,7 +7,7 @@ export const DEFAULT_PREFS = {
   language:      'fr',
   timezone:      'utc',
   theme:         'dark',
-  chat_color:    '#4d82c0',
+  chat_color:    'var(--fl-accent)',
   table_density: 'standard',
   display_name:  null,
 };
@@ -27,7 +27,7 @@ function readFromStorage() {
 function writeToStorage(prefs) {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(prefs));
-  } catch  }
+  } catch (_e) {}
 }
 
 const PreferencesContext = createContext(null);
@@ -67,7 +67,7 @@ export function PreferencesProvider({ children }) {
       const patch = { ...pendingPatch.current };
       pendingPatch.current = {};
       if (Object.keys(patch).length > 0) {
-        usersAPI.updatePreferences(patch).catch(() =>  });
+        usersAPI.updatePreferences(patch).catch(() => {});
       }
     }, 600);
   }, []);

@@ -293,34 +293,34 @@ export default function CollectionAgentPage() {
       await navigator.clipboard.writeText(script);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
-    } catch  }
+    } catch (_e) {}
   }, [script]);
 
   const artifactLabels = os === 'windows' ? WIN_ARTIFACT_LABELS : LIN_ARTIFACT_LABELS;
 
   const labelStyle = {
     display: 'flex', alignItems: 'center', gap: 8,
-    fontSize: 12, color: '#c9d1d9', cursor: 'pointer',
+    fontSize: 12, color: 'var(--fl-dim)', cursor: 'pointer',
     padding: '3px 0',
   };
 
   const inputStyle = {
     width: '100%', padding: '6px 10px',
-    background: '#0d1117', color: '#e6edf3',
-    border: '1px solid #30363d', borderRadius: 5,
+    background: 'var(--fl-bg)', color: 'var(--fl-text)',
+    border: '1px solid var(--fl-border)', borderRadius: 5,
     fontSize: 12, fontFamily: 'monospace', outline: 'none',
   };
 
-  const sectionLabel = { fontSize: 11, color: '#7d8590', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 };
+  const sectionLabel = { fontSize: 11, color: 'var(--fl-dim)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 };
 
   return (
-    <div style={{ display: 'flex', height: '100vh', background: '#0d1117', overflow: 'hidden' }}>
+    <div style={{ display: 'flex', height: '100vh', background: 'var(--fl-bg)', overflow: 'hidden' }}>
       
-      <div style={{ width: 300, flexShrink: 0, borderRight: '1px solid #21303f', overflowY: 'auto', padding: '20px 16px', display: 'flex', flexDirection: 'column', gap: 20 }}>
+      <div style={{ width: 300, flexShrink: 0, borderRight: '1px solid var(--fl-panel)', overflowY: 'auto', padding: '20px 16px', display: 'flex', flexDirection: 'column', gap: 20 }}>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <Terminal size={16} style={{ color: '#4d82c0' }} />
-          <span style={{ fontSize: 14, fontWeight: 700, color: '#e6edf3', fontFamily: 'monospace' }}>Agent Collecte</span>
+          <Terminal size={16} style={{ color: 'var(--fl-accent)' }} />
+          <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--fl-text)', fontFamily: 'monospace' }}>Agent Collecte</span>
         </div>
 
         <div>
@@ -332,9 +332,9 @@ export default function CollectionAgentPage() {
                 onClick={() => setOs(o)}
                 style={{
                   flex: 1, padding: '6px 0', fontSize: 12, fontFamily: 'monospace',
-                  border: `1px solid ${os === o ? '#4d82c0' : '#30363d'}`,
+                  border: `1px solid ${os === o ? 'var(--fl-accent)' : 'var(--fl-border)'}`,
                   background: os === o ? '#4d82c020' : 'transparent',
-                  color: os === o ? '#4d82c0' : '#7d8590',
+                  color: os === o ? 'var(--fl-accent)' : 'var(--fl-dim)',
                   borderRadius: 5, cursor: 'pointer', textTransform: 'capitalize',
                 }}
               >
@@ -348,7 +348,7 @@ export default function CollectionAgentPage() {
           <div style={sectionLabel}>Métadonnées</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             <div>
-              <label style={{ fontSize: 11, color: '#7d8590', display: 'block', marginBottom: 3 }}>{t('collection.case_number_label')}</label>
+              <label style={{ fontSize: 11, color: 'var(--fl-dim)', display: 'block', marginBottom: 3 }}>{t('collection.case_number_label')}</label>
               <input
                 value={caseNum}
                 onChange={e => setCaseNum(e.target.value)}
@@ -357,7 +357,7 @@ export default function CollectionAgentPage() {
               />
             </div>
             <div>
-              <label style={{ fontSize: 11, color: '#7d8590', display: 'block', marginBottom: 3 }}>{t('collection.analyst_label')}</label>
+              <label style={{ fontSize: 11, color: 'var(--fl-dim)', display: 'block', marginBottom: 3 }}>{t('collection.analyst_label')}</label>
               <input
                 value={analyst}
                 onChange={e => setAnalyst(e.target.value)}
@@ -367,7 +367,7 @@ export default function CollectionAgentPage() {
             </div>
             {os === 'windows' && (
               <div>
-                <label style={{ fontSize: 11, color: '#7d8590', display: 'block', marginBottom: 3 }}>{t('collection.output_dir_label')}</label>
+                <label style={{ fontSize: 11, color: 'var(--fl-dim)', display: 'block', marginBottom: 3 }}>{t('collection.output_dir_label')}</label>
                 <input
                   value={outputDir}
                   onChange={e => setOutputDir(e.target.value)}
@@ -388,9 +388,9 @@ export default function CollectionAgentPage() {
                   type="checkbox"
                   checked={!!artifacts[key]}
                   onChange={() => toggleArtifact(key)}
-                  style={{ accentColor: '#4d82c0' }}
+                  style={{ accentColor: 'var(--fl-accent)' }}
                 />
-                <span style={{ color: artifacts[key] ? '#c9d1d9' : '#484f58' }}>{label}</span>
+                <span style={{ color: artifacts[key] ? 'var(--fl-dim)' : 'var(--fl-muted)' }}>{label}</span>
               </label>
             ))}
           </div>
@@ -404,7 +404,7 @@ export default function CollectionAgentPage() {
                 type="checkbox"
                 checked={compress}
                 onChange={e => setCompress(e.target.checked)}
-                style={{ accentColor: '#4d82c0' }}
+                style={{ accentColor: 'var(--fl-accent)' }}
               />
               <span>Compresser l'archive ({os === 'windows' ? '.zip' : '.tar.gz'})</span>
             </label>
@@ -413,7 +413,7 @@ export default function CollectionAgentPage() {
                 type="checkbox"
                 checked={hashFile}
                 onChange={e => setHashFile(e.target.checked)}
-                style={{ accentColor: '#4d82c0' }}
+                style={{ accentColor: 'var(--fl-accent)' }}
               />
               <span>Calculer SHA-256</span>
             </label>
@@ -439,8 +439,8 @@ export default function CollectionAgentPage() {
               display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
               padding: '8px 0', fontSize: 12, fontFamily: 'monospace',
               background: copied ? '#22c55e20' : 'transparent',
-              color: copied ? '#22c55e' : '#7d8590',
-              border: `1px solid ${copied ? '#22c55e40' : '#30363d'}`,
+              color: copied ? '#22c55e' : 'var(--fl-dim)',
+              border: `1px solid ${copied ? '#22c55e40' : 'var(--fl-border)'}`,
               borderRadius: 6, cursor: 'pointer', transition: 'all 0.2s',
             }}
           >
@@ -450,20 +450,20 @@ export default function CollectionAgentPage() {
         </div>
 
         
-        <div style={{ fontSize: 10, color: '#484f58', lineHeight: 1.5, borderTop: '1px solid #21303f', paddingTop: 12 }}>
+        <div style={{ fontSize: 10, color: 'var(--fl-muted)', lineHeight: 1.5, borderTop: '1px solid var(--fl-panel)', paddingTop: 12 }}>
           Ce script est généré localement dans le navigateur. Aucune donnée n'est envoyée au serveur. Exécutez toujours avec les droits administrateur/root sur la machine cible.
         </div>
       </div>
 
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 16px', borderBottom: '1px solid #21303f', background: '#161b22', flexShrink: 0 }}>
-          <span style={{ fontSize: 12, fontFamily: 'monospace', color: '#7d8590' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 16px', borderBottom: '1px solid var(--fl-panel)', background: 'var(--fl-panel)', flexShrink: 0 }}>
+          <span style={{ fontSize: 12, fontFamily: 'monospace', color: 'var(--fl-dim)' }}>
             {os === 'windows' ? 'PowerShell (.ps1)' : 'Bash (.sh)'} — {script.split('\n').length} lignes
           </span>
           <div style={{ display: 'flex', gap: 6 }}>
-            <span style={{ width: 12, height: 12, borderRadius: '50%', background: '#da3633', display: 'inline-block' }} />
-            <span style={{ width: 12, height: 12, borderRadius: '50%', background: '#d97c20', display: 'inline-block' }} />
+            <span style={{ width: 12, height: 12, borderRadius: '50%', background: 'var(--fl-danger)', display: 'inline-block' }} />
+            <span style={{ width: 12, height: 12, borderRadius: '50%', background: 'var(--fl-warn)', display: 'inline-block' }} />
             <span style={{ width: 12, height: 12, borderRadius: '50%', background: '#22c55e', display: 'inline-block' }} />
           </div>
         </div>
@@ -472,10 +472,10 @@ export default function CollectionAgentPage() {
           <pre style={{
             margin: 0, fontFamily: 'JetBrains Mono, Consolas, monospace',
             fontSize: 12, lineHeight: 1.7,
-            color: '#e6edf3', whiteSpace: 'pre', tabSize: 2,
+            color: 'var(--fl-text)', whiteSpace: 'pre', tabSize: 2,
           }}>
             {script.split('\n').map((line, i) => {
-              let color = '#e6edf3';
+              let color = 'var(--fl-text)';
               if (line.startsWith('#')) color = '#6a9955';
               else if (line.match(/^(Write-Host|echo)\s/)) color = '#9cdcfe';
               else if (line.match(/^(if|else|try|catch|New-Item|Copy-Item|mkdir|cp|ss|ps|cat)\b/)) color = '#569cd6';

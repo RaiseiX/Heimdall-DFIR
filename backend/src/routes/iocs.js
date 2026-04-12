@@ -172,7 +172,7 @@ router.post('/enrich-case/:caseId', authenticate, async (req, res) => {
           if (!enrichment.from_cache) {
             await new Promise(r => setTimeout(r, 300));
           }
-        } catch  }
+        } catch (_e) {}
       }
     })();
   } catch (err) {

@@ -310,7 +310,7 @@ export default function GlobalAiChat() {
                     }}>
                       <div style={{
                         fontFamily: 'monospace', fontSize: 10.5,
-                        color: msg.role === 'user' ? 'var(--fl-accent)' : msg.error ? '#ef4444' : 'var(--fl-text)',
+                        color: msg.role === 'user' ? 'var(--fl-accent)' : msg.error ? 'var(--fl-danger)' : 'var(--fl-text)',
                         lineHeight: 1.7, whiteSpace: 'pre-wrap', wordBreak: 'break-word',
                       }}>
                         {msg.content || (streaming && i === messages.length - 1
@@ -400,7 +400,7 @@ export default function GlobalAiChat() {
                     style={{
                       padding: '0 10px', borderRadius: 6, alignSelf: 'stretch',
                       background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.25)',
-                      color: '#ef4444', cursor: 'pointer', fontSize: 14,
+                      color: 'var(--fl-danger)', cursor: 'pointer', fontSize: 14,
                       display: 'flex', alignItems: 'center',
                     }}>⏹</button>
                 ) : (

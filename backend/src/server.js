@@ -133,7 +133,10 @@ io.on('connection', (socket) => {
 
   socket.join(`user:${user.id}`);
 
-  socket.on('case:join', ({ caseId }) => {
+  // sessionMap: socketId → { caseId, sessionId, startedAt }
+  const sessionMap = new Map();
+
+  socket.on('case:join', async ({ caseId }) => {
     if (!caseId) return;
     socket.join(caseId);
     if (!presenceMap.has(caseId)) presenceMap.set(caseId, new Map());
@@ -144,14 +147,37 @@ io.on('connection', (socket) => {
     });
     io.to(caseId).emit('case:presence', getPresence(caseId));
     logger.info('[Presence] Utilisateur rejoint', { username: user.username, caseId });
+    // Record session start
+    try {
+      const res = await pool.query(
+        `INSERT INTO case_sessions (case_id, user_id, started_at) VALUES ($1, $2, NOW()) RETURNING id`,
+        [caseId, user.id]
+      );
+      sessionMap.set(socket.id + ':' + caseId, { caseId, sessionId: res.rows[0].id, startedAt: Date.now() });
+    } catch (_) {}
   });
 
-  socket.on('case:leave', ({ caseId }) => {
+  async function closeSession(socketId, caseId) {
+    const key = socketId + ':' + caseId;
+    const sess = sessionMap.get(key);
+    if (!sess) return;
+    sessionMap.delete(key);
+    const dur = Math.round((Date.now() - sess.startedAt) / 1000);
+    try {
+      await pool.query(
+        `UPDATE case_sessions SET ended_at = NOW(), duration_s = $1 WHERE id = $2`,
+        [dur, sess.sessionId]
+      );
+    } catch (_) {}
+  }
+
+  socket.on('case:leave', async ({ caseId }) => {
     if (!caseId) return;
     socket.leave(caseId);
     presenceMap.get(caseId)?.delete(socket.id);
     io.to(caseId).emit('case:presence', getPresence(caseId));
     logger.info('[Presence] Utilisateur quitte', { username: user.username, caseId });
+    await closeSession(socket.id, caseId);
   });
 
   socket.on('chat:send', async ({ caseId, content, reply_to_id }) => {
@@ -271,13 +297,14 @@ io.on('connection', (socket) => {
     }
   });
 
-  socket.on('disconnect', (reason) => {
+  socket.on('disconnect', async (reason) => {
     logger.info('[Socket.io] Déconnexion', { username: user?.username, sid: socket.id, reason });
 
     for (const [caseId, room] of presenceMap.entries()) {
       if (room.has(socket.id)) {
         room.delete(socket.id);
         io.to(caseId).emit('case:presence', getPresence(caseId));
+        await closeSession(socket.id, caseId);
       }
     }
   });

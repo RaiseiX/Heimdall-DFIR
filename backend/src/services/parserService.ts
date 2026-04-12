@@ -321,7 +321,7 @@ export async function runParser(
         if (entry.isDirectory()) results.push(...findCsvRecursive(full));
         else if (entry.isFile() && entry.name.toLowerCase().endsWith('.csv')) results.push(full);
       }
-    } catch  }
+    } catch (_e) {}
     return results;
   }
 

@@ -10,26 +10,26 @@ const TACTIC_ORDER = [
 ];
 
 const TACTIC_COLORS = {
-  'Reconnaissance':          '#4d82c0',
+  'Reconnaissance':          'var(--fl-accent)',
   'Resource Development':    '#0ea5e9',
-  'Initial Access':          '#c89d1d',
-  'Execution':               '#d97c20',
-  'Persistence':             '#c96898',
+  'Initial Access':          'var(--fl-gold)',
+  'Execution':               'var(--fl-warn)',
+  'Persistence':             'var(--fl-pink)',
   'Privilege Escalation':    '#8b5cf6',
   'Defense Evasion':         '#64748b',
   'Credential Access':       '#06b6d4',
   'Discovery':               '#22c55e',
   'Lateral Movement':        '#f97316',
   'Collection':              '#84cc16',
-  'Command and Control':     '#8b72d6',
+  'Command and Control':     'var(--fl-purple)',
   'Exfiltration':            '#f43f5e',
-  'Impact':                  '#da3633',
+  'Impact':                  'var(--fl-danger)',
 };
 
 const CONF_COLORS = {
-  confirmed: '#ef4444',
-  high:      '#d97c20',
-  medium:    '#c89d1d',
+  confirmed: 'var(--fl-danger)',
+  high:      'var(--fl-warn)',
+  medium:    'var(--fl-gold)',
   low:       '#22c55e',
 };
 
@@ -39,10 +39,10 @@ function fmtTs(ts) {
 }
 
 export default function AttackPathD3({ svgRef: externalSvgRef, caseId, nodes, edges, phasesCovered, theme }) {
-  const bgColor    = theme?.bg    || '#0d1117';
-  const panelColor = theme?.panel || '#161b22';
-  const dimColor   = theme?.dim   || '#484f58';
-  const inactiveColBg = theme?.mode === 'light' ? '#e8eef4' : '#0d1117';
+  const bgColor    = theme?.bg    || 'var(--fl-bg)';
+  const panelColor = theme?.panel || 'var(--fl-panel)';
+  const dimColor   = theme?.dim   || 'var(--fl-muted)';
+  const inactiveColBg = theme?.mode === 'light' ? '#e8eef4' : 'var(--fl-bg)';
   const inactiveColHdr = theme?.mode === 'light' ? '#dce4ec' : '#1a2030';
   const inactiveColTxt = theme?.mode === 'light' ? '#8090a8' : '#3d4f6a';
   const emptyPrimary   = theme?.mode === 'light' ? '#90a0b8' : '#3d4f6a';
@@ -108,7 +108,7 @@ export default function AttackPathD3({ svgRef: externalSvgRef, caseId, nodes, ed
     const allCols = [...TACTIC_ORDER, ...(unknownNodes.length > 0 ? ['Autres'] : [])];
     allCols.forEach((tactic, colIdx) => {
       const colNodes = tactic === 'Autres' ? unknownNodes : (tacticNodes[tactic] || []);
-      const color = TACTIC_COLORS[tactic] || '#484f58';
+      const color = TACTIC_COLORS[tactic] || 'var(--fl-muted)';
       const colX = PADDING_LEFT + colIdx * (COL_W + COL_GAP);
       const isActive = colNodes.length > 0;
 
@@ -165,7 +165,7 @@ export default function AttackPathD3({ svgRef: externalSvgRef, caseId, nodes, ed
         const ny = 10 + COL_H_HEADER + nodeIdx * (NODE_H + NODE_MARGIN) + NODE_H / 2 + NODE_MARGIN;
         nodePos.set(node.id, { x: nx, y: ny });
 
-        const confColor = CONF_COLORS[node.confidence] || '#7d8590';
+        const confColor = CONF_COLORS[node.confidence] || 'var(--fl-dim)';
         const nodeG = g.append('g')
           .style('cursor', 'pointer')
           .on('click', (event) => {
@@ -269,21 +269,21 @@ export default function AttackPathD3({ svgRef: externalSvgRef, caseId, nodes, ed
       }}>
         <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
           <svg width="16" height="16" viewBox="0 0 16 16">
-            <polygon points="8,2 14,8 8,14 2,8" fill="none" stroke="#7d8590" strokeWidth="1.5" />
+            <polygon points="8,2 14,8 8,14 2,8" fill="none" stroke="var(--fl-dim)" strokeWidth="1.5" />
           </svg> Technique manuelle
         </span>
         <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
           <svg width="16" height="16" viewBox="0 0 16 16">
-            <path d="M8,2 L13.5,5 L13.5,11 L8,14 L2.5,11 L2.5,5 Z" fill="none" stroke="#7d8590" strokeWidth="1.5" />
+            <path d="M8,2 L13.5,5 L13.5,11 L8,14 L2.5,11 L2.5,5 Z" fill="none" stroke="var(--fl-dim)" strokeWidth="1.5" />
           </svg> Bookmark
         </span>
         <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
           <svg width="16" height="16" viewBox="0 0 16 16">
-            <circle cx="8" cy="8" r="6" fill="none" stroke="#7d8590" strokeWidth="1.5" />
+            <circle cx="8" cy="8" r="6" fill="none" stroke="var(--fl-dim)" strokeWidth="1.5" />
           </svg> Detection Sigma
         </span>
         {phasesCovered.length > 0 && (
-          <span style={{ color: '#3fb950' }}>{phasesCovered.length} tactiques couvertes</span>
+          <span style={{ color: 'var(--fl-ok)' }}>{phasesCovered.length} tactiques couvertes</span>
         )}
       </div>
 
@@ -299,17 +299,17 @@ export default function AttackPathD3({ svgRef: externalSvgRef, caseId, nodes, ed
         <div
           style={{
             position: 'absolute', right: 0, top: 0, bottom: 0, width: 280,
-            background: panelColor, borderLeft: `1px solid ${theme?.border || '#30363d'}`,
+            background: panelColor, borderLeft: `1px solid ${theme?.border || 'var(--fl-border)'}`,
             display: 'flex', flexDirection: 'column', overflow: 'hidden',
           }}
           onClick={e => e.stopPropagation()}
         >
           <div style={{
-            padding: '10px 14px', borderBottom: `1px solid ${theme?.border || '#30363d'}`,
+            padding: '10px 14px', borderBottom: `1px solid ${theme?.border || 'var(--fl-border)'}`,
             display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between',
           }}>
             <div>
-              <div style={{ fontSize: 12, fontWeight: 700, color: theme?.text || '#e6edf3', fontFamily: 'monospace' }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: theme?.text || 'var(--fl-text)', fontFamily: 'monospace' }}>
                 {selectedNode.technique_id || '—'}
               </div>
               <div style={{ fontSize: 11, color: dimColor, marginTop: 2 }}>
@@ -328,8 +328,8 @@ export default function AttackPathD3({ svgRef: externalSvgRef, caseId, nodes, ed
                   <div style={{ color: dimColor, fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 3 }}>Tactique</div>
                   <span style={{
                     padding: '2px 8px', borderRadius: 4, fontSize: 11, fontFamily: 'monospace',
-                    background: `${TACTIC_COLORS[selectedNode.tactic] || '#484f58'}20`,
-                    color: TACTIC_COLORS[selectedNode.tactic] || '#7d8590',
+                    background: `${TACTIC_COLORS[selectedNode.tactic] || 'var(--fl-muted)'}20`,
+                    color: TACTIC_COLORS[selectedNode.tactic] || 'var(--fl-dim)',
                   }}>
                     {selectedNode.tactic}
                   </span>
@@ -338,10 +338,10 @@ export default function AttackPathD3({ svgRef: externalSvgRef, caseId, nodes, ed
 
               <div>
                 <div style={{ color: dimColor, fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 3 }}>Source</div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 5, color: theme?.text || '#e6edf3' }}>
-                  {selectedNode.source === 'bookmark' && <BookmarkIcon size={12} style={{ color: '#c89d1d' }} />}
-                  {selectedNode.source === 'technique' && <Shield size={12} style={{ color: '#4d82c0' }} />}
-                  {selectedNode.source === 'detection' && <Cpu size={12} style={{ color: '#8b72d6' }} />}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 5, color: theme?.text || 'var(--fl-text)' }}>
+                  {selectedNode.source === 'bookmark' && <BookmarkIcon size={12} style={{ color: 'var(--fl-gold)' }} />}
+                  {selectedNode.source === 'technique' && <Shield size={12} style={{ color: 'var(--fl-accent)' }} />}
+                  {selectedNode.source === 'detection' && <Cpu size={12} style={{ color: 'var(--fl-purple)' }} />}
                   {selectedNode.source === 'bookmark' ? 'Bookmark Timeline' : selectedNode.source === 'technique' ? 'Technique manuelle' : 'Detection Sigma/Hayabusa'}
                 </div>
                 {selectedNode.rule_name && (
@@ -355,8 +355,8 @@ export default function AttackPathD3({ svgRef: externalSvgRef, caseId, nodes, ed
                 <div style={{ color: dimColor, fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 3 }}>Confiance</div>
                 <span style={{
                   padding: '1px 7px', borderRadius: 4, fontSize: 10, fontFamily: 'monospace',
-                  background: `${CONF_COLORS[selectedNode.confidence] || '#484f58'}20`,
-                  color: CONF_COLORS[selectedNode.confidence] || '#7d8590',
+                  background: `${CONF_COLORS[selectedNode.confidence] || 'var(--fl-muted)'}20`,
+                  color: CONF_COLORS[selectedNode.confidence] || 'var(--fl-dim)',
                 }}>
                   {selectedNode.confidence}
                 </span>
@@ -365,7 +365,7 @@ export default function AttackPathD3({ svgRef: externalSvgRef, caseId, nodes, ed
               {selectedNode.timestamp && (
                 <div>
                   <div style={{ color: dimColor, fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 3 }}>Horodatage</div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 4, color: theme?.text || '#e6edf3', fontFamily: 'monospace', fontSize: 11 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 4, color: theme?.text || 'var(--fl-text)', fontFamily: 'monospace', fontSize: 11 }}>
                     <Clock size={11} style={{ color: dimColor }} /> {fmtTs(selectedNode.timestamp)}
                   </div>
                 </div>
@@ -380,8 +380,8 @@ export default function AttackPathD3({ svgRef: externalSvgRef, caseId, nodes, ed
 
               {selectedNode.artifact_ref && (
                 <div>
-                  <div style={{ color: '#484f58', fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 3 }}>Artefact source</div>
-                  <div style={{ color: '#4d82c0', fontSize: 10, fontFamily: 'monospace' }}>{selectedNode.artifact_ref}</div>
+                  <div style={{ color: 'var(--fl-muted)', fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 3 }}>Artefact source</div>
+                  <div style={{ color: 'var(--fl-accent)', fontSize: 10, fontFamily: 'monospace' }}>{selectedNode.artifact_ref}</div>
                 </div>
               )}
             </div>

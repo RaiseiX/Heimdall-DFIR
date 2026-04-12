@@ -97,7 +97,7 @@ export default function ReportTemplateModal({ onClose, onSelect }) {
       await reportsAPI.deleteTemplate(id);
       setTemplates(prev => prev.filter(t => t.id !== id));
       if (editing?.id === id) setEditing(null);
-    } catch  }
+    } catch (_e) {}
   };
 
   const toggleSection = (sectionId) => {
@@ -123,20 +123,20 @@ export default function ReportTemplateModal({ onClose, onSelect }) {
     >
       <div style={{
         width: editing ? 780 : 460, maxHeight: '90vh',
-        background: '#0d1117', border: '1px solid #1e2a3a',
+        background: 'var(--fl-bg)', border: '1px solid var(--fl-card)',
         borderRadius: 12, boxShadow: '0 12px 40px rgba(0,0,0,0.6)',
         display: 'flex', flexDirection: 'column', overflow: 'hidden',
       }}>
 
         <div style={{
-          padding: '12px 16px', borderBottom: '1px solid #1e2a3a',
+          padding: '12px 16px', borderBottom: '1px solid var(--fl-card)',
           display: 'flex', alignItems: 'center', gap: 8,
         }}>
-          <FileText size={14} style={{ color: '#4d82c0' }} />
-          <span style={{ fontFamily: 'monospace', fontWeight: 700, color: '#c9d1d9', fontSize: 13, flex: 1 }}>
+          <FileText size={14} style={{ color: 'var(--fl-accent)' }} />
+          <span style={{ fontFamily: 'monospace', fontWeight: 700, color: 'var(--fl-dim)', fontSize: 13, flex: 1 }}>
             {editing ? (editing.id ? 'Modifier le template' : 'Nouveau template') : 'Templates de rapport'}
           </span>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#7d8590', padding: 2 }}>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--fl-dim)', padding: 2 }}>
             <X size={14} />
           </button>
         </div>
@@ -145,7 +145,7 @@ export default function ReportTemplateModal({ onClose, onSelect }) {
 
           <div style={{
             width: editing ? 220 : '100%', flexShrink: 0,
-            borderRight: editing ? '1px solid #1e2a3a' : 'none',
+            borderRight: editing ? '1px solid var(--fl-card)' : 'none',
             padding: 12, display: 'flex', flexDirection: 'column', gap: 6,
           }}>
             <button
@@ -154,14 +154,14 @@ export default function ReportTemplateModal({ onClose, onSelect }) {
                 display: 'flex', alignItems: 'center', gap: 6,
                 padding: '7px 12px', borderRadius: 7, fontSize: 11,
                 fontFamily: 'monospace', cursor: 'pointer',
-                background: '#4d82c015', border: '1px solid #4d82c035', color: '#4d82c0',
+                background: '#4d82c015', border: '1px solid #4d82c035', color: 'var(--fl-accent)',
               }}
             >
               <Plus size={11} /> Nouveau template
             </button>
 
             {templates.length === 0 && (
-              <div style={{ fontSize: 11, color: '#484f58', fontFamily: 'monospace', textAlign: 'center', padding: '16px 0' }}>
+              <div style={{ fontSize: 11, color: 'var(--fl-muted)', fontFamily: 'monospace', textAlign: 'center', padding: '16px 0' }}>
                 Aucun template — créez-en un !
               </div>
             )}
@@ -171,18 +171,18 @@ export default function ReportTemplateModal({ onClose, onSelect }) {
                 key={tpl.id}
                 style={{
                   padding: '8px 10px', borderRadius: 7, cursor: 'pointer',
-                  background: editing?.id === tpl.id ? '#4d82c018' : '#0d1117',
-                  border: `1px solid ${editing?.id === tpl.id ? '#4d82c035' : '#1e2a3a'}`,
+                  background: editing?.id === tpl.id ? '#4d82c018' : 'var(--fl-bg)',
+                  border: `1px solid ${editing?.id === tpl.id ? '#4d82c035' : 'var(--fl-card)'}`,
                   transition: 'background 0.1s',
                 }}
               >
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                   <div style={{ flex: 1, minWidth: 0 }} onClick={() => startEdit(tpl)}>
-                    <div style={{ fontSize: 11, fontFamily: 'monospace', color: '#c9d1d9', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    <div style={{ fontSize: 11, fontFamily: 'monospace', color: 'var(--fl-dim)', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {tpl.name}
                     </div>
                     {tpl.description && (
-                      <div style={{ fontSize: 10, color: '#7d8590', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: 2 }}>
+                      <div style={{ fontSize: 10, color: 'var(--fl-dim)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: 2 }}>
                         {tpl.description}
                       </div>
                     )}
@@ -203,7 +203,7 @@ export default function ReportTemplateModal({ onClose, onSelect }) {
                   <button
                     onClick={() => handleDelete(tpl.id)}
                     title="Supprimer"
-                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#4d5460', padding: 2, flexShrink: 0 }}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--fl-muted)', padding: 2, flexShrink: 0 }}
                   >
                     <Trash2 size={11} />
                   </button>
@@ -217,7 +217,7 @@ export default function ReportTemplateModal({ onClose, onSelect }) {
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                 <div>
-                  <label style={{ fontSize: 10, color: '#7d8590', fontFamily: 'monospace', display: 'block', marginBottom: 4 }}>Nom *</label>
+                  <label style={{ fontSize: 10, color: 'var(--fl-dim)', fontFamily: 'monospace', display: 'block', marginBottom: 4 }}>Nom *</label>
                   <input
                     value={editing.name}
                     onChange={e => setEditing(p => ({ ...p, name: e.target.value }))}
@@ -226,7 +226,7 @@ export default function ReportTemplateModal({ onClose, onSelect }) {
                   />
                 </div>
                 <div>
-                  <label style={{ fontSize: 10, color: '#7d8590', fontFamily: 'monospace', display: 'block', marginBottom: 4 }}>Description</label>
+                  <label style={{ fontSize: 10, color: 'var(--fl-dim)', fontFamily: 'monospace', display: 'block', marginBottom: 4 }}>Description</label>
                   <input
                     value={editing.description || ''}
                     onChange={e => setEditing(p => ({ ...p, description: e.target.value }))}
@@ -255,7 +255,7 @@ export default function ReportTemplateModal({ onClose, onSelect }) {
                 <div>
                   <label style={labelSt}>Couleur</label>
                   <input type="color" value={editing.config.color_accent || '#00d4ff'} onChange={e => setConfigField('color_accent', e.target.value)}
-                    style={{ width: 48, height: 32, border: '1px solid #1e2a3a', borderRadius: 6, cursor: 'pointer', background: 'none' }} />
+                    style={{ width: 48, height: 32, border: '1px solid var(--fl-card)', borderRadius: 6, cursor: 'pointer', background: 'none' }} />
                 </div>
               </div>
 
@@ -288,7 +288,7 @@ export default function ReportTemplateModal({ onClose, onSelect }) {
                   onChange={e => setConfigField('use_ai', e.target.checked)}
                   style={{ cursor: 'pointer', accentColor: '#8b5cf6' }}
                 />
-                <label htmlFor="use-ai" style={{ fontSize: 11, fontFamily: 'monospace', color: '#c9d1d9', cursor: 'pointer' }}>
+                <label htmlFor="use-ai" style={{ fontSize: 11, fontFamily: 'monospace', color: 'var(--fl-dim)', cursor: 'pointer' }}>
                   Enrichir avec l'IA (synthèse narrative automatique)
                 </label>
               </div>
@@ -305,16 +305,16 @@ export default function ReportTemplateModal({ onClose, onSelect }) {
                           display: 'flex', alignItems: 'center', gap: 7, cursor: 'pointer',
                           padding: '5px 8px', borderRadius: 5,
                           background: active ? '#4d82c010' : 'transparent',
-                          border: `1px solid ${active ? '#4d82c030' : '#1e2a3a'}`,
+                          border: `1px solid ${active ? '#4d82c030' : 'var(--fl-card)'}`,
                         }}
                       >
                         <input
                           type="checkbox"
                           checked={active}
                           onChange={() => toggleSection(sec.id)}
-                          style={{ accentColor: '#4d82c0', cursor: 'pointer' }}
+                          style={{ accentColor: 'var(--fl-accent)', cursor: 'pointer' }}
                         />
-                        <span style={{ fontSize: 11, fontFamily: 'monospace', color: active ? '#c9d1d9' : '#7d8590' }}>
+                        <span style={{ fontSize: 11, fontFamily: 'monospace', color: active ? 'var(--fl-dim)' : 'var(--fl-dim)' }}>
                           {sec.label}
                         </span>
                       </label>
@@ -324,7 +324,7 @@ export default function ReportTemplateModal({ onClose, onSelect }) {
               </div>
 
               {error && (
-                <div style={{ fontSize: 11, color: '#da3633', fontFamily: 'monospace' }}>{error}</div>
+                <div style={{ fontSize: 11, color: 'var(--fl-danger)', fontFamily: 'monospace' }}>{error}</div>
               )}
 
               <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', paddingTop: 4 }}>
@@ -343,19 +343,19 @@ export default function ReportTemplateModal({ onClose, onSelect }) {
 
 const inputSt = {
   width: '100%', boxSizing: 'border-box',
-  background: '#0d1117', border: '1px solid #1e2a3a', borderRadius: 6,
-  color: '#c9d1d9', fontSize: 11, fontFamily: 'monospace',
+  background: 'var(--fl-bg)', border: '1px solid var(--fl-card)', borderRadius: 6,
+  color: 'var(--fl-dim)', fontSize: 11, fontFamily: 'monospace',
   padding: '5px 9px', outline: 'none',
 };
 const labelSt = {
-  fontSize: 10, color: '#7d8590', fontFamily: 'monospace', display: 'block', marginBottom: 4,
+  fontSize: 10, color: 'var(--fl-dim)', fontFamily: 'monospace', display: 'block', marginBottom: 4,
 };
 const btnGhost = {
   padding: '6px 14px', borderRadius: 6, fontSize: 11, fontFamily: 'monospace',
-  cursor: 'pointer', background: 'transparent', border: '1px solid #1e2a3a', color: '#7d8590',
+  cursor: 'pointer', background: 'transparent', border: '1px solid var(--fl-card)', color: 'var(--fl-dim)',
 };
 const btnPrimary = {
   display: 'flex', alignItems: 'center', gap: 5,
   padding: '6px 14px', borderRadius: 6, fontSize: 11, fontFamily: 'monospace',
-  cursor: 'pointer', background: '#4d82c0', border: 'none', color: '#fff', fontWeight: 600,
+  cursor: 'pointer', background: 'var(--fl-accent)', border: 'none', color: '#fff', fontWeight: 600,
 };

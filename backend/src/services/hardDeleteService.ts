@@ -69,7 +69,7 @@ async function destroyFile(filePath: string): Promise<{ path: string; method: 's
     return { path: filePath, method };
   } catch (err: any) {
     logger.warn('[hardDelete] DoD wipe failed, falling back to unlink:', err.message);
-    try { await fs.promises.unlink(filePath); } catch  }
+    try { await fs.promises.unlink(filePath); } catch (_e) {}
     return { path: filePath, method: 'unlink', error: err.message };
   }
 }

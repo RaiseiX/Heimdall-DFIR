@@ -12,12 +12,12 @@ const MAX_COLS  = 25;
 
 const PARSER_COLORS = {
 
-  evtx:       '#4d82c0',
-  mft:        '#8b72d6',
+  evtx:       'var(--fl-accent)',
+  mft:        'var(--fl-purple)',
   prefetch:   '#22c55e',
-  lnk:        '#d97c20',
-  registry:   '#c96898',
-  amcache:    '#c89d1d',
+  lnk:        'var(--fl-warn)',
+  registry:   'var(--fl-pink)',
+  amcache:    'var(--fl-gold)',
   appcompat:  '#f59e0b',
   shellbags:  '#06b6d4',
   jumplist:   '#8b5cf6',
@@ -26,24 +26,24 @@ const PARSER_COLORS = {
   recycle:    '#84cc16',
   bits:       '#fb923c',
   sum:        '#d946ef',
-  hayabusa:   '#ef4444',
+  hayabusa:   'var(--fl-danger)',
 
-  mfteCmd:          '#8b72d6',
+  mfteCmd:          'var(--fl-purple)',
   pecmd:            '#22c55e',
-  lecmd:            '#d97c20',
+  lecmd:            'var(--fl-warn)',
   sbecmd:           '#06b6d4',
-  amcacheparser:    '#c89d1d',
+  amcacheparser:    'var(--fl-gold)',
   appcompatcacheparser: '#f59e0b',
-  evtxecmd:         '#4d82c0',
-  recmd:            '#c96898',
+  evtxecmd:         'var(--fl-accent)',
+  recmd:            'var(--fl-pink)',
   jlecmd:           '#8b5cf6',
   srumeCmd:         '#f43f5e',
   wxtcmd2:          '#14b8a6',
   rbcmd:            '#84cc16',
   bitsparser:       '#fb923c',
   sumeCmd:          '#d946ef',
-  unifiedtimeline:  '#7d8590',
-  magnetresponseimport: '#484f58',
+  unifiedtimeline:  'var(--fl-dim)',
+  magnetresponseimport: 'var(--fl-muted)',
 };
 
 function parserColor(name = '') {
@@ -54,7 +54,7 @@ function parserColor(name = '') {
   for (const [k, v] of Object.entries(PARSER_COLORS)) {
     if (key.startsWith(k) || k.startsWith(key)) return v;
   }
-  return '#7d8590';
+  return 'var(--fl-dim)';
 }
 
 function fmtDate(iso) {
@@ -103,16 +103,16 @@ function ResultChip({ result, isSelected, onClick, onDelete, deleting, onExplore
         style={{
           display: 'flex', flexDirection: 'column', alignItems: 'flex-start',
           padding: '8px 12px', paddingRight: 54, borderRadius: 8, cursor: 'pointer', textAlign: 'left',
-          background: isSelected ? `${col}10` : '#0d1117',
-          border: `1px solid ${isSelected ? col + '50' : '#30363d'}`,
+          background: isSelected ? `${col}10` : 'var(--fl-bg)',
+          border: `1px solid ${isSelected ? col + '50' : 'var(--fl-border)'}`,
           minWidth: 140, transition: 'all 0.15s',
         }}
       >
         <ParserBadge name={result.parser_name} />
-        <span style={{ fontSize: 11, color: '#7d8590', marginTop: 4, fontFamily: 'monospace' }}>
+        <span style={{ fontSize: 11, color: 'var(--fl-dim)', marginTop: 4, fontFamily: 'monospace' }}>
           {(result.record_count ?? 0).toLocaleString()} lignes
         </span>
-        <span style={{ fontSize: 10, color: '#484f58', marginTop: 2 }}>
+        <span style={{ fontSize: 10, color: 'var(--fl-muted)', marginTop: 2 }}>
           {fmtDate(result.created_at)}
         </span>
       </button>
@@ -127,7 +127,7 @@ function ResultChip({ result, isSelected, onClick, onDelete, deleting, onExplore
           background: 'transparent', border: 'none', cursor: 'pointer',
           color: '#4d82c060', transition: 'color 0.15s',
         }}
-        onMouseEnter={e => e.currentTarget.style.color = '#4d82c0'}
+        onMouseEnter={e => e.currentTarget.style.color = 'var(--fl-accent)'}
         onMouseLeave={e => e.currentTarget.style.color = '#4d82c060'}
       >
         <ExternalLink size={11} />
@@ -143,7 +143,7 @@ function ResultChip({ result, isSelected, onClick, onDelete, deleting, onExplore
           background: 'transparent', border: 'none', cursor: deleting ? 'not-allowed' : 'pointer',
           color: '#da363360', transition: 'color 0.15s',
         }}
-        onMouseEnter={e => e.currentTarget.style.color = '#da3633'}
+        onMouseEnter={e => e.currentTarget.style.color = 'var(--fl-danger)'}
         onMouseLeave={e => e.currentTarget.style.color = '#da363360'}
       >
         {deleting ? <Loader2 size={11} className="animate-spin" /> : <Trash2 size={11} />}
@@ -155,7 +155,7 @@ function ResultChip({ result, isSelected, onClick, onDelete, deleting, onExplore
 function DataTable({ records, columns, loading }) {
   if (loading) {
     return (
-      <div style={{ textAlign: 'center', padding: '32px 0', color: '#7d8590' }}>
+      <div style={{ textAlign: 'center', padding: '32px 0', color: 'var(--fl-dim)' }}>
         <Loader2 size={20} className="animate-spin" style={{ display: 'inline', marginRight: 8 }} />
         Chargement des données…
       </div>
@@ -164,22 +164,22 @@ function DataTable({ records, columns, loading }) {
 
   if (!records || records.length === 0) {
     return (
-      <div style={{ textAlign: 'center', padding: '32px 0', color: '#7d8590', fontSize: 13 }}>
+      <div style={{ textAlign: 'center', padding: '32px 0', color: 'var(--fl-dim)', fontSize: 13 }}>
         Aucune donnée sur cette page.
       </div>
     );
   }
 
   return (
-    <div style={{ overflowX: 'auto', borderRadius: 8, border: '1px solid #30363d' }}>
+    <div style={{ overflowX: 'auto', borderRadius: 8, border: '1px solid var(--fl-border)' }}>
       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, minWidth: 600 }}>
         <thead>
-          <tr style={{ background: '#0d1117' }}>
+          <tr style={{ background: 'var(--fl-bg)' }}>
             {columns.map(col => (
               <th key={col} style={{
                 textAlign: 'left', padding: '6px 10px', fontFamily: 'monospace',
                 textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600,
-                color: '#7d8590', borderBottom: '1px solid #30363d', whiteSpace: 'nowrap',
+                color: 'var(--fl-dim)', borderBottom: '1px solid var(--fl-border)', whiteSpace: 'nowrap',
               }}>
                 {col}
               </th>
@@ -203,7 +203,7 @@ function DataTable({ records, columns, loading }) {
                     key={col}
                     title={display}
                     style={{
-                      padding: '5px 10px', fontFamily: 'monospace', color: '#e6edf3',
+                      padding: '5px 10px', fontFamily: 'monospace', color: 'var(--fl-text)',
                       maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis',
                       whiteSpace: 'nowrap',
                     }}
@@ -232,13 +232,13 @@ function Pagination({ page, totalPages, total, pageSize, onChange }) {
         style={{
           display: 'flex', alignItems: 'center', gap: 4,
           padding: '5px 12px', borderRadius: 6, fontSize: 12, fontFamily: 'monospace',
-          background: '#1c2333', border: '1px solid #30363d',
-          color: page <= 1 ? '#334155' : '#7d8590', cursor: page <= 1 ? 'not-allowed' : 'pointer',
+          background: 'var(--fl-card)', border: '1px solid var(--fl-border)',
+          color: page <= 1 ? 'var(--fl-card)' : 'var(--fl-dim)', cursor: page <= 1 ? 'not-allowed' : 'pointer',
         }}
       >
         <ChevronLeft size={12} /> Précédent
       </button>
-      <span style={{ fontSize: 11, fontFamily: 'monospace', color: '#7d8590' }}>
+      <span style={{ fontSize: 11, fontFamily: 'monospace', color: 'var(--fl-dim)' }}>
         {from.toLocaleString()}–{to.toLocaleString()} sur {total.toLocaleString()} · Page {page}/{totalPages}
       </span>
       <button
@@ -247,8 +247,8 @@ function Pagination({ page, totalPages, total, pageSize, onChange }) {
         style={{
           display: 'flex', alignItems: 'center', gap: 4,
           padding: '5px 12px', borderRadius: 6, fontSize: 12, fontFamily: 'monospace',
-          background: '#1c2333', border: '1px solid #30363d',
-          color: page >= totalPages ? '#334155' : '#7d8590',
+          background: 'var(--fl-card)', border: '1px solid var(--fl-border)',
+          color: page >= totalPages ? 'var(--fl-card)' : 'var(--fl-dim)',
           cursor: page >= totalPages ? 'not-allowed' : 'pointer',
         }}
       >
@@ -395,14 +395,14 @@ export default function ParsedResultsViewer({ caseId, refreshKey = 0 }) {
       
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <Table2 size={15} style={{ color: '#4d82c0' }} />
-          <span style={{ fontSize: 11, fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: '0.08em', color: '#7d8590' }}>
+          <Table2 size={15} style={{ color: 'var(--fl-accent)' }} />
+          <span style={{ fontSize: 11, fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--fl-dim)' }}>
             Résultats de parsing
           </span>
           {!loadingList && results.length > 0 && (
             <span style={{
               padding: '1px 8px', borderRadius: 4, fontSize: 11, fontFamily: 'monospace',
-              fontWeight: 700, background: '#4d82c018', color: '#4d82c0', border: '1px solid #4d82c030',
+              fontWeight: 700, background: '#4d82c018', color: 'var(--fl-accent)', border: '1px solid #4d82c030',
             }}>
               {results.length}
             </span>
@@ -412,7 +412,7 @@ export default function ParsedResultsViewer({ caseId, refreshKey = 0 }) {
           style={{
             display: 'flex', alignItems: 'center', gap: 4,
             padding: '4px 10px', borderRadius: 6, fontSize: 11, fontFamily: 'monospace',
-            background: 'transparent', border: '1px solid #30363d', color: '#7d8590', cursor: 'pointer',
+            background: 'transparent', border: '1px solid var(--fl-border)', color: 'var(--fl-dim)', cursor: 'pointer',
           }}
         >
           <RefreshCw size={11} className={loadingList ? 'animate-spin' : ''} /> Actualiser
@@ -420,22 +420,22 @@ export default function ParsedResultsViewer({ caseId, refreshKey = 0 }) {
       </div>
 
       <div style={{
-        padding: 12, borderRadius: 10, border: '1px solid #30363d',
-        background: '#0d1117', marginBottom: 16,
+        padding: 12, borderRadius: 10, border: '1px solid var(--fl-border)',
+        background: 'var(--fl-bg)', marginBottom: 16,
       }}>
         {loadingList ? (
-          <div style={{ textAlign: 'center', padding: '16px 0', color: '#7d8590' }}>
+          <div style={{ textAlign: 'center', padding: '16px 0', color: 'var(--fl-dim)' }}>
             <Loader2 size={16} className="animate-spin" style={{ display: 'inline', marginRight: 6 }} />
             Chargement…
           </div>
         ) : listError ? (
-          <div style={{ color: '#ef4444', fontSize: 12 }}>⚠ {listError}</div>
+          <div style={{ color: 'var(--fl-danger)', fontSize: 12 }}>⚠ {listError}</div>
         ) : results.length === 0 ? (
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 0' }}>
-            <FileText size={20} style={{ color: '#334155' }} />
+            <FileText size={20} style={{ color: 'var(--fl-muted)' }} />
             <div>
-              <div style={{ fontSize: 13, color: '#7d8590' }}>Aucun résultat de parsing pour ce cas.</div>
-              <div style={{ fontSize: 11, color: '#484f58', marginTop: 2 }}>
+              <div style={{ fontSize: 13, color: 'var(--fl-dim)' }}>Aucun résultat de parsing pour ce cas.</div>
+              <div style={{ fontSize: 11, color: 'var(--fl-muted)', marginTop: 2 }}>
                 Sélectionnez un parseur et une preuve ci-dessus, puis cliquez sur "Exécuter".
               </div>
             </div>
@@ -463,23 +463,23 @@ export default function ParsedResultsViewer({ caseId, refreshKey = 0 }) {
           <div style={{
             display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 16,
             padding: '8px 12px', borderRadius: 8, marginBottom: 10,
-            background: '#1c2333', border: '1px solid #30363d',
+            background: 'var(--fl-card)', border: '1px solid var(--fl-border)',
           }}>
             <ParserBadge name={selected.parser_name} />
-            <span style={{ fontSize: 12, color: '#e6edf3' }}>
+            <span style={{ fontSize: 12, color: 'var(--fl-text)' }}>
               {selected.evidence_name || '—'}
             </span>
-            <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: '#7d8590', fontFamily: 'monospace' }}>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: 'var(--fl-dim)', fontFamily: 'monospace' }}>
               <Hash size={11} /> {total.toLocaleString()} enregistrements
             </span>
-            <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: '#7d8590', fontFamily: 'monospace' }}>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: 'var(--fl-dim)', fontFamily: 'monospace' }}>
               <Calendar size={11} /> {fmtDate(selected.created_at)}
             </span>
-            <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: '#7d8590', fontFamily: 'monospace' }}>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: 'var(--fl-dim)', fontFamily: 'monospace' }}>
               <User size={11} /> {selected.parsed_by || 'system'}
             </span>
             {columns.length > 0 && (
-              <span style={{ fontSize: 11, color: '#7d8590', fontFamily: 'monospace' }}>
+              <span style={{ fontSize: 11, color: 'var(--fl-dim)', fontFamily: 'monospace' }}>
                 {columns.length} colonnes détectées
               </span>
             )}
@@ -493,14 +493,14 @@ export default function ParsedResultsViewer({ caseId, refreshKey = 0 }) {
                   a.download = `parser-${selected.parser_name}-${new Date(selected.created_at).toISOString().slice(0,10)}.csv`;
                   a.click();
                   URL.revokeObjectURL(url);
-                } catch  }
+                } catch (_e) {}
               }}
               title="Exporter en CSV"
               style={{
                 display: 'flex', alignItems: 'center', gap: 4,
                 padding: '3px 10px', borderRadius: 5, fontSize: 11, fontFamily: 'monospace',
-                background: 'transparent', border: '1px solid #30363d',
-                color: '#7d8590', cursor: 'pointer', marginLeft: 'auto',
+                background: 'transparent', border: '1px solid var(--fl-border)',
+                color: 'var(--fl-dim)', cursor: 'pointer', marginLeft: 'auto',
               }}
             >
               <Download size={11} /> CSV
@@ -511,10 +511,10 @@ export default function ParsedResultsViewer({ caseId, refreshKey = 0 }) {
             <div style={{
               display: 'flex', gap: 6, flexWrap: 'wrap',
               padding: '8px 10px', borderRadius: 8, marginBottom: 10,
-              background: '#0d1117', border: '1px solid #30363d',
+              background: 'var(--fl-bg)', border: '1px solid var(--fl-border)',
             }}>
               {loadingTypes ? (
-                <span style={{ fontSize: 11, color: '#7d8590', fontFamily: 'monospace' }}>
+                <span style={{ fontSize: 11, color: 'var(--fl-dim)', fontFamily: 'monospace' }}>
                   <Loader2 size={11} style={{ display: 'inline', marginRight: 4 }} className="animate-spin" />
                   Chargement des types…
                 </span>
@@ -527,14 +527,14 @@ export default function ParsedResultsViewer({ caseId, refreshKey = 0 }) {
                       padding: '3px 10px', borderRadius: 20, fontSize: 11,
                       fontFamily: 'monospace', fontWeight: 600, cursor: 'pointer',
                       background: selectedType === null ? '#4d82c018' : 'transparent',
-                      color:      selectedType === null ? '#4d82c0'   : '#7d8590',
-                      border:    `1px solid ${selectedType === null ? '#4d82c040' : '#30363d'}`,
+                      color:      selectedType === null ? 'var(--fl-accent)'   : 'var(--fl-dim)',
+                      border:    `1px solid ${selectedType === null ? '#4d82c040' : 'var(--fl-border)'}`,
                     }}
                   >
                     Tous
                     <span style={{
                       marginLeft: 5, fontSize: 10,
-                      color: selectedType === null ? '#4d82c0' : '#484f58',
+                      color: selectedType === null ? 'var(--fl-accent)' : 'var(--fl-muted)',
                     }}>
                       {selected.record_count?.toLocaleString() ?? ''}
                     </span>
@@ -552,8 +552,8 @@ export default function ParsedResultsViewer({ caseId, refreshKey = 0 }) {
                           padding: '3px 10px', borderRadius: 20, fontSize: 11,
                           fontFamily: 'monospace', fontWeight: 600, cursor: 'pointer',
                           background: active ? `${col}18` : 'transparent',
-                          color:      active ? col        : '#7d8590',
-                          border:    `1px solid ${active ? col + '40' : '#30363d'}`,
+                          color:      active ? col        : 'var(--fl-dim)',
+                          border:    `1px solid ${active ? col + '40' : 'var(--fl-border)'}`,
                         }}
                       >
                         <span style={{
@@ -561,7 +561,7 @@ export default function ParsedResultsViewer({ caseId, refreshKey = 0 }) {
                           background: col, display: 'inline-block', flexShrink: 0,
                         }} />
                         {artifact_type}
-                        <span style={{ fontSize: 10, color: active ? col : '#484f58' }}>
+                        <span style={{ fontSize: 10, color: active ? col : 'var(--fl-muted)' }}>
                           {count.toLocaleString()}
                         </span>
                       </button>
@@ -576,7 +576,7 @@ export default function ParsedResultsViewer({ caseId, refreshKey = 0 }) {
             <div style={{
               padding: '8px 12px', borderRadius: 6, marginBottom: 10, fontSize: 12,
               background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.2)',
-              color: '#ef4444',
+              color: 'var(--fl-danger)',
             }}>
               ⚠ {dataError}
             </div>
@@ -601,7 +601,7 @@ export default function ParsedResultsViewer({ caseId, refreshKey = 0 }) {
           background: 'rgba(0,0,0,0.75)',
         }}>
           <div style={{
-            background: '#1c2333', border: '1px solid #da363340',
+            background: 'var(--fl-card)', border: '1px solid #da363340',
             borderRadius: 12, padding: 24, width: '100%', maxWidth: 400,
           }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
@@ -609,15 +609,15 @@ export default function ParsedResultsViewer({ caseId, refreshKey = 0 }) {
                 width: 36, height: 36, borderRadius: '50%',
                 background: '#da363320', display: 'flex', alignItems: 'center', justifyContent: 'center',
               }}>
-                <Trash2 size={18} style={{ color: '#da3633' }} />
+                <Trash2 size={18} style={{ color: 'var(--fl-danger)' }} />
               </div>
               <div>
-                <div style={{ fontSize: 13, fontWeight: 600, color: '#e6edf3' }}>Supprimer le résultat</div>
-                <div style={{ fontSize: 11, color: '#7d8590', marginTop: 2 }}>Action irréversible</div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--fl-text)' }}>Supprimer le résultat</div>
+                <div style={{ fontSize: 11, color: 'var(--fl-dim)', marginTop: 2 }}>Action irréversible</div>
               </div>
             </div>
             <p style={{ fontSize: 12, color: '#a0aec0', marginBottom: 20 }}>
-              Supprimer le résultat <strong style={{ color: '#e6edf3' }}>{confirmDelete.parser_name}</strong> ({(confirmDelete.record_count ?? 0).toLocaleString()} enregistrements) ?<br /><br />
+              Supprimer le résultat <strong style={{ color: 'var(--fl-text)' }}>{confirmDelete.parser_name}</strong> ({(confirmDelete.record_count ?? 0).toLocaleString()} enregistrements) ?<br /><br />
               Les entrées associées dans la collection timeline seront également supprimées.
             </p>
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
@@ -625,8 +625,8 @@ export default function ParsedResultsViewer({ caseId, refreshKey = 0 }) {
                 onClick={() => setConfirmDelete(null)}
                 style={{
                   padding: '6px 14px', borderRadius: 6, fontSize: 12,
-                  background: 'transparent', border: '1px solid #30363d',
-                  color: '#7d8590', cursor: 'pointer',
+                  background: 'transparent', border: '1px solid var(--fl-border)',
+                  color: 'var(--fl-dim)', cursor: 'pointer',
                 }}
               >
                 Annuler
@@ -636,7 +636,7 @@ export default function ParsedResultsViewer({ caseId, refreshKey = 0 }) {
                 style={{
                   padding: '6px 14px', borderRadius: 6, fontSize: 12,
                   background: '#da363318', border: '1px solid #da363340',
-                  color: '#da3633', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6,
+                  color: 'var(--fl-danger)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6,
                 }}
               >
                 <Trash2 size={12} /> Supprimer

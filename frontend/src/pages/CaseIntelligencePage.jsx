@@ -9,10 +9,10 @@ import LateralMovementD3 from '../components/network/LateralMovementD3';
 import AptAttributionTab from '../components/mitre/AptAttributionTab';
 
 const VIEWS = [
-  { id: 'network',     label: 'Topologie Réseau',    icon: Globe,     color: '#4d82c0' },
+  { id: 'network',     label: 'Topologie Réseau',    icon: Globe,     color: 'var(--fl-accent)' },
   { id: 'attack',      label: 'Kill Chain',           icon: GitBranch, color: '#8b5cf6' },
-  { id: 'lateral',     label: 'Propagation Latérale', icon: Share2,    color: '#d97c20' },
-  { id: 'attribution', label: 'Attribution APT',      icon: Target,    color: '#da3633' },
+  { id: 'lateral',     label: 'Propagation Latérale', icon: Share2,    color: 'var(--fl-warn)' },
+  { id: 'attribution', label: 'Attribution APT',      icon: Target,    color: 'var(--fl-danger)' },
 ];
 
 export default function CaseIntelligencePage({ collectionId }) {
@@ -115,7 +115,7 @@ export default function CaseIntelligencePage({ collectionId }) {
     const watermark = document.createElementNS('http://www.w3.org/2000/svg', 'text');
     watermark.setAttribute('x', '10');
     watermark.setAttribute('y', String(height - 8));
-    watermark.setAttribute('fill', '#484f58');
+    watermark.setAttribute('fill', 'var(--fl-muted)');
     watermark.setAttribute('font-size', '11');
     watermark.setAttribute('font-family', 'monospace');
     watermark.textContent = `Heimdall DFIR — ${caseInfo?.case_number || id} — ${new Date().toISOString().slice(0, 10)}`;
@@ -130,7 +130,7 @@ export default function CaseIntelligencePage({ collectionId }) {
       const canvas = document.createElement('canvas');
       canvas.width = width; canvas.height = height;
       const ctx = canvas.getContext('2d');
-      ctx.fillStyle = '#0d1117';
+      ctx.fillStyle = 'var(--fl-bg)';
       ctx.fillRect(0, 0, width, height);
       ctx.drawImage(img, 0, 0);
       URL.revokeObjectURL(url);
@@ -159,7 +159,7 @@ export default function CaseIntelligencePage({ collectionId }) {
               <activeView.icon size={14} style={{ color: activeView.color }} />
               Intelligence du Cas
               {collectionScoped && (
-                <span style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 10, fontFamily: 'monospace', padding: '1px 7px', borderRadius: 4, background: '#4d82c018', color: '#4d82c0', border: '1px solid #4d82c030' }}>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 10, fontFamily: 'monospace', padding: '1px 7px', borderRadius: 4, background: '#4d82c018', color: 'var(--fl-accent)', border: '1px solid #4d82c030' }}>
                   <Filter size={9} /> Données filtrées à cette collecte
                 </span>
               )}
@@ -218,7 +218,7 @@ export default function CaseIntelligencePage({ collectionId }) {
         )}
 
         {error && (
-          <div style={{ padding: 24, textAlign: 'center', color: '#da3633', fontSize: 13 }}>{error}</div>
+          <div style={{ padding: 24, textAlign: 'center', color: 'var(--fl-danger)', fontSize: 13 }}>{error}</div>
         )}
 
         {!error && (

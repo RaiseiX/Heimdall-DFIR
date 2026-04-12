@@ -726,6 +726,17 @@ CREATE INDEX IF NOT EXISTS idx_tpins_author ON timeline_pins(author_id, case_id)
 -- Sur une fresh install, toutes les migrations déjà incluses dans init.sql
 -- sont pré-enregistrées ici afin que migrate.sh les skip automatiquement.
 
+CREATE TABLE IF NOT EXISTS case_sessions (
+  id          BIGSERIAL PRIMARY KEY,
+  case_id     UUID NOT NULL REFERENCES cases(id) ON DELETE CASCADE,
+  user_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  started_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  ended_at    TIMESTAMPTZ,
+  duration_s  INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_case_sessions_case ON case_sessions(case_id);
+CREATE INDEX IF NOT EXISTS idx_case_sessions_user ON case_sessions(user_id);
+
 CREATE TABLE IF NOT EXISTS schema_migrations (
     filename   TEXT        PRIMARY KEY,
     applied_at TIMESTAMPTZ DEFAULT NOW()

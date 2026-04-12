@@ -71,14 +71,14 @@ export default function CommandPalette({ onClose, onCommand, recordCount, availT
     >
       <div
         style={{
-          width: 520, background: '#0a1520', border: '1px solid #1a3a5c',
+          width: 520, background: '#0a1520', border: '1px solid var(--fl-accent)',
           borderRadius: 10, boxShadow: '0 20px 60px rgba(0,0,0,0.8)',
           overflow: 'hidden',
         }}
         onClick={e => e.stopPropagation()}
       >
         
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 14px', borderBottom: '1px solid #0d1f30' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 14px', borderBottom: '1px solid var(--fl-bg)' }}>
           <span style={{ fontSize: 14, color: '#2a5a8a' }}>⌕</span>
           <input
             ref={inputRef}
@@ -88,10 +88,10 @@ export default function CommandPalette({ onClose, onCommand, recordCount, availT
             placeholder="Commande ou filtre…"
             style={{
               flex: 1, background: 'transparent', border: 'none', outline: 'none',
-              fontFamily: 'monospace', fontSize: 13, color: '#c0cce0',
+              fontFamily: 'monospace', fontSize: 13, color: 'var(--fl-on-dark)',
             }}
           />
-          <span style={{ fontSize: 9, fontFamily: 'monospace', color: '#1a3a5c', border: '1px solid #1a3a5c', borderRadius: 3, padding: '1px 5px' }}>
+          <span style={{ fontSize: 9, fontFamily: 'monospace', color: 'var(--fl-accent)', border: '1px solid var(--fl-accent)', borderRadius: 3, padding: '1px 5px' }}>
             ESC
           </span>
         </div>
@@ -104,7 +104,7 @@ export default function CommandPalette({ onClose, onCommand, recordCount, availT
           )}
           {grouped.map(([group, cmds]) => (
             <div key={group}>
-              <div style={{ padding: '4px 14px 2px', fontFamily: 'monospace', fontSize: 8, color: '#1a3a5c', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+              <div style={{ padding: '4px 14px 2px', fontFamily: 'monospace', fontSize: 8, color: 'var(--fl-accent)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
                 {group}
               </div>
               {cmds.map(cmd => {
@@ -118,11 +118,11 @@ export default function CommandPalette({ onClose, onCommand, recordCount, availT
                       display: 'flex', alignItems: 'center', gap: 10,
                       padding: '7px 14px', cursor: 'pointer',
                       background: isSel ? '#0d1f35' : 'transparent',
-                      borderLeft: `2px solid ${isSel ? '#4d82c0' : 'transparent'}`,
+                      borderLeft: `2px solid ${isSel ? 'var(--fl-accent)' : 'transparent'}`,
                     }}
                   >
                     <span style={{ fontSize: 12, flexShrink: 0 }}>{cmd.icon}</span>
-                    <span style={{ fontFamily: 'monospace', fontSize: 11, color: isSel ? '#c0cce0' : '#7abfff' }}>
+                    <span style={{ fontFamily: 'monospace', fontSize: 11, color: isSel ? 'var(--fl-on-dark)' : '#7abfff' }}>
                       {cmd.label}
                     </span>
                   </div>
@@ -132,11 +132,11 @@ export default function CommandPalette({ onClose, onCommand, recordCount, availT
           ))}
         </div>
 
-        <div style={{ padding: '6px 14px', borderTop: '1px solid #0d1f30', display: 'flex', gap: 12 }}>
+        <div style={{ padding: '6px 14px', borderTop: '1px solid var(--fl-bg)', display: 'flex', gap: 12 }}>
           {[['↑↓', 'naviguer'], ['↵', 'exécuter'], ['Esc', 'fermer']].map(([k, l]) => (
             <div key={k} style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-              <span style={{ fontSize: 8, fontFamily: 'monospace', border: '1px solid #1a3a5c', borderRadius: 2, padding: '1px 4px', color: '#2a5a8a' }}>{k}</span>
-              <span style={{ fontSize: 8, fontFamily: 'monospace', color: '#1a3a5c' }}>{l}</span>
+              <span style={{ fontSize: 8, fontFamily: 'monospace', border: '1px solid var(--fl-accent)', borderRadius: 2, padding: '1px 4px', color: '#2a5a8a' }}>{k}</span>
+              <span style={{ fontSize: 8, fontFamily: 'monospace', color: 'var(--fl-accent)' }}>{l}</span>
             </div>
           ))}
         </div>

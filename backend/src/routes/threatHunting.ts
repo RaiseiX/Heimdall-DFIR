@@ -664,14 +664,14 @@ router.get('/github/tree', authenticate, async (req, res) => {
     const headers = ghHeaders();
 
     const branchData = await fetchJson(
-      `https:
+      `https://api.github.com/repos/${owner}/${repo}/branches/${branch}`,
       headers,
     );
     const sha = branchData?.commit?.sha as string | undefined;
     if (!sha) return res.status(400).json({ error: `Branche "${branch}" introuvable dans ${owner}/${repo}` });
 
     const treeData = await fetchJson(
-      `https:
+      `https://api.github.com/repos/${owner}/${repo}/git/trees/${sha}?recursive=1`,
       headers,
     );
 
@@ -817,7 +817,7 @@ router.post('/github/import-zip', authenticate, (requireRole as any)('analyst', 
 
     try {
 
-      const zipUrl = `https:
+      const zipUrl = `https://api.github.com/repos/${owner}/${repo}/zipball/${branch}`;
       logger.info(`[ZipImport] Téléchargement ${zipUrl}`);
       await downloadZip(zipUrl, tmpZip);
 

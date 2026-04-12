@@ -24,7 +24,7 @@ async function authenticate(req, res, next) {
           const blacklisted = await redis.get(`bl:jti:${decoded.jti}`);
           if (blacklisted) return res.status(401).json({ error: 'Token révoqué' });
         }
-      } catch  }
+      } catch (_e) {}
     }
 
     req.user = decoded;

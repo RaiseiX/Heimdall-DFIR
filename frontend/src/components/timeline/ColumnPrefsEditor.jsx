@@ -87,10 +87,10 @@ function ColumnPrefsEditor({
       draggable
       onDragStart={(e) => handleDragStart(e, column, zone)}
       onDragEnd={handleDragEnd}
-      className="flex items-center gap-2 px-3 py-2 bg-[#161b22] border border-[#30363d] rounded cursor-move hover:border-[#4d82c0] transition-colors"
+      className="flex items-center gap-2 px-3 py-2 bg-[#161b22] border border-[var(--fl-border)] rounded cursor-move hover:border-[var(--fl-accent)] transition-colors"
     >
       <GripVertical size={16} className="text-[#8b949e]" />
-      <span className="flex-1 text-sm text-[#c9d1d9]">{column.label}</span>
+      <span className="flex-1 text-sm text-[var(--fl-dim)]">{column.label}</span>
       <span className="text-xs text-[#8b949e]">{column.key}</span>
     </div>
   );
@@ -99,12 +99,12 @@ function ColumnPrefsEditor({
     <div className="flex-1 flex flex-col">
       <div className="flex items-center gap-2 mb-2">
         {icon}
-        <h3 className="text-xs font-semibold text-[#c9d1d9] uppercase tracking-wide">{title}</h3>
+        <h3 className="text-xs font-semibold text-[var(--fl-dim)] uppercase tracking-wide">{title}</h3>
       </div>
       <div
         onDragOver={handleDragOver}
         onDrop={(e) => handleDrop(e, zoneKey)}
-        className="flex-1 p-3 bg-[#0d1117] border-2 border-dashed border-[#30363d] rounded min-h-[200px] flex flex-col gap-2 transition-colors hover:border-[#4d82c0]"
+        className="flex-1 p-3 bg-[#0d1117] border-2 border-dashed border-[var(--fl-border)] rounded min-h-[200px] flex flex-col gap-2 transition-colors hover:border-[var(--fl-accent)]"
       >
         {items.length === 0 ? (
           <div className="flex items-center justify-center h-full text-[#8b949e] text-xs">
@@ -127,13 +127,13 @@ function ColumnPrefsEditor({
     >
       
       <div
-        className="fixed right-0 top-0 h-full w-[460px] bg-[#0d1117] border-l border-[#30363d] shadow-lg flex flex-col"
+        className="fixed right-0 top-0 h-full w-[460px] bg-[#0d1117] border-l border-[var(--fl-border)] shadow-lg flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
         
-        <div className="px-6 py-4 border-b border-[#30363d]">
+        <div className="px-6 py-4 border-b border-[var(--fl-border)]">
           <div className="flex items-center justify-between mb-2">
-            <h2 className="text-lg font-bold text-[#c9d1d9]">Personnaliser colonnes</h2>
+            <h2 className="text-lg font-bold text-[var(--fl-dim)]">Personnaliser colonnes</h2>
             <button
               onClick={onClose}
               className="p-1 hover:bg-[#161b22] rounded text-[#8b949e] transition-colors"
@@ -143,7 +143,7 @@ function ColumnPrefsEditor({
           </div>
           {artifactType && (
             <div className="text-xs text-[#8b949e]">
-              Profil: <span className="text-[#4d82c0] font-medium">{artifactType}</span>
+              Profil: <span className="text-[var(--fl-accent)] font-medium">{artifactType}</span>
             </div>
           )}
         </div>
@@ -177,7 +177,7 @@ function ColumnPrefsEditor({
           </div>
         </div>
 
-        <div className="px-6 py-4 border-t border-[#30363d] space-y-2">
+        <div className="px-6 py-4 border-t border-[var(--fl-border)] space-y-2">
           <div className="flex gap-2">
             <button
               onClick={() => handleSave('case')}
@@ -188,7 +188,7 @@ function ColumnPrefsEditor({
             </button>
             <button
               onClick={() => handleSave('global')}
-              className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-[#4d82c0] hover:bg-[#5a96f1] text-white text-sm font-medium rounded transition-colors"
+              className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-[var(--fl-accent)] hover:bg-[#5a96f1] text-white text-sm font-medium rounded transition-colors"
             >
               <Globe size={16} />
               Global
@@ -196,7 +196,7 @@ function ColumnPrefsEditor({
           </div>
           <button
             onClick={handleReset}
-            className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-[#161b22] hover:bg-[#21262d] border border-[#30363d] text-[#c9d1d9] text-sm font-medium rounded transition-colors"
+            className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-[#161b22] hover:bg-[var(--fl-panel)] border border-[var(--fl-border)] text-[var(--fl-dim)] text-sm font-medium rounded transition-colors"
           >
             <RotateCcw size={16} />
             Réinitialiser

@@ -4,10 +4,11 @@ import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
   Plus, Search, AlertTriangle, FolderOpen, X, FileText,
-  Crosshair, Trash2, CheckCircle2, XCircle, ShieldAlert,
+  Crosshair, Trash2, CheckCircle2, XCircle, ShieldAlert, Clock, User,
 } from 'lucide-react';
 import { casesAPI } from '../utils/api';
 import { Button, Modal, Badge, EmptyState, Spinner } from '../components/ui';
+import { StatusPill, PriorityPill, RiskPill, TimePill, fmtDuration } from '../components/ui/StatusPill';
 
 function minDeadline() {
   const d = new Date();
@@ -44,6 +45,7 @@ export default function CasesPage({ user }) {
   const [showBulkDelete, setShowBulkDelete] = useState(false);
   const [bulkDeleting, setBulkDeleting] = useState(false);
   const [deleteResults, setDeleteResults] = useState(null);
+  const [timeStats, setTimeStats] = useState({});
 
   const isAdmin = user?.role === 'admin';
 
@@ -63,6 +65,15 @@ export default function CasesPage({ user }) {
     try {
       const { data } = await casesAPI.list({ search, status: filterStatus, priority: filterPriority });
       setCases(data.cases);
+      // Load time stats for each case in parallel (silent)
+      const stats = {};
+      await Promise.all((data.cases || []).map(async c => {
+        try {
+          const r = await casesAPI.timeStats(c.id);
+          stats[c.id] = r.data;
+        } catch (_) {}
+      }));
+      setTimeStats(stats);
     } catch {
       setCases([
         { id: '1', case_number: 'CASE-2026-001', title: 'Intrusion Serveur Principal', status: 'active', priority: 'critical', investigator_name: 'Agent Dupont', created_at: '2026-02-10T08:30:00Z', evidence_count: 5, ioc_count: 5, tags: ['intrusion', 'apt'] },
@@ -125,10 +136,10 @@ export default function CasesPage({ user }) {
   return (
     <div className="p-6">
       
-      <div className="fl-header">
-        <div>
-          <h1 className="fl-header-title">{t('cases.title')}</h1>
-          <p className="fl-header-sub">
+      <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingBottom: 18, marginBottom: 20, borderBottom: '1px solid var(--fl-border)' }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <h1 style={{ fontFamily: 'monospace', fontSize: 17, fontWeight: 700, color: 'var(--fl-text)', lineHeight: 1.25 }}>{t('cases.title')}</h1>
+          <p style={{ fontFamily: 'monospace', fontSize: 13, color: 'var(--fl-dim)', marginTop: 3 }}>
             {t('cases.subtitle', { n: cases.length, m: activeCount })}
             {criticalCount > 0 && (
               <span style={{ color: 'var(--fl-danger)' }}>
@@ -137,7 +148,7 @@ export default function CasesPage({ user }) {
             )}
           </p>
         </div>
-        <div className="fl-header-actions">
+        <div style={{ flexShrink: 0, marginLeft: 16 }}>
           <Button variant="primary" icon={Plus} onClick={() => setShowNew(true)}>
             {t('cases.new')}
           </Button>
@@ -164,8 +175,8 @@ export default function CasesPage({ user }) {
         </div>
       )}
 
-      <div className="fl-filters">
-        <div className="fl-search" style={{ flex: 1 }}>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 14 }}>
+        <div className="fl-search" style={{ flex: 1, minWidth: 200 }}>
           <Search size={14} className="fl-search-icon" />
           <input
             value={search}
@@ -175,19 +186,47 @@ export default function CasesPage({ user }) {
             style={{ paddingLeft: 34 }}
           />
         </div>
-        <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)} className="fl-select" style={{ minWidth: 160 }}>
-          <option value="">{t('cases.all_statuses')}</option>
-          <option value="active">{t('case.status_active')}</option>
-          <option value="pending">{t('case.status_pending')}</option>
-          <option value="closed">{t('case.status_closed')}</option>
-        </select>
-        <select value={filterPriority} onChange={e => setFilterPriority(e.target.value)} className="fl-select" style={{ minWidth: 160 }}>
-          <option value="">{t('cases.all_priorities')}</option>
-          <option value="critical">{t('cases.prio_critical')}</option>
-          <option value="high">{t('cases.prio_high')}</option>
-          <option value="medium">{t('cases.prio_medium')}</option>
-          <option value="low">{t('cases.prio_low')}</option>
-        </select>
+
+        <div style={{ display: 'flex', gap: 4, alignItems: 'center', flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 10, color: 'var(--fl-subtle)', fontFamily: 'monospace' }}>Statut :</span>
+          {[['', 'Tous'], ['active', 'Actif'], ['pending', 'En attente'], ['closed', 'Fermé']].map(([val, lbl]) => (
+            <button key={val} onClick={() => setFilterStatus(val)}
+              style={{
+                padding: '3px 10px', borderRadius: 20, fontSize: 10, fontFamily: 'monospace',
+                cursor: 'pointer', border: '1px solid',
+                background: filterStatus === val ? (val === '' ? 'var(--fl-accent)' : val === 'active' ? 'var(--fl-accent)' : val === 'pending' ? 'var(--fl-warn)' : 'var(--fl-dim)') + '20' : 'transparent',
+                color: filterStatus === val ? (val === '' ? 'var(--fl-accent)' : val === 'active' ? 'var(--fl-accent)' : val === 'pending' ? 'var(--fl-warn)' : 'var(--fl-dim)') : 'var(--fl-muted)',
+                borderColor: filterStatus === val ? (val === '' ? 'var(--fl-accent)' : val === 'active' ? 'var(--fl-accent)' : val === 'pending' ? 'var(--fl-warn)' : 'var(--fl-dim)') + '50' : 'var(--fl-border)',
+                fontWeight: filterStatus === val ? 700 : 400,
+              }}>
+              {lbl}
+            </button>
+          ))}
+        </div>
+
+        <div style={{ display: 'flex', gap: 4, alignItems: 'center', flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 10, color: 'var(--fl-subtle)', fontFamily: 'monospace' }}>Priorité :</span>
+          {[
+            ['', 'Toutes', 'var(--fl-dim)'],
+            ['critical', 'Critique', 'var(--fl-danger)'],
+            ['high', 'Haut', 'var(--fl-warn)'],
+            ['medium', 'Moyen', 'var(--fl-gold)'],
+            ['low', 'Faible', 'var(--fl-ok)'],
+          ].map(([val, lbl, col]) => (
+            <button key={val} onClick={() => setFilterPriority(val)}
+              style={{
+                padding: '3px 10px', borderRadius: 20, fontSize: 10, fontFamily: 'monospace',
+                cursor: 'pointer', border: '1px solid',
+                background: filterPriority === val ? col + '20' : 'transparent',
+                color: filterPriority === val ? col : 'var(--fl-muted)',
+                borderColor: filterPriority === val ? col + '50' : 'var(--fl-border)',
+                fontWeight: filterPriority === val ? 700 : 400,
+              }}>
+              {lbl}
+            </button>
+          ))}
+        </div>
+
         {(search || filterStatus || filterPriority) && (
           <Button variant="ghost" size="sm" icon={X} onClick={() => { setSearch(''); setFilterStatus(''); setFilterPriority(''); }}>
             {t('cases.clear_filters')}
@@ -195,8 +234,8 @@ export default function CasesPage({ user }) {
         )}
       </div>
 
-      <div className="fl-card" style={{ overflow: 'hidden' }}>
-        {cases.length === 0 ? (
+      {cases.length === 0 ? (
+        <div className="fl-card" style={{ overflow: 'hidden' }}>
           <EmptyState
             icon={FolderOpen}
             title={t('cases.empty_title')}
@@ -205,101 +244,87 @@ export default function CasesPage({ user }) {
               <Button variant="primary" size="sm" icon={Plus} onClick={() => setShowNew(true)}>{t('cases.new')}</Button>
             ) : undefined}
           />
-        ) : (
-          <table className="fl-table">
-            <thead>
-              <tr>
-                {isAdmin && (
-                  <th style={{ width: 36, paddingLeft: 12 }}>
-                    <input type="checkbox"
-                      checked={selected.size === cases.length && cases.length > 0}
-                      ref={el => { if (el) el.indeterminate = selected.size > 0 && selected.size < cases.length; }}
-                      onChange={toggleAll}
-                      style={{ cursor: 'pointer', accentColor: 'var(--fl-danger)' }}
-                    />
-                  </th>
-                )}
-                <th>{t('cases.col_number')}</th>
-                <th>{t('cases.col_title')}</th>
-                <th>{t('cases.col_status')}</th>
-                <th>{t('cases.col_priority')}</th>
-                <th>Risk</th>
-                <th>{t('cases.col_investigator')}</th>
-                <th style={{ textAlign: 'right' }}>{t('cases.col_evidence')}</th>
-                <th style={{ textAlign: 'right' }}>{t('cases.col_iocs')}</th>
-                <th>{t('cases.col_opened')}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {cases.map(c => {
-                const isSelected = selected.has(c.id);
-                return (
-                  <tr key={c.id} onClick={() => navigate(`/cases/${c.id}`)}
-                    style={{ cursor: 'pointer',
-                      background: isSelected ? 'color-mix(in srgb, var(--fl-danger) 5%, transparent)' : undefined,
-                      outline: isSelected ? '1px solid color-mix(in srgb, var(--fl-danger) 20%, transparent)' : undefined,
-                    }}>
-                    {isAdmin && (
-                      <td style={{ width: 36, paddingLeft: 12 }} onClick={e => toggleSelect(e, c.id)}>
-                        <input type="checkbox" checked={isSelected} onChange={() => {}}
-                          style={{ cursor: 'pointer', accentColor: 'var(--fl-danger)' }} />
-                      </td>
+        </div>
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: 12 }}>
+          {cases.map(c => {
+            const isSelected = selected.has(c.id);
+            const prioColor = c.priority === 'critical' ? 'var(--fl-danger)'
+              : c.priority === 'high' ? 'var(--fl-warn)'
+              : c.priority === 'medium' ? 'var(--fl-gold)'
+              : 'var(--fl-border)';
+            const ts = timeStats[c.id];
+            const deadlineSoon = c.report_deadline && new Date(c.report_deadline) < new Date(Date.now() + 48 * 3600 * 1000);
+            return (
+              <div
+                key={c.id}
+                onClick={() => navigate(`/cases/${c.id}`)}
+                style={{
+                  borderRadius: 10, overflow: 'hidden', cursor: 'pointer',
+                  background: isSelected ? 'color-mix(in srgb, var(--fl-danger) 5%, var(--fl-card))' : 'var(--fl-card)',
+                  border: `1px solid ${isSelected ? 'color-mix(in srgb, var(--fl-danger) 30%, transparent)' : 'var(--fl-border)'}`,
+                  borderLeft: `4px solid ${prioColor}`,
+                  transition: 'border-color 0.15s, box-shadow 0.15s',
+                }}
+                onMouseEnter={e => { e.currentTarget.style.boxShadow = `0 4px 16px rgba(0,0,0,0.35)`; e.currentTarget.style.borderColor = prioColor + '80'; }}
+                onMouseLeave={e => { e.currentTarget.style.boxShadow = ''; e.currentTarget.style.borderColor = isSelected ? 'color-mix(in srgb, var(--fl-danger) 30%, transparent)' : 'var(--fl-border)'; }}
+              >
+                {/* Card header */}
+                <div style={{ padding: '12px 14px 8px', display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+                  {isAdmin && (
+                    <div onClick={e => toggleSelect(e, c.id)} style={{ paddingTop: 2, flexShrink: 0 }}>
+                      <input type="checkbox" checked={isSelected} onChange={() => {}}
+                        style={{ cursor: 'pointer', accentColor: 'var(--fl-danger)' }} />
+                    </div>
+                  )}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                      <span style={{ fontSize: 10, fontFamily: 'monospace', color: 'var(--fl-subtle)' }}>{c.case_number}</span>
+                      <StatusPill status={c.status} />
+                      <PriorityPill priority={c.priority} />
+                    </div>
+                    <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--fl-text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={c.title}>
+                      {c.title}
+                    </div>
+                    {(c.tags || []).length > 0 && (
+                      <div style={{ display: 'flex', gap: 4, marginTop: 5, flexWrap: 'wrap' }}>
+                        {(c.tags || []).map(tag => <span key={tag} className="fl-tag">{tag}</span>)}
+                      </div>
                     )}
-                    <td className="fl-td-mono fl-td-dim" title={c.case_number}>{c.case_number}</td>
-                    <td>
-                      <div style={{ fontWeight: 500, color: 'var(--fl-text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 300 }} title={c.title}>{c.title}</div>
-                      {(c.tags || []).length > 0 && (
-                        <div className="flex gap-1 mt-1 flex-wrap">
-                          {(c.tags || []).map(tag => <span key={tag} className="fl-tag">{tag}</span>)}
-                        </div>
-                      )}
-                    </td>
-                    <td><Badge variant={STATUS[c.status]?.variant || 'dim'}>{STATUS[c.status]?.label || c.status}</Badge></td>
-                    <td>
-                      <Badge variant={PRIORITY[c.priority]?.variant || 'dim'}>
-                        {c.priority === 'critical' && <AlertTriangle size={9} className="inline mr-1" />}
-                        {PRIORITY[c.priority]?.label || c.priority}
-                      </Badge>
-                    </td>
-                    <td>
-                      {c.risk_level ? (
-                        <span style={{
-                          display: 'inline-flex', alignItems: 'center', gap: 4,
-                          fontFamily: 'JetBrains Mono, monospace', fontSize: 11, fontWeight: 700,
-                          padding: '2px 7px', borderRadius: 4,
-                          background: c.risk_level === 'CRITICAL' ? 'color-mix(in srgb, var(--fl-danger) 15%, transparent)'
-                                    : c.risk_level === 'HIGH'     ? 'color-mix(in srgb, var(--fl-warn) 15%, transparent)'
-                                    : c.risk_level === 'MEDIUM'   ? 'color-mix(in srgb, var(--fl-accent) 15%, transparent)'
-                                    : 'color-mix(in srgb, var(--fl-ok) 15%, transparent)',
-                          color: c.risk_level === 'CRITICAL' ? 'var(--fl-danger)'
-                               : c.risk_level === 'HIGH'     ? 'var(--fl-warn)'
-                               : c.risk_level === 'MEDIUM'   ? 'var(--fl-accent)'
-                               : 'var(--fl-ok)',
-                        }}>
-                          {c.risk_level === 'CRITICAL' && <ShieldAlert size={9} />}
-                          {c.risk_level} {c.risk_score != null ? `${c.risk_score}` : ''}
-                        </span>
-                      ) : (
-                        <span style={{ color: 'var(--fl-dim)', fontSize: 11 }}>—</span>
-                      )}
-                    </td>
-                    <td style={{ color: 'var(--fl-muted)', fontSize: '0.8125rem' }}>{c.investigator_name || '—'}</td>
-                    <td className="fl-td-num" style={{ color: 'var(--fl-accent)' }}>
-                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><FileText size={11} /> {c.evidence_count || 0}</span>
-                    </td>
-                    <td className="fl-td-num" style={{ color: c.ioc_count > 0 ? 'var(--fl-warn)' : 'var(--fl-dim)' }}>
-                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Crosshair size={11} /> {c.ioc_count || 0}</span>
-                    </td>
-                    <td style={{ color: 'var(--fl-muted)', fontSize: '0.8125rem', whiteSpace: 'nowrap' }}>
-                      {new Date(c.created_at).toLocaleDateString(i18n.language)}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        )}
-      </div>
+                  </div>
+                  <RiskPill riskLevel={c.risk_level} riskScore={c.risk_score} />
+                </div>
+
+                {/* Card footer */}
+                <div style={{
+                  padding: '7px 14px 9px', borderTop: '1px solid var(--fl-sep)',
+                  display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap',
+                }}>
+                  {c.investigator_name && (
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, fontFamily: 'monospace', color: 'var(--fl-muted)' }}>
+                      <User size={9} />{c.investigator_name}
+                    </span>
+                  )}
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 10, fontFamily: 'monospace', color: 'var(--fl-accent)' }}>
+                    <FileText size={9} />{c.evidence_count || 0}
+                  </span>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 10, fontFamily: 'monospace', color: c.ioc_count > 0 ? 'var(--fl-warn)' : 'var(--fl-muted)' }}>
+                    <Crosshair size={9} />{c.ioc_count || 0}
+                  </span>
+                  {ts && ts.grand_total_seconds > 0 && (
+                    <TimePill totalSeconds={ts.grand_total_seconds} analystCount={ts.analysts?.length || 0} compact />
+                  )}
+                  <span style={{ marginLeft: 'auto', fontSize: 10, fontFamily: 'monospace', color: deadlineSoon ? 'var(--fl-danger)' : 'var(--fl-subtle)', whiteSpace: 'nowrap' }}>
+                    {c.report_deadline
+                      ? (deadlineSoon ? '⚠ ' : '') + new Date(c.report_deadline).toLocaleDateString(i18n.language)
+                      : new Date(c.created_at).toLocaleDateString(i18n.language)}
+                  </span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       <Modal open={showNew} title={t('cases.new_title')} onClose={() => setShowNew(false)} size="md">
         <Modal.Body>

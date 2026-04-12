@@ -8,17 +8,17 @@ import { Button, EmptyState } from '../ui';
 import { useDateFormat } from '../../hooks/useDateFormat';
 
 const SEV = {
-  CRITIQUE: { color: '#ef4444' },
-  ÉLEVÉ:    { color: '#d97c20' },
-  MOYEN:    { color: '#c89d1d' },
+  CRITIQUE: { color: 'var(--fl-danger)' },
+  ÉLEVÉ:    { color: 'var(--fl-warn)' },
+  MOYEN:    { color: 'var(--fl-gold)' },
   FAIBLE:   { color: '#22c55e' },
 };
 const SEV_ORDER = ['CRITIQUE', 'ÉLEVÉ', 'MOYEN', 'FAIBLE'];
 
 const HAY_LEVEL_COL = {
-  critical: '#ef4444',
-  high:     '#d97c20',
-  medium:   '#c89d1d',
+  critical: 'var(--fl-danger)',
+  high:     'var(--fl-warn)',
+  medium:   'var(--fl-gold)',
   low:      '#22c55e',
 };
 
@@ -26,8 +26,8 @@ const TH_STYLE = {
   position: 'sticky', top: 0, zIndex: 2,
   padding: '7px 8px', fontFamily: 'monospace', fontSize: 10,
   fontWeight: 700, letterSpacing: '0.07em', textTransform: 'uppercase',
-  color: '#7a9abf', background: '#0d1117', whiteSpace: 'nowrap',
-  borderBottom: '1px solid #1a2035', textAlign: 'left',
+  color: 'var(--fl-accent)', background: 'var(--fl-bg)', whiteSpace: 'nowrap',
+  borderBottom: '1px solid var(--fl-sep)', textAlign: 'left',
 };
 
 const TD = { padding: '5px 8px', borderBottom: '1px solid #0f1a2a', verticalAlign: 'middle' };
@@ -79,7 +79,7 @@ function CopyCell({ value, style, maxWidth = 200 }) {
         {value || '—'}
       </span>
       {value && hover && (
-        <button onClick={copy} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, color: copied ? '#22c55e' : '#7a9abf', flexShrink: 0 }} title="Copier">
+        <button onClick={copy} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, color: copied ? '#22c55e' : 'var(--fl-accent)', flexShrink: 0 }} title="Copier">
           {copied ? <CheckCircle2 size={10} /> : <Copy size={10} />}
         </button>
       )}
@@ -101,7 +101,7 @@ function Section({ icon: Icon, title, badge, severity, children, defaultOpen = t
         style={{
           width: '100%', display: 'flex', alignItems: 'center', gap: 8,
           padding: '9px 12px', background: 'none', border: 'none', cursor: 'pointer',
-          color: '#b0ccec', fontFamily: 'monospace', fontWeight: 700, fontSize: 11,
+          color: 'var(--fl-on-dark)', fontFamily: 'monospace', fontWeight: 700, fontSize: 11,
           textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: 'left',
         }}
       >
@@ -111,7 +111,7 @@ function Section({ icon: Icon, title, badge, severity, children, defaultOpen = t
         {badge !== undefined && (
           <span style={{
             background: badge > 0 ? '#ef444418' : '#22c55e18',
-            color: badge > 0 ? '#ef4444' : '#22c55e',
+            color: badge > 0 ? 'var(--fl-danger)' : '#22c55e',
             border: `1px solid ${badge > 0 ? '#ef444440' : '#22c55e40'}`,
             borderRadius: 10, padding: '1px 7px', fontSize: 10, fontWeight: 700, fontFamily: 'monospace',
           }}>
@@ -126,7 +126,7 @@ function Section({ icon: Icon, title, badge, severity, children, defaultOpen = t
 
 function DetTable({ headers, children }) {
   return (
-    <div style={{ overflowX: 'auto', borderRadius: 4, border: '1px solid #1a2035', maxHeight: 400, overflowY: 'auto' }}>
+    <div style={{ overflowX: 'auto', borderRadius: 4, border: '1px solid var(--fl-sep)', maxHeight: 400, overflowY: 'auto' }}>
       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, background: '#0b111a' }}>
         <thead>
           <tr>
@@ -170,11 +170,11 @@ function TimestompingSection({ caseId, runSignal, hiddenSevs, onComplete, onCoun
   return (
     <Section icon={Clock} title="Timestomping ($SIA vs $FN)" badge={data ? items.length : undefined} severity={topSeverity(items)}>
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 10 }}>
-        <label style={{ color: '#7a9abf', fontSize: 11, fontFamily: 'monospace' }}>Seuil (jours) :</label>
+        <label style={{ color: 'var(--fl-accent)', fontSize: 11, fontFamily: 'monospace' }}>Seuil (jours) :</label>
         <select
           value={threshold}
           onChange={e => setThr(Number(e.target.value))}
-          style={{ background: '#0d1117', border: '1px solid #1a2540', borderRadius: 4, color: '#b0ccec', padding: '3px 8px', fontSize: 11, fontFamily: 'monospace' }}
+          style={{ background: 'var(--fl-bg)', border: '1px solid #1a2540', borderRadius: 4, color: 'var(--fl-on-dark)', padding: '3px 8px', fontSize: 11, fontFamily: 'monospace' }}
         >
           {[0, 1, 7, 30].map(v => <option key={v} value={v}>{v === 0 ? 'Tout écart' : `${v} jour(s)`}</option>)}
         </select>
@@ -184,7 +184,7 @@ function TimestompingSection({ caseId, runSignal, hiddenSevs, onComplete, onCoun
       </div>
 
       {!data && !loading && (
-        <p style={{ color: '#3d5070', fontSize: 11, fontFamily: 'monospace', margin: 0 }}>Cliquez sur Analyser pour détecter les incohérences de dates MFT ($SIA ≠ $FN).</p>
+        <p style={{ color: 'var(--fl-subtle)', fontSize: 11, fontFamily: 'monospace', margin: 0 }}>Cliquez sur Analyser pour détecter les incohérences de dates MFT ($SIA ≠ $FN).</p>
       )}
       {data && items.length === 0 && (
         <EmptyState icon={CheckCircle2} title="Aucun timestomping détecté" subtitle="Aucune incohérence $SIA / $FN avec ce seuil." />
@@ -193,11 +193,11 @@ function TimestompingSection({ caseId, runSignal, hiddenSevs, onComplete, onCoun
         <DetTable headers={['Fichier', 'Source', '$SIA Created', '$FN Created', 'Écart (j)', 'Sévérité']}>
           {visible.map((it, i) => (
             <tr key={i} style={{ background: i % 2 ? 'transparent' : 'rgba(255,255,255,0.02)' }}>
-              <td style={{ ...TD, color: '#c0cce0' }}><CopyCell value={it.description} maxWidth={220} /></td>
-              <td style={{ ...TD, color: '#7a9abf' }}>{it.source || '—'}</td>
-              <td style={{ ...TD, color: '#c0cce0', whiteSpace: 'nowrap', fontFamily: 'monospace', fontSize: 11 }}>{fmtDateTime(it.sia_created)}</td>
-              <td style={{ ...TD, color: '#c0cce0', whiteSpace: 'nowrap', fontFamily: 'monospace', fontSize: 11 }}>{fmtDateTime(it.fn_created)}</td>
-              <td style={{ ...TD, color: '#c89d1d', fontWeight: 700, fontFamily: 'monospace' }}>{it.diff_days != null ? it.diff_days.toFixed(1) : '—'}</td>
+              <td style={{ ...TD, color: 'var(--fl-on-dark)' }}><CopyCell value={it.description} maxWidth={220} /></td>
+              <td style={{ ...TD, color: 'var(--fl-accent)' }}>{it.source || '—'}</td>
+              <td style={{ ...TD, color: 'var(--fl-on-dark)', whiteSpace: 'nowrap', fontFamily: 'monospace', fontSize: 11 }}>{fmtDateTime(it.sia_created)}</td>
+              <td style={{ ...TD, color: 'var(--fl-on-dark)', whiteSpace: 'nowrap', fontFamily: 'monospace', fontSize: 11 }}>{fmtDateTime(it.fn_created)}</td>
+              <td style={{ ...TD, color: 'var(--fl-gold)', fontWeight: 700, fontFamily: 'monospace' }}>{it.diff_days != null ? it.diff_days.toFixed(1) : '—'}</td>
               <td style={TD}><SevBadge severity={it.severity} /></td>
             </tr>
           ))}
@@ -243,7 +243,7 @@ function DoubleExtSection({ caseId, runSignal, hiddenSevs, onComplete, onCounts 
       </div>
 
       {!data && !loading && (
-        <p style={{ color: '#3d5070', fontSize: 11, fontFamily: 'monospace', margin: 0 }}>Cliquez sur Scanner pour chercher les fichiers à double extension dangereuse.</p>
+        <p style={{ color: 'var(--fl-subtle)', fontSize: 11, fontFamily: 'monospace', margin: 0 }}>Cliquez sur Scanner pour chercher les fichiers à double extension dangereuse.</p>
       )}
       {data && items.length === 0 && (
         <EmptyState icon={CheckCircle2} title="Aucune double extension détectée" subtitle="Aucun fichier à double extension dangereuse trouvé." />
@@ -252,11 +252,11 @@ function DoubleExtSection({ caseId, runSignal, hiddenSevs, onComplete, onCounts 
         <DetTable headers={['Fichier', 'Ext. leurre', 'Ext. danger', 'Source', 'Horodatage', 'Sévérité']}>
           {visible.map((it, i) => (
             <tr key={i} style={{ background: i % 2 ? 'transparent' : 'rgba(255,255,255,0.02)' }}>
-              <td style={{ ...TD, color: '#c0cce0' }}><CopyCell value={it.description} maxWidth={240} /></td>
-              <td style={{ ...TD, color: '#7a9abf', fontFamily: 'monospace' }}>.{it.decoy_ext}</td>
-              <td style={{ ...TD, color: '#ef4444', fontWeight: 700, fontFamily: 'monospace' }}>.{it.danger_ext}</td>
-              <td style={{ ...TD, color: '#7a9abf' }}>{it.source || '—'}</td>
-              <td style={{ ...TD, color: '#c0cce0', whiteSpace: 'nowrap', fontFamily: 'monospace', fontSize: 11 }}>{fmtDateTime(it.timestamp)}</td>
+              <td style={{ ...TD, color: 'var(--fl-on-dark)' }}><CopyCell value={it.description} maxWidth={240} /></td>
+              <td style={{ ...TD, color: 'var(--fl-accent)', fontFamily: 'monospace' }}>.{it.decoy_ext}</td>
+              <td style={{ ...TD, color: 'var(--fl-danger)', fontWeight: 700, fontFamily: 'monospace' }}>.{it.danger_ext}</td>
+              <td style={{ ...TD, color: 'var(--fl-accent)' }}>{it.source || '—'}</td>
+              <td style={{ ...TD, color: 'var(--fl-on-dark)', whiteSpace: 'nowrap', fontFamily: 'monospace', fontSize: 11 }}>{fmtDateTime(it.timestamp)}</td>
               <td style={TD}><SevBadge severity={it.severity} /></td>
             </tr>
           ))}
@@ -302,11 +302,11 @@ function BeaconingSection({ caseId, runSignal, hiddenSevs, onComplete, onCounts 
   return (
     <Section icon={Radio} title="Beaconing C2 (connexions périodiques)" badge={data ? items.length : undefined} severity={topSeverity(items)}>
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 10 }}>
-        <label style={{ color: '#7a9abf', fontSize: 11, fontFamily: 'monospace' }}>Score minimum :</label>
+        <label style={{ color: 'var(--fl-accent)', fontSize: 11, fontFamily: 'monospace' }}>Score minimum :</label>
         <select
           value={minScore}
           onChange={e => setMin(Number(e.target.value))}
-          style={{ background: '#0d1117', border: '1px solid #1a2540', borderRadius: 4, color: '#b0ccec', padding: '3px 8px', fontSize: 11, fontFamily: 'monospace' }}
+          style={{ background: 'var(--fl-bg)', border: '1px solid #1a2540', borderRadius: 4, color: 'var(--fl-on-dark)', padding: '3px 8px', fontSize: 11, fontFamily: 'monospace' }}
         >
           {[40, 60, 75, 90].map(v => <option key={v} value={v}>{v}%</option>)}
         </select>
@@ -316,7 +316,7 @@ function BeaconingSection({ caseId, runSignal, hiddenSevs, onComplete, onCounts 
       </div>
 
       {!data && !loading && (
-        <p style={{ color: '#3d5070', fontSize: 11, fontFamily: 'monospace', margin: 0 }}>Cliquez sur Détecter pour analyser les connexions périodiques suspectes (C2 beaconing).</p>
+        <p style={{ color: 'var(--fl-subtle)', fontSize: 11, fontFamily: 'monospace', margin: 0 }}>Cliquez sur Détecter pour analyser les connexions périodiques suspectes (C2 beaconing).</p>
       )}
       {data && items.length === 0 && (
         <EmptyState icon={CheckCircle2} title="Aucun beaconing détecté" subtitle="Aucune connexion périodique suspecte avec ce seuil." />
@@ -325,18 +325,18 @@ function BeaconingSection({ caseId, runSignal, hiddenSevs, onComplete, onCounts 
         <DetTable headers={['IP Destination', 'Connexions', 'Intervalle moyen', 'Score beacon', 'Sévérité']}>
           {visible.map((it, i) => (
             <tr key={i} style={{ background: i % 2 ? 'transparent' : 'rgba(255,255,255,0.02)' }}>
-              <td style={{ ...TD, color: '#4d82c0', fontFamily: 'monospace' }}><CopyCell value={it.dest_ip} style={{ color: '#4d82c0', fontFamily: 'monospace' }} maxWidth={160} /></td>
-              <td style={{ ...TD, color: '#c0cce0', textAlign: 'right', fontFamily: 'monospace' }}>{it.connection_count}</td>
-              <td style={{ ...TD, color: '#c0cce0', fontFamily: 'monospace' }}>{fmtInterval(it.avg_interval_sec)}</td>
+              <td style={{ ...TD, color: 'var(--fl-accent)', fontFamily: 'monospace' }}><CopyCell value={it.dest_ip} style={{ color: 'var(--fl-accent)', fontFamily: 'monospace' }} maxWidth={160} /></td>
+              <td style={{ ...TD, color: 'var(--fl-on-dark)', textAlign: 'right', fontFamily: 'monospace' }}>{it.connection_count}</td>
+              <td style={{ ...TD, color: 'var(--fl-on-dark)', fontFamily: 'monospace' }}>{fmtInterval(it.avg_interval_sec)}</td>
               <td style={TD}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-                  <div style={{ flex: '1 1 60px', minWidth: 40, maxWidth: 100, background: '#21262d', borderRadius: 4, height: 6, overflow: 'hidden' }}>
+                  <div style={{ flex: '1 1 60px', minWidth: 40, maxWidth: 100, background: 'var(--fl-panel)', borderRadius: 4, height: 6, overflow: 'hidden' }}>
                     <div style={{
                       width: `${it.beacon_score}%`, height: '100%', borderRadius: 4,
-                      background: it.beacon_score >= 75 ? '#ef4444' : it.beacon_score >= 60 ? '#d97c20' : '#c89d1d',
+                      background: it.beacon_score >= 75 ? 'var(--fl-danger)' : it.beacon_score >= 60 ? 'var(--fl-warn)' : 'var(--fl-gold)',
                     }} />
                   </div>
-                  <span style={{ color: '#c0cce0', fontWeight: 700, fontSize: 11, fontFamily: 'monospace', flexShrink: 0 }}>{Math.round(it.beacon_score)}%</span>
+                  <span style={{ color: 'var(--fl-on-dark)', fontWeight: 700, fontSize: 11, fontFamily: 'monospace', flexShrink: 0 }}>{Math.round(it.beacon_score)}%</span>
                 </div>
               </td>
               <td style={TD}><SevBadge severity={it.severity} /></td>
@@ -383,7 +383,7 @@ function PersistenceSection({ caseId, runSignal, hiddenSevs, onComplete, onCount
       </div>
 
       {!data && !loading && (
-        <p style={{ color: '#3d5070', fontSize: 11, fontFamily: 'monospace', margin: 0 }}>
+        <p style={{ color: 'var(--fl-subtle)', fontSize: 11, fontFamily: 'monospace', margin: 0 }}>
           Cliquez sur Analyser pour détecter les mécanismes de persistance (Registry RunKeys, LNK Startup, BITS Jobs, règles Sigma Hayabusa).
         </p>
       )}
@@ -398,14 +398,14 @@ function PersistenceSection({ caseId, runSignal, hiddenSevs, onComplete, onCount
           <div key={v.id} style={{ marginBottom: 14 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
               <SevBadge severity={v.severity} />
-              <span style={{ fontSize: 12, fontWeight: 700, fontFamily: 'monospace', color: '#b0ccec' }}>{v.label}</span>
+              <span style={{ fontSize: 12, fontWeight: 700, fontFamily: 'monospace', color: 'var(--fl-on-dark)' }}>{v.label}</span>
               {v.mitre && (
                 <span style={{ fontSize: 10, fontFamily: 'monospace', padding: '1px 7px', borderRadius: 4,
-                  background: '#4d82c014', color: '#4d82c0', border: '1px solid #4d82c028' }}>
+                  background: '#4d82c014', color: 'var(--fl-accent)', border: '1px solid #4d82c028' }}>
                   {v.mitre}
                 </span>
               )}
-              <span style={{ fontSize: 10, fontFamily: 'monospace', color: '#3d5070' }}>
+              <span style={{ fontSize: 10, fontFamily: 'monospace', color: 'var(--fl-subtle)' }}>
                 {v.count} artefact{v.count > 1 ? 's' : ''}
               </span>
             </div>
@@ -414,12 +414,12 @@ function PersistenceSection({ caseId, runSignal, hiddenSevs, onComplete, onCount
                 const hayCol = it.hay_level ? HAY_LEVEL_COL[it.hay_level] : null;
                 return (
                   <tr key={i} style={{ background: i % 2 ? 'transparent' : 'rgba(255,255,255,0.02)', borderLeft: `3px solid ${hayCol || '#1a2540'}` }}>
-                    <td style={{ ...TD, color: '#7a9abf', whiteSpace: 'nowrap', fontFamily: 'monospace', fontSize: 11 }}>
+                    <td style={{ ...TD, color: 'var(--fl-accent)', whiteSpace: 'nowrap', fontFamily: 'monospace', fontSize: 11 }}>
                       {fmtDateTime(it.timestamp)}
                     </td>
                     <td style={TD}>
                       <span style={{ fontSize: 10, fontFamily: 'monospace', padding: '1px 5px', borderRadius: 3,
-                        background: '#1a2035', color: '#7a9abf', border: '1px solid #1a2540' }}>
+                        background: 'var(--fl-sep)', color: 'var(--fl-accent)', border: '1px solid #1a2540' }}>
                         {it.artifact_type}
                       </span>
                       {it.hay_level && (
@@ -429,9 +429,9 @@ function PersistenceSection({ caseId, runSignal, hiddenSevs, onComplete, onCount
                         </span>
                       )}
                     </td>
-                    <td style={{ ...TD, color: '#c0cce0' }}><CopyCell value={it.description} maxWidth={240} /></td>
-                    <td style={{ ...TD, color: '#7a9abf' }}><CopyCell value={it.source} maxWidth={180} style={{ color: '#7a9abf' }} /></td>
-                    <td style={{ ...TD, color: '#3d5070', fontFamily: 'monospace', fontSize: 11, whiteSpace: 'nowrap' }}>
+                    <td style={{ ...TD, color: 'var(--fl-on-dark)' }}><CopyCell value={it.description} maxWidth={240} /></td>
+                    <td style={{ ...TD, color: 'var(--fl-accent)' }}><CopyCell value={it.source} maxWidth={180} style={{ color: 'var(--fl-accent)' }} /></td>
+                    <td style={{ ...TD, color: 'var(--fl-subtle)', fontFamily: 'monospace', fontSize: 11, whiteSpace: 'nowrap' }}>
                       {it.host_name || '—'}
                     </td>
                   </tr>
@@ -480,7 +480,7 @@ function SysmonBehaviorSection({ caseId, runSignal, hiddenSevs, onComplete, onCo
       </div>
 
       {!data && !loading && (
-        <p style={{ color: '#3d5070', fontSize: 11, fontFamily: 'monospace', margin: 0 }}>
+        <p style={{ color: 'var(--fl-subtle)', fontSize: 11, fontFamily: 'monospace', margin: 0 }}>
           Analyse les logs Sysmon pour détecter : exécution depuis %TEMP%, injection de processus (EID 8),
           accès LSASS (EID 10), DLL non signées (EID 7), connexions réseau suspectes (EID 3), altération de processus (EID 25).
         </p>
@@ -496,14 +496,14 @@ function SysmonBehaviorSection({ caseId, runSignal, hiddenSevs, onComplete, onCo
           <div key={v.id} style={{ marginBottom: 14 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
               <SevBadge severity={v.severity} />
-              <span style={{ fontSize: 12, fontWeight: 700, fontFamily: 'monospace', color: '#b0ccec' }}>{v.label}</span>
+              <span style={{ fontSize: 12, fontWeight: 700, fontFamily: 'monospace', color: 'var(--fl-on-dark)' }}>{v.label}</span>
               {v.mitre && (
                 <span style={{ fontSize: 10, fontFamily: 'monospace', padding: '1px 7px', borderRadius: 4,
-                  background: '#4d82c014', color: '#4d82c0', border: '1px solid #4d82c028' }}>
+                  background: '#4d82c014', color: 'var(--fl-accent)', border: '1px solid #4d82c028' }}>
                   {v.mitre}
                 </span>
               )}
-              <span style={{ fontSize: 10, fontFamily: 'monospace', color: '#3d5070' }}>
+              <span style={{ fontSize: 10, fontFamily: 'monospace', color: 'var(--fl-subtle)' }}>
                 {v.count} événement{v.count > 1 ? 's' : ''}
               </span>
             </div>
@@ -512,18 +512,18 @@ function SysmonBehaviorSection({ caseId, runSignal, hiddenSevs, onComplete, onCo
                 const proc = it.raw?.Image || it.raw?.TargetImage || it.raw?.TargetFilename || '';
                 return (
                   <tr key={i} style={{ background: i % 2 ? 'transparent' : 'rgba(255,255,255,0.02)' }}>
-                    <td style={{ ...TD, color: '#7a9abf', whiteSpace: 'nowrap', fontFamily: 'monospace', fontSize: 11 }}>
+                    <td style={{ ...TD, color: 'var(--fl-accent)', whiteSpace: 'nowrap', fontFamily: 'monospace', fontSize: 11 }}>
                       {fmtDateTime(it.timestamp)}
                     </td>
                     <td style={TD}>
                       <span style={{ fontSize: 10, fontFamily: 'monospace', padding: '1px 5px', borderRadius: 3,
-                        background: '#1a2035', color: '#7a9abf', border: '1px solid #1a2540' }}>
+                        background: 'var(--fl-sep)', color: 'var(--fl-accent)', border: '1px solid #1a2540' }}>
                         {it.artifact_type}{it.raw?.EventID ? ` EID:${it.raw.EventID}` : ''}
                       </span>
                     </td>
-                    <td style={{ ...TD, color: '#c0cce0' }}><CopyCell value={it.description} maxWidth={220} /></td>
+                    <td style={{ ...TD, color: 'var(--fl-on-dark)' }}><CopyCell value={it.description} maxWidth={220} /></td>
                     <td style={{ ...TD, color: '#f0883e' }}><CopyCell value={proc} maxWidth={200} style={{ color: '#f0883e', fontFamily: 'monospace', fontSize: 11 }} /></td>
-                    <td style={{ ...TD, color: '#3d5070', fontFamily: 'monospace', fontSize: 11 }}>
+                    <td style={{ ...TD, color: 'var(--fl-subtle)', fontFamily: 'monospace', fontSize: 11 }}>
                       {it.host_name || '—'}
                     </td>
                   </tr>
@@ -592,7 +592,7 @@ export default function DetectionsTab({ caseId }) {
     <div style={{ padding: '0 4px' }}>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
-        <p style={{ flex: 1, color: '#3d5070', fontSize: 11, fontFamily: 'monospace', margin: 0 }}>
+        <p style={{ flex: 1, color: 'var(--fl-subtle)', fontSize: 11, fontFamily: 'monospace', margin: 0 }}>
           Détection automatique de techniques adversariales dans les artefacts collectés (MFT, EVTX, Sysmon, Hayabusa).
         </p>
         <Button
@@ -618,7 +618,7 @@ export default function DetectionsTab({ caseId }) {
                 padding: '3px 8px', borderRadius: 5,
                 background: active ? `${color}20` : 'transparent',
                 border: `1px solid ${active ? color + '60' : '#1a2540'}`,
-                color: active ? color : '#3d5070',
+                color: active ? color : 'var(--fl-subtle)',
                 cursor: 'pointer', fontSize: 11, fontFamily: 'monospace', fontWeight: 700,
                 transition: 'all 0.1s',
               }}>
@@ -627,7 +627,7 @@ export default function DetectionsTab({ caseId }) {
                 <span style={{
                   background: active ? `${color}30` : '#0f1a2a',
                   borderRadius: 8, padding: '0 5px', fontSize: 10,
-                  color: active ? color : '#3d5070',
+                  color: active ? color : 'var(--fl-subtle)',
                 }}>
                   {count}
                 </span>

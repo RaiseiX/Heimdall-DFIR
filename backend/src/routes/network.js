@@ -195,7 +195,7 @@ router.get('/:caseId/graph', authenticate, requireRole('admin', 'analyst'), asyn
     const edges = Array.from(edgeMap.values());
 
     const classifyType = (id) => {
-      if (/^https?:\/\
+      if (/^https?:\/\//.test(id)) return 'url';
       if (id === 'local') return 'internal';
       if (/^\d+\.\d+\.\d+\.\d+$/.test(id) || /^[0-9a-f:]+$/i.test(id)) {
         return isInternalIP(id) ? 'internal' : 'external';
@@ -489,7 +489,7 @@ async function buildNetworkGraph(caseId, evidenceIdList, pool) {
   const edges = Array.from(edgeMap.values());
 
   const classifyType = (id) => {
-    if (/^https?:\/\
+    if (/^https?:\/\//.test(id)) return 'url';
     if (id === 'local') return 'internal';
     if (/^\d+\.\d+\.\d+\.\d+$/.test(id) || /^[0-9a-f:]+$/i.test(id)) {
       return isInternalIP(id) ? 'internal' : 'external';

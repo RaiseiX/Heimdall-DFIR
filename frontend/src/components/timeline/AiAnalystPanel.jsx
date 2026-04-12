@@ -123,7 +123,7 @@ function ThinkingSteps({ steps, collapsed, onToggle }) {
         <span style={{ color: '#2a5a8a', flexShrink: 0 }}>{collapsed ? '▶' : '▼'}</span>
         <span style={{ color: '#1a4a6a' }}>
           {isGenerating
-            ? <><span style={{ color: '#4d82c0' }}>🤖</span> Génération en cours…</>
+            ? <><span style={{ color: 'var(--fl-accent)' }}>🤖</span> Génération en cours…</>
             : `Contexte lu — ${doneCount}/${total} sources`}
         </span>
         {!collapsed && (
@@ -138,7 +138,7 @@ function ThinkingSteps({ steps, collapsed, onToggle }) {
               <span style={{
                 flexShrink: 0, fontSize: 8,
                 color: step.status === 'done' ? '#22c55e'
-                  : step.status === 'generating' ? '#4d82c0'
+                  : step.status === 'generating' ? 'var(--fl-accent)'
                   : '#3a6a9a',
               }}>
                 {step.status === 'done' ? '✓'
@@ -147,7 +147,7 @@ function ThinkingSteps({ steps, collapsed, onToggle }) {
               </span>
               <span style={{
                 color: step.status === 'done' ? '#3a8a5a'
-                  : step.status === 'generating' ? '#4d82c0'
+                  : step.status === 'generating' ? 'var(--fl-accent)'
                   : '#2a5a8a',
               }}>
                 {step.icon} {step.label}
@@ -428,7 +428,7 @@ export default function AiAnalystPanel({ records, caseId, totalEvents = 0 }) {
               isThinking,
               loading:    false,
             }));
-          } catch  }
+          } catch (_e) {}
         }
       }
     } catch (e) {
@@ -454,12 +454,12 @@ export default function AiAnalystPanel({ records, caseId, totalEvents = 0 }) {
       <div style={{ fontFamily: 'monospace', fontSize: 11, color: '#2a5a8a', marginBottom: 8 }}>
         IA Locale (Ollama) — non disponible
       </div>
-      <div style={{ fontFamily: 'monospace', fontSize: 10, color: '#1a3a5c', lineHeight: 1.6 }}>
-        Pour activer : démarrez le service Docker avec le profil <code style={{ color: '#4d82c0' }}>ai</code>
+      <div style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--fl-accent)', lineHeight: 1.6 }}>
+        Pour activer : démarrez le service Docker avec le profil <code style={{ color: 'var(--fl-accent)' }}>ai</code>
         <br />
-        <code style={{ color: '#4d82c0' }}>docker compose --profile ai up -d</code>
+        <code style={{ color: 'var(--fl-accent)' }}>docker compose --profile ai up -d</code>
         <br />
-        Puis configurez <code style={{ color: '#4d82c0' }}>OLLAMA_URL</code> dans le backend.
+        Puis configurez <code style={{ color: 'var(--fl-accent)' }}>OLLAMA_URL</code> dans le backend.
       </div>
     </div>
   );
@@ -467,12 +467,12 @@ export default function AiAnalystPanel({ records, caseId, totalEvents = 0 }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: '#04080f' }}>
       
-      <div style={{ flexShrink: 0, padding: '6px 12px', borderBottom: '1px solid #0d1f30', display: 'flex', alignItems: 'center', gap: 8 }}>
+      <div style={{ flexShrink: 0, padding: '6px 12px', borderBottom: '1px solid var(--fl-bg)', display: 'flex', alignItems: 'center', gap: 8 }}>
         <span style={{ fontSize: 9, fontFamily: 'monospace', color: '#22c55e', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
           ⚡ IA Locale
         </span>
         <select value={model} onChange={e => setModel(e.target.value)}
-          style={{ background: '#0a1520', border: '1px solid #0d1f30', borderRadius: 4, color: '#7abfff', fontSize: 9, fontFamily: 'monospace', padding: '1px 4px' }}>
+          style={{ background: '#0a1520', border: '1px solid var(--fl-bg)', borderRadius: 4, color: '#7abfff', fontSize: 9, fontFamily: 'monospace', padding: '1px 4px' }}>
           {models.map(m => <option key={m} value={m}>{m}</option>)}
         </select>
         {messages.length > 0 && (
@@ -485,10 +485,10 @@ export default function AiAnalystPanel({ records, caseId, totalEvents = 0 }) {
 
       <div style={{ flex: 1, overflow: 'auto', padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 10 }}>
         {messages.length === 0 && (
-          <div style={{ fontFamily: 'monospace', fontSize: 10, color: '#1a3a5c', lineHeight: 1.7 }}>
+          <div style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--fl-accent)', lineHeight: 1.7 }}>
             Posez une question sur les <strong style={{ color: '#2a5a8a' }}>{records?.length ?? 0} événements</strong> chargés.
             <br />
-            <span style={{ fontSize: 9, color: '#0d1f30' }}>Modèle: {model} · CPU uniquement</span>
+            <span style={{ fontSize: 9, color: 'var(--fl-muted)' }}>Modèle: {model} · CPU uniquement</span>
             <br /><br />
             Exemples :
             <br />• Quels sont les processus les plus suspects ?
@@ -522,13 +522,13 @@ export default function AiAnalystPanel({ records, caseId, totalEvents = 0 }) {
 
             <div style={{
               background: msg.role === 'user' ? 'rgba(77,130,192,0.15)' : 'rgba(6,17,31,0.8)',
-              border: `1px solid ${msg.role === 'user' ? 'rgba(77,130,192,0.3)' : '#0d1f30'}`,
+              border: `1px solid ${msg.role === 'user' ? 'rgba(77,130,192,0.3)' : 'var(--fl-bg)'}`,
               borderRadius: msg.role === 'user' ? '8px 8px 2px 8px' : '2px 8px 8px 8px',
               padding: '7px 10px',
             }}>
               <div style={{
                 fontFamily: 'monospace', fontSize: 10,
-                color: msg.role === 'user' ? '#7abfff' : '#c0cce0',
+                color: msg.role === 'user' ? '#7abfff' : 'var(--fl-on-dark)',
                 lineHeight: 1.65, whiteSpace: 'pre-wrap',
               }}>
                 {msg.content
@@ -547,7 +547,7 @@ export default function AiAnalystPanel({ records, caseId, totalEvents = 0 }) {
         <div ref={messagesEndRef} />
       </div>
 
-      <div style={{ flexShrink: 0, padding: '8px 12px', borderTop: '1px solid #0d1f30', display: 'flex', gap: 6 }}>
+      <div style={{ flexShrink: 0, padding: '8px 12px', borderTop: '1px solid var(--fl-bg)', display: 'flex', gap: 6 }}>
         <textarea
           value={prompt}
           onChange={e => setPrompt(e.target.value)}
@@ -556,19 +556,19 @@ export default function AiAnalystPanel({ records, caseId, totalEvents = 0 }) {
           rows={2}
           disabled={streaming}
           style={{
-            flex: 1, background: '#06111f', border: '1px solid #0d1f30', borderRadius: 5,
-            color: '#c0cce0', fontSize: 10, fontFamily: 'monospace', padding: '6px 8px',
+            flex: 1, background: '#06111f', border: '1px solid var(--fl-bg)', borderRadius: 5,
+            color: 'var(--fl-on-dark)', fontSize: 10, fontFamily: 'monospace', padding: '6px 8px',
             resize: 'none', outline: 'none',
           }}
         />
         {streaming ? (
           <button onClick={() => abortRef.current?.abort()}
-            style={{ padding: '6px 10px', borderRadius: 5, background: 'rgba(239,68,68,0.15)', color: '#ef4444', border: '1px solid rgba(239,68,68,0.3)', cursor: 'pointer', fontSize: 10, fontFamily: 'monospace' }}>
+            style={{ padding: '6px 10px', borderRadius: 5, background: 'rgba(239,68,68,0.15)', color: 'var(--fl-danger)', border: '1px solid rgba(239,68,68,0.3)', cursor: 'pointer', fontSize: 10, fontFamily: 'monospace' }}>
             ⏹
           </button>
         ) : (
           <button onClick={sendMessage} disabled={!prompt.trim()}
-            style={{ padding: '6px 10px', borderRadius: 5, background: prompt.trim() ? 'rgba(77,130,192,0.2)' : 'transparent', color: prompt.trim() ? '#4d82c0' : '#1a3a5c', border: '1px solid #0d1f30', cursor: prompt.trim() ? 'pointer' : 'default', fontSize: 10, fontFamily: 'monospace' }}>
+            style={{ padding: '6px 10px', borderRadius: 5, background: prompt.trim() ? 'rgba(77,130,192,0.2)' : 'transparent', color: prompt.trim() ? 'var(--fl-accent)' : 'var(--fl-accent)', border: '1px solid var(--fl-bg)', cursor: prompt.trim() ? 'pointer' : 'default', fontSize: 10, fontFamily: 'monospace' }}>
             ↵
           </button>
         )}

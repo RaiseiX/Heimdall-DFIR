@@ -1,9 +1,11 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { collectionAPI } from '../../utils/api';
+import TimelineHeatmap from '../timeline/TimelineHeatmap';
+import { Button, FilterChip, SearchInput, PanelShell } from '../ui';
 import {
-  Monitor, RefreshCw, Search, X, Terminal, Network,
+  Monitor, RefreshCw, Terminal, Network,
   Shield, History, Clock, ChevronDown, ChevronRight,
-  AlertTriangle, UserCheck, Loader2,
+  AlertTriangle, UserCheck, Loader2, BarChart2,
 } from 'lucide-react';
 
 const ALL_CATSCALE_TYPES = [
@@ -17,13 +19,13 @@ const ALL_CATSCALE_TYPES = [
 ];
 
 const TYPE_META = {
-  catscale_auth:        { label: 'Auth',        color: '#f43f5e', icon: Shield,    bg: '#f43f5e18' },
-  catscale_logon:       { label: 'Logons',      color: '#22c55e', icon: UserCheck, bg: '#22c55e18' },
-  catscale_process:     { label: 'Processus',   color: '#8b72d6', icon: Terminal,  bg: '#8b72d618' },
-  catscale_network:     { label: 'Réseau',      color: '#4d82c0', icon: Network,   bg: '#4d82c018' },
-  catscale_history:     { label: 'Historique',  color: '#d97c20', icon: History,   bg: '#d97c2018' },
-  catscale_persistence: { label: 'Persistance', color: '#c89d1d', icon: Clock,     bg: '#c89d1d18' },
-  catscale_fstimeline:  { label: 'FS Timeline', color: '#06b6d4', icon: Clock,     bg: '#06b6d418' },
+  catscale_auth:        { label: 'Auth',        color: '#f43f5e', icon: Shield,    },
+  catscale_logon:       { label: 'Logons',      color: '#22c55e', icon: UserCheck, },
+  catscale_process:     { label: 'Processus',   color: 'var(--fl-purple)', icon: Terminal,  },
+  catscale_network:     { label: 'Réseau',      color: 'var(--fl-accent)', icon: Network,   },
+  catscale_history:     { label: 'Historique',  color: 'var(--fl-warn)', icon: History,   },
+  catscale_persistence: { label: 'Persistance', color: 'var(--fl-gold)', icon: Clock,     },
+  catscale_fstimeline:  { label: 'FS Timeline', color: '#06b6d4', icon: Clock,     },
 };
 
 const SUSPICIOUS_RE = [
@@ -34,7 +36,7 @@ const SUSPICIOUS_RE = [
   /(wget|curl|bash|nc|ncat|nmap|python|perl|ruby)\s+/i,
   /chmod\s+[+]?[0-7]*x/i,
   /crontab|@reboot/i,
-  /\/(tmp|dev\/shm|var\/tmp)\
+  /\/(tmp|dev\/shm|var\/tmp)\//i,
   /base64|xxd|hexdump/i,
   /passwd|shadow|sudoers/i,
   /useradd|adduser|usermod/i,
@@ -50,11 +52,14 @@ function fmt(ts) {
 }
 
 function TypeBadge({ type }) {
-  const m = TYPE_META[type] || { label: type, color: '#7d8590', bg: '#7d859018' };
+  const m = TYPE_META[type] || { label: type, color: 'var(--fl-dim)' };
   return (
     <span style={{
-      fontSize: 10, fontFamily: 'monospace', padding: '1px 6px', borderRadius: 3,
-      background: m.bg, color: m.color, border: `1px solid ${m.color}40`,
+      fontSize: 10, fontFamily: 'monospace', padding: '1px 6px',
+      borderRadius: 'var(--fl-radius-sm)',
+      background: `color-mix(in srgb, ${m.color} 12%, transparent)`,
+      color: m.color,
+      border: `1px solid color-mix(in srgb, ${m.color} 30%, transparent)`,
       whiteSpace: 'nowrap',
     }}>
       {m.label}
@@ -68,8 +73,8 @@ function EventRow({ ev }) {
 
   return (
     <div style={{
-      borderBottom: '1px solid #1a2035',
-      background: suspicious ? '#7c1d1d18' : 'transparent',
+      borderBottom: '1px solid var(--fl-sep)',
+      background: suspicious ? 'color-mix(in srgb, var(--fl-danger) 6%, transparent)' : 'transparent',
     }}>
       <div
         onClick={() => setOpen(o => !o)}
@@ -77,33 +82,33 @@ function EventRow({ ev }) {
           display: 'grid',
           gridTemplateColumns: '160px 100px 1fr 16px',
           gap: 8,
-          padding: '4px 8px',
+          padding: '4px 10px',
           alignItems: 'center',
           cursor: 'pointer',
           fontSize: 12,
           fontFamily: 'monospace',
         }}
-        onMouseEnter={e => e.currentTarget.style.background = '#1a2035'}
+        onMouseEnter={e => e.currentTarget.style.background = 'var(--fl-hover-bg)'}
         onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
       >
-        <span style={{ color: '#7d8590', fontSize: 11 }}>{fmt(ev.timestamp)}</span>
+        <span style={{ color: 'var(--fl-dim)', fontSize: 11 }}>{fmt(ev.timestamp)}</span>
         <TypeBadge type={ev.artifact_type} />
-        <span style={{ color: suspicious ? '#fca5a5' : '#e6edf3', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {suspicious && <AlertTriangle size={11} style={{ color: '#f43f5e', marginRight: 4, display: 'inline', verticalAlign: 'middle' }} />}
+        <span style={{ color: suspicious ? '#fca5a5' : 'var(--fl-text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {suspicious && <AlertTriangle size={11} style={{ color: 'var(--fl-danger)', marginRight: 4, display: 'inline', verticalAlign: 'middle' }} />}
           {ev.description}
         </span>
         {open
-          ? <ChevronDown size={12} style={{ color: '#7d8590' }} />
-          : <ChevronRight size={12} style={{ color: '#484f58' }} />
+          ? <ChevronDown size={12} style={{ color: 'var(--fl-dim)' }} />
+          : <ChevronRight size={12} style={{ color: 'var(--fl-muted)' }} />
         }
       </div>
 
       {open && (
-        <div style={{ padding: '4px 8px 8px 8px', borderTop: '1px solid #1a2035' }}>
+        <div style={{ padding: '4px 10px 8px 10px', borderTop: '1px solid var(--fl-sep)' }}>
           <pre style={{
             margin: 0, fontSize: 11, fontFamily: 'monospace',
-            background: '#0d1117', color: '#7d8590',
-            padding: 8, borderRadius: 4,
+            background: 'var(--fl-bg)', color: 'var(--fl-dim)',
+            padding: 8, borderRadius: 'var(--fl-radius-sm)',
             overflow: 'auto', maxHeight: 200,
           }}>
             {JSON.stringify(ev.raw, null, 2)}
@@ -115,12 +120,13 @@ function EventRow({ ev }) {
 }
 
 export default function CatScaleTimelineTab({ caseId, onTotalChange }) {
-  const [events,  setEvents]  = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [search,  setSearch]  = useState('');
-  const [typeFilter, setTypeFilter] = useState('all');
+  const [events,         setEvents]         = useState([]);
+  const [loading,        setLoading]        = useState(false);
+  const [search,         setSearch]         = useState('');
+  const [typeFilter,     setTypeFilter]     = useState('all');
   const [showSuspicious, setShowSuspicious] = useState(false);
-  const [counts, setCounts] = useState({});
+  const [counts,         setCounts]         = useState({});
+  const [showHeatmap,    setShowHeatmap]    = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -133,11 +139,8 @@ export default function CatScaleTimelineTab({ caseId, onTotalChange }) {
       });
       const rows = data.records || [];
       setEvents(rows);
-
       const c = {};
-      for (const r of rows) {
-        c[r.artifact_type] = (c[r.artifact_type] || 0) + 1;
-      }
+      for (const r of rows) c[r.artifact_type] = (c[r.artifact_type] || 0) + 1;
       setCounts(c);
       onTotalChange?.(rows.length);
     } catch (e) {
@@ -175,7 +178,7 @@ export default function CatScaleTimelineTab({ caseId, onTotalChange }) {
 
   if (loading) {
     return (
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 60, color: '#7d8590' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 60, color: 'var(--fl-dim)' }}>
         <Loader2 size={20} style={{ animation: 'spin 1s linear infinite', marginRight: 8 }} />
         Chargement des artefacts CatScale…
       </div>
@@ -184,140 +187,111 @@ export default function CatScaleTimelineTab({ caseId, onTotalChange }) {
 
   if (!loading && events.length === 0) {
     return (
-      <div style={{ textAlign: 'center', padding: 60, color: '#7d8590' }}>
-        <Monitor size={48} style={{ marginBottom: 12, opacity: 0.3 }} />
-        <div>Aucun artefact CatScale dans ce cas</div>
-        <div style={{ fontSize: 12, marginTop: 4 }}>
-          Importez une collecte CatScale (.tar.gz) via l'onglet Preuves
-        </div>
+      <div className="fl-empty">
+        <Monitor size={40} className="fl-empty-icon" />
+        <div className="fl-empty-title">Aucun artefact CatScale dans ce cas</div>
+        <div className="fl-empty-sub">Importez une collecte CatScale (.tar.gz) via l'onglet Preuves</div>
       </div>
     );
   }
 
   return (
-    <div style={{ fontFamily: 'monospace' }}>
-      <div style={{
-        display: 'flex', alignItems: 'center', gap: 16,
-        background: '#161b22', borderRadius: 8, padding: '10px 16px',
-        marginBottom: 12, border: '1px solid #30363d',
-      }}>
-        <Monitor size={18} style={{ color: '#4d82c0' }} />
-        <div>
-          <span style={{ color: '#e6edf3', fontWeight: 700, fontSize: 13 }}>
-            {sysInfo.hostname}
-          </span>
-          {sysInfo.os && (
-            <span style={{ color: '#7d8590', fontSize: 12, marginLeft: 10 }}>
-              {sysInfo.os}
-            </span>
-          )}
-        </div>
-        <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
-          {suspiciousCount > 0 && (
-            <span style={{
-              fontSize: 11, padding: '2px 8px', borderRadius: 4,
-              background: '#7c1d1d40', color: '#f43f5e', border: '1px solid #f43f5e30',
-            }}>
-              ⚠ {suspiciousCount} suspect{suspiciousCount > 1 ? 's' : ''}
-            </span>
-          )}
-          <button onClick={load} style={{
-            background: 'none', border: '1px solid #30363d', borderRadius: 4,
-            color: '#7d8590', cursor: 'pointer', padding: '2px 8px', fontSize: 11,
-          }}>
-            <RefreshCw size={11} style={{ verticalAlign: 'middle' }} />
-          </button>
-        </div>
-      </div>
+    <div style={{ fontFamily: 'monospace', display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <PanelShell
+        icon={Monitor}
+        title={sysInfo.hostname}
+        subtitle={sysInfo.os || undefined}
+        noPadding
+        bodyStyle={{ padding: 0 }}
+        actions={
+          <>
+            {suspiciousCount > 0 && (
+              <span className="fl-badge" style={{
+                background: 'color-mix(in srgb, var(--fl-danger) 12%, transparent)',
+                color: 'var(--fl-danger)',
+                border: '1px solid color-mix(in srgb, var(--fl-danger) 30%, transparent)',
+              }}>
+                <AlertTriangle size={10} />
+                {suspiciousCount} suspect{suspiciousCount > 1 ? 's' : ''}
+              </span>
+            )}
+            <Button
+              variant="ghost"
+              size="xs"
+              icon={BarChart2}
+              onClick={() => setShowHeatmap(v => !v)}
+              title="Heatmap d'activité"
+              style={showHeatmap ? { color: 'var(--fl-accent)' } : undefined}
+            >
+              Heatmap
+            </Button>
+            <Button variant="ghost" size="xs" icon={RefreshCw} onClick={load} title="Rafraîchir" />
+          </>
+        }
+      />
 
-      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10 }}>
-        <button
+      {showHeatmap && (
+        <div className="fl-card" style={{ overflow: 'hidden' }}>
+          <TimelineHeatmap caseId={caseId} availTypes={ALL_CATSCALE_TYPES} />
+        </div>
+      )}
+
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+        <FilterChip
+          active={typeFilter === 'all'}
           onClick={() => setTypeFilter('all')}
-          style={{
-            padding: '3px 10px', borderRadius: 4, fontSize: 11,
-            background: typeFilter === 'all' ? '#1c2333' : 'transparent',
-            border: `1px solid ${typeFilter === 'all' ? '#4d82c0' : '#30363d'}`,
-            color: typeFilter === 'all' ? '#4d82c0' : '#7d8590',
-            cursor: 'pointer',
-          }}
+          count={events.length}
         >
-          Tous ({events.length})
-        </button>
+          Tous
+        </FilterChip>
 
         {ALL_CATSCALE_TYPES.map(type => {
           const m = TYPE_META[type];
           const cnt = counts[type] || 0;
           if (!cnt) return null;
-          const active = typeFilter === type;
           return (
-            <button
+            <FilterChip
               key={type}
-              onClick={() => setTypeFilter(active ? 'all' : type)}
-              style={{
-                padding: '3px 10px', borderRadius: 4, fontSize: 11,
-                background: active ? m.bg : 'transparent',
-                border: `1px solid ${active ? m.color : '#30363d'}`,
-                color: active ? m.color : '#7d8590',
-                cursor: 'pointer',
-                display: 'flex', alignItems: 'center', gap: 4,
-              }}
+              active={typeFilter === type}
+              color={m.color}
+              icon={m.icon}
+              count={cnt}
+              onClick={() => setTypeFilter(typeFilter === type ? 'all' : type)}
             >
-              {m.label} ({cnt})
-            </button>
+              {m.label}
+            </FilterChip>
           );
         })}
 
-        <button
+        <FilterChip
+          active={showSuspicious}
+          color="var(--fl-danger)"
+          icon={AlertTriangle}
           onClick={() => setShowSuspicious(v => !v)}
-          style={{
-            marginLeft: 'auto', padding: '3px 10px', borderRadius: 4, fontSize: 11,
-            background: showSuspicious ? '#7c1d1d40' : 'transparent',
-            border: `1px solid ${showSuspicious ? '#f43f5e' : '#30363d'}`,
-            color: showSuspicious ? '#f43f5e' : '#7d8590',
-            cursor: 'pointer',
-            display: 'flex', alignItems: 'center', gap: 4,
-          }}
+          style={{ marginLeft: 'auto' }}
         >
-          <AlertTriangle size={11} />
           Suspects seulement
-        </button>
+        </FilterChip>
       </div>
 
-      <div style={{ position: 'relative', marginBottom: 10 }}>
-        <Search size={13} style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', color: '#7d8590' }} />
-        <input
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          placeholder="Filtrer les événements…"
-          style={{
-            width: '100%', boxSizing: 'border-box',
-            background: '#161b22', border: '1px solid #30363d', borderRadius: 4,
-            color: '#e6edf3', fontSize: 12, fontFamily: 'monospace',
-            padding: '5px 30px 5px 26px', outline: 'none',
-          }}
-        />
-        {search && (
-          <X size={13} onClick={() => setSearch('')} style={{
-            position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)',
-            color: '#7d8590', cursor: 'pointer',
-          }} />
-        )}
-      </div>
+      <SearchInput
+        value={search}
+        onChange={setSearch}
+        onClear={() => setSearch('')}
+        placeholder="Filtrer les événements…"
+      />
 
-      <div style={{ fontSize: 11, color: '#484f58', marginBottom: 6, paddingLeft: 2 }}>
+      <div style={{ fontSize: 11, color: 'var(--fl-muted)', paddingLeft: 2 }}>
         {filtered.length.toLocaleString()} événement{filtered.length > 1 ? 's' : ''}
         {filtered.length !== events.length && ` (sur ${events.length.toLocaleString()})`}
       </div>
 
-      <div style={{
-        background: '#161b22', borderRadius: 8, border: '1px solid #30363d',
-        overflow: 'auto', maxHeight: 'calc(100vh - 380px)', minHeight: 200,
-      }}>
+      <div className="fl-card" style={{ overflow: 'auto', maxHeight: 'calc(100vh - 380px)', minHeight: 200 }}>
         <div style={{
           display: 'grid', gridTemplateColumns: '160px 100px 1fr 16px',
-          gap: 8, padding: '4px 8px',
-          background: '#0d1117', borderBottom: '1px solid #1a2035',
-          fontSize: 10, color: '#484f58', fontFamily: 'monospace', fontWeight: 700,
+          gap: 8, padding: '4px 10px',
+          background: 'var(--fl-bg)', borderBottom: '1px solid var(--fl-sep)',
+          fontSize: 10, color: 'var(--fl-muted)', fontWeight: 700,
           position: 'sticky', top: 0, zIndex: 1,
         }}>
           <span>HORODATAGE</span>
@@ -327,7 +301,7 @@ export default function CatScaleTimelineTab({ caseId, onTotalChange }) {
         </div>
 
         {filtered.length === 0 ? (
-          <div style={{ padding: 30, textAlign: 'center', color: '#484f58', fontSize: 12 }}>
+          <div style={{ padding: '30px 24px', textAlign: 'center', color: 'var(--fl-muted)', fontSize: 12 }}>
             Aucun événement correspondant
           </div>
         ) : (

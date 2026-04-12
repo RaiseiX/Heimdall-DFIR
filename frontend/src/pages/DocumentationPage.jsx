@@ -1,10 +1,14 @@
 import { useState, useCallback } from 'react';
-import { Shield, Terminal, Cpu, AlertTriangle, Search, BookMarked, X } from 'lucide-react';
+import { Shield, Terminal, Cpu, AlertTriangle, Search, BookMarked, X, Server, Network, Wrench, ClipboardList } from 'lucide-react';
 import { useTheme } from '../utils/theme';
 import WindowsArtifactsDoc from './documentation/WindowsArtifactsDoc';
 import EventIdsDoc from './documentation/EventIdsDoc';
 import MemoryForensicsDoc from './documentation/MemoryForensicsDoc';
 import AttackPatternsDoc from './documentation/AttackPatternsDoc';
+import LinuxArtifactsDoc from './documentation/LinuxArtifactsDoc';
+import NetworkForensicsDoc from './documentation/NetworkForensicsDoc';
+import ToolsCheatsheetsDoc from './documentation/ToolsCheatsheetsDoc';
+import DFIRMethodologyDoc from './documentation/DFIRMethodologyDoc';
 
 const SECTIONS = [
   {
@@ -12,6 +16,12 @@ const SECTIONS = [
     label: 'Artefacts Windows',
     icon: Shield,
     desc: '15 artefacts — exécution, accès fichiers, persistance',
+  },
+  {
+    id: 'linux-artifacts',
+    label: 'Artefacts Linux',
+    icon: Server,
+    desc: '12 artefacts — logs, persistance, mémoire, évasion',
   },
   {
     id: 'event-ids',
@@ -29,7 +39,25 @@ const SECTIONS = [
     id: 'attacks',
     label: "Patterns d'Attaques",
     icon: AlertTriangle,
-    desc: '7 scénarios — TTPs + artefacts + IOCs',
+    desc: '35 patterns — MITRE ATT&CK, APT, Sigma rules',
+  },
+  {
+    id: 'network-forensics',
+    label: 'Forensique Réseau',
+    icon: Network,
+    desc: 'PCAP, beaconing, DNS, exfiltration, proxy logs',
+  },
+  {
+    id: 'tools-cheatsheets',
+    label: 'Outils & Cheatsheets',
+    icon: Wrench,
+    desc: 'Volatility 3, EZTools, Hayabusa, KAPE, Velociraptor…',
+  },
+  {
+    id: 'dfir-methodology',
+    label: 'Méthodologie DFIR',
+    icon: ClipboardList,
+    desc: '7 phases IR — checklists interactives, matrices',
   },
 ];
 
@@ -43,11 +71,15 @@ export default function DocumentationPage() {
   const renderContent = () => {
     const props = { search };
     switch (activeSection) {
-      case 'artifacts': return <WindowsArtifactsDoc {...props} />;
-      case 'event-ids': return <EventIdsDoc {...props} />;
-      case 'memory':    return <MemoryForensicsDoc {...props} />;
-      case 'attacks':   return <AttackPatternsDoc {...props} />;
-      default:          return null;
+      case 'artifacts':          return <WindowsArtifactsDoc {...props} />;
+      case 'linux-artifacts':    return <LinuxArtifactsDoc {...props} />;
+      case 'event-ids':          return <EventIdsDoc {...props} />;
+      case 'memory':             return <MemoryForensicsDoc {...props} />;
+      case 'attacks':            return <AttackPatternsDoc {...props} />;
+      case 'network-forensics':  return <NetworkForensicsDoc {...props} />;
+      case 'tools-cheatsheets':  return <ToolsCheatsheetsDoc {...props} />;
+      case 'dfir-methodology':   return <DFIRMethodologyDoc {...props} />;
+      default:                   return null;
     }
   };
 

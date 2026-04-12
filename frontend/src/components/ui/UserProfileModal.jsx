@@ -7,8 +7,8 @@ import { useTranslation } from 'react-i18next';
 import i18n from '../../i18n/index.js';
 
 const CHAT_COLORS = [
-  '#4d82c0', '#3fb950', '#d97c20', '#da3633',
-  '#8b72d6', '#c96898', '#06b6d4', '#c89d1d',
+  'var(--fl-accent)', 'var(--fl-ok)', 'var(--fl-warn)', 'var(--fl-danger)',
+  'var(--fl-purple)', 'var(--fl-pink)', '#06b6d4', 'var(--fl-gold)',
   '#f43f5e', '#22c55e',
 ];
 

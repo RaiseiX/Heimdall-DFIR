@@ -4,10 +4,10 @@ import { feedbackAPI } from '../utils/api';
 import { useTheme } from '../utils/theme';
 
 const STATUS_CONFIG = {
-  open:        { label: 'Ouvert',      color: '#4d82c0' },
-  in_progress: { label: 'En cours',    color: '#d97c20' },
-  resolved:    { label: 'Résolu',      color: '#3fb950' },
-  closed:      { label: 'Fermé',       color: '#7d8590' },
+  open:        { label: 'Ouvert',      color: 'var(--fl-accent)' },
+  in_progress: { label: 'En cours',    color: 'var(--fl-warn)' },
+  resolved:    { label: 'Résolu',      color: 'var(--fl-ok)' },
+  closed:      { label: 'Fermé',       color: 'var(--fl-dim)' },
 };
 
 const TYPE_LABELS = { bug: '🐛 Bug', suggestion: '💡 Suggestion', autre: '📝 Autre' };

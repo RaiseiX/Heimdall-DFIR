@@ -5,10 +5,10 @@ import { Spinner } from '../components/ui';
 import { ChevronLeft } from 'lucide-react';
 
 const PRIORITY_COLOR = {
-  critical: '#da3633',
-  high:     '#d97c20',
-  medium:   '#c89d1d',
-  low:      '#3fb950',
+  critical: 'var(--fl-danger)',
+  high:     'var(--fl-warn)',
+  medium:   'var(--fl-gold)',
+  low:      'var(--fl-ok)',
 };
 const STATUS_LABEL = {
   active:  'En cours',
@@ -32,7 +32,7 @@ export default function CaseShell({ user }) {
       .finally(() => setLoading(false));
   }, [id]);
 
-  const pc = PRIORITY_COLOR[caseData?.priority] || '#4d82c0';
+  const pc = PRIORITY_COLOR[caseData?.priority] || 'var(--fl-accent)';
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -41,7 +41,7 @@ export default function CaseShell({ user }) {
         position: 'sticky', top: 0, zIndex: 110,
         display: 'flex', alignItems: 'center', gap: 8,
         height: 38, padding: '0 14px',
-        background: 'var(--fl-bg, #07101f)',
+        background: 'var(--fl-bg, var(--fl-bg))',
         borderBottom: `1px solid ${pc}30`,
         flexShrink: 0,
       }}>
@@ -59,7 +59,7 @@ export default function CaseShell({ user }) {
           Cas
         </button>
 
-        <span style={{ color: 'var(--fl-border, #30363d)', fontSize: 13, flexShrink: 0 }}>/</span>
+        <span style={{ color: 'var(--fl-border, var(--fl-border))', fontSize: 13, flexShrink: 0 }}>/</span>
 
         {loading ? (
           <Spinner size={12} />
@@ -72,7 +72,7 @@ export default function CaseShell({ user }) {
             <span style={{ fontFamily: 'monospace', fontSize: 11, color: pc, fontWeight: 700, flexShrink: 0 }}>
               {caseData.case_number}
             </span>
-            <span style={{ color: 'var(--fl-border, #30363d)', fontSize: 13, flexShrink: 0 }}>·</span>
+            <span style={{ color: 'var(--fl-border, var(--fl-border))', fontSize: 13, flexShrink: 0 }}>·</span>
             <span style={{
               fontFamily: 'monospace', fontSize: 11,
               color: 'var(--fl-text-muted, #8aa0bc)',

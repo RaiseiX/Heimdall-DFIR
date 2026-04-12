@@ -41,21 +41,21 @@ async function evictOldSession(userId, redis) {
 
       await redis.set(`bl:jti:${oldJti}`, '1', { EX: 28800 });
     }
-  } catch  }
+  } catch (_e) {}
 }
 
 async function storeActiveSession(userId, jti, redis) {
   if (!redis) return;
   try {
     await redis.set(`user_session:${userId}`, jti, { EX: SESSION_KEY_TTL });
-  } catch  }
+  } catch (_e) {}
 }
 
 async function clearActiveSession(userId, redis) {
   if (!redis) return;
   try {
     await redis.del(`user_session:${userId}`);
-  } catch  }
+  } catch (_e) {}
 }
 
 router.post('/login', async (req, res) => {
@@ -201,7 +201,7 @@ router.post('/logout', authenticate, async (req, res) => {
           await redis.set(`bl:jti:${decoded.jti}`, '1', { EX: ttl });
           await clearActiveSession(decoded.id, redis);
         }
-      } catch  }
+      } catch (_e) {}
     }
 
     await auditLog(req.user.id, 'logout', 'user', req.user.id, {}, req.ip);

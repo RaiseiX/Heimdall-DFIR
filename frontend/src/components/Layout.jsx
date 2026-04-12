@@ -69,7 +69,7 @@ export default function Layout({ user, onLogout, onTourStart, children }) {
           const urgent = (r.data.deadlines || []).filter(d => d.hours_remaining < 48);
           setUrgentCount(urgent.length);
         })
-        .catch(() =>  });
+        .catch(() => {});
     }
     fetchDeadlines();
     const interval = setInterval(fetchDeadlines, 5 * 60 * 1000);
@@ -137,13 +137,15 @@ export default function Layout({ user, onLogout, onTourStart, children }) {
           {navItems.map((item) => {
             const active = !item.external && isActive(item.path);
             const sharedStyle = {
-              background: active ? `${T.accent}14` : 'transparent',
-              color: active ? T.accent : T.dim,
-              borderLeft: active ? `2px solid ${T.accent}` : '2px solid transparent',
+              background: active ? 'var(--fl-accent-muted, color-mix(in srgb, var(--fl-accent) 12%, transparent))' : 'transparent',
+              color: active ? 'var(--fl-accent)' : 'var(--fl-dim)',
+              borderLeft: active ? '2px solid var(--fl-accent)' : '2px solid transparent',
               paddingLeft: active ? 10 : 12,
               paddingRight: 12,
+              fontFamily: 'monospace',
+              fontSize: 12,
             };
-            const sharedClass = "flex items-center gap-3 py-2 rounded-md text-sm font-medium transition-colors";
+            const sharedClass = "flex items-center gap-3 py-1.5 rounded transition-colors";
             if (item.external) {
               return (
                 <a
@@ -172,7 +174,7 @@ export default function Layout({ user, onLogout, onTourStart, children }) {
                   <item.icon size={16} />
                   {item.badge && (
                     <span className="absolute -top-1.5 -right-1.5 min-w-4 h-4 flex items-center justify-center rounded-full text-white font-bold"
-                      style={{ background: '#ef4444', fontSize: 9, lineHeight: 1, padding: '0 3px' }}>
+                      style={{ background: 'var(--fl-danger)', fontSize: 9, lineHeight: 1, padding: '0 3px' }}>
                       {item.badge}
                     </span>
                   )}
@@ -182,7 +184,7 @@ export default function Layout({ user, onLogout, onTourStart, children }) {
                     {item.label}
                     {item.badge && (
                       <span className="ml-1 min-w-5 h-5 flex items-center justify-center rounded-full text-white font-bold"
-                        style={{ background: '#ef4444', fontSize: 10, padding: '0 4px' }}>
+                        style={{ background: 'var(--fl-danger)', fontSize: 10, padding: '0 4px' }}>
                         {item.badge}
                       </span>
                     )}
@@ -202,16 +204,16 @@ export default function Layout({ user, onLogout, onTourStart, children }) {
               padding: collapsed ? '6px' : '6px 10px',
               justifyContent: collapsed ? 'center' : 'flex-start',
               background: `${T.accent}0f`, border: `1px solid ${T.accent}26`,
-              borderRadius: 6, cursor: 'pointer', color: '#7d8590',
+              borderRadius: 6, cursor: 'pointer', color: 'var(--fl-dim)',
               transition: 'all 0.15s',
             }}
           >
-            <Search size={13} style={{ flexShrink: 0, color: '#4d82c0' }} />
+            <Search size={13} style={{ flexShrink: 0, color: 'var(--fl-accent)' }} />
             {!collapsed && (
               <>
-                <span style={{ fontFamily: 'monospace', fontSize: 10, flex: 1, textAlign: 'left', color: '#7d8590' }}>Rechercher…</span>
-                <kbd style={{ fontSize: 9, fontFamily: 'monospace', color: '#484f58',
-                  background: '#0d1117', border: '1px solid #30363d', borderRadius: 3, padding: '1px 4px' }}>
+                <span style={{ fontFamily: 'monospace', fontSize: 10, flex: 1, textAlign: 'left', color: 'var(--fl-dim)' }}>Rechercher…</span>
+                <kbd style={{ fontSize: 9, fontFamily: 'monospace', color: 'var(--fl-muted)',
+                  background: 'var(--fl-bg)', border: '1px solid var(--fl-border)', borderRadius: 3, padding: '1px 4px' }}>
                   ⌃K
                 </kbd>
               </>
@@ -219,23 +221,23 @@ export default function Layout({ user, onLogout, onTourStart, children }) {
           </button>
         </div>
 
-        <div style={{ borderTop: `1px solid ${T.border}` }}>
-          
-          <div className="flex items-center justify-between px-3 py-2">
+        <div style={{ borderTop: '1px solid var(--fl-border)' }}>
+
+          {/* ── Mode / UTC / thème ── */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: collapsed ? '6px 8px' : '6px 10px' }}>
             {!collapsed && (
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span className="text-xs" style={{ color: T.muted }}>
+                <span style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--fl-muted)' }}>
                   {T.mode === 'dark' ? t('dark_mode') : t('light_mode')}
                 </span>
-                
                 <button
                   onClick={() => updatePref('timezone', prefs.timezone === 'utc' ? 'local' : 'utc')}
-                  title={prefs.timezone === 'utc' ? 'Affichage en UTC — cliquer pour passer en heure locale' : 'Affichage en heure locale — cliquer pour passer en UTC'}
+                  title={prefs.timezone === 'utc' ? 'UTC → local' : 'Local → UTC'}
                   style={{
                     fontSize: 9, fontFamily: 'monospace', fontWeight: 700,
                     padding: '1px 5px', borderRadius: 3, border: 'none', cursor: 'pointer',
-                    background: prefs.timezone === 'utc' ? `${T.accent}2e` : `${T.gold}26`,
-                    color: prefs.timezone === 'utc' ? T.accent : T.gold,
+                    background: prefs.timezone === 'utc' ? 'color-mix(in srgb, var(--fl-accent) 18%, transparent)' : 'color-mix(in srgb, var(--fl-gold) 15%, transparent)',
+                    color: prefs.timezone === 'utc' ? 'var(--fl-accent)' : 'var(--fl-gold)',
                   }}>
                   {prefs.timezone === 'utc' ? 'UTC' : 'LOCAL'}
                 </button>
@@ -248,121 +250,78 @@ export default function Layout({ user, onLogout, onTourStart, children }) {
                 style={{
                   fontSize: 8, fontFamily: 'monospace', fontWeight: 700,
                   padding: '2px 4px', borderRadius: 3, border: 'none', cursor: 'pointer',
-                  background: prefs.timezone === 'utc' ? `${T.accent}2e` : `${T.gold}26`,
-                  color: prefs.timezone === 'utc' ? T.accent : T.gold,
+                  background: prefs.timezone === 'utc' ? 'color-mix(in srgb, var(--fl-accent) 18%, transparent)' : 'color-mix(in srgb, var(--fl-gold) 15%, transparent)',
+                  color: prefs.timezone === 'utc' ? 'var(--fl-accent)' : 'var(--fl-gold)',
                   margin: '0 auto',
                 }}>
                 {prefs.timezone === 'utc' ? 'UTC' : 'LCL'}
               </button>
             )}
-            <button
-              onClick={T.toggle}
-              title="Basculer thème"
-              className="p-1.5 rounded-md transition-colors"
-              style={{ color: T.dim, marginLeft: collapsed ? 0 : 0 }}
-            >
+            <button onClick={T.toggle} title="Basculer thème"
+              style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 5, borderRadius: 4, color: 'var(--fl-dim)', display: 'flex', alignItems: 'center' }}>
               {T.mode === 'dark' ? <Sun size={13} /> : <Moon size={13} />}
             </button>
           </div>
 
+          {/* ── Zebra / feedback / tour ── */}
           {!collapsed && (
-            <div className="px-2 pb-1 flex items-center gap-1">
-              <button
-                onClick={() => setZebra(z => !z)}
-                title="Alterner les lignes des tableaux (zebra-striping)"
-                className="flex-1 px-3 py-1.5 rounded-md text-xs font-mono flex items-center gap-2 transition-colors"
-                style={{ color: zebra ? T.accent : T.dim, background: zebra ? `color-mix(in srgb, ${T.accent} 10%, transparent)` : 'transparent' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 2, padding: '2px 8px 4px' }}>
+              <button onClick={() => setZebra(z => !z)} title="Zebra-striping"
+                style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 5, padding: '4px 8px', borderRadius: 3, border: 'none', cursor: 'pointer', fontFamily: 'monospace', fontSize: 10, background: zebra ? 'color-mix(in srgb, var(--fl-accent) 10%, transparent)' : 'transparent', color: zebra ? 'var(--fl-accent)' : 'var(--fl-dim)' }}>
                 ≡ Zebra
               </button>
-              <button onClick={() => setFeedbackOpen(true)}
-                title="Signaler un bug / faire une suggestion"
-                className="px-2 py-1.5 rounded-md text-xs font-mono flex items-center transition-colors"
-                style={{ color: T.dim }}>
-                <MessageSquarePlus size={12} />
-              </button>
-              <button onClick={() => setMyRequestsOpen(true)}
-                title="Voir mes demandes"
-                className="px-2 py-1.5 rounded-md text-xs font-mono flex items-center transition-colors"
-                style={{ color: T.dim }}>
-                <MessageSquare size={12} />
-              </button>
-              {onTourStart && (
-                <button onClick={onTourStart}
-                  className="px-2 py-1.5 rounded-md text-xs font-mono flex items-center transition-colors"
-                  style={{ color: T.dim }}>
-                  <BookOpen size={12} />
+              {[
+                { icon: MessageSquarePlus, fn: () => setFeedbackOpen(true),   title: 'Signaler un bug' },
+                { icon: MessageSquare,    fn: () => setMyRequestsOpen(true),  title: 'Mes demandes' },
+                ...(onTourStart ? [{ icon: BookOpen, fn: onTourStart, title: 'Tour' }] : []),
+              ].map(({ icon: Ico, fn, title: t2 }) => (
+                <button key={t2} onClick={fn} title={t2}
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 5, borderRadius: 3, color: 'var(--fl-dim)', display: 'flex', alignItems: 'center' }}>
+                  <Ico size={12} />
                 </button>
-              )}
+              ))}
             </div>
           )}
 
+          {/* ── User profile ── */}
           {!collapsed && (
-            <button
-              onClick={() => setProfileOpen(true)}
-              style={{
-                display: 'flex', alignItems: 'center', gap: 8,
-                width: '100%', padding: '6px 16px 8px',
-                background: 'none', border: 'none', cursor: 'pointer',
-                textAlign: 'left',
-              }}>
-              
-              <div style={{
-                width: 26, height: 26, borderRadius: '50%', flexShrink: 0,
-                background: prefs.chat_color,
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                fontFamily: 'monospace', fontWeight: 700, fontSize: 10, color: '#fff',
-              }}>
-                {(prefs.display_name || user.full_name || '?')
-                  .split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase()}
+            <button onClick={() => setProfileOpen(true)}
+              style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '6px 12px 8px', background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left' }}>
+              <div style={{ width: 26, height: 26, borderRadius: '50%', flexShrink: 0, background: prefs.chat_color, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'monospace', fontWeight: 700, fontSize: 10, color: '#fff' }}>
+                {(prefs.display_name || user.full_name || '?').split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase()}
               </div>
-              <div>
-                <div className="text-sm font-medium" style={{ color: T.text }}>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontFamily: 'monospace', fontSize: 11, fontWeight: 700, color: 'var(--fl-text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {prefs.display_name || user.full_name}
                 </div>
-                <div className="text-xs font-mono" style={{ color: T.muted }}>{user.role.toUpperCase()}</div>
+                <div style={{ fontFamily: 'monospace', fontSize: 9, color: 'var(--fl-muted)', letterSpacing: '0.08em' }}>{user.role.toUpperCase()}</div>
               </div>
             </button>
           )}
           {collapsed && (
-            <button
-              onClick={() => setProfileOpen(true)}
-              title="Mon profil"
-              style={{
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                width: '100%', padding: '6px 0 8px',
-                background: 'none', border: 'none', cursor: 'pointer',
-              }}>
-              <div style={{
-                width: 26, height: 26, borderRadius: '50%',
-                background: prefs.chat_color,
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                fontFamily: 'monospace', fontWeight: 700, fontSize: 10, color: '#fff',
-              }}>
-                {(prefs.display_name || user.full_name || '?')
-                  .split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase()}
+            <button onClick={() => setProfileOpen(true)} title="Mon profil"
+              style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', padding: '6px 0 8px', background: 'none', border: 'none', cursor: 'pointer' }}>
+              <div style={{ width: 26, height: 26, borderRadius: '50%', background: prefs.chat_color, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'monospace', fontWeight: 700, fontSize: 10, color: '#fff' }}>
+                {(prefs.display_name || user.full_name || '?').split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase()}
               </div>
             </button>
           )}
 
-          <div className="px-2 pb-2">
-            <button
-              onClick={onLogout}
-              title={collapsed ? 'Déconnexion' : undefined}
-              className="flex items-center gap-2 w-full px-3 py-2 rounded-md text-sm transition-colors"
-              style={{ color: T.danger }}
-            >
-              <LogOut size={15} style={{ flexShrink: 0 }} />
+          {/* ── Déconnexion ── */}
+          <div style={{ padding: '2px 8px 8px' }}>
+            <button onClick={onLogout} title={collapsed ? 'Déconnexion' : undefined}
+              style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%', padding: collapsed ? '6px' : '6px 10px', justifyContent: collapsed ? 'center' : 'flex-start', background: 'none', border: 'none', cursor: 'pointer', borderRadius: 3, fontFamily: 'monospace', fontSize: 11, color: 'var(--fl-danger)', transition: 'background 0.12s' }}
+              onMouseEnter={e => e.currentTarget.style.background = 'color-mix(in srgb, var(--fl-danger) 8%, transparent)'}
+              onMouseLeave={e => e.currentTarget.style.background = 'none'}>
+              <LogOut size={13} style={{ flexShrink: 0 }} />
               {!collapsed && t('logout')}
             </button>
           </div>
         </div>
 
-        <button
-          onClick={() => setCollapsed(!collapsed)}
-          className="flex items-center justify-center py-2.5 transition-colors"
-          style={{ borderTop: `1px solid ${T.border}`, color: T.muted }}
-        >
-          {collapsed ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
+        <button onClick={() => setCollapsed(!collapsed)}
+          style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '8px', borderTop: '1px solid var(--fl-border)', background: 'none', border: 'none', borderTop: '1px solid var(--fl-border)', cursor: 'pointer', color: 'var(--fl-subtle)', width: '100%' }}>
+          {collapsed ? <ChevronRight size={13} /> : <ChevronLeft size={13} />}
         </button>
       </aside>
 

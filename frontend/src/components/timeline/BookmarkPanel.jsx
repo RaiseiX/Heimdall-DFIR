@@ -11,25 +11,25 @@ const MITRE_TACTICS = [
 ];
 
 const TACTIC_COLOR = {
-  'Reconnaissance':       '#7d8590',
-  'Resource Development': '#7d8590',
-  'Initial Access':       '#d97c20',
-  'Execution':            '#da3633',
-  'Persistence':          '#c96898',
-  'Privilege Escalation': '#8b72d6',
-  'Defense Evasion':      '#4d82c0',
-  'Credential Access':    '#da3633',
-  'Discovery':            '#c89d1d',
-  'Lateral Movement':     '#d97c20',
-  'Collection':           '#3fb950',
-  'Command and Control':  '#da3633',
+  'Reconnaissance':       'var(--fl-dim)',
+  'Resource Development': 'var(--fl-dim)',
+  'Initial Access':       'var(--fl-warn)',
+  'Execution':            'var(--fl-danger)',
+  'Persistence':          'var(--fl-pink)',
+  'Privilege Escalation': 'var(--fl-purple)',
+  'Defense Evasion':      'var(--fl-accent)',
+  'Credential Access':    'var(--fl-danger)',
+  'Discovery':            'var(--fl-gold)',
+  'Lateral Movement':     'var(--fl-warn)',
+  'Collection':           'var(--fl-ok)',
+  'Command and Control':  'var(--fl-danger)',
   'Exfiltration':         '#f43f5e',
-  'Impact':               '#da3633',
+  'Impact':               'var(--fl-danger)',
 };
 
-const PALETTE = ['#4d82c0', '#da3633', '#d97c20', '#c89d1d', '#3fb950', '#8b72d6', '#c96898', '#f43f5e'];
+const PALETTE = ['var(--fl-accent)', 'var(--fl-danger)', 'var(--fl-warn)', 'var(--fl-gold)', 'var(--fl-ok)', 'var(--fl-purple)', 'var(--fl-pink)', '#f43f5e'];
 
-const EMPTY_FORM = { title: '', description: '', mitre_tactic: '', mitre_technique: '', color: '#4d82c0' };
+const EMPTY_FORM = { title: '', description: '', mitre_tactic: '', mitre_technique: '', color: 'var(--fl-accent)' };
 
 function BookmarkForm({ initial, onSave, onCancel }) {
   const { t } = useTranslation();
@@ -47,7 +47,7 @@ function BookmarkForm({ initial, onSave, onCancel }) {
 
   return (
     <form onSubmit={submit} style={{
-      padding: '12px 14px', background: '#07101f', border: '1px solid #1a2035',
+      padding: '12px 14px', background: 'var(--fl-bg)', border: '1px solid var(--fl-sep)',
       borderRadius: 8, display: 'flex', flexDirection: 'column', gap: 8,
     }}>
       
@@ -57,8 +57,8 @@ function BookmarkForm({ initial, onSave, onCancel }) {
         value={form.title}
         onChange={e => set('title', e.target.value)}
         style={{
-          background: '#050c18', border: '1px solid #1a2a3a', borderRadius: 4,
-          color: '#c8d8ec', fontFamily: 'monospace', fontSize: 11,
+          background: '#050c18', border: '1px solid var(--fl-card)', borderRadius: 4,
+          color: 'var(--fl-on-dark)', fontFamily: 'monospace', fontSize: 11,
           padding: '5px 8px', outline: 'none', width: '100%', boxSizing: 'border-box',
         }}
       />
@@ -67,15 +67,15 @@ function BookmarkForm({ initial, onSave, onCancel }) {
         value={form.mitre_tactic}
         onChange={e => set('mitre_tactic', e.target.value)}
         style={{
-          background: '#050c18', border: '1px solid #1a2a3a', borderRadius: 4,
-          color: form.mitre_tactic ? (TACTIC_COLOR[form.mitre_tactic] || '#c8d8ec') : '#3d5070',
+          background: '#050c18', border: '1px solid var(--fl-card)', borderRadius: 4,
+          color: form.mitre_tactic ? (TACTIC_COLOR[form.mitre_tactic] || 'var(--fl-on-dark)') : 'var(--fl-subtle)',
           fontFamily: 'monospace', fontSize: 11, padding: '5px 8px', outline: 'none',
           width: '100%', boxSizing: 'border-box',
         }}
       >
         <option value="">{t('bookmark.tactic_ph')}</option>
         {MITRE_TACTICS.map(tactic => (
-          <option key={tactic} value={tactic} style={{ color: TACTIC_COLOR[tactic] || '#c8d8ec' }}>{tactic}</option>
+          <option key={tactic} value={tactic} style={{ color: TACTIC_COLOR[tactic] || 'var(--fl-on-dark)' }}>{tactic}</option>
         ))}
       </select>
 
@@ -84,8 +84,8 @@ function BookmarkForm({ initial, onSave, onCancel }) {
         value={form.mitre_technique}
         onChange={e => set('mitre_technique', e.target.value)}
         style={{
-          background: '#050c18', border: '1px solid #1a2a3a', borderRadius: 4,
-          color: '#c8d8ec', fontFamily: 'monospace', fontSize: 11,
+          background: '#050c18', border: '1px solid var(--fl-card)', borderRadius: 4,
+          color: 'var(--fl-on-dark)', fontFamily: 'monospace', fontSize: 11,
           padding: '5px 8px', outline: 'none', width: '100%', boxSizing: 'border-box',
         }}
       />
@@ -96,15 +96,15 @@ function BookmarkForm({ initial, onSave, onCancel }) {
         onChange={e => set('description', e.target.value)}
         rows={2}
         style={{
-          background: '#050c18', border: '1px solid #1a2a3a', borderRadius: 4,
-          color: '#c8d8ec', fontFamily: 'monospace', fontSize: 11,
+          background: '#050c18', border: '1px solid var(--fl-card)', borderRadius: 4,
+          color: 'var(--fl-on-dark)', fontFamily: 'monospace', fontSize: 11,
           padding: '5px 8px', outline: 'none', resize: 'vertical',
           width: '100%', boxSizing: 'border-box',
         }}
       />
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-        <span style={{ fontSize: 10, color: '#3d5070', fontFamily: 'monospace' }}>{t('workbench.color_label')}</span>
+        <span style={{ fontSize: 10, color: 'var(--fl-subtle)', fontFamily: 'monospace' }}>{t('workbench.color_label')}</span>
         {PALETTE.map(c => (
           <button
             key={c} type="button"
@@ -123,14 +123,14 @@ function BookmarkForm({ initial, onSave, onCancel }) {
           flex: 1, padding: '5px 10px', borderRadius: 4,
           background: form.title.trim() ? '#1a3a5a' : '#0a1020',
           border: `1px solid ${form.title.trim() ? '#2a5080' : '#0e1828'}`,
-          color: form.title.trim() ? '#4d82c0' : '#1e2a3a',
+          color: form.title.trim() ? 'var(--fl-accent)' : 'var(--fl-card)',
           fontSize: 11, fontFamily: 'monospace', cursor: form.title.trim() ? 'pointer' : 'default',
         }}>
           {saving ? t('bookmark.creating') : t('common.save')}
         </button>
         <button type="button" onClick={onCancel} style={{
           padding: '5px 10px', borderRadius: 4, background: 'none',
-          border: '1px solid #1a2a3a', color: '#3d5070',
+          border: '1px solid var(--fl-card)', color: 'var(--fl-subtle)',
           fontSize: 11, fontFamily: 'monospace', cursor: 'pointer',
         }}>
           {t('common.cancel')}
@@ -206,7 +206,7 @@ export default function BookmarkPanel({ caseId }) {
     const printWin = window.open('', '_blank');
     if (!printWin) return;
     const rows = bookmarks.map(b => {
-      const tc = TACTIC_COLOR[b.mitre_tactic] || '#7d8590';
+      const tc = TACTIC_COLOR[b.mitre_tactic] || 'var(--fl-dim)';
       return `
         <tr>
           <td style="color:#7abfff;white-space:nowrap">${b.event_timestamp ? new Date(b.event_timestamp).toLocaleString() : '—'}</td>
@@ -214,7 +214,7 @@ export default function BookmarkPanel({ caseId }) {
           <td>${b.description || ''}</td>
           <td style="color:${tc}">${b.mitre_tactic || ''}</td>
           <td style="color:#a0b8d0">${b.mitre_technique || ''}</td>
-          <td><span style="display:inline-block;width:12px;height:12px;border-radius:50%;background:${b.color || '#4d82c0'}"></span></td>
+          <td><span style="display:inline-block;width:12px;height:12px;border-radius:50%;background:${b.color || 'var(--fl-accent)'}"></span></td>
           <td style="color:#7d8590">${b.author_name || b.username || ''}</td>
         </tr>`;
     }).join('');
@@ -260,7 +260,7 @@ export default function BookmarkPanel({ caseId }) {
       description: b.description || '',
       mitre_tactic: b.mitre_tactic || '',
       mitre_technique: b.mitre_technique || '',
-      color: b.color || '#4d82c0',
+      color: b.color || 'var(--fl-accent)',
     });
     setShowForm(false);
   }
@@ -270,13 +270,13 @@ export default function BookmarkPanel({ caseId }) {
 
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <Bookmark size={13} style={{ color: '#4d82c0' }} />
+          <Bookmark size={13} style={{ color: 'var(--fl-accent)' }} />
           <span style={{ fontFamily: 'monospace', fontSize: 11, fontWeight: 700, color: '#8aa0bc', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
             Bookmarks ({bookmarks.length})
           </span>
         </div>
         <div style={{ display: 'flex', gap: 6 }}>
-          <button onClick={load} title={t('common.refresh')} style={{ background: 'none', border: '1px solid #1a2035', borderRadius: 4, cursor: 'pointer', padding: '5px 9px', color: '#3d5070' }}>
+          <button onClick={load} title={t('common.refresh')} style={{ background: 'none', border: '1px solid var(--fl-sep)', borderRadius: 4, cursor: 'pointer', padding: '5px 9px', color: 'var(--fl-subtle)' }}>
             <RefreshCw size={11} />
           </button>
           {bookmarks.length > 0 && (
@@ -286,8 +286,8 @@ export default function BookmarkPanel({ caseId }) {
                 title={t('common.export') + ' CSV'}
                 style={{
                   display: 'flex', alignItems: 'center', gap: 3,
-                  background: 'none', border: '1px solid #1a2035', borderRadius: 4,
-                  cursor: 'pointer', padding: '5px 10px', color: '#3d5070',
+                  background: 'none', border: '1px solid var(--fl-sep)', borderRadius: 4,
+                  cursor: 'pointer', padding: '5px 10px', color: 'var(--fl-subtle)',
                   fontSize: 10, fontFamily: 'monospace',
                 }}
               >
@@ -298,8 +298,8 @@ export default function BookmarkPanel({ caseId }) {
                 title={t('common.export') + ' PDF'}
                 style={{
                   display: 'flex', alignItems: 'center', gap: 3,
-                  background: 'none', border: '1px solid #1a2035', borderRadius: 4,
-                  cursor: 'pointer', padding: '5px 10px', color: '#8b72d6',
+                  background: 'none', border: '1px solid var(--fl-sep)', borderRadius: 4,
+                  cursor: 'pointer', padding: '5px 10px', color: 'var(--fl-purple)',
                   fontSize: 10, fontFamily: 'monospace',
                 }}
               >
@@ -313,7 +313,7 @@ export default function BookmarkPanel({ caseId }) {
               display: 'flex', alignItems: 'center', gap: 4,
               background: showForm ? '#1a3a5a' : 'none',
               border: '1px solid #2a4a6a', borderRadius: 4, cursor: 'pointer',
-              padding: '3px 8px', color: '#4d82c0', fontSize: 10, fontFamily: 'monospace',
+              padding: '3px 8px', color: 'var(--fl-accent)', fontSize: 10, fontFamily: 'monospace',
             }}
           >
             {showForm ? <X size={11} /> : <Plus size={11} />}
@@ -330,22 +330,22 @@ export default function BookmarkPanel({ caseId }) {
       )}
 
       {loading && (
-        <div style={{ textAlign: 'center', color: '#3d5070', fontFamily: 'monospace', fontSize: 11, padding: 16 }}>
+        <div style={{ textAlign: 'center', color: 'var(--fl-subtle)', fontFamily: 'monospace', fontSize: 11, padding: 16 }}>
           {t('common.loading')}
         </div>
       )}
 
       {!loading && bookmarks.length === 0 && !showForm && (
         <div style={{
-          textAlign: 'center', color: '#2a3a50', fontFamily: 'monospace', fontSize: 11,
-          padding: '24px 16px', border: '1px dashed #1a2035', borderRadius: 8,
+          textAlign: 'center', color: 'var(--fl-muted)', fontFamily: 'monospace', fontSize: 11,
+          padding: '24px 16px', border: '1px dashed var(--fl-sep)', borderRadius: 8,
         }}>
           {t('bookmark.empty')}
         </div>
       )}
 
       {bookmarks.map(b => {
-        const tc = TACTIC_COLOR[b.mitre_tactic] || '#7d8590';
+        const tc = TACTIC_COLOR[b.mitre_tactic] || 'var(--fl-dim)';
         const isEditing = editId === b.id;
         return (
           <div key={b.id}>
@@ -357,28 +357,28 @@ export default function BookmarkPanel({ caseId }) {
               />
             ) : (
               <div style={{
-                borderRadius: 8, border: `1px solid ${b.color || '#1a2035'}30`,
-                borderLeft: `3px solid ${b.color || '#4d82c0'}`,
-                background: '#07101f', padding: '10px 12px',
+                borderRadius: 8, border: `1px solid ${b.color || 'var(--fl-sep)'}30`,
+                borderLeft: `3px solid ${b.color || 'var(--fl-accent)'}`,
+                background: 'var(--fl-bg)', padding: '10px 12px',
                 display: 'flex', flexDirection: 'column', gap: 6,
               }}>
                 
                 <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>
-                  <span style={{ fontSize: 12, fontWeight: 600, color: '#c8d8ec', lineHeight: 1.4, flex: 1 }}>
+                  <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--fl-on-dark)', lineHeight: 1.4, flex: 1 }}>
                     {b.title}
                   </span>
                   <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
-                    <button onClick={() => startEdit(b)} title={t('common.edit')} style={{ background: 'none', border: '1px solid #1a2035', borderRadius: 4, cursor: 'pointer', color: '#3d5070', padding: '4px 7px', display: 'flex', alignItems: 'center' }}>
+                    <button onClick={() => startEdit(b)} title={t('common.edit')} style={{ background: 'none', border: '1px solid var(--fl-sep)', borderRadius: 4, cursor: 'pointer', color: 'var(--fl-subtle)', padding: '4px 7px', display: 'flex', alignItems: 'center' }}>
                       <Pencil size={10} />
                     </button>
-                    <button onClick={() => remove(b.id)} title={t('common.delete')} style={{ background: 'none', border: '1px solid #da363330', borderRadius: 4, cursor: 'pointer', color: '#da3633', padding: '4px 7px', display: 'flex', alignItems: 'center' }}>
+                    <button onClick={() => remove(b.id)} title={t('common.delete')} style={{ background: 'none', border: '1px solid #da363330', borderRadius: 4, cursor: 'pointer', color: 'var(--fl-danger)', padding: '4px 7px', display: 'flex', alignItems: 'center' }}>
                       <Trash2 size={10} />
                     </button>
                   </div>
                 </div>
 
                 {b.description && (
-                  <div style={{ fontSize: 11, color: '#7d8590', lineHeight: 1.4 }}>{b.description}</div>
+                  <div style={{ fontSize: 11, color: 'var(--fl-dim)', lineHeight: 1.4 }}>{b.description}</div>
                 )}
 
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, alignItems: 'center' }}>
@@ -393,17 +393,17 @@ export default function BookmarkPanel({ caseId }) {
                   {b.mitre_technique && (
                     <span style={{
                       padding: '1px 7px', borderRadius: 4, fontSize: 9, fontFamily: 'monospace',
-                      background: '#1a2035', color: '#7d8590', border: '1px solid #2a3045',
+                      background: 'var(--fl-sep)', color: 'var(--fl-dim)', border: '1px solid #2a3045',
                     }}>
                       {b.mitre_technique}
                     </span>
                   )}
                   {b.event_timestamp && (
-                    <span style={{ fontSize: 9, fontFamily: 'monospace', color: '#3d5070' }}>
+                    <span style={{ fontSize: 9, fontFamily: 'monospace', color: 'var(--fl-subtle)' }}>
                       {new Date(b.event_timestamp).toLocaleString()}
                     </span>
                   )}
-                  <span style={{ fontSize: 9, fontFamily: 'monospace', color: '#2a3a50', marginLeft: 'auto' }}>
+                  <span style={{ fontSize: 9, fontFamily: 'monospace', color: 'var(--fl-muted)', marginLeft: 'auto' }}>
                     {b.author_name || b.username} · {new Date(b.created_at).toLocaleDateString('fr-FR')}
                   </span>
                 </div>

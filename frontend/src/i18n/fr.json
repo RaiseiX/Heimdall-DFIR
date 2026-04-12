@@ -160,6 +160,8 @@
     "goto_page_ph":            "aller à…",
     "tagged_count":            "⬤ {{count}} taggé",
     "tagged_count_pl":         "⬤ {{count}} taggés",
+    "tagged_s":                "tagué",
+    "tagged_pl":               "tagués",
     "rows_per_page":           "Lignes",
     "records_badge":           "enregistrements",
     "create_case":             "Créer un cas",

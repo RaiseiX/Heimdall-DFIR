@@ -128,7 +128,7 @@ export async function ensureIndex(caseId: string): Promise<void> {
         index,
         settings: { index: { max_result_window: INDEX_SETTINGS.max_result_window } } as any,
       });
-    } catch  }
+    } catch (_e) {}
   }
 }
 
