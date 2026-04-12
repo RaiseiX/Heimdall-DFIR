@@ -1,63 +1,94 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { useTheme } from '../utils/theme';
 import { useTranslation } from 'react-i18next';
 import { collectionAPI, casesAPI } from '../utils/api';
-import { Shield, AlertTriangle, Download, Play, Loader2, RefreshCw, FolderOpen, Search, Star, X } from 'lucide-react';
+import {
+  Shield, AlertTriangle, Download, Play, Loader2, RefreshCw,
+  FolderOpen, Search, X, ChevronLeft, ChevronRight,
+} from 'lucide-react';
+import { HAY_SEVERITY_BG } from '../constants/artifactColors';
 
-const LEVEL_COLORS = { critical: '#da3633', high: '#d97c20', medium: '#c89d1d', low: '#3fb950', info: '#7d8590' };
-const TACTIC_COLORS = {
-  Execution: '#ef4444', Persistence: '#d97c20', 'Defense Evasion': '#c89d1d',
-  Discovery: '#22c55e', 'Privilege Escalation': '#c96898', 'Lateral Movement': '#8b72d6',
-  'Command and Control': '#4d82c0', 'Credential Access': '#f43f5e',
+const ROW_H    = 28;
+const OVERSCAN = 12;
+
+const LEVEL_COLORS = {
+  critical: 'var(--fl-danger)',
+  high:     'var(--fl-warn)',
+  medium:   'var(--fl-gold)',
+  low:      'var(--fl-ok)',
+  info:     'var(--fl-dim)',
+  informational: 'var(--fl-dim)',
 };
 
-const ROW_H    = 36;
-const OVERSCAN = 10;
+const LEVEL_ORDER = { critical: 0, high: 1, medium: 2, low: 3, info: 4, informational: 4 };
+
+// Column definitions
+const COLS = [
+  { key: 'timestamp',   label: 'Timestamp (UTC)', width: 172, mono: true },
+  { key: 'level',       label: 'Level',           width: 82              },
+  { key: 'event_id',    label: 'EID',              width: 54,  mono: true },
+  { key: 'channel',     label: 'Channel',          width: 148, mono: true },
+  { key: 'rule_title',  label: 'Règle Sigma',      flex: true             },
+  { key: 'mitre',       label: 'MITRE',            width: 96,  mono: true },
+  { key: 'tactic',      label: 'Tactic',           width: 118             },
+];
+
+function fmtTs(ts) {
+  if (!ts) return '—';
+  return String(ts).replace('T', ' ').replace('Z', '').substring(0, 23);
+}
+
+function Highlight({ text, term }) {
+  const str = String(text ?? '');
+  if (!term) return <>{str}</>;
+  const idx = str.toLowerCase().indexOf(term.toLowerCase());
+  if (idx === -1) return <>{str}</>;
+  return (
+    <>{str.slice(0, idx)}
+      <mark style={{ background: '#f59e0b35', color: '#f59e0b', borderRadius: 2, padding: '0 1px' }}>
+        {str.slice(idx, idx + term.length)}
+      </mark>
+      {str.slice(idx + term.length)}</>
+  );
+}
 
 export default function HayabusaPage() {
-  const T = useTheme();
   const { t } = useTranslation();
 
-  const [cases, setCases] = useState([]);
+  const [cases, setCases]             = useState([]);
   const [selectedCase, setSelectedCase] = useState('');
-  const [detections, setDetections] = useState([]);
-  const [stats, setStats] = useState({ critical: 0, high: 0, medium: 0, low: 0 });
-  const [evtxCount, setEvtxCount] = useState(0);
-  const [loading, setLoading] = useState(false);
-  const [running, setRunning] = useState(false);
-  const [error, setError] = useState('');
-  const [hasRun, setHasRun] = useState(false);
+  const [detections, setDetections]   = useState([]);
+  const [stats, setStats]             = useState({ critical: 0, high: 0, medium: 0, low: 0 });
+  const [evtxCount, setEvtxCount]     = useState(0);
+  const [loading, setLoading]         = useState(false);
+  const [running, setRunning]         = useState(false);
+  const [error, setError]             = useState('');
+  const [hasRun, setHasRun]           = useState(false);
 
-  const [search, setSearch] = useState('');
+  const [search, setSearch]           = useState('');
   const [levelFilter, setLevelFilter] = useState('all');
-  const [selRow, setSelRow] = useState(null);
-  const [highlights, setHighlights] = useState(new Set());
+  const [selId, setSelId]             = useState(null);
+  const [starred, setStarred]         = useState(new Set());
 
   const tableContainerRef = useRef(null);
 
+  // ── Load cases ───────────────────────────────────────────────────────────
   useEffect(() => {
     casesAPI.list({}).then(({ data }) => {
-      setCases(data.cases || []);
-      if (data.cases?.length > 0) setSelectedCase(data.cases[0].id);
-    }).catch(() => {
-      const demo = [
-        { id: '1', case_number: 'CASE-2026-001', title: 'Intrusion Serveur Principal' },
-        { id: '2', case_number: 'CASE-2026-002', title: 'Ransomware Dept. Finance' },
-        { id: '3', case_number: 'CASE-2026-003', title: 'Analyse Clé USB Suspecte' },
-      ];
-      setCases(demo);
-      setSelectedCase(demo[0].id);
-    });
+      const list = data.cases || [];
+      setCases(list);
+      if (list.length > 0) setSelectedCase(list[0].id);
+    }).catch(() => {});
   }, []);
 
+  // ── Load Hayabusa results for selected case ──────────────────────────────
   useEffect(() => {
     if (!selectedCase) return;
     setLoading(true);
     setError('');
     collectionAPI.getHayabusa(selectedCase).then(({ data }) => {
-      if (data.timeline && data.timeline.length > 0) {
-        setDetections(data.timeline.map((d, i) => ({ ...d, id: i })));
+      if (data.timeline?.length > 0) {
+        setDetections(data.timeline.map((d, i) => ({ ...d, _id: i })));
         setStats(data.stats || {});
         setEvtxCount(data.evtx_files_count || 0);
         setHasRun(true);
@@ -78,7 +109,7 @@ export default function HayabusaPage() {
     setError('');
     try {
       const { data } = await collectionAPI.runHayabusa(selectedCase);
-      setDetections((data.timeline || []).map((d, i) => ({ ...d, id: i })));
+      setDetections((data.timeline || []).map((d, i) => ({ ...d, _id: i })));
       setStats(data.stats || {});
       setEvtxCount(data.evtx_files_processed || 0);
       setHasRun(true);
@@ -88,399 +119,594 @@ export default function HayabusaPage() {
     setRunning(false);
   }, [selectedCase, t]);
 
+  // ── Filtered rows ─────────────────────────────────────────────────────────
   const filtered = useMemo(() => {
-    return detections.filter(d => {
-      if (levelFilter !== 'all' && d.level !== levelFilter) return false;
-      if (search) {
-        const q = search.toLowerCase();
-        return (d.rule_title || d.ruleTitle || '').toLowerCase().includes(q)
-          || (d.details || '').toLowerCase().includes(q)
-          || (d.mitre_attack || d.mitre || '').toLowerCase().includes(q)
-          || (d.channel || '').toLowerCase().includes(q)
-          || String(d.event_id || d.eventId || '').includes(q);
-      }
-      return true;
-    });
+    let rows = detections;
+    if (levelFilter !== 'all') rows = rows.filter(d => d.level === levelFilter);
+    if (search) {
+      const q = search.toLowerCase();
+      rows = rows.filter(d =>
+        (d.rule_title || d.ruleTitle || '').toLowerCase().includes(q) ||
+        (d.details || '').toLowerCase().includes(q) ||
+        (d.mitre_attack || d.mitre || '').toLowerCase().includes(q) ||
+        (d.channel || '').toLowerCase().includes(q) ||
+        (d.tactic || '').toLowerCase().includes(q) ||
+        String(d.event_id || d.eventId || '').includes(q)
+      );
+    }
+    return rows;
   }, [detections, levelFilter, search]);
 
+  // Reset scroll on filter change
   useEffect(() => {
     if (tableContainerRef.current) tableContainerRef.current.scrollTop = 0;
+    setSelId(null);
   }, [filtered]);
 
-  const toggleHL = useCallback((id) => {
-    setHighlights(p => {
-      const n = new Set(p);
-      n.has(id) ? n.delete(id) : n.add(id);
-      return n;
-    });
-  }, []);
+  // ── Virtualizer ───────────────────────────────────────────────────────────
+  const rowVirtualizer = useVirtualizer({
+    count:            filtered.length,
+    getScrollElement: () => tableContainerRef.current,
+    estimateSize:     () => ROW_H,
+    overscan:         OVERSCAN,
+  });
 
-  const getField = useCallback((d, ...keys) => {
+  const vItems     = rowVirtualizer.getVirtualItems();
+  const totalH     = rowVirtualizer.getTotalSize();
+  const padTop     = vItems.length > 0 ? (vItems[0]?.start ?? 0) : 0;
+  const padBottom  = vItems.length > 0 ? totalH - (vItems[vItems.length - 1]?.end ?? 0) : 0;
+
+  // ── Helpers ───────────────────────────────────────────────────────────────
+  const getF = useCallback((d, ...keys) => {
     for (const k of keys) if (d[k] != null && d[k] !== '') return d[k];
     return '';
   }, []);
 
+  const toggleStar = useCallback((id, e) => {
+    e?.stopPropagation();
+    setStarred(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  }, []);
+
   const exportCSV = useCallback(() => {
-    const rows = filtered.map(d =>
-      [d.timestamp, d.level, d.event_id || d.eventId || '', d.channel,
-       d.rule_title || d.ruleTitle || '', d.mitre_attack || d.mitre || '',
-       (d.details || '').replace(/,/g, ';')].join(',')
-    );
-    const blob = new Blob(['Timestamp,Level,EventID,Channel,Rule,MITRE,Details\n' + rows.join('\n')], { type: 'text/csv' });
+    const header = 'Timestamp,Level,EventID,Channel,Règle,MITRE,Tactic,Détails';
+    const rows = filtered.map(d => [
+      d.timestamp, d.level,
+      getF(d, 'event_id', 'eventId'),
+      d.channel || '',
+      getF(d, 'rule_title', 'ruleTitle'),
+      getF(d, 'mitre_attack', 'mitre'),
+      d.tactic || '',
+      (d.details || '').replace(/,/g, ';'),
+    ].map(v => `"${String(v ?? '').replace(/"/g, '""')}"`).join(','));
+    const blob = new Blob([header + '\n' + rows.join('\n')], { type: 'text/csv' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
     a.download = `hayabusa_${selectedCase}_${new Date().toISOString().slice(0, 10)}.csv`;
     a.click();
-  }, [filtered, selectedCase]);
+  }, [filtered, selectedCase, getF]);
 
-  const rowVirtualizer = useVirtualizer({
-    count:          filtered.length,
-    getScrollElement: () => tableContainerRef.current,
-    estimateSize:   () => ROW_H,
-    overscan:       OVERSCAN,
-  });
+  // ── Selected row ──────────────────────────────────────────────────────────
+  const selRow = selId != null ? detections.find(d => d._id === selId) : null;
 
-  const virtualItems    = rowVirtualizer.getVirtualItems();
-  const totalVirtualH   = rowVirtualizer.getTotalSize();
-  const paddingTop      = virtualItems.length > 0 ? (virtualItems[0]?.start ?? 0) : 0;
-  const paddingBottom   = virtualItems.length > 0
-    ? totalVirtualH - (virtualItems[virtualItems.length - 1]?.end ?? 0)
-    : 0;
+  // ── Computed stats ────────────────────────────────────────────────────────
+  const totalCount    = detections.length;
+  const filteredCount = filtered.length;
+  const starCount     = starred.size;
 
+  // ── Navigate selected row ─────────────────────────────────────────────────
+  const navigateSel = useCallback((dir) => {
+    if (!selRow) return;
+    const idx = filtered.findIndex(d => d._id === selId);
+    const next = idx + dir;
+    if (next >= 0 && next < filtered.length) {
+      setSelId(filtered[next]._id);
+      rowVirtualizer.scrollToIndex(next, { align: 'auto' });
+    }
+  }, [selRow, selId, filtered, rowVirtualizer]);
+
+  // ─────────────────────────────────────────────────────────────────────────
   return (
-    <div className="p-6">
-      
-      <div className="fl-header">
-        <div>
-          <h1 className="fl-header-title">
-            <Shield size={20} className="inline mr-2" style={{ color: '#da3633', verticalAlign: 'text-bottom' }} />
-            Hayabusa — JPCERT/CC
-          </h1>
-          <p className="fl-header-sub">
-            Parser les fichiers EVTX avec les règles Sigma
-            {hasRun && <span> · <span style={{ color: '#da3633' }}>{detections.length} détections</span> · {evtxCount} EVTX parsés</span>}
-          </p>
-        </div>
-        {hasRun && (
-          <div className="flex gap-2">
-            <button onClick={exportCSV} className="fl-btn fl-btn-secondary fl-btn-sm">
-              <Download size={13} /> CSV
-            </button>
-            <button onClick={runHayabusa} disabled={running} className="fl-btn fl-btn-secondary fl-btn-sm">
-              <RefreshCw size={13} /> Relancer
-            </button>
-          </div>
-        )}
-      </div>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
 
-      <div className="flex gap-3 mb-6 items-end">
-        <div className="flex-1">
-          <label className="fl-label">
-            <FolderOpen size={11} className="inline mr-1" /> Cas source (collecte Magnet RESPONSE)
-          </label>
+      {/* ── Toolbar ── */}
+      <div className="fl-header" style={{ padding: '8px 16px 6px', flexDirection: 'column', alignItems: 'flex-start', gap: 6, flexShrink: 0 }}>
+        {/* Row 1: title + counts */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%' }}>
+          <Shield size={15} style={{ color: 'var(--fl-danger)', flexShrink: 0 }} />
+          <span style={{ fontFamily: 'monospace', fontWeight: 700, fontSize: 13, color: 'var(--fl-text)' }}>
+            Hayabusa
+          </span>
+          <span style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--fl-muted)' }}>JPCERT/CC · Sigma</span>
+          {hasRun && (
+            <>
+              <span style={{ padding: '1px 7px', borderRadius: 4, fontSize: 10, fontFamily: 'monospace', fontWeight: 700,
+                background: 'rgba(218,54,51,0.14)', color: 'var(--fl-danger)', border: '1px solid rgba(218,54,51,0.3)' }}>
+                {totalCount} détections
+              </span>
+              <span style={{ padding: '1px 7px', borderRadius: 4, fontSize: 10, fontFamily: 'monospace',
+                background: 'var(--fl-card)', color: 'var(--fl-dim)', border: '1px solid var(--fl-border)' }}>
+                {evtxCount} EVTX
+              </span>
+              {starCount > 0 && (
+                <span style={{ padding: '1px 7px', borderRadius: 4, fontSize: 10, fontFamily: 'monospace',
+                  background: '#f59e0b14', color: '#f59e0b', border: '1px solid #f59e0b30' }}>
+                  ★ {starCount}
+                </span>
+              )}
+            </>
+          )}
+        </div>
+
+        {/* Row 2: case selector + actions */}
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', width: '100%' }}>
+          <FolderOpen size={12} style={{ color: 'var(--fl-dim)', flexShrink: 0 }} />
           <select
             value={selectedCase}
-            onChange={e => setSelectedCase(e.target.value)}
-            className="fl-select w-full"
+            onChange={e => { setSelectedCase(e.target.value); setHasRun(false); setDetections([]); }}
+            className="fl-select"
+            style={{ fontSize: 11, padding: '3px 8px', flex: '0 1 320px', minWidth: 180 }}
           >
             <option value="">— Sélectionner un cas —</option>
             {cases.map(c => (
               <option key={c.id} value={c.id}>{c.case_number} — {c.title}</option>
             ))}
           </select>
+
+          <div style={{ width: 1, height: 18, background: 'var(--fl-sep)', flexShrink: 0 }} />
+
+          <button
+            onClick={runHayabusa}
+            disabled={running || !selectedCase}
+            className="fl-btn fl-btn-danger fl-btn-sm"
+            style={{ opacity: !selectedCase ? 0.45 : 1 }}
+          >
+            {running
+              ? <><Loader2 size={12} className="animate-spin" /> Analyse…</>
+              : <><Play size={12} /> Lancer</>
+            }
+          </button>
+
+          {hasRun && (
+            <>
+              <button onClick={runHayabusa} disabled={running} className="fl-btn fl-btn-ghost fl-btn-sm">
+                <RefreshCw size={12} /> Relancer
+              </button>
+              <button onClick={exportCSV} className="fl-btn fl-btn-ghost fl-btn-sm">
+                <Download size={12} /> CSV
+              </button>
+            </>
+          )}
         </div>
-        <button
-          onClick={runHayabusa}
-          disabled={running || !selectedCase}
-          className="fl-btn fl-btn-danger"
-          style={{ opacity: !selectedCase ? 0.45 : 1, whiteSpace: 'nowrap' }}
-        >
-          {running
-            ? <><Loader2 size={14} className="animate-spin" /> Analyse…</>
-            : <><Play size={14} /> Lancer Hayabusa</>
-          }
-        </button>
       </div>
 
+      {/* ── Error ── */}
       {error && (
-        <div className="rounded-lg p-3 mb-4 text-sm flex items-center gap-2"
-          style={{ background: 'rgba(218,54,51,0.08)', border: '1px solid rgba(218,54,51,0.2)', color: '#da3633' }}>
-          <AlertTriangle size={14} /> {error}
-          <button onClick={() => setError('')} className="ml-auto"><X size={14} /></button>
+        <div style={{ margin: '0 12px 6px', padding: '6px 10px', borderRadius: 6, fontSize: 11,
+          background: 'rgba(218,54,51,0.08)', border: '1px solid rgba(218,54,51,0.2)', color: 'var(--fl-danger)',
+          display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+          <AlertTriangle size={12} /> {error}
+          <button onClick={() => setError('')} style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: 'inherit' }}>
+            <X size={12} />
+          </button>
         </div>
       )}
 
+      {/* ── Empty / Loading states ── */}
       {!hasRun && !loading && !running && (
-        <div className="fl-empty" style={{ minHeight: 320 }}>
-          <Shield size={48} className="fl-empty-icon" style={{ color: '#da363330' }} />
-          <div className="fl-empty-title">{t('hayabusa.empty')}</div>
-          <div className="fl-empty-sub">
-            Sélectionnez un cas contenant une collecte Magnet RESPONSE avec des fichiers EVTX,<br />
-            puis cliquez sur "Lancer Hayabusa" pour parser les Event Logs avec les règles Sigma.
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 10 }}>
+          <Shield size={48} style={{ color: '#da363320' }} />
+          <div style={{ fontFamily: 'monospace', fontSize: 13, fontWeight: 600, color: 'var(--fl-text)' }}>
+            {t('hayabusa.empty')}
           </div>
-          <div className="mt-4 text-xs font-mono px-3 py-1.5 rounded" style={{ background: '#1c2333', border: '1px solid #30363d', color: '#484f58' }}>
+          <div style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--fl-dim)', textAlign: 'center', maxWidth: 420 }}>
+            Sélectionnez un cas contenant une collecte avec des fichiers EVTX,<br />
+            puis cliquez sur "Lancer" pour parser avec les règles Sigma.
+          </div>
+          <div style={{ fontSize: 10, fontFamily: 'monospace', padding: '4px 10px', borderRadius: 4,
+            background: 'var(--fl-card)', border: '1px solid var(--fl-border)', color: 'var(--fl-muted)' }}>
             Import Collecte → Zimmerman (EVTX) → Hayabusa (Sigma)
           </div>
         </div>
       )}
 
       {loading && (
-        <div className="text-center py-12">
-          <Loader2 size={24} className="animate-spin mx-auto mb-3" style={{ color: '#4d82c0' }} />
-          <div className="text-sm" style={{ color: '#7d8590' }}>{t('hayabusa.loading')}</div>
+        <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10 }}>
+          <Loader2 size={20} className="animate-spin" style={{ color: 'var(--fl-accent)' }} />
+          <span style={{ fontFamily: 'monospace', fontSize: 12, color: 'var(--fl-dim)' }}>{t('hayabusa.loading')}</span>
         </div>
       )}
 
       {hasRun && !loading && (
         <>
-          
-          <div className="grid grid-cols-5 gap-3 mb-5">
-            {['critical', 'high', 'medium', 'low'].map(level => {
-              const count = stats[level] ?? 0;
-              const color = LEVEL_COLORS[level] || T.dim;
+          {/* ── Stats bar ── */}
+          <div style={{ display: 'flex', gap: 6, padding: '5px 14px', borderBottom: '1px solid var(--fl-sep)', flexShrink: 0, flexWrap: 'wrap' }}>
+            {['critical', 'high', 'medium', 'low'].map(lvl => {
+              const col = LEVEL_COLORS[lvl];
+              const cnt = stats[lvl] ?? 0;
               return (
-                <div key={level} className="rounded-lg p-4 border"
-                  style={{ background: '#1c2333', borderColor: '#30363d', borderLeft: `3px solid ${color}` }}>
-                  <div className="font-mono text-2xl font-bold mb-1" style={{ color: '#e6edf3' }}>{count}</div>
-                  <div className="text-xs font-mono uppercase tracking-wider" style={{ color }}>{level}</div>
-                </div>
+                <span key={lvl} style={{ display: 'inline-flex', alignItems: 'center', gap: 5,
+                  padding: '2px 9px', borderRadius: 4, fontSize: 10, fontFamily: 'monospace', fontWeight: 700,
+                  background: `${col}14`, color: col, border: `1px solid ${col}30` }}>
+                  {lvl === 'critical' && <AlertTriangle size={9} />}
+                  {lvl.toUpperCase()} <span style={{ opacity: 0.7, fontWeight: 400 }}>{cnt}</span>
+                </span>
               );
             })}
-            <div className="rounded-lg p-4 border"
-              style={{ background: '#1c2333', borderColor: '#30363d', borderLeft: `3px solid ${T.accent}` }}>
-              <div className="font-mono text-2xl font-bold mb-1" style={{ color: '#e6edf3' }}>{evtxCount}</div>
-              <div className="text-xs font-mono uppercase tracking-wider" style={{ color: T.accent }}>EVTX parsés</div>
-            </div>
           </div>
 
-          <div className="fl-filters mb-4">
-            <div className="fl-search flex-1">
-              <Search size={14} className="fl-search-icon" />
+          {/* ── Filter bar ── */}
+          <div style={{ display: 'flex', gap: 6, padding: '5px 10px', borderBottom: '1px solid var(--fl-sep)',
+            alignItems: 'center', flexShrink: 0, flexWrap: 'wrap' }}>
+            {/* Search */}
+            <div style={{ position: 'relative', flex: '1 1 200px', minWidth: 160 }}>
+              <Search size={13} style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', color: 'var(--fl-dim)' }} />
               <input
                 value={search}
                 onChange={e => setSearch(e.target.value)}
-                placeholder="Règle, MITRE, Event ID, channel…"
+                placeholder="Règle, MITRE, EID, channel, tactic…"
                 className="fl-input"
-                style={{ paddingLeft: 34 }}
+                style={{ paddingLeft: 28, width: '100%', fontSize: 11 }}
               />
+              {search && (
+                <button onClick={() => setSearch('')}
+                  style={{ position: 'absolute', right: 6, top: '50%', transform: 'translateY(-50%)',
+                    background: 'none', border: 'none', cursor: 'pointer', color: 'var(--fl-muted)', padding: 0 }}>
+                  <X size={11} />
+                </button>
+              )}
             </div>
-            <div className="flex gap-1">
-              {['all', 'critical', 'high', 'medium', 'low'].map(l => {
-                const color = LEVEL_COLORS[l] || T.accent;
-                const active = levelFilter === l;
-                return (
-                  <button key={l} onClick={() => setLevelFilter(l)}
-                    className="px-3 py-1.5 rounded-lg text-xs font-mono font-bold uppercase"
-                    style={{
-                      background: active ? `${color}18` : 'transparent',
-                      color: active ? color : '#7d8590',
-                      border: `1px solid ${active ? color + '40' : '#30363d'}`,
-                    }}>
-                    {l === 'all' ? t('hayabusa.all_levels') : l}
-                    {l !== 'all' && <span className="ml-1 opacity-70">({stats[l] || 0})</span>}
-                  </button>
-                );
-              })}
+
+            <div style={{ width: 1, height: 18, background: 'var(--fl-sep)' }} />
+
+            {/* Level filter pills */}
+            {['all', 'critical', 'high', 'medium', 'low'].map(l => {
+              const col = LEVEL_COLORS[l] || 'var(--fl-accent)';
+              const active = levelFilter === l;
+              const cnt = l !== 'all' ? (stats[l] || 0) : totalCount;
+              return (
+                <button key={l} onClick={() => setLevelFilter(l)}
+                  style={{
+                    padding: '2px 9px', borderRadius: 4, fontSize: 10, fontFamily: 'monospace', fontWeight: 700,
+                    cursor: 'pointer', textTransform: 'uppercase',
+                    background: active ? `${col}18` : 'transparent',
+                    color: active ? col : 'var(--fl-dim)',
+                    border: `1px solid ${active ? col + '40' : 'var(--fl-border)'}`,
+                  }}>
+                  {l === 'all' ? 'Tous' : l}
+                  {l !== 'all' && <span style={{ marginLeft: 4, opacity: 0.65, fontWeight: 400 }}>({cnt})</span>}
+                </button>
+              );
+            })}
+
+            <div style={{ marginLeft: 'auto', fontFamily: 'monospace', fontSize: 10, color: 'var(--fl-dim)', whiteSpace: 'nowrap' }}>
+              {filteredCount !== totalCount
+                ? <span>{filteredCount} <span style={{ opacity: 0.5 }}>/ {totalCount}</span></span>
+                : <span>{totalCount} résultats</span>
+              }
+              {starCount > 0 && <span style={{ color: '#f59e0b', marginLeft: 6 }}>★ {starCount}</span>}
             </div>
-            <span className="text-xs font-mono" style={{ color: '#7d8590' }}>
-              {filtered.length} détection{filtered.length !== 1 ? 's' : ''}
-              {highlights.size > 0 && <span style={{ color: '#f59e0b' }}> · {highlights.size} ★</span>}
-            </span>
           </div>
 
-          <div className="fl-card" style={{ overflow: 'hidden' }}>
-            
-            <table className="fl-table" style={{ tableLayout: 'fixed', width: '100%' }}>
-              <colgroup>
-                <col style={{ width: 36 }} />
-                <col style={{ width: 160 }} />
-                <col style={{ width: 80 }} />
-                <col style={{ width: 60 }} />
-                <col style={{ width: 120 }} />
-                <col />
-                <col style={{ width: 110 }} />
-                <col style={{ width: 200 }} />
-              </colgroup>
-              <thead>
-                <tr>
-                  <th>★</th>
-                  <th>Timestamp</th>
-                  <th>Level</th>
-                  <th>EID</th>
-                  <th>Channel</th>
-                  <th>Règle Sigma</th>
-                  <th>MITRE</th>
-                  <th>Détails</th>
-                </tr>
-              </thead>
-            </table>
+          {/* ── Table + Detail Panel ── */}
+          <div style={{ flex: 1, display: 'flex', overflow: 'hidden', minHeight: 0 }}>
 
-            <div
-              ref={tableContainerRef}
-              style={{ overflowY: 'auto', height: 480 }}
-            >
-              <table className="fl-table" style={{ tableLayout: 'fixed', width: '100%' }}>
-                <colgroup>
-                  <col style={{ width: 36 }} />
-                  <col style={{ width: 160 }} />
-                  <col style={{ width: 80 }} />
-                  <col style={{ width: 60 }} />
-                  <col style={{ width: 120 }} />
-                  <col />
-                  <col style={{ width: 110 }} />
-                  <col style={{ width: 200 }} />
-                </colgroup>
-                <tbody>
-                  {paddingTop > 0 && <tr><td colSpan={8} style={{ height: paddingTop, padding: 0 }} /></tr>}
+            {/* Table area */}
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, overflow: 'hidden' }}>
 
-                  {filtered.length === 0 ? (
-                    <tr>
-                      <td colSpan={8} className="text-center py-8 text-sm" style={{ color: '#7d8590' }}>
-                        {t('common.none')}
-                      </td>
+              {/* Fixed header */}
+              <div style={{ flexShrink: 0, overflowX: 'hidden', borderBottom: '1px solid var(--fl-sep)' }}>
+                <table style={{ tableLayout: 'fixed', width: '100%', borderCollapse: 'collapse' }}>
+                  <colgroup>
+                    <col style={{ width: 28 }} />
+                    <col style={{ width: 28 }} />
+                    {COLS.map(c => <col key={c.key} style={{ width: c.flex ? undefined : c.width }} />)}
+                  </colgroup>
+                  <thead>
+                    <tr style={{ background: 'var(--fl-card)' }}>
+                      <th style={{ padding: '4px 6px', fontSize: 9, fontFamily: 'monospace',
+                        color: 'var(--fl-muted)', fontWeight: 600, textAlign: 'center', borderBottom: '1px solid var(--fl-sep)' }}>
+                        ★
+                      </th>
+                      <th style={{ padding: '4px 0', borderBottom: '1px solid var(--fl-sep)' }} />
+                      {COLS.map(c => (
+                        <th key={c.key} style={{
+                          padding: '4px 8px', fontSize: 9, fontFamily: 'monospace', fontWeight: 600,
+                          color: 'var(--fl-muted)', textAlign: 'left', textTransform: 'uppercase',
+                          letterSpacing: '0.06em', borderBottom: '1px solid var(--fl-sep)',
+                          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                        }}>
+                          {c.label}
+                        </th>
+                      ))}
                     </tr>
-                  ) : (
-                    virtualItems.map(vRow => {
-                      const d = filtered[vRow.index];
-                      const rTitle = getField(d, 'rule_title', 'ruleTitle');
-                      const eid    = getField(d, 'event_id', 'eventId');
-                      const mitre  = getField(d, 'mitre_attack', 'mitre');
-                      const details = getField(d, 'details');
-                      const isHL   = highlights.has(d.id);
-                      const isSel  = selRow === d.id;
-                      const isCrit = d.level === 'critical';
-                      const levelColor = LEVEL_COLORS[d.level] || '#7d8590';
+                  </thead>
+                </table>
+              </div>
 
-                      return (
-                        <tr
-                          key={d.id ?? vRow.index}
-                          data-index={vRow.index}
-                          onClick={() => setSelRow(isSel ? null : d.id)}
-                          style={{
-                            height: ROW_H,
-                            cursor: 'pointer',
-                            background: isHL ? '#f59e0b08' : isSel ? `${levelColor}06` : 'transparent',
-                            borderLeft: isCrit ? `3px solid ${levelColor}` : isHL ? `3px solid ${levelColor}50` : '3px solid transparent',
-                          }}
-                        >
-                          <td
-                            onClick={e => { e.stopPropagation(); toggleHL(d.id); }}
-                            style={{ textAlign: 'center', color: isHL ? '#f59e0b' : '#484f58', cursor: 'pointer', fontSize: 13 }}
-                          >
-                            {isHL ? '★' : '☆'}
-                          </td>
-                          <td className="fl-td-mono fl-td-dim" style={{ fontSize: '0.7rem', whiteSpace: 'nowrap', overflow: 'hidden', maxWidth: 160 }}>
-                            {(d.timestamp || '').replace('T', ' ').replace('Z', '').substring(0, 19)}
-                          </td>
-                          <td style={{ overflow: 'hidden' }}>
-                            <span className="fl-badge" style={{ background: `${levelColor}14`, color: levelColor, border: `1px solid ${levelColor}28` }}>
-                              {isCrit && <AlertTriangle size={9} className="inline mr-1" />}{d.level}
-                            </span>
-                          </td>
-                          <td className="fl-td-mono font-bold" style={{ color: '#d97c20', fontSize: '0.75rem' }}>{eid}</td>
-                          <td className="fl-td-dim" style={{ fontSize: '0.75rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.channel}</td>
-                          <td className="text-xs font-semibold" style={{ color: isCrit ? '#da3633' : '#e6edf3', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                            {rTitle}
-                          </td>
-                          <td>
-                            {mitre && (
-                              <span className="fl-badge" style={{ background: '#4d82c014', color: '#4d82c0', border: '1px solid #4d82c028' }}>
-                                {mitre}
-                              </span>
-                            )}
-                          </td>
-                          <td className="fl-td-dim" style={{ fontSize: '0.75rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                            {details}
-                          </td>
-                        </tr>
-                      );
-                    })
-                  )}
+              {/* Virtualized body */}
+              <div ref={tableContainerRef} style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden' }}>
+                {filtered.length === 0 ? (
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    height: 200, fontFamily: 'monospace', fontSize: 11, color: 'var(--fl-dim)' }}>
+                    Aucun résultat
+                  </div>
+                ) : (
+                  <div style={{ height: totalH, position: 'relative' }}>
+                    {padTop > 0 && <div style={{ height: padTop }} />}
+                    <table style={{ tableLayout: 'fixed', width: '100%', borderCollapse: 'collapse' }}>
+                      <colgroup>
+                        <col style={{ width: 28 }} />
+                        <col style={{ width: 28 }} />
+                        {COLS.map(c => <col key={c.key} style={{ width: c.flex ? undefined : c.width }} />)}
+                      </colgroup>
+                      <tbody>
+                        {vItems.map(vRow => {
+                          const d         = filtered[vRow.index];
+                          const rTitle    = getF(d, 'rule_title', 'ruleTitle');
+                          const eid       = getF(d, 'event_id', 'eventId');
+                          const mitre     = getF(d, 'mitre_attack', 'mitre');
+                          const levelCol  = LEVEL_COLORS[d.level] || 'var(--fl-dim)';
+                          const isSel     = d._id === selId;
+                          const isStar    = starred.has(d._id);
+                          const isCrit    = d.level === 'critical';
+                          const rowBg     = isSel
+                            ? `${levelCol}12`
+                            : HAY_SEVERITY_BG[d.level] || 'transparent';
 
-                  {paddingBottom > 0 && <tr><td colSpan={8} style={{ height: paddingBottom, padding: 0 }} /></tr>}
-                </tbody>
-              </table>
-            </div>
-          </div>
+                          return (
+                            <tr
+                              key={d._id}
+                              onClick={() => setSelId(isSel ? null : d._id)}
+                              style={{
+                                height: ROW_H, cursor: 'pointer',
+                                background: rowBg,
+                                borderLeft: isSel
+                                  ? `3px solid ${levelCol}`
+                                  : isCrit
+                                    ? `3px solid ${levelCol}60`
+                                    : isStar
+                                      ? '3px solid #f59e0b50'
+                                      : '3px solid transparent',
+                                outline: isSel ? `1px solid ${levelCol}20` : 'none',
+                              }}
+                            >
+                              {/* Star */}
+                              <td onClick={e => toggleStar(d._id, e)}
+                                style={{ textAlign: 'center', fontSize: 12, cursor: 'pointer',
+                                  color: isStar ? '#f59e0b' : 'var(--fl-panel)',
+                                  padding: '2px 4px' }}>
+                                {isStar ? '★' : '☆'}
+                              </td>
 
-          {selRow != null && (() => {
-            const d = detections.find(x => x.id === selRow);
-            if (!d) return null;
-            const rTitle  = getField(d, 'rule_title', 'ruleTitle');
-            const eid     = getField(d, 'event_id', 'eventId');
-            const mitre   = getField(d, 'mitre_attack', 'mitre');
-            const tactic  = getField(d, 'tactic');
-            const details = getField(d, 'details');
-            const computer = getField(d, 'computer');
-            const levelColor = LEVEL_COLORS[d.level] || '#7d8590';
+                              {/* Severity indicator dot */}
+                              <td style={{ padding: '2px 4px', textAlign: 'center' }}>
+                                <span style={{ display: 'inline-block', width: 6, height: 6,
+                                  borderRadius: '50%', background: levelCol, opacity: isCrit ? 1 : 0.7 }} />
+                              </td>
 
-            return (
-              <div className="mt-4 rounded-xl p-4 border"
-                style={{ background: `${levelColor}06`, borderColor: '#30363d', borderLeft: `3px solid ${levelColor}` }}>
-                <div className="flex gap-2 mb-3 flex-wrap">
-                  <span className="fl-badge" style={{ background: `${levelColor}14`, color: levelColor }}>
-                    {d.level?.toUpperCase()}
-                  </span>
-                  {mitre && (
-                    <span className="fl-badge" style={{ background: '#4d82c014', color: '#4d82c0' }}>
-                      ATT&CK {mitre}
-                    </span>
-                  )}
-                  {tactic && (
-                    <span className="fl-badge" style={{ background: `${TACTIC_COLORS[tactic] || '#7d8590'}14`, color: TACTIC_COLORS[tactic] || '#7d8590' }}>
-                      {tactic}
-                    </span>
-                  )}
-                </div>
-                <div className="font-semibold mb-2" style={{ color: '#e6edf3' }}>{rTitle}</div>
-                <div className="text-sm mb-3" style={{ color: '#7d8590' }}>{details}</div>
-                <div className="grid grid-cols-4 gap-3 text-xs font-mono" style={{ color: '#7d8590' }}>
-                  <div><span className="font-bold" style={{ color: '#da3633' }}>Computer:</span> {computer}</div>
-                  <div><span className="font-bold" style={{ color: '#da3633' }}>Event ID:</span> {eid}</div>
-                  <div><span className="font-bold" style={{ color: '#da3633' }}>Channel:</span> {d.channel}</div>
-                  <div><span className="font-bold" style={{ color: '#da3633' }}>Source:</span> {d.source}</div>
-                </div>
-                {d.raw && (
-                  <details className="mt-3">
-                    <summary className="text-xs font-mono cursor-pointer" style={{ color: '#7d8590' }}>
-                      Données brutes EVTX
-                    </summary>
-                    <pre className="mt-2 p-3 rounded-lg text-xs overflow-auto"
-                      style={{ background: '#0d1117', border: '1px solid #30363d', color: '#7d8590', maxHeight: 200, fontFamily: 'monospace' }}>
-                      {JSON.stringify(d.raw, null, 2)}
-                    </pre>
-                  </details>
+                              {/* Timestamp */}
+                              <td style={{ padding: '2px 8px', fontFamily: 'monospace', fontSize: 10,
+                                color: 'var(--fl-accent)', whiteSpace: 'nowrap', overflow: 'hidden' }}>
+                                {fmtTs(d.timestamp)}
+                              </td>
+
+                              {/* Level */}
+                              <td style={{ padding: '2px 8px', overflow: 'hidden' }}>
+                                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3,
+                                  padding: '1px 6px', borderRadius: 3, fontSize: 9, fontFamily: 'monospace', fontWeight: 700,
+                                  background: `${levelCol}18`, color: levelCol, border: `1px solid ${levelCol}28`,
+                                  textTransform: 'uppercase' }}>
+                                  {isCrit && <AlertTriangle size={8} />}
+                                  {d.level}
+                                </span>
+                              </td>
+
+                              {/* EID */}
+                              <td style={{ padding: '2px 8px', fontFamily: 'monospace', fontSize: 10,
+                                fontWeight: 700, color: 'var(--fl-warn)', overflow: 'hidden' }}>
+                                <Highlight text={eid} term={search} />
+                              </td>
+
+                              {/* Channel */}
+                              <td style={{ padding: '2px 8px', fontFamily: 'monospace', fontSize: 10,
+                                color: 'var(--fl-dim)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                <Highlight text={d.channel || ''} term={search} />
+                              </td>
+
+                              {/* Rule title */}
+                              <td style={{ padding: '2px 8px', fontSize: 11, fontWeight: isCrit ? 600 : 400,
+                                color: isCrit ? 'var(--fl-danger)' : 'var(--fl-text)',
+                                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                <Highlight text={rTitle} term={search} />
+                              </td>
+
+                              {/* MITRE */}
+                              <td style={{ padding: '2px 8px', overflow: 'hidden' }}>
+                                {mitre && (
+                                  <span style={{ fontFamily: 'monospace', fontSize: 9, fontWeight: 600,
+                                    padding: '1px 5px', borderRadius: 3,
+                                    background: '#4d82c014', color: 'var(--fl-accent)', border: '1px solid #4d82c028',
+                                    whiteSpace: 'nowrap' }}>
+                                    <Highlight text={mitre} term={search} />
+                                  </span>
+                                )}
+                              </td>
+
+                              {/* Tactic */}
+                              <td style={{ padding: '2px 8px', fontSize: 10, color: 'var(--fl-dim)',
+                                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                <Highlight text={d.tactic || ''} term={search} />
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                    {padBottom > 0 && <div style={{ height: padBottom }} />}
+                  </div>
                 )}
               </div>
-            );
-          })()}
-
-          {highlights.size > 0 && (
-            <div className="mt-4 fl-card p-4">
-              <div className="text-xs font-mono font-bold mb-3" style={{ color: '#f59e0b' }}>
-                ★ {highlights.size} détection{highlights.size > 1 ? 's' : ''} surlignée{highlights.size > 1 ? 's' : ''}
-              </div>
-              {detections.filter(d => highlights.has(d.id)).map(d => {
-                const levelColor = LEVEL_COLORS[d.level] || '#7d8590';
-                return (
-                  <div key={d.id} className="flex items-center gap-3 py-1.5" style={{ borderBottom: '1px solid #21262d' }}>
-                    <span className="font-mono text-xs" style={{ color: '#484f58', width: 155 }}>
-                      {(d.timestamp || '').replace('T', ' ').replace('Z', '').substring(0, 23)}
-                    </span>
-                    <span className="fl-badge" style={{ background: `${levelColor}14`, color: levelColor }}>{d.level}</span>
-                    <span className="text-xs font-semibold flex-1" style={{ color: '#e6edf3' }}>
-                      {getField(d, 'rule_title', 'ruleTitle')}
-                    </span>
-                    <button onClick={() => toggleHL(d.id)} style={{ color: '#da3633', fontSize: 11 }}>✕</button>
-                  </div>
-                );
-              })}
             </div>
-          )}
 
-          <div className="mt-5 flex justify-between items-center text-xs font-mono" style={{ color: '#484f58' }}>
-            <span>Hayabusa v2.x · Règles Sigma · JPCERT/CC</span>
-            <span style={{ color: '#da3633' }}>{evtxCount} EVTX · {detections.length} détections totales</span>
+            {/* ── Detail Panel ── */}
+            {selRow && (() => {
+              const rTitle   = getF(selRow, 'rule_title', 'ruleTitle');
+              const eid      = getF(selRow, 'event_id', 'eventId');
+              const mitre    = getF(selRow, 'mitre_attack', 'mitre');
+              const tactic   = getF(selRow, 'tactic');
+              const details  = getF(selRow, 'details');
+              const computer = getF(selRow, 'computer');
+              const source   = getF(selRow, 'source');
+              const levelCol = LEVEL_COLORS[selRow.level] || 'var(--fl-dim)';
+              const selIdx   = filtered.findIndex(d => d._id === selId);
+
+              return (
+                <div style={{
+                  width: 360, flexShrink: 0, overflowY: 'auto',
+                  borderLeft: `3px solid ${levelCol}`,
+                  boxShadow: '-4px 0 20px rgba(0,0,0,0.5)',
+                  background: '#0a0f1a',
+                  display: 'flex', flexDirection: 'column',
+                }}>
+                  {/* Panel header */}
+                  <div style={{ padding: '8px 12px 6px', borderBottom: `1px solid ${levelCol}25`,
+                    background: `${levelCol}08`, flexShrink: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+                      <button onClick={() => setSelId(null)}
+                        style={{ background: 'none', border: 'none', cursor: 'pointer',
+                          color: 'var(--fl-dim)', padding: 0, display: 'flex', alignItems: 'center' }}>
+                        <X size={13} />
+                      </button>
+                      <span style={{ fontFamily: 'monospace', fontSize: 9, color: 'var(--fl-muted)' }}>
+                        {selIdx + 1} / {filteredCount}
+                      </span>
+                      <div style={{ marginLeft: 'auto', display: 'flex', gap: 4 }}>
+                        <button onClick={() => navigateSel(-1)} disabled={selIdx === 0}
+                          style={{ background: 'none', border: 'none', cursor: selIdx === 0 ? 'default' : 'pointer',
+                            color: selIdx === 0 ? 'var(--fl-panel)' : 'var(--fl-dim)', padding: 2 }}>
+                          <ChevronLeft size={13} />
+                        </button>
+                        <button onClick={() => navigateSel(1)} disabled={selIdx === filteredCount - 1}
+                          style={{ background: 'none', border: 'none',
+                            cursor: selIdx === filteredCount - 1 ? 'default' : 'pointer',
+                            color: selIdx === filteredCount - 1 ? 'var(--fl-panel)' : 'var(--fl-dim)', padding: 2 }}>
+                          <ChevronRight size={13} />
+                        </button>
+                        <button onClick={e => toggleStar(selRow._id, e)}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2,
+                            fontSize: 14, color: starred.has(selRow._id) ? '#f59e0b' : 'var(--fl-dim)' }}>
+                          {starred.has(selRow._id) ? '★' : '☆'}
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Level + MITRE + Tactic badges */}
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                      <span style={{ padding: '2px 8px', borderRadius: 4, fontSize: 9, fontFamily: 'monospace', fontWeight: 700,
+                        background: `${levelCol}18`, color: levelCol, border: `1px solid ${levelCol}35`,
+                        textTransform: 'uppercase', display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                        {selRow.level === 'critical' && <AlertTriangle size={8} />}
+                        {selRow.level?.toUpperCase()}
+                      </span>
+                      {mitre && (
+                        <span style={{ padding: '2px 8px', borderRadius: 4, fontSize: 9, fontFamily: 'monospace', fontWeight: 600,
+                          background: '#4d82c018', color: 'var(--fl-accent)', border: '1px solid #4d82c030' }}>
+                          ATT&CK {mitre}
+                        </span>
+                      )}
+                      {tactic && (
+                        <span style={{ padding: '2px 8px', borderRadius: 4, fontSize: 9, fontFamily: 'monospace',
+                          background: 'var(--fl-card)', color: 'var(--fl-dim)', border: '1px solid var(--fl-border)' }}>
+                          {tactic}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Panel body */}
+                  <div style={{ padding: '10px 12px', flex: 1 }}>
+                    {/* Rule title */}
+                    <div style={{ fontFamily: 'monospace', fontSize: 12, fontWeight: 600,
+                      color: selRow.level === 'critical' ? 'var(--fl-danger)' : 'var(--fl-text)',
+                      marginBottom: 8, lineHeight: 1.4 }}>
+                      {rTitle}
+                    </div>
+
+                    {/* Details */}
+                    {details && (
+                      <div style={{ padding: '6px 9px', fontFamily: 'monospace', fontSize: 10,
+                        color: 'var(--fl-on-dark)', background: `${levelCol}0c`, borderRadius: 5,
+                        border: `1px solid ${levelCol}30`, marginBottom: 10, lineHeight: 1.6,
+                        wordBreak: 'break-word' }}>
+                        {details}
+                      </div>
+                    )}
+
+                    {/* Key fields grid */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                      {[
+                        ['Timestamp',  fmtTs(selRow.timestamp)],
+                        ['Event ID',   eid],
+                        ['Channel',    selRow.channel],
+                        ['Computer',   computer],
+                        ['Source',     source],
+                      ].filter(([, v]) => v).map(([label, value]) => (
+                        <div key={label} style={{ borderRadius: 4, overflow: 'hidden', border: `1px solid ${levelCol}22` }}>
+                          <div style={{ fontFamily: 'monospace', fontSize: 9, color: levelCol,
+                            padding: '2px 7px', background: `${levelCol}14`,
+                            textTransform: 'uppercase', letterSpacing: '0.07em', fontWeight: 600 }}>
+                            {label}
+                          </div>
+                          <div style={{ fontFamily: 'monospace', fontSize: 10, color: '#c0cfe0',
+                            padding: '4px 7px', wordBreak: 'break-all', lineHeight: 1.5,
+                            background: '#0b101a', borderTop: `1px solid ${levelCol}14` }}>
+                            {String(value).substring(0, 300)}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Raw data */}
+                    {selRow.raw && Object.keys(selRow.raw).length > 0 && (
+                      <details style={{ marginTop: 10 }}>
+                        <summary style={{ fontSize: 10, fontFamily: 'monospace', cursor: 'pointer',
+                          color: 'var(--fl-dim)', padding: '3px 0' }}>
+                          Données brutes EVTX
+                        </summary>
+                        <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 3 }}>
+                          {Object.entries(selRow.raw).filter(([, v]) => v !== '' && v != null).map(([k, v]) => (
+                            <div key={k} style={{ borderRadius: 3, overflow: 'hidden', border: `1px solid ${levelCol}18` }}>
+                              <div style={{ fontFamily: 'monospace', fontSize: 9, color: levelCol,
+                                padding: '2px 6px', background: `${levelCol}14`,
+                                textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 600 }}>
+                                {k}
+                              </div>
+                              <div style={{ fontFamily: 'monospace', fontSize: 10, color: '#b0c0d8',
+                                padding: '3px 6px', wordBreak: 'break-all', lineHeight: 1.4,
+                                background: '#0b101a', borderTop: `1px solid ${levelCol}12` }}>
+                                {String(v).substring(0, 400)}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </details>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
+          </div>
+
+          {/* ── Bottom bar ── */}
+          <div style={{ borderTop: '1px solid var(--fl-sep)', padding: '4px 12px',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+            flexShrink: 0, background: 'var(--fl-bg)' }}>
+            <span style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--fl-muted)' }}>
+              Hayabusa v2.x · Sigma · JPCERT/CC
+            </span>
+            <span style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--fl-danger)' }}>
+              {evtxCount} EVTX · {totalCount} détections
+            </span>
           </div>
         </>
       )}
