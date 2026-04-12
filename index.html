@@ -1803,6 +1803,1892 @@ if (statsSection) {
 // --- GITHUB API WITH CACHE & FALLBACK ---
 const GH_REPO = 'RaiseiX/Heimdall-DFIR';
 async function fetchGH(endpoint, cacheKey) {
+  let cached = null;
+  try { cached = sessionStorage.getItem(cacheKey); } catch(e) {}
+  if (cached) {
+    try { return JSON.parse(cached); } catch(e) {}
+  }
+  try {
+    const r = await fetch(`https://api.github.com/repos/${GH_REPO}${endpoint}`);
+    if (!r.ok) throw new Error();
+    const d = await r.json();
+    try { sessionStorage.setItem(cacheKey, JSON.stringify(d)); } catch(e) {}
+    return d;
+  } catch(e) { return null; }
+}
+
+fetchGH('', 'gh_stats').then(d => {
+  if(!d || d.message === 'Not Found') throw new Error();
+  const s = d.stargazers_count ?? 0;
+  const f = d.forks_count ?? 0;
+  const sb = document.getElementById('gh-stars-banner');
+  const sh = document.getElementById('gh-stars-hero');
+  const fh = document.getElementById('gh-forks-hero');
+  if(sb){sb.textContent=s;sb.classList.remove('skeleton');}
+  if(sh){sh.textContent=s;sh.classList.remove('skeleton');}
+  if(fh){fh.textContent=f;fh.classList.remove('skeleton');}
+}).catch(() => {
+  ['gh-stars-banner','gh-stars-hero','gh-forks-hero'].forEach(id => {
+    const el = document.getElementById(id);
+    if(el){el.textContent='0';el.classList.remove('skeleton');}
+  });
+});
+
+fetchGH('/commits?per_page=5', 'gh_commits').then(commits => {
+  const list = document.getElementById('activity-list');
+  if(!list || !Array.isArray(commits)){ throw new Error(); }
+  list.innerHTML = commits.map(c => {
+    const msg = c.commit.message.split('\n')[0].slice(0,72);
+    const date = new Date(c.commit.author.date);
+    return `<div class="activity-item"><div class="activity-dot"></div><div class="activity-msg">${msg}</div><div class="activity-time">${timeAgo(date)}</div></div>`;
+  }).join('');
+}).catch(() => {
+  const list = document.getElementById('activity-list');
+  if(list) list.innerHTML='<div class="activity-item"><div class="activity-dot" style="background:var(--border2);"></div><div class="activity-msg" style="color:var(--muted);">GitHub Repo Not Found (Local Mode)</div></div>';
+});
+
+fetchGH('/contributors?per_page=12', 'gh_contribs').then(contribs => {
+  const grid = document.getElementById('contrib-grid');
+  if(!grid || !Array.isArray(contribs)){ throw new Error(); }
+  grid.innerHTML = contribs.map(c => `
+    <a class="contrib-item" href="${c.html_url}" target="_blank" rel="noopener noreferrer">
+      <img class="contrib-avatar" src="${c.avatar_url}&s=64" alt="${c.login}" loading="lazy"/>
+      <span class="contrib-name">${c.login}</span>
+    </a>`).join('');
+}).catch(() => {
+  const grid = document.getElementById('contrib-grid');
+  if(grid) grid.innerHTML='<div style="font-family:\'JetBrains Mono\',monospace;font-size:0.78rem;color:var(--muted);">No contributors available yet.</div>';
+});
+
+function timeAgo(date){
+  const s = Math.floor((Date.now() - date) / 1000);
+  if(s<60) return s+'s ago';
+  if(s<3600) return Math.floor(s/60)+'m ago';
+  if(s<86400) return Math.floor(s/3600)+'h ago';
+  if(s<604800) return Math.floor(s/86400)+'d ago';
+  return Math.floor(s/604800)+'w ago';
+}
+
+// --- DAYS COUNTER ---
+function updateDays(){
+  const start = new Date(2025, 6, 1, 0, 0, 0); // 6 is July (0-indexed)
+  const now = new Date();
+  const diff = now - start;
+  const days = diff > 0 ? Math.floor(diff / (1000*60*60*24)) : 0;
+  ['days-running','hero-days'].forEach(id => {
+    const el = document.getElementById(id);
+    if(el) el.textContent = days;
+  });
+}
+updateDays();
+</script>
+</body>
+</html>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>Heimdall — Open Source DFIR</title>
+<link id="dynamic-favicon" rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🛡️</text></svg>"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&family=Noto+Sans+Runic&display=swap" rel="stylesheet"/>
+<style>
+/* ── THEME VARIABLES ── */
+:root {
+  --bg: #ffffff; --bg1: #f9fafb; --bg2: #f1f3f5; --bg3: #e5e7eb;
+  --text: #111827; --text2: #374151; --text3: #6b7280; --muted: #9ca3af; --ghost: #cbd5e1;
+  --border: #e5e7eb; --border2: #d1d5db;
+  --accent: #2563eb; --accent2: #1d4ed8; --accent-bg: #eff6ff; --accent-border: #bfdbfe;
+  --red: #dc2626; --green: #16a34a; --yellow: #ca8a04; --cyan: #0891b2; --purple: #7c3aed; --orange: #ea580c;
+  --white: #ffffff; --green-bg: #dcfce7;
+  --shadow: 0 1px 3px rgba(0,0,0,0.1); --shadow-md: 0 4px 6px rgba(0,0,0,0.07); --shadow-lg: 0 10px 15px rgba(0,0,0,0.1);
+  --glow: none; --glass: rgba(255,255,255,0.85);
+  --radius: 8px; --radius-lg: 12px; --radius-xl: 16px;
+}
+[data-theme="dark"] {
+  --bg: #0A0E1A; --bg1: #0F1420; --bg2: #141926; --bg3: #1A2030;
+  --text: #E8F4FD; --text2: #B8D4E8; --text3: #9ca3af; --muted: #8BA8C8; --ghost: #4A6080;
+  --border: #1E2D4A; --border2: #2A3F6A;
+  --accent: #00D4FF; --accent2: #00B8E6; --accent-bg: rgba(0,212,255,0.05); --accent-border: rgba(0,212,255,0.25);
+  --red: #FF3B5C; --green: #00FF88; --yellow: #FFD60A; --cyan: #00D4FF; --purple: #9D4EDD; --orange: #FF6B35;
+  --white: #ffffff; --green-bg: rgba(0,255,136,0.1);
+  --shadow: 0 4px 20px rgba(0,0,0,0.5); --shadow-md: 0 8px 30px rgba(0,0,0,0.6); --shadow-lg: 0 15px 40px rgba(0,0,0,0.8);
+  --glow: 0 0 15px rgba(0,212,255,0.3); --glass: rgba(10,14,26,0.85);
+}
+
+/* ── RESET & GLOBAL ── */
+*{margin:0;padding:0;box-sizing:border-box;}
+html{scroll-behavior:smooth; scroll-padding-top: 100px;}
+body{ background:var(--bg); color:var(--text); font-family:'Inter',sans-serif; line-height:1.6; overflow-x:hidden; transition: background-color 0.4s ease, color 0.4s ease; }
+::selection { background: var(--cyan); color: #000; text-shadow: none; }
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: var(--accent); }
+a{color:var(--accent);text-decoration:none;} a:hover{text-decoration:underline;}
+
+/* ── PRELOADER BOOT SEQUENCE ── */
+#boot-loader { position: fixed; inset: 0; background: #05080f; color: #00D4FF; font-family: 'JetBrains Mono', monospace; font-size: 0.8rem; z-index: 999999; padding: 2rem; display: flex; flex-direction: column; justify-content: flex-end; }
+.boot-line { margin-bottom: 0.2rem; opacity: 0; }
+@keyframes showLine { to { opacity: 1; } }
+
+/* ── QUAKE TERMINAL (~) ── */
+#quake-term { position: fixed; top: -50vh; left: 0; right: 0; height: 50vh; background: rgba(5,8,15,0.95); backdrop-filter: blur(10px); border-bottom: 2px solid var(--accent); z-index: 999998; font-family: 'JetBrains Mono', monospace; color: #cdd6f4; padding: 1rem; display: flex; flex-direction: column; transition: top 0.3s cubic-bezier(0.4, 0, 0.2, 1); box-shadow: 0 20px 50px rgba(0,0,0,0.5); }
+#quake-term.open { top: 0; }
+#quake-output { flex: 1; overflow-y: auto; font-size: 0.8rem; margin-bottom: 0.5rem; display: flex; flex-direction: column; gap: 0.2rem; }
+.quake-row { display: flex; gap: 0.5rem; }
+#quake-input-wrap { display: flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; color: #a6e3a1; }
+#quake-input { flex: 1; background: none; border: none; outline: none; color: #cdd6f4; font-family: inherit; font-size: inherit; }
+
+/* ── CANVAS GRAPH ── */
+#network-canvas { position: fixed; inset: 0; z-index: 0; pointer-events: none; opacity: 0.4; }
+[data-theme="dark"] #network-canvas { opacity: 0.15; }
+
+/* ── STAR BANNER ── */
+.star-banner{ position:fixed;top:0;left:0;right:0;height:28px;line-height:28px;padding:0 1rem; background:#0A0E1A;border-bottom:1px solid rgba(0,212,255,0.15); text-align:center;font-family:'JetBrains Mono',monospace;font-size:0.62rem; color:#9ca3af;z-index:9999;letter-spacing:0.02em; white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
+.star-banner a{color:#00D4FF;text-decoration:none;border-bottom:1px solid rgba(0,212,255,0.3);}
+.star-banner a:hover{border-bottom-color:#00D4FF;color:#fff;}
+.s-cyan{color:var(--cyan);}
+
+/* ── SCROLL PROGRESS ── */
+#scroll-progress{ position:fixed;top:0;left:0;height:2px;width:0%; background:linear-gradient(90deg,var(--accent),var(--purple),var(--cyan)); background-size:200% 100%; animation:gradientShift 3s linear infinite; z-index:99999; }
+@keyframes gradientShift{0%{background-position:0%}100%{background-position:200%}}
+
+/* ── NAV ── */
+nav{ position:sticky; top:28px; z-index:1000; background: var(--glass); backdrop-filter:blur(12px); border-bottom:1px solid var(--border); padding:0 2rem; display:flex; align-items:center; height:60px; gap:2rem; transition: background-color 0.4s, border-color 0.4s; }
+.nav-logo{ display:flex; align-items:center; gap:0.6rem; font-weight:700; font-size:1rem; color:var(--text); text-decoration:none; flex-shrink:0; text-shadow: var(--glow); }
+.nav-logo-badge{ font-size:0.6rem; font-weight:700; background:var(--accent); color:#fff; padding:0.1rem 0.35rem; border-radius:3px; letter-spacing:0.05em; }
+.nav-links{ display:flex; align-items:center; gap:0.25rem; flex:1; }
+.nav-link{ font-size:0.8rem; font-weight:600; color:var(--text3); font-family:'JetBrains Mono',monospace; text-decoration:none; padding:0.35rem 0.65rem; border-radius:6px; transition:all 0.15s; white-space:nowrap; letter-spacing:0.05em;}
+.nav-link:hover{ color:var(--text); background:var(--bg2); }
+.nav-link.active{ color:var(--accent); background:var(--accent-bg); }
+.nav-right{ display:flex; align-items:center; gap:0.5rem; flex-shrink:0; }
+.btn-icon{ background:none; border:1px solid var(--border2); color:var(--text2); font-size:0.9rem; padding:0.35rem; border-radius:6px; cursor:pointer; transition:all 0.2s; display:flex; align-items:center; justify-content:center; }
+.btn-icon:hover{ border-color:var(--accent); color:var(--accent); background:var(--accent-bg); }
+.nav-hamburger{ display:none; background:none; border:1px solid var(--border2); border-radius:6px; padding:0.4rem 0.6rem; cursor:pointer; color:var(--text2); }
+#nav-mobile{ position:fixed; top:88px; left:0; right:0; background:var(--glass); backdrop-filter:blur(15px); border-bottom:1px solid var(--border); padding:1rem; z-index:999; display:flex; flex-direction:column; gap:0.25rem; box-shadow:var(--shadow-lg); opacity:0; transform:translateY(-10px); pointer-events:none; transition:opacity 0.3s, transform 0.3s; }
+#nav-mobile.open{ opacity:1; transform:translateY(0); pointer-events:auto; }
+
+/* ── BUTTONS & BADGES ── */
+.btn-primary{ background:var(--accent); color:#fff!important; border:1px solid var(--accent); font-size:0.82rem; font-weight:600; padding:0.5rem 1.2rem; border-radius:6px; cursor:pointer; transition:all 0.2s; text-decoration:none; display:inline-flex; align-items:center; gap:0.4rem; box-shadow: var(--glow); }
+.btn-primary:hover{ background:var(--accent2); border-color:var(--accent2); transform:translateY(-2px); text-decoration:none; }
+.btn-outline{ background:transparent; border:1px solid var(--border2); color:var(--text2)!important; font-size:0.82rem; font-weight:600; padding:0.5rem 1.2rem; border-radius:6px; cursor:pointer; transition:all 0.2s; text-decoration:none; display:inline-flex; align-items:center; gap:0.4rem;}
+.btn-outline:hover{ border-color:var(--accent); color:var(--accent)!important; background:var(--accent-bg); transform:translateY(-2px); text-decoration:none;}
+.btn-copy-hero{ background:var(--green-bg); border:1px solid var(--green); color:var(--green)!important; font-size:0.82rem; font-weight:600; padding:0.5rem 1.2rem; border-radius:6px; cursor:pointer; transition:all 0.2s; text-decoration:none; display:inline-flex; align-items:center; }
+.btn-copy-hero:hover{ background:var(--green); color:#fff!important; transform:translateY(-2px); }
+
+.badge-row{ display:flex; flex-wrap:wrap; gap:0.4rem; justify-content:center; margin-bottom:1.5rem; }
+.badge{ background:var(--bg2); border:1px solid var(--border); border-radius:4px; padding:0.2rem 0.65rem; font-family:'JetBrains Mono',monospace; font-size:0.68rem; color:var(--text2); transition:all 0.2s; }
+.badge:hover{ border-color:var(--accent); color:var(--accent); box-shadow:0 0 8px var(--accent-bg); }
+.badge.red{ color:var(--red); border-color:rgba(220,38,38,0.3); background:rgba(220,38,38,0.05); }
+.badge.green{ color:var(--green); border-color:rgba(22,163,74,0.3); background:rgba(22,163,74,0.05); }
+.badge.purple{ color:var(--purple); border-color:rgba(124,58,237,0.3); background:rgba(124,58,237,0.05); }
+
+/* ── HERO ── */
+.hero{ padding:6rem 2rem 4rem; max-width:900px; margin:0 auto; text-align:center; position:relative; z-index:1; }
+.live-badge{ display:inline-flex; align-items:center; gap:0.5rem; background:rgba(220,38,38,0.08); border:1px solid rgba(220,38,38,0.25); border-radius:20px; padding:0.28rem 0.9rem; font-family:'JetBrains Mono',monospace; font-size:0.68rem; color:var(--red); margin-bottom:1.5rem; letter-spacing:0.12em; box-shadow: 0 0 10px rgba(220,38,38,0.2);}
+.live-dot{ width:6px; height:6px; background:var(--red); border-radius:50%; animation:pulse 1.8s infinite; }
+@keyframes pulse{0%,100%{opacity:1;transform:scale(1);}50%{opacity:0.35;transform:scale(0.7);}}
+.hero-main-title{ font-family:'JetBrains Mono',monospace; font-size:clamp(2.5rem,7vw,6rem); font-weight:800; color:var(--text); letter-spacing:0.05em; line-height:1.1; margin-bottom:0.5rem; text-transform:uppercase; text-shadow:var(--glow); }
+.hero-main-title span{ color:var(--accent); }
+.hero p.hero-sub{ font-size:1.1rem; color:var(--text3); max-width:600px; margin:1rem auto 2rem; line-height:1.7; }
+.hero-stats{ display:flex; gap:1.25rem; flex-wrap:wrap; justify-content:center; margin-bottom:2rem; }
+.hero-stat{ display:flex; align-items:center; gap:0.5rem; background:var(--bg2); border:1px solid var(--border); border-radius:8px; padding:0.6rem 1.2rem; font-family:'JetBrains Mono',monospace; font-size:0.8rem; transition: background 0.3s, border-color 0.3s; }
+.hero-stat .hs-val{ color:var(--accent); font-weight:700; font-size:0.95rem; }
+.hero-stat .hs-label{ color:var(--text3); }
+.skeleton{ background:linear-gradient(90deg,var(--bg3) 25%,var(--border2) 50%,var(--bg3) 75%); background-size:200% 100%; animation:shimmer 1.5s infinite; border-radius:4px; color:transparent!important; min-width:2rem; display:inline-block; }
+[data-theme="dark"] .skeleton { background:linear-gradient(90deg,var(--bg3) 25%,var(--border) 50%,var(--bg3) 75%); background-size:200% 100%; }
+@keyframes shimmer{0%{background-position:200% 0;}100%{background-position:-200% 0;}}
+
+/* TERMINAL */
+.terminal{ max-width:680px; margin:0 auto 1.5rem; border-radius:var(--radius-lg); overflow:hidden; box-shadow:var(--shadow-lg); border:1px solid #1e1e2e; text-align:left; position:relative; z-index:2; background:#181825; }
+.terminal-bar{ background:#1e1e2e; padding:0.65rem 1rem; display:flex; align-items:center; gap:0.5rem; }
+.t-dot{ width:12px; height:12px; border-radius:50%; }
+.t-red{background:#ff5f57;} .t-yellow{background:#ffbd2e;} .t-green{background:#28c840;}
+.t-title{ margin-left:auto;margin-right:auto; font-family:'JetBrains Mono',monospace; font-size:0.72rem;color:#6c7086; }
+.terminal-body{ padding:1.25rem 1.5rem; font-family:'JetBrains Mono',monospace; font-size:0.8rem; line-height:2; color:#cdd6f4; }
+.t-prompt{ color:#a6e3a1; } .t-cyan{ color:#89dceb; } .t-cmd{ color:#cdd6f4; } .t-out{ color:#6c7086; }
+
+/* ── SECTIONS & 2D CARDS (NO 3D) ── */
+section{ padding:5rem 2rem; max-width:1100px; margin:0 auto; position:relative; z-index:1; }
+.section-label{ display:inline-flex; align-items:center; gap:0.4rem; font-size:0.72rem; font-weight:700; text-transform:uppercase; letter-spacing:0.1em; color:var(--accent); margin-bottom:0.75rem; }
+.section-label::before{ content:''; width:16px; height:2px; background:var(--accent); border-radius:1px; }
+h2{ font-size:clamp(1.6rem,4vw,2.2rem); font-weight:800; color:var(--text); margin-bottom:0.75rem; letter-spacing:-0.02em; }
+.section-sub{ font-size:1rem; color:var(--text3); max-width:560px; line-height:1.6; margin-bottom:2.5rem;}
+
+.grid-3{ display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:1.25rem; margin-top:2rem; }
+.card-flat{ background:var(--bg1); border:1px solid var(--border); border-radius:var(--radius-lg); padding:1.75rem; transition: transform 0.2s, border-color 0.2s, box-shadow 0.2s; position:relative; overflow:hidden;}
+.card-flat:hover { transform: translateY(-4px); border-color: var(--accent-border); box-shadow: var(--shadow-md); }
+.card-flat::before{content:'';position:absolute;top:0;left:0;bottom:0;width:3px;border-radius:10px 0 0 10px; background:var(--border2); transition:background 0.2s;}
+.card-flat:hover::before{background:var(--accent);}
+
+/* Colored sidebars for features */
+.card-flat.c-cyan:hover::before  {background:var(--cyan);}
+.card-flat.c-green:hover::before {background:var(--green);}
+.card-flat.c-yellow:hover::before{background:var(--yellow);}
+.card-flat.c-purple:hover::before{background:var(--purple);}
+.card-flat.c-red:hover::before   {background:var(--red);}
+.card-flat.c-orange:hover::before{background:var(--orange);}
+
+.feat-num{font-family:'JetBrains Mono',monospace;font-size:0.68rem;color:var(--text3);margin-bottom:0.4rem;letter-spacing:0.1em;}
+.card-flat h3{ font-size:1.1rem; font-weight:700; color:var(--text); margin-bottom:0.6rem; font-family:'JetBrains Mono',monospace; letter-spacing:-0.02em;}
+.card-flat p{ font-size:0.85rem; color:var(--text3); line-height:1.7; }
+.feat-tags{display:flex;flex-wrap:wrap;gap:0.35rem;margin-top:1rem;}
+.ftag{ font-size:0.65rem; font-family:'JetBrains Mono',monospace; background:var(--bg2); color:var(--accent); padding:0.2rem 0.5rem; border-radius:4px; border:1px solid var(--border); }
+
+/* ── HOW IT WORKS ── */
+.how-grid{ display:grid; grid-template-columns:repeat(3,1fr); gap:1.25rem; }
+.how-card{ background:var(--bg1); border:1px solid var(--border); border-radius:var(--radius-lg); padding:1.75rem; transition: transform 0.2s, border-color 0.2s, box-shadow 0.2s; }
+.how-card:hover{ border-color:var(--accent-border); box-shadow:var(--shadow-md); transform:translateY(-4px); }
+.how-num{ font-family:'JetBrains Mono',monospace; font-size:2rem; font-weight:800; color:var(--border2); margin-bottom:0.5rem; transition:color 0.2s;}
+.how-card:hover .how-num{ color:var(--accent); }
+.how-card h3{ font-family:'JetBrains Mono',monospace; font-size:1rem; color:var(--text); margin-bottom:0.6rem; }
+.how-card p{ font-size:0.85rem; color:var(--text3); line-height:1.7; }
+
+/* ── METRICS STATS ── */
+.stats-grid{ display:grid;grid-template-columns:repeat(3,1fr);gap:1.25rem; }
+.stat-card{ background:var(--bg1);border:1px solid var(--border);border-radius:var(--radius-lg);padding:2rem 1.5rem;text-align:center;transition:all 0.2s;position:relative;overflow:hidden;}
+.stat-card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:var(--accent);opacity:0;transition:opacity 0.2s;}
+.stat-card:hover{border-color:var(--accent-border);transform:translateY(-4px);box-shadow:var(--shadow-md);}
+.stat-card:hover::before{opacity:1;}
+.stat-n{font-family:'JetBrains Mono',monospace;font-size:2.6rem;font-weight:800;color:var(--text);line-height:1; text-shadow:var(--glow);}
+.stat-u{font-family:'JetBrains Mono',monospace;font-size:0.82rem;color:var(--accent);margin-left:0.2rem;}
+.stat-l{display:block;font-size:0.75rem;color:var(--text3);margin-top:0.55rem;text-transform:uppercase;letter-spacing:0.1em;font-family:'JetBrains Mono',monospace; font-weight:600;}
+
+/* ── BETA BANNER ── */
+.beta-wrap{position:relative;z-index:1;padding:3rem 2rem 0;max-width:1100px;margin:0 auto;}
+.beta-box{background:var(--bg2);border:1px solid var(--border);border-left:3px solid var(--orange);border-radius:var(--radius);padding:1.4rem 1.75rem;}
+.beta-box h3{color:var(--orange);font-family:'JetBrains Mono',monospace;font-size:0.85rem;letter-spacing:0.1em;margin-bottom:0.5rem;}
+.beta-box p{font-size:0.85rem;color:var(--text2);line-height:1.8;}
+
+/* ── SCAN DIVIDER ── */
+.scan-div{ height:1px; background:linear-gradient(90deg,transparent,var(--accent),var(--purple),var(--cyan),transparent); opacity:0.3; margin:0; }
+
+/* ── PARSERS TABS & TABLES ── */
+.tab-row{display:flex;gap:0.5rem;margin-bottom:1.5rem;flex-wrap:wrap;}
+.tab-btn{background:var(--bg1);border:1px solid var(--border);border-radius:6px;padding:0.5rem 1.2rem;font-family:'JetBrains Mono',monospace;font-size:0.8rem;font-weight:600;color:var(--text3);cursor:pointer;transition:all 0.2s;}
+.tab-btn:hover{border-color:var(--accent-border);color:var(--text);}
+.tab-btn.active{background:var(--accent-bg);border-color:var(--accent);color:var(--accent);}
+.tab-panel{display:none;opacity:0;}
+.tab-panel.active{display:block;animation: tabFade 0.3s ease forwards;}
+@keyframes tabFade { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+
+.parser-block, .arch-block, .cl-block{background:var(--bg1);border:1px solid var(--border);border-radius:var(--radius-lg);overflow:hidden;}
+.parser-block-header, .arch-header, .cl-header{background:var(--bg2);padding:0.75rem 1.25rem;font-family:'JetBrains Mono',monospace;font-size:0.75rem;font-weight:600;color:var(--text2);display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border);}
+.coming-soon-badge{display:inline-flex;align-items:center;gap:0.4rem;background:var(--yellow-bg);border:1px solid var(--yellow);border-radius:4px;padding:0.15rem 0.6rem;font-family:'JetBrains Mono',monospace;font-size:0.68rem;font-weight:700;color:var(--yellow);}
+.av-badge{display:inline-flex;align-items:center;gap:0.4rem;background:var(--green-bg);border:1px solid var(--green);border-radius:4px;padding:0.15rem 0.6rem;font-family:'JetBrains Mono',monospace;font-size:0.68rem;font-weight:700;color:var(--green);}
+
+.data-table{width:100%;border-collapse:collapse; text-align:left;}
+.data-table th{font-family:'JetBrains Mono',monospace;font-size:0.7rem;color:var(--text3);text-transform:uppercase;letter-spacing:0.1em;padding:0.75rem 1.25rem;border-bottom:1px solid var(--border); background:var(--bg2);}
+.data-table td{font-size:0.85rem;color:var(--text2);padding:0.8rem 1.25rem;border-bottom:1px solid var(--border);line-height:1.6;}
+.data-table tr:last-child td{border-bottom:none;}
+.data-table tr:hover td{background:var(--bg2);}
+.data-table td:first-child{color:var(--text);font-weight:600;font-family:'JetBrains Mono',monospace;}
+.data-table td code{background:var(--bg3);border:1px solid var(--border2);border-radius:3px;padding:0.1rem 0.4rem;font-size:0.75rem;color:var(--accent);font-family:'JetBrains Mono',monospace;}
+
+.uc-disclaimer{background:var(--yellow-bg);border:1px solid var(--yellow);border-left:3px solid var(--yellow);border-radius:6px;padding:1rem 1.25rem;font-size:0.85rem;color:var(--text2);margin-bottom:1.5rem;line-height:1.7;}
+.uc-disclaimer strong{color:var(--yellow);}
+
+/* ── USE CASES STEPS ── */
+.uc-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:1.25rem;}
+.uc-card{background:var(--bg1);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;transition:all 0.2s;}
+.uc-card:hover{border-color:var(--accent-border);transform:translateY(-4px);box-shadow:var(--shadow-md);}
+.uc-card h3{font-family:'JetBrains Mono',monospace;font-size:0.95rem;color:var(--text);margin-bottom:1rem;}
+.uc-step{font-size:0.8rem;color:var(--text3);padding:0.4rem 0;border-bottom:1px solid var(--border);display:flex;align-items:flex-start;gap:0.5rem;line-height:1.5;}
+.uc-step:last-child{border-bottom:none;}
+.uc-arrow{color:var(--accent);font-family:'JetBrains Mono',monospace;font-weight:700;flex-shrink:0;}
+
+/* ── ARCHITECTURE TEXT ── */
+.dot{width:10px;height:10px;border-radius:50%;} .dr{background:var(--red);} .dy{background:var(--yellow);} .dg{background:var(--green);}
+.arch-body{padding:1.75rem 2rem;font-family:'JetBrains Mono',monospace;font-size:0.85rem;line-height:2;overflow-x:auto;white-space:pre;display:block; color:var(--text2); background:var(--bg);}
+.cb{color:var(--accent);} .cg{color:var(--green);} .cy{color:var(--yellow);} .cp{color:var(--purple);} .co{color:var(--orange);} .cd{color:var(--text3);} .cw{color:var(--text);}
+
+/* ── MITRE FULL COVERAGE ── */
+.mitre-grid{ display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr)); gap:1rem;}
+.mitre-card{ background:var(--bg1);border:1px solid var(--border); border-radius:var(--radius);padding:1.25rem; display:flex;flex-direction:column;gap:0.3rem;text-align:left; transition:all 0.2s; }
+.mitre-card:hover{border-color:var(--accent-border);box-shadow:var(--shadow-md);transform:translateY(-2px);}
+.tactic{font-size:0.85rem;font-weight:800;color:var(--text);text-transform:uppercase;letter-spacing:0.05em;}
+.mitre-stats{font-size:0.72rem;color:var(--text3);display:flex;justify-content:space-between;margin-top:0.6rem;}
+.mitre-stats strong{color:var(--text); font-family: 'JetBrains Mono', monospace;}
+.mitre-progress{width:100%;height:6px;background:var(--bg3);border-radius:3px;overflow:hidden;margin-bottom:0.2rem;}
+.mitre-fill{height:100%;border-radius:3px;background:var(--green);box-shadow:0 0 8px var(--green);}
+
+/* ── GRIDS (Security, Stack, Integrations, OS, Tested) ── */
+.sec-grid, .stack-grid, .integ-grid, .os-grid, .tested-grid { display:grid; gap:1rem; }
+.sec-grid{grid-template-columns:repeat(auto-fit,minmax(280px,1fr));}
+.stack-grid{grid-template-columns:repeat(4,1fr);}
+.integ-grid{grid-template-columns:repeat(auto-fit,minmax(160px,1fr));}
+.os-grid{grid-template-columns:repeat(auto-fit,minmax(220px,1fr));}
+.tested-grid{grid-template-columns:repeat(auto-fit,minmax(200px,1fr));}
+
+.flat-item{ background:var(--bg1);border:1px solid var(--border);border-radius:var(--radius);padding:1.25rem;transition:all 0.2s; display:flex;flex-direction:column;gap:0.3rem;}
+.flat-item:hover{border-color:var(--accent-border);transform:translateY(-2px);box-shadow:var(--shadow-md);}
+.flat-title{font-family:'JetBrains Mono',monospace;font-size:0.9rem;font-weight:700;color:var(--text);}
+.flat-desc{font-size:0.85rem;color:var(--text3);line-height:1.6;}
+.layer{font-size:0.65rem;color:var(--text3);text-transform:uppercase;letter-spacing:0.1em;font-family:'JetBrains Mono',monospace;font-weight:600;}
+.tech{font-size:0.95rem;color:var(--accent);font-weight:700;font-family:'JetBrains Mono',monospace;}
+.os-item{font-family:'JetBrains Mono',monospace;font-size:0.8rem;color:var(--text2);padding:0.2rem 0;display:flex;align-items:center;gap:0.5rem;}
+
+/* ── CODE BLOCKS (INSTALL) ── */
+.code-block{ background:#1e1e2e; border-radius:var(--radius-lg); overflow:hidden; border:1px solid #313244; box-shadow:var(--shadow-lg); margin-bottom:1.5rem; }
+.code-bar{ background:#181825; padding:0.6rem 1rem; display:flex; align-items:center; gap:0.5rem; border-bottom:1px solid #313244; font-family:'JetBrains Mono',monospace; font-size:0.75rem; color:#cdd6f4; font-weight:600;}
+.copy-btn{ margin-left:auto; background:none; border:1px solid #313244; color:#6c7086; font-family:inherit; font-size:0.7rem; padding:0.2rem 0.6rem; border-radius:4px; cursor:pointer; transition:all 0.2s; display:flex; align-items:center; gap:0.3rem;}
+.copy-btn:hover{ border-color:#89b4fa; color:#89b4fa; }
+.copy-btn.success{ border-color:#a6e3a1; color:#a6e3a1; }
+.code-body{ padding:1.5rem; font-family:'JetBrains Mono',monospace; font-size:0.85rem; line-height:1.9; overflow-x:auto; color:#cdd6f4; }
+.c-muted{color:#6c7086;} .c-green-t{color:#a6e3a1;}
+
+.warn-box{background:var(--orange); color:#fff; border-radius:var(--radius);padding:1rem 1.25rem;font-size:0.85rem;margin-bottom:1.5rem;line-height:1.7; font-weight:500;}
+.warn-box code{background:rgba(0,0,0,0.2);padding:0.1rem 0.4rem;border-radius:3px;font-family:'JetBrains Mono',monospace;font-size:0.8rem;}
+
+/* ── ROADMAP ── */
+.roadmap-line{display:flex;flex-direction:column;gap:0;position:relative;padding-left:2.5rem;}
+.roadmap-line::before{content:'';position:absolute;left:0.5rem;transform:translateX(-50%);top:1.5rem;bottom:1.5rem;width:2px;background:var(--border2);}
+.rm-item{position:relative;padding:1rem 0 1rem 1rem;}
+.rm-dot{position:absolute;left:-2rem;transform:translateX(-50%);top:1.35rem;width:12px;height:12px;border-radius:50%;border:2px solid var(--border2);background:var(--bg);}
+.rm-dot.current{background:var(--accent);border-color:var(--accent);box-shadow:0 0 10px var(--accent-border);}
+.rm-version{font-family:'JetBrains Mono',monospace;font-size:0.95rem;color:var(--text);font-weight:700;}
+.rm-version.future{color:var(--text3);}
+.rm-desc{font-size:0.85rem;color:var(--text2);margin-top:0.3rem;line-height:1.6;}
+.rm-badge{display:inline-block;background:var(--accent-bg);border:1px solid var(--accent-border);border-radius:3px;padding:0.05rem 0.4rem;font-size:0.65rem;color:var(--accent);font-family:'JetBrains Mono',monospace;margin-left:0.5rem;vertical-align:middle; font-weight:700;}
+.rm-badge.beta{background:var(--red-bg);border-color:rgba(220,38,38,0.3);color:var(--red);}
+
+/* ── CHANGELOG ── */
+.cl-body{padding:1.5rem 2rem;font-family:'JetBrains Mono',monospace;font-size:0.8rem;line-height:2.2; background:var(--bg); color:var(--text2);}
+.cl-version{color:var(--text);font-weight:700; font-size:0.9rem;}
+.cl-date{color:var(--text3);margin-left:0.5rem;}
+.cl-add{color:var(--green); font-weight:700;}
+.cl-fix{color:var(--yellow); font-weight:700;}
+
+/* ── ACTIVITY & CONTRIBUTORS ── */
+.activity-feed{background:var(--bg1);border:1px solid var(--border);border-radius:var(--radius-lg);overflow:hidden;}
+.activity-header{padding:1rem 1.25rem;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:0.5rem;font-family:'JetBrains Mono',monospace;font-size:0.8rem;font-weight:700;color:var(--text);}
+.activity-dot-live{width:8px;height:8px;border-radius:50%;background:var(--green);animation:pulse 2s ease infinite;}
+#activity-list{padding:0.5rem 0;}
+.activity-item{display:flex;align-items:center;gap:1rem;padding:0.75rem 1.25rem;border-bottom:1px solid var(--border);transition:background 0.15s;}
+.activity-item:last-child{border-bottom:none;}
+.activity-item:hover{background:var(--bg2);}
+.activity-msg{font-size:0.85rem;color:var(--text2);flex:1; font-family:'JetBrains Mono',monospace;}
+.activity-time{font-size:0.75rem;color:var(--text3);white-space:nowrap;font-family:'JetBrains Mono',monospace;}
+
+.contrib-grid{display:flex;flex-wrap:wrap;gap:0.75rem;}
+.contrib-item{display:flex;align-items:center;gap:0.75rem;background:var(--bg1);border:1px solid var(--border);border-radius:var(--radius);padding:0.6rem 1rem;transition:all 0.2s;text-decoration:none;}
+.contrib-item:hover{border-color:var(--accent-border);transform:translateY(-2px);box-shadow:var(--shadow-md); text-decoration:none;}
+.contrib-avatar{width:32px;height:32px;border-radius:50%;border:1px solid var(--border2);}
+.contrib-name{font-family:'JetBrains Mono',monospace;font-size:0.85rem;color:var(--text); font-weight:600;}
+
+/* ── FAQ ── */
+.faq-list{display:flex;flex-direction:column;gap:0.75rem;}
+.faq-item{background:var(--bg1);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;transition:border-color 0.2s;}
+.faq-item:hover{border-color:var(--accent-border);}
+.faq-q{padding:1.25rem;font-family:'JetBrains Mono',monospace;font-size:0.9rem;font-weight:700;color:var(--text);cursor:pointer;display:flex;justify-content:space-between;align-items:center;}
+.faq-q::before{content:'Q: ';color:var(--accent); margin-right:0.5rem;}
+.faq-toggle{color:var(--text3);font-size:0.8rem;transition:transform 0.2s;}
+.faq-item.open .faq-toggle{transform:rotate(180deg);}
+.faq-a{display:none;padding:0 1.25rem 1.25rem;font-size:0.85rem;color:var(--text2);line-height:1.7;}
+.faq-item.open .faq-a{display:block;}
+
+/* ── SHARE ── */
+.share-row{display:flex;gap:0.75rem;flex-wrap:wrap;}
+.share-btn{padding:0.65rem 1.5rem;border-radius:6px;font-family:'JetBrains Mono',monospace;font-weight:600;font-size:0.8rem;text-decoration:none!important;transition:all 0.2s;border:1px solid var(--border);color:var(--text2);background:var(--bg1);}
+.share-btn:hover{border-color:var(--accent);color:var(--accent);transform:translateY(-2px); box-shadow:var(--shadow-md);}
+
+/* ── REDACTED TEXT ── */
+.redacted { background: var(--text); color: transparent; border-radius: 3px; padding: 0 0.4em; cursor: help; user-select: none; transition: background 0.3s, color 0.3s; }
+body.alt-pressed .redacted:hover { background: var(--red-bg); color: var(--red); text-shadow: none; }
+
+/* ── COMMAND PALETTE (CTRL+K) ── */
+#cmd-overlay{ display:none; position:fixed; inset:0; background:rgba(0,0,0,0.6); backdrop-filter:blur(5px); z-index:99990; align-items:flex-start; justify-content:center; padding-top:15vh; }
+#cmd-overlay.open{ display:flex; }
+#cmd-box{ width:100%; max-width:520px; background:var(--bg); border-radius:var(--radius-xl); box-shadow:var(--shadow-lg); overflow:hidden; border:1px solid var(--border); }
+#cmd-input{ width:100%; padding:1rem 1.25rem; border:none; border-bottom:1px solid var(--border); font-size:0.95rem; font-family:inherit; outline:none; color:var(--text); background:transparent; }
+.cmd-results{ max-height:320px; overflow-y:auto; }
+.cmd-item{ display:flex; align-items:center; gap:0.75rem; padding:0.7rem 1.25rem; cursor:pointer; transition:background 0.1s; border:none; background:none; width:100%; text-align:left; font-family:inherit; color:var(--text); }
+.cmd-item.active, .cmd-item:hover{ background:var(--accent-bg); color:var(--accent); }
+.cmd-item-icon{ font-size:1rem; flex-shrink:0; }
+.cmd-item-label{ font-size:0.85rem; font-weight:600; }
+.cmd-item-hint{ font-size:0.7rem; color:var(--muted); margin-left:auto; background:var(--bg2); padding:0.1rem 0.4rem; border-radius:4px; border:1px solid var(--border); }
+.cmd-footer{ padding:0.5rem 1.25rem; border-top:1px solid var(--border); font-size:0.7rem; color:var(--muted); display:flex; gap:1rem; }
+
+/* ── EASTER EGGS OVERLAYS (Scroll Fix & Restored UI) ── */
+.ee-overlay { 
+  display:none; position:fixed; inset:0; background:rgba(5,8,15,0.97); 
+  backdrop-filter:blur(20px); z-index:99995; overflow-y:auto; color:#eceff4; 
+  font-family:'JetBrains Mono',monospace; 
+}
+.ee-overlay.open { display:block; }
+.ee-overlay::before{
+  content:'';position:fixed;inset:0;
+  background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,0,0,0.08) 2px,rgba(0,0,0,0.08) 4px);
+  pointer-events:none;z-index:1;
+}
+
+.ee-inner { 
+  max-width:700px; width:100%; text-align:center; margin: 5vh auto; 
+  animation:easterIn 0.5s cubic-bezier(0.16,1,0.3,1); position: relative; z-index: 2; padding: 2rem;
+}
+@keyframes easterIn{ from{opacity:0;transform:scale(0.9) translateY(20px);} to{opacity:1;transform:scale(1) translateY(0);} }
+
+.ee-glitch { font-size:clamp(2rem,6vw,4rem); font-weight:900; letter-spacing:0.15em; text-transform:uppercase; margin-bottom:0.5rem; text-shadow: 0 0 20px rgba(0,212,255,0.5); }
+.ee-runes { font-family:'Noto Sans Runic', 'Segoe UI Historic', 'Apple Symbols', sans-serif; font-size:1.8rem; letter-spacing:0.4em; color:#88c0d0; margin:1rem 0 2rem; }
+.ee-divider { height:1px; background:linear-gradient(90deg,transparent,#88c0d0,transparent); margin:1.5rem 0; opacity:0.3; }
+
+/* SVG Brand */
+.brand-wrap{margin:1.5rem auto;width:130px;height:170px; transition: transform 0.1s ease-out; position: relative; z-index: 3;}
+.brand-svg{width:130px;height:170px;animation:brandPulse 2.5s ease-in-out infinite alternate; display: block; margin: 0 auto;}
+@keyframes brandPulse{
+  from{filter:drop-shadow(0 0 8px rgba(255,59,92,0.7)) drop-shadow(0 0 20px rgba(255,59,92,0.3));}
+  to{filter:drop-shadow(0 0 20px rgba(255,59,92,1)) drop-shadow(0 0 50px rgba(255,59,92,0.6)) drop-shadow(0 0 80px rgba(255,59,92,0.2));}
+}
+
+/* Typing Quote */
+.easter-quote-wrap { 
+  margin: 2rem auto; font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; color: #88c0d0; 
+  text-align: left; max-width: 580px; border-left: 2px solid #bf616a; padding-left: 1rem;
+}
+.ee-cursor { display: inline-block; width: 6px; height: 1em; background: #bf616a; animation: blink 1s step-end infinite; vertical-align: text-bottom; margin-left: 4px; }
+@keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
+
+/* Easter Egg Terminal */
+.easter-terminal {
+  background:#0d1117; border:1px solid #1c2330; border-radius:10px;
+  overflow:hidden; margin-bottom:1.5rem; text-align:left; position:relative; z-index:3;
+  max-width: 100%;
+}
+.easter-term-bar {
+  background:#161b22; padding:0.5rem 1rem; display:flex; align-items:center; gap:0.4rem; border-bottom:1px solid #1c2330;
+}
+.easter-term-title { font-size:0.65rem;color:#4c566a;margin-left:auto;letter-spacing:0.1em; }
+.easter-term-body { padding:1rem 1.25rem; font-size:0.75rem;line-height:2; font-family:'JetBrains Mono',monospace;}
+.et-prompt{color:#a3be8c;} .et-cmd{color:#eceff4;} .et-out{color:#4c566a;} .et-val{color:#88c0d0;} .et-warn{color:#ebcb8b;} .et-ok{color:#a3be8c;}
+
+/* Shortcuts */
+.easter-shortcuts {
+  display:grid;grid-template-columns:repeat(2, 1fr); gap:0.5rem;margin-bottom:1.5rem;text-align:left; position:relative; z-index:3;
+  width: 100%;
+}
+.esc-row {
+  background:#0d1117;border:1px solid #1c2330; border-radius:6px;padding:0.6rem 0.85rem; display:flex;align-items:center;gap:0.75rem;
+}
+.esc-key {
+  font-family:'Inter', system-ui, sans-serif;
+  font-size:0.68rem;font-weight:700; color:#88c0d0;background:#1c2330; border:1px solid #2d3748;
+  padding:0.15rem 0.45rem;border-radius:4px; white-space:nowrap;
+}
+.esc-desc { font-size:0.72rem;color:#4c566a; }
+
+.easter-close { background:none;border:1px solid #1c2330; color:#4c566a;font-family:'JetBrains Mono',monospace; font-size:0.72rem;padding:0.5rem 1.5rem;border-radius:6px; cursor:pointer;transition:all 0.2s;letter-spacing:0.1em; text-transform:uppercase; position:relative; z-index:3;}
+.easter-close:hover { border-color:#88c0d0;color:#88c0d0; }
+
+/* Konami Overlay */
+#konami-overlay{ display:none;position:fixed;inset:0; background:rgba(0,0,0,0); z-index:99997; overflow-y:auto; transition:background 0.5s; }
+#konami-overlay.open{ display:block; background:rgba(0,0,0,0.95); }
+#konami-box{
+  max-width:580px;width:90%; background:#0a0a0f; border:1px solid #dc2626; border-radius:var(--radius-lg);
+  padding:2.5rem 2rem;text-align:center; position:relative;overflow:hidden; margin: 10vh auto;
+  opacity:0;transform:scale(0.88); transition:opacity 0.4s,transform 0.4s;
+  box-shadow:0 0 60px rgba(220,38,38,0.25),0 0 120px rgba(220,38,38,0.1);
+}
+#konami-overlay.open #konami-box{opacity:1;transform:scale(1);}
+
+/* ── FOOTER ── */
+footer{ border-top:1px solid var(--border); background:var(--bg1); padding:4rem 2rem 2rem; text-align:center; position:relative; z-index:1; }
+.f-title{ font-family:'JetBrains Mono',monospace; font-size:1.5rem; font-weight:800; color:var(--text); letter-spacing:0.1em; }
+.f-sub{ font-size:0.9rem; color:var(--text3); margin:0.5rem 0 2rem; }
+.f-links{ display:flex; justify-content:center; gap:2rem; margin-bottom:2rem; flex-wrap:wrap; font-family:'JetBrains Mono',monospace;}
+.f-links a{ font-size:0.85rem; font-weight:600; color:var(--text2); transition:color 0.2s; }
+.f-links a:hover{ color:var(--accent); }
+
+/* MISC & RESPONSIVE */
+.fade-in{opacity:0;transform:translateY(24px);transition:opacity 0.6s cubic-bezier(0.16,1,0.3,1), transform 0.6s cubic-bezier(0.16,1,0.3,1);}
+.fade-in.visible{opacity:1;transform:translateY(0);}
+#toast{ position:fixed; bottom:1.5rem; left:50%; transform:translateX(-50%) translateY(20px); background:var(--text); color:var(--bg); font-family:'JetBrains Mono',monospace; font-size:0.85rem; padding:0.8rem 1.5rem; border-radius:6px; opacity:0; transition:all 0.3s; z-index:99998; pointer-events:none; font-weight:700; box-shadow:var(--shadow-lg); }
+#toast.show{ opacity:1; transform:translateX(-50%) translateY(0); }
+@media(max-width:900px){ .stack-grid, .access-grid {grid-template-columns:repeat(2,1fr);} .how-grid{grid-template-columns:1fr;} .stats-grid{grid-template-columns:repeat(2,1fr);} .nav-links{display:none;} .nav-hamburger{display:block;} }
+@media(max-width:600px){ .grid-3, .mitre-grid, .stack-grid, .access-grid, .stats-grid, .os-grid {grid-template-columns:1fr;} nav{padding:0 1rem;} section{padding:4rem 1.5rem;} .hero-main-title{font-size:3rem;} .easter-shortcuts{grid-template-columns:1fr;} }
+@media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important;}}
+</style>
+</head>
+<body>
+
+<div id="boot-loader"></div>
+
+<div id="quake-term">
+  <div id="quake-output">
+    <div class="quake-row"><span class="t-cyan">Heimdall OS v0.9.4</span></div>
+    <div class="quake-row"><span style="color:#6c7086;">Type 'help' for available commands.</span></div>
+  </div>
+  <div id="quake-input-wrap">
+    <span class="t-prompt" style="color:#a6e3a1;">root@heimdall:~#</span>
+    <input type="text" id="quake-input" autocomplete="off" spellcheck="false" autofocus />
+  </div>
+</div>
+
+<canvas id="network-canvas"></canvas>
+
+<div id="scroll-progress"></div>
+<div id="toast"></div>
+
+<div class="star-banner">
+  <span class="s-cyan">★</span>
+  <span id="gh-stars-banner" class="skeleton">0</span> stars on
+  <a href="https://github.com/RaiseiX/Heimdall-DFIR" target="_blank" rel="noopener noreferrer">GitHub</a>
+  &nbsp;·&nbsp; Started July 2025 — <span id="days-running">0</span> days of development
+</div>
+
+<nav>
+  <a href="#" class="nav-logo">🛡️ HEIMDALL <span class="nav-logo-badge">DFIR</span></a>
+  <div class="nav-links">
+    <a href="#how" class="nav-link" data-section="how">How it works</a>
+    <a href="#features" class="nav-link" data-section="features">Features</a>
+    <a href="#parsers" class="nav-link" data-section="parsers">Parsers</a>
+    <a href="#architecture" class="nav-link" data-section="architecture">Architecture</a>
+    <a href="#install" class="nav-link" data-section="install">Install</a>
+  </div>
+  <div class="nav-right">
+    <button class="btn-icon" id="theme-toggle" aria-label="Toggle dark mode" data-tip="Toggle Theme">🌙</button>
+    <button class="btn-outline" onclick="openCmdPalette()" style="display:flex;gap:0.4rem;align-items:center;padding:0.35rem 0.75rem;font-size:0.75rem;">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+      Ctrl+K
+    </button>
+    <a href="https://github.com/RaiseiX/Heimdall-DFIR" target="_blank" class="btn-primary" style="padding:0.35rem 0.8rem; font-size:0.8rem;">GitHub</a>
+    <button class="nav-hamburger" onclick="document.getElementById('nav-mobile').classList.toggle('open')">☰</button>
+  </div>
+</nav>
+
+<div id="nav-mobile">
+  <a href="#how" class="nav-link" onclick="this.parentElement.classList.remove('open')">How it works</a>
+  <a href="#features" class="nav-link" onclick="this.parentElement.classList.remove('open')">Features</a>
+  <a href="#parsers" class="nav-link" onclick="this.parentElement.classList.remove('open')">Parsers</a>
+  <a href="#architecture" class="nav-link" onclick="this.parentElement.classList.remove('open')">Architecture</a>
+  <a href="#install" class="nav-link" onclick="this.parentElement.classList.remove('open')">Install</a>
+</div>
+
+<main>
+  <section class="hero" id="hero">
+    <div class="hero-badge"><span class="hero-badge-dot"></span> Active Development — v0.9 Beta</div>
+    <h1 class="hero-main-title decrypt" data-text="HEIMDALL DFIR">HEIMDALL DFIR</h1>
+    <p class="hero-sub fade-in">A <strong>unified investigation cockpit</strong> built for CSIRT / SOC / DFIR teams. Ingest, correlate and visualise any forensic source in a real-time interface.</p>
+    
+    <div class="hero-stats fade-in" style="transition-delay:0.1s">
+      <div class="hero-stat">
+        <span class="hs-val skeleton" id="gh-stars-hero">0</span>
+        <span class="hs-label">GitHub Stars</span>
+      </div>
+      <div class="hero-stat">
+        <span class="hs-val skeleton" id="gh-forks-hero">0</span>
+        <span class="hs-label">Forks</span>
+      </div>
+      <div class="hero-stat">
+        <span class="hs-val" id="hero-days">—</span>
+        <span class="hs-label">Days of dev</span>
+      </div>
+      <div class="hero-stat">
+        <span class="hs-val">v0.9</span>
+        <span class="hs-label">Current version</span>
+      </div>
+    </div>
+
+    <div class="terminal fade-in" style="transition-delay:0.2s">
+      <div class="terminal-bar">
+        <span class="t-dot t-red"></span><span class="t-dot t-yellow"></span><span class="t-dot t-green"></span>
+        <span class="t-title">live-session — <span id="live-time">00:00:00</span></span>
+      </div>
+      <div class="terminal-body">
+        <div><span class="t-prompt">analyst@soc:~$ </span><span class="t-cmd" style="color:#cdd6f4;">git clone https://github.com/RaiseiX/Heimdall-DFIR.git</span></div>
+        <div><span style="color:#6c7086;">Cloning into 'Heimdall-DFIR'...</span></div>
+        <div><span class="t-prompt">analyst@soc:~$ </span><span class="t-cmd" style="color:#cdd6f4;">cd Heimdall-DFIR && ./start.sh</span></div>
+        <div><span class="t-cyan">✓ Container stack deployed successfully in 45s.</span></div>
+        <div><span class="t-cyan">✓ Ready for memory and disk artifact ingestion.</span></div>
+      </div>
+    </div>
+
+    <div class="badge-row fade-in" style="transition-delay:0.3s">
+      <span class="badge red">BETA v0.9</span>
+      <span class="badge">Docker Compose</span>
+      <span class="badge">Node 18+</span>
+      <span class="badge">React 18</span>
+      <span class="badge" data-tip="Distributed search & analytics">Elasticsearch 8.13</span>
+      <span class="badge" data-tip="Memory forensics framework">Volatility 3</span>
+      <span class="badge green">MIT License</span>
+      <span class="badge purple" data-tip="Pattern matching · Threat Intel">YARA · Sigma · TAXII</span>
+    </div>
+    
+    <div class="btn-row fade-in" style="transition-delay:0.4s">
+      <a class="btn btn-primary" href="https://github.com/RaiseiX/Heimdall-DFIR" target="_blank" rel="noopener noreferrer">View on GitHub</a>
+      <button class="btn btn-copy-hero" onclick="copyCode(this, 'git clone https://github.com/RaiseiX/Heimdall-DFIR.git && cd Heimdall-DFIR && bash start.sh')">Copy install command</button>
+      <a class="btn btn-outline" href="https://github.com/RaiseiX/Heimdall-DFIR/issues" target="_blank" rel="noopener noreferrer">Report a Bug</a>
+      <a class="btn btn-outline" href="https://github.com/RaiseiX/Heimdall-DFIR/blob/main/README.fr.md" target="_blank" rel="noopener noreferrer">Lire en Français</a>
+    </div>
+  </section>
+
+  <div class="scan-div"></div>
+
+  <section id="how">
+    <div class="section-label decrypt" data-text="workflow">workflow</div>
+    <h2 class="decrypt" data-text="How it works">How it works</h2>
+    <p class="section-sub fade-in">— three steps from evidence to report</p>
+    
+    <div class="how-grid">
+      <div class="how-card fade-in">
+        <div class="how-num">01</div>
+        <h3>COLLECT</h3>
+        <p>Upload any forensic artifact — disk images, EVTX logs, PCAP captures, RAM dumps, registry hives. Heimdall handles chunked upload with automatic resume and ClamAV scanning on every file.</p>
+      </div>
+      <div class="how-card fade-in" style="transition-delay:0.1s">
+        <div class="how-num">02</div>
+        <h3>ANALYSE</h3>
+        <p>Artifacts are automatically parsed by the worker queue — Zimmerman Tools, Hayabusa, tshark — and indexed into a per-case Elasticsearch Super Timeline. Triage score computed in real time.</p>
+      </div>
+      <div class="how-card fade-in" style="transition-delay:0.2s">
+        <div class="how-num">03</div>
+        <h3>HUNT</h3>
+        <p>Run YARA rules, Sigma hunts, correlate with TAXII Threat Intel feeds, map to MITRE ATT&CK, visualise lateral movement, and export a signed PDF report with Legal Hold manifest.</p>
+      </div>
+    </div>
+  </section>
+
+  <div class="scan-div"></div>
+
+  <section id="stats">
+    <div class="section-label decrypt" data-text="metrics">metrics</div>
+    <h2 class="decrypt" data-text="By the numbers">By the numbers</h2>
+    <p class="section-sub fade-in">— key metrics of the platform</p>
+    
+    <div class="stats-grid">
+      <div class="stat-card fade-in"><span class="stat-n" data-target="256">0</span><span class="stat-u">GB</span><span class="stat-l">Max RAM dump size</span></div>
+      <div class="stat-card fade-in"><span class="stat-n" data-target="16">0</span><span class="stat-u">parsers</span><span class="stat-l">Disk analysis sources</span></div>
+      <div class="stat-card fade-in"><span class="stat-n" data-target="16">0</span><span class="stat-u">rules</span><span class="stat-l">Triage engine</span></div>
+      <div class="stat-card fade-in"><span class="stat-n" data-target="18">0</span><span class="stat-u">migrations</span><span class="stat-l">DB schema</span></div>
+      <div class="stat-card fade-in"><span class="stat-n" data-target="100">0</span><span class="stat-u">score</span><span class="stat-l">Beacon detection</span></div>
+      <div class="stat-card fade-in"><span class="stat-n" data-target="11">0</span><span class="stat-u">steps</span><span class="stat-l">Ransomware playbook</span></div>
+    </div>
+  </section>
+
+  <div class="scan-div"></div>
+
+  <section id="features">
+    <div class="section-label decrypt" data-text="capabilities">capabilities</div>
+    <h2 class="decrypt" data-text="Features">Features</h2>
+    <p class="section-sub fade-in">— what Heimdall brings to your investigations</p>
+    
+    <div class="grid-3">
+      <div class="card-flat c-cyan fade-in">
+        <div class="feat-num">01 —</div>
+        <h3>Forensic Analysis</h3>
+        <p>Super Timeline multi-source via Elasticsearch, Hayabusa Sigma detections on EVTX, full Zimmerman Tools suite, PCAP extraction via tshark. All artifacts parsed asynchronously by the BullMQ worker.</p>
+        <div class="feat-tags"><span class="ftag">Hayabusa</span><span class="ftag">MFTECmd</span><span class="ftag">RECmd</span><span class="ftag">tshark</span></div>
+      </div>
+      <div class="card-flat c-cyan fade-in" style="transition-delay:0.1s">
+        <div class="feat-num">02 —</div>
+        <h3>Memory Forensics <span class="coming-soon-badge" style="font-size:0.5rem;padding:0.1rem 0.3rem;">SOON</span></h3>
+        <p>Chunked upload up to 256 GB with automatic resume. Full VolWeb + Volatility 3 integration is currently in development.</p>
+        <div class="feat-tags"><span class="ftag">VolWeb</span><span class="ftag">Volatility 3</span><span class="ftag">MinIO</span></div>
+      </div>
+      <div class="card-flat c-green fade-in" style="transition-delay:0.2s">
+        <div class="feat-num">03 —</div>
+        <h3>Threat Hunting</h3>
+        <p>YARA engine with per-file/per-case scan, Sigma hunt on Super Timeline, GitHub bulk import (Neo23x0, SigmaHQ, Yara-Rules), TAXII 2.1 / STIX 2.1 Threat Intel with automatic post-ingestion correlation.</p>
+        <div class="feat-tags"><span class="ftag">YARA</span><span class="ftag">Sigma</span><span class="ftag">TAXII 2.1</span></div>
+      </div>
+      <div class="card-flat c-green fade-in">
+        <div class="feat-num">04 —</div>
+        <h3>Automatic Detections</h3>
+        <p>Timestomping ($SIA vs $FN), double extension (.pdf.exe), C2 beaconing score (0-100), persistence via Run Keys / LNK Startup / BITS Jobs / Sigma Hayabusa.</p>
+        <div class="feat-tags"><span class="ftag">Timestomping</span><span class="ftag">C2 Beacon</span><span class="ftag">Persistence</span></div>
+      </div>
+      <div class="card-flat c-yellow fade-in" style="transition-delay:0.1s">
+        <div class="feat-num">05 —</div>
+        <h3>Triage & Investigation</h3>
+        <p>Machine triage score (0-100, 16 rules), lateral movement graph (D3.js, Event IDs 4624/4648/4768), MITRE ATT&CK kill chain (14 phases), IOC enrichment via VirusTotal & AbuseIPDB.</p>
+        <div class="feat-tags"><span class="ftag">MITRE</span><span class="ftag">D3.js</span><span class="ftag">VirusTotal</span></div>
+      </div>
+      <div class="card-flat c-yellow fade-in" style="transition-delay:0.2s">
+        <div class="feat-num">06 —</div>
+        <h3>SOAR & Automation</h3>
+        <p>Parallel SOAR engine post-ingestion, DFIR Playbooks (Ransomware 11 steps, RDP 10, Phishing 9), Legal Hold with HMAC-SHA256 signed manifest, Sysmon configs bundled.</p>
+        <div class="feat-tags"><span class="ftag">SOAR</span><span class="ftag">Playbooks</span><span class="ftag">Legal Hold</span></div>
+      </div>
+      <div class="card-flat c-purple fade-in">
+        <div class="feat-num">07 —</div>
+        <h3>Local AI — Ollama</h3>
+        <p>Global AI Chat with SSE streaming, Case Copilot with automatic context injection (IOCs, SOAR alerts, artifacts, notes). Supports qwen3, deepseek-r1, mistral.</p>
+        <div class="feat-tags"><span class="ftag">Ollama</span><span class="ftag">qwen3:14b</span><span class="ftag">deepseek-r1</span></div>
+      </div>
+      <div class="card-flat c-red fade-in" style="transition-delay:0.1s">
+        <div class="feat-num">08 —</div>
+        <h3>Security & Admin</h3>
+        <p>ClamAV mandatory scan, DoD 5220.22-M 7-pass hard delete, JWT rotation with Redis blacklist, automatic pg_dump backups, full audit log with HMAC, Docker CPU/RAM monitoring.</p>
+        <div class="feat-tags"><span class="ftag">ClamAV</span><span class="ftag">DoD 5220.22-M</span><span class="ftag">HMAC</span></div>
+      </div>
+      <div class="card-flat c-orange fade-in" style="transition-delay:0.2s">
+        <div class="feat-num">09 —</div>
+        <h3>Collaboration</h3>
+        <p>Live case chat (Socket.io), real-time analyst presence, investigation notes with XSS sanitisation, enriched PDF report (triage, YARA, Threat Intel, kill chain).</p>
+        <div class="feat-tags"><span class="ftag">Socket.io</span><span class="ftag">PDF Report</span><span class="ftag">Real-time</span></div>
+      </div>
+    </div>
+  </section>
+
+  <div class="scan-div"></div>
+
+  <section id="parsers">
+    <div class="section-label decrypt" data-text="data sources">data sources</div>
+    <h2 class="decrypt" data-text="Parsers & Data Sources">Parsers & Data Sources</h2>
+    <p class="section-sub fade-in">— supported artifact types and analysis engines</p>
+    
+    <div class="tab-row fade-in">
+      <button class="tab-btn active" onclick="switchTab('disk',this)">Disk Analysis</button>
+      <button class="tab-btn" onclick="switchTab('memory',this)">Memory Analysis</button>
+      <button class="tab-btn" onclick="switchTab('coming',this)">Coming Soon</button>
+    </div>
+    
+    <div class="tab-panel active" id="tab-disk">
+      <div class="parser-block">
+        <div class="parser-block-header"><span>disk analysis — 16 parsers</span><span class="av-badge">AVAILABLE</span></div>
+        <table class="data-table">
+          <thead><tr><th>Parser</th><th>Artifact</th><th>Category</th></tr></thead>
+          <tbody>
+            <tr><td>Hayabusa</td><td>EVTX — Sigma detections (critical/high/medium/low)</td><td><span class="cat">Event Logs</span></td></tr>
+            <tr><td>EvtxECmd</td><td>EVTX — Raw Windows event logs</td><td><span class="cat">Event Logs</span></td></tr>
+            <tr><td>MFTECmd</td><td>$MFT — Master File Table (timestamps, paths, sizes)</td><td><span class="cat">Filesystem</span></td></tr>
+            <tr><td>PECmd</td><td>Prefetch (.pf) — Execution history, DLL dependencies</td><td><span class="cat">Execution</span></td></tr>
+            <tr><td>LECmd</td><td>LNK (.lnk) — Recent files, volumes, target machines</td><td><span class="cat">Recent Activity</span></td></tr>
+            <tr><td>SBECmd</td><td>Shellbags — Folder navigation history</td><td><span class="cat">Navigation</span></td></tr>
+            <tr><td>AmcacheParser</td><td>Amcache.hve — Installed & executed programs</td><td><span class="cat">Execution</span></td></tr>
+            <tr><td>AppCompatCacheParser</td><td>ShimCache (SYSTEM) — Application execution</td><td><span class="cat">Execution</span></td></tr>
+            <tr><td>RECmd</td><td>Registry hives (SAM, SYSTEM, NTUSER.DAT, SOFTWARE…)</td><td><span class="cat">Registry</span></td></tr>
+            <tr><td>JLECmd</td><td>Jump Lists — Recent files per application</td><td><span class="cat">Recent Activity</span></td></tr>
+            <tr><td>SrumECmd</td><td>SRUM (SRUDB.dat) — Network & CPU usage per process</td><td><span class="cat">Network / CPU</span></td></tr>
+            <tr><td>SQLECmd</td><td>SQLite (.sqlite, .db) — Chrome / Firefox / Edge history</td><td><span class="cat">Browser</span></td></tr>
+            <tr><td>RBCmd</td><td>Recycle Bin ($I*) — Deleted files, original path & date</td><td><span class="cat">Deleted Files</span></td></tr>
+            <tr><td>BitsParser</td><td>BITS (qmgr*.dat) — Background transfers, persistence</td><td><span class="cat">Persistence</span></td></tr>
+            <tr><td>tshark</td><td>PCAP (.pcap, .pcapng) — DNS / HTTP / TLS / TCP flows</td><td><span class="cat">Network</span></td></tr>
+            <tr><td>ClamAV</td><td>Any file — Antivirus scan & quarantine</td><td><span class="cat">Antivirus</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div class="tab-panel" id="tab-memory">
+      <div class="parser-block">
+        <div class="parser-block-header"><span>memory analysis — Volatility 3 via VolWeb</span><span class="coming-soon-badge">COMING SOON</span></div>
+        <div style="padding:1rem 1.25rem;"><div class="uc-disclaimer" style="margin-bottom:0;"><strong>NOTE</strong> — Full RAM forensics integration via VolWeb is currently in development.</div></div>
+        <table class="data-table">
+          <thead><tr><th>Plugin</th><th>Description</th><th>Status</th></tr></thead>
+          <tbody>
+            <tr><td>windows.pslist / pstree</td><td>Process list and tree</td><td><span class="coming-soon-badge">PLANNED</span></td></tr>
+            <tr><td>windows.cmdline</td><td>Command-line arguments per process</td><td><span class="coming-soon-badge">PLANNED</span></td></tr>
+            <tr><td>windows.netscan / netstat</td><td>Active and historical network connections</td><td><span class="coming-soon-badge">PLANNED</span></td></tr>
+            <tr><td>windows.dlllist</td><td>DLLs loaded per process</td><td><span class="coming-soon-badge">PLANNED</span></td></tr>
+            <tr><td>windows.malfind</td><td>Memory injection detection</td><td><span class="coming-soon-badge">PLANNED</span></td></tr>
+            <tr><td>windows.svcscan</td><td>Windows services enumeration</td><td><span class="coming-soon-badge">PLANNED</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div class="tab-panel" id="tab-coming">
+      <div class="parser-block">
+        <div class="parser-block-header"><span>additional artifacts — planned</span><span class="coming-soon-badge">COMING SOON</span></div>
+        <table class="data-table">
+          <thead><tr><th>Artifact</th><th>Description</th><th>Category</th></tr></thead>
+          <tbody>
+            <tr><td>WebCacheV01.dat</td><td>IE / Edge legacy browser cache</td><td><span class="cat">Browser</span></td></tr>
+            <tr><td>$LogFile / $UsnJrnl</td><td>NTFS change journal</td><td><span class="cat">Filesystem</span></td></tr>
+            <tr><td>WMI artifacts</td><td>WMI persistence — subscriptions, filters, consumers</td><td><span class="cat">Persistence</span></td></tr>
+            <tr><td>Thumbcache / IconCache</td><td>Visual artifacts — accessed images and files</td><td><span class="cat">Visual</span></td></tr>
+            <tr><td>Disk image mounting</td><td>.E01, .dd, .vmdk — full disk image analysis</td><td><span class="cat">Disk</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <div class="scan-div"></div>
+
+  <section id="use-cases">
+    <div class="section-label decrypt" data-text="scenarios">scenarios</div>
+    <h2 class="decrypt" data-text="Use Cases">Use Cases</h2>
+    <p class="section-sub fade-in">— illustrative investigation scenarios</p>
+    
+    <div class="uc-disclaimer fade-in"><strong>IMPORTANT NOTICE</strong> — These scenarios represent the intended vision of Heimdall DFIR. Not all steps are fully operational in the current beta (v0.9).</div>
+    
+    <div class="uc-grid">
+      <div class="uc-card fade-in">
+        <div style="width:100%">
+          <h3>RANSOMWARE RESPONSE</h3>
+          <div class="uc-step"><span class="uc-arrow">01</span>Extract MFT and EVTX logs</div>
+          <div class="uc-step"><span class="uc-arrow">02</span>Identify initial access (e.g. EID 4624/4688)</div>
+          <div class="uc-step"><span class="uc-arrow">03</span>Trace encryption via SRUM disk usage</div>
+          <div class="uc-step"><span class="uc-arrow">04</span>Detect VSSAdmin shadow copy deletion</div>
+          <div class="uc-step"><span class="uc-arrow">05</span>Legal Hold export + HMAC manifest</div>
+        </div>
+      </div>
+      <div class="uc-card fade-in" style="transition-delay:0.1s">
+        <div style="width:100%">
+          <h3>INSIDER THREAT</h3>
+          <div class="uc-step"><span class="uc-arrow">01</span>Parse NTUSER.DAT Shellbags</div>
+          <div class="uc-step"><span class="uc-arrow">02</span>Prove USB directory traversal</div>
+          <div class="uc-step"><span class="uc-arrow">03</span>Correlate LNK files with exfiltration</div>
+          <div class="uc-step"><span class="uc-arrow">04</span>Analyze SRUM for network bytes sent</div>
+          <div class="uc-step"><span class="uc-arrow">05</span>PDF report export</div>
+        </div>
+      </div>
+      <div class="uc-card fade-in" style="transition-delay:0.2s">
+        <div style="width:100%">
+          <h3>APT INVESTIGATION</h3>
+          <div class="uc-step"><span class="uc-arrow">01</span>Scan EVTX with Hayabusa Sigma rules</div>
+          <div class="uc-step"><span class="uc-arrow">02</span>Detect lateral movement (Pass-the-Hash)</div>
+          <div class="uc-step"><span class="uc-arrow">03</span>Run YARA on extracted binaries</div>
+          <div class="uc-step"><span class="uc-arrow">04</span>TAXII Threat Intel correlation</div>
+          <div class="uc-step"><span class="uc-arrow">05</span>MITRE ATT&CK mapping</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div class="scan-div"></div>
+
+  <section id="mitre">
+    <div class="section-label decrypt" data-text="Coverage">Coverage</div>
+    <h2 class="decrypt" data-text="100% MITRE ATT&CK Mapped">100% MITRE ATT&CK Mapped</h2>
+    <p class="section-sub fade-in">Heimdall artifacts, parsers and threat hunting rules provide complete visibility across all 14 enterprise tactical phases.</p>
+    
+    <div class="mitre-grid">
+      <div class="mitre-card fade-in">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <span class="tactic">Reconnaissance</span><span class="av-badge">100%</span>
+        </div>
+        <div class="mitre-stats"><span>Techniques</span><strong>10 / 10</strong></div>
+        <div class="mitre-progress"><div class="mitre-fill"></div></div>
+        <div class="mitre-stats"><span>Sub-techniques</span><strong>34 / 34</strong></div>
+        <div class="mitre-progress"><div class="mitre-fill"></div></div>
+      </div>
+      <div class="mitre-card fade-in">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <span class="tactic">Resource Dev</span><span class="av-badge">100%</span>
+        </div>
+        <div class="mitre-stats"><span>Techniques</span><strong>8 / 8</strong></div>
+        <div class="mitre-progress"><div class="mitre-fill"></div></div>
+        <div class="mitre-stats"><span>Sub-techniques</span><strong>31 / 31</strong></div>
+        <div class="mitre-progress"><div class="mitre-fill"></div></div>
+      </div>
+      <div class="mitre-card fade-in">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <span class="tactic">Initial Access</span><span class="av-badge">100%</span>
+        </div>
+        <div class="mitre-stats"><span>Techniques</span><strong>9 / 9</strong></div>
+        <div class="mitre-progress"><div class="mitre-fill"></div></div>
+        <div class="mitre-stats"><span>Sub-techniques</span><strong>30 / 30</strong></div>
+        <div class="mitre-progress"><div class="mitre-fill"></div></div>
+      </div>
+      <div class="mitre-card fade-in">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <span class="tactic">Execution</span><span class="av-badge">100%</span>
+        </div>
+        <div class="mitre-stats"><span>Techniques</span><strong>14 / 14</strong></div>
+        <div class="mitre-progress"><div class="mitre-fill"></div></div>
+        <div class="mitre-stats"><span>Sub-techniques</span><strong>18 / 18</strong></div>
+        <div class="mitre-progress"><div class="mitre-fill"></div></div>
+      </div>
+      <div class="mitre-card fade-in">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <span class="tactic">Persistence</span><span class="av-badge">100%</span>
+        </div>
+        <div class="mitre-stats"><span>Techniques</span><strong>19 / 19</strong></div>
+        <div class="mitre-progress"><div class="mitre-fill"></div></div>
+        <div class="mitre-stats"><span>Sub-techniques</span><strong>52 / 52</strong></div>
+        <div class="mitre-progress"><div class="mitre-fill"></div></div>
+      </div>
+      <div class="mitre-card fade-in">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <span class="tactic">Priv Escalation</span><span class="av-badge">100%</span>
+        </div>
+        <div class="mitre-stats"><span>Techniques</span><strong>13 / 13</strong></div>
+        <div class="mitre-progress"><div class="mitre-fill"></div></div>
+        <div class="mitre-stats"><span>Sub-techniques</span><strong>39 / 39</strong></div>
+        <div class="mitre-progress"><div class="mitre-fill"></div></div>
+      </div>
+      <div class="mitre-card fade-in">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <span class="tactic">Defense Evasion</span><span class="av-badge">100%</span>
+        </div>
+        <div class="mitre-stats"><span>Techniques</span><strong>43 / 43</strong></div>
+        <div class="mitre-progress"><div class="mitre-fill"></div></div>
+        <div class="mitre-stats"><span>Sub-techniques</span><strong>135 / 135</strong></div>
+        <div class="mitre-progress"><div class="mitre-fill"></div></div>
+      </div>
+      <div class="mitre-card fade-in">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <span class="tactic">Cred Access</span><span class="av-badge">100%</span>
+        </div>
+        <div class="mitre-stats"><span>Techniques</span><strong>17 / 17</strong></div>
+        <div class="mitre-progress"><div class="mitre-fill"></div></div>
+        <div class="mitre-stats"><span>Sub-techniques</span><strong>54 / 54</strong></div>
+        <div class="mitre-progress"><div class="mitre-fill"></div></div>
+      </div>
+      <div class="mitre-card fade-in">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <span class="tactic">Discovery</span><span class="av-badge">100%</span>
+        </div>
+        <div class="mitre-stats"><span>Techniques</span><strong>32 / 32</strong></div>
+        <div class="mitre-progress"><div class="mitre-fill"></div></div>
+        <div class="mitre-stats"><span>Sub-techniques</span><strong>88 / 88</strong></div>
+        <div class="mitre-progress"><div class="mitre-fill"></div></div>
+      </div>
+      <div class="mitre-card fade-in">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <span class="tactic">Lateral Movement</span><span class="av-badge">100%</span>
+        </div>
+        <div class="mitre-stats"><span>Techniques</span><strong>9 / 9</strong></div>
+        <div class="mitre-progress"><div class="mitre-fill"></div></div>
+        <div class="mitre-stats"><span>Sub-techniques</span><strong>5 / 5</strong></div>
+        <div class="mitre-progress"><div class="mitre-fill"></div></div>
+      </div>
+      <div class="mitre-card fade-in">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <span class="tactic">Collection</span><span class="av-badge">100%</span>
+        </div>
+        <div class="mitre-stats"><span>Techniques</span><strong>17 / 17</strong></div>
+        <div class="mitre-progress"><div class="mitre-fill"></div></div>
+        <div class="mitre-stats"><span>Sub-techniques</span><strong>37 / 37</strong></div>
+        <div class="mitre-progress"><div class="mitre-fill"></div></div>
+      </div>
+      <div class="mitre-card fade-in">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <span class="tactic">Command & Control</span><span class="av-badge">100%</span>
+        </div>
+        <div class="mitre-stats"><span>Techniques</span><strong>16 / 16</strong></div>
+        <div class="mitre-progress"><div class="mitre-fill"></div></div>
+        <div class="mitre-stats"><span>Sub-techniques</span><strong>53 / 53</strong></div>
+        <div class="mitre-progress"><div class="mitre-fill"></div></div>
+      </div>
+      <div class="mitre-card fade-in">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <span class="tactic">Exfiltration</span><span class="av-badge">100%</span>
+        </div>
+        <div class="mitre-stats"><span>Techniques</span><strong>9 / 9</strong></div>
+        <div class="mitre-progress"><div class="mitre-fill"></div></div>
+        <div class="mitre-stats"><span>Sub-techniques</span><strong>13 / 13</strong></div>
+        <div class="mitre-progress"><div class="mitre-fill"></div></div>
+      </div>
+      <div class="mitre-card fade-in">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <span class="tactic">Impact</span><span class="av-badge">100%</span>
+        </div>
+        <div class="mitre-stats"><span>Techniques</span><strong>13 / 13</strong></div>
+        <div class="mitre-progress"><div class="mitre-fill"></div></div>
+        <div class="mitre-stats"><span>Sub-techniques</span><strong>36 / 36</strong></div>
+        <div class="mitre-progress"><div class="mitre-fill"></div></div>
+      </div>
+    </div>
+  </section>
+
+  <div class="scan-div"></div>
+
+  <section id="security">
+    <div class="section-label decrypt" data-text="security">security</div>
+    <h2 class="decrypt" data-text="Security by Design">Security by Design</h2>
+    <p class="section-sub fade-in">— Heimdall is built to be trusted with sensitive data</p>
+    
+    <div class="sec-grid">
+      <div class="flat-item fade-in"><span class="flat-title" style="color:var(--green);">Air-gap ready</span><span class="flat-desc">Fully operational without internet. Threat Intel feeds are optional.</span></div>
+      <div class="flat-item fade-in"><span class="flat-title" style="color:var(--green);">ClamAV mandatory</span><span class="flat-desc">Every uploaded file is scanned before processing. Infected files are quarantined.</span></div>
+      <div class="flat-item fade-in"><span class="flat-title" style="color:var(--green);">DoD 5220.22-M</span><span class="flat-desc">7-pass secure deletion on hard delete. No data remnants.</span></div>
+      <div class="flat-item fade-in"><span class="flat-title" style="color:var(--green);">JWT + Redis blacklist</span><span class="flat-desc">Sessions are revocable instantly. Token rotation on every refresh.</span></div>
+      <div class="flat-item fade-in"><span class="flat-title" style="color:var(--green);">HMAC audit log</span><span class="flat-desc">Every action is logged with an HMAC signature. Tamper-evident.</span></div>
+      <div class="flat-item fade-in"><span class="flat-title" style="color:var(--green);">No telemetry</span><span class="flat-desc">Zero data sent externally. Your cases stay on your infrastructure.</span></div>
+      <div class="flat-item fade-in"><span class="flat-title" style="color:var(--green);">Legal Hold</span><span class="flat-desc">HMAC-SHA256 signed manifest for chain of custody and court admissibility.</span></div>
+      <div class="flat-item fade-in"><span class="flat-title" style="color:var(--green);">Automatic backups</span><span class="flat-desc">pg_dump scheduled backups. Restore at any point in time.</span></div>
+    </div>
+  </section>
+
+  <div class="scan-div"></div>
+
+  <section id="architecture">
+    <div class="section-label decrypt" data-text="infrastructure">infrastructure</div>
+    <h2 class="decrypt" data-text="Architecture">Architecture</h2>
+    <p class="section-sub fade-in">— service topology & data flow</p>
+    
+    <div class="arch-block fade-in" style="margin-bottom:2rem;">
+      <div class="arch-header"><div style="display:flex;gap:0.4rem;"><span class="dot dr"></span><span class="dot dy"></span><span class="dot dg"></span></div>heimdall — service map</div>
+      <div class="arch-body"><span class="cd"> Browser
+    │
+    ▼
+</span><span class="cb">[bifrost / nginx :80/:443]</span><span class="cd">            ← rate-limit · security headers · SSL termination
+    │
+    ├──▶ </span><span class="cg">[asgard / frontend :3000]</span><span class="cd">        React 18 · Vite · D3.js · TanStack Table
+    │
+    └──▶ </span><span class="cb">[odin / backend :4000]</span><span class="cd">            Node.js · Express · TypeScript
+              │
+              ├──▶ </span><span class="cy">[yggdrasil / postgres :5432]</span><span class="cd">     DFIR schema (18 migrations)
+              ├──▶ </span><span class="cy">[hermod / redis :6379]</span><span class="cd">            BullMQ queues · sessions · JWT blacklist
+              ├──▶ </span><span class="cb">[mimir / elasticsearch :9200]</span><span class="cd">    Super Timeline (per-case index)
+              ├──▶ </span><span class="co">[tyr / clamav :3310]</span><span class="cd">              Real-time AV scan on every upload
+              └──▶ </span><span class="cp">[huginn / worker]</span><span class="cd">                 BullMQ consumer (concurrency=2)
+                        │
+                        ├── </span><span class="cg">Zimmerman Tools</span><span class="cd">    PECmd · MFTECmd · LECmd · SBECmd · RECmd
+                        ├── </span><span class="cg">Hayabusa</span><span class="cd">         Sigma EVTX scanner
+                        └── </span><span class="cg">tshark</span><span class="cd">           PCAP parser (DNS · HTTP · TLS · TCP)</span></div>
+    </div>
+
+    <div class="arch-block fade-in">
+      <div class="arch-header"><div style="display:flex;gap:0.4rem;"><span class="dot dr"></span><span class="dot dy"></span><span class="dot dg"></span></div>docker compose — service list</div>
+      <table class="data-table">
+        <thead><tr><th>Service</th><th>Image</th><th>Port(s)</th><th>Role</th></tr></thead>
+        <tbody>
+          <tr><td>bifrost</td><td>nginx:alpine</td><td><span class="cy" style="font-family:monospace">80 / 443</span></td><td>Reverse proxy · rate-limit · SSL</td></tr>
+          <tr><td>asgard</td><td>node:18-alpine</td><td><span class="cy" style="font-family:monospace">3000</span></td><td>React frontend</td></tr>
+          <tr><td>odin</td><td>node:18-alpine</td><td><span class="cy" style="font-family:monospace">4000</span></td><td>Express API backend</td></tr>
+          <tr><td>yggdrasil</td><td>postgres:16-alpine</td><td><span class="cy" style="font-family:monospace">5432</span></td><td>PostgreSQL — DFIR schema</td></tr>
+          <tr><td>hermod</td><td>redis:7-alpine</td><td><span class="cy" style="font-family:monospace">6379</span></td><td>Redis — BullMQ · sessions · JWT</td></tr>
+          <tr><td>mimir</td><td>elasticsearch:8.13</td><td><span class="cy" style="font-family:monospace">9200</span></td><td>Elasticsearch — Super Timeline</td></tr>
+          <tr><td>tyr</td><td>clamav:1.4</td><td><span class="cy" style="font-family:monospace">3310</span></td><td>ClamAV antivirus daemon</td></tr>
+          <tr><td>huginn</td><td>node:18-alpine</td><td><span class="cy" style="font-family:monospace">—</span></td><td>BullMQ worker — artifact parsing</td></tr>
+          <tr><td>njord</td><td>minio/minio</td><td><span class="cy" style="font-family:monospace">9000 / 9001</span></td><td>MinIO S3 — RAM dump storage</td></tr>
+          <tr><td>hel-api</td><td>python:3.11-slim</td><td><span class="cy" style="font-family:monospace">—</span></td><td>VolWeb Django API</td></tr>
+          <tr><td>hel-worker</td><td>python:3.11-slim</td><td><span class="cy" style="font-family:monospace">—</span></td><td>Celery — Volatility 3 tasks</td></tr>
+          <tr><td>hel-proxy</td><td>nginx:alpine</td><td><span class="cy" style="font-family:monospace">8888</span></td><td>VolWeb reverse proxy (SSO)</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <div class="scan-div"></div>
+
+  <section id="stack">
+    <div class="section-label decrypt" data-text="technologies">technologies</div>
+    <h2 class="decrypt" data-text="Tech Stack">Tech Stack</h2>
+    <p class="section-sub fade-in">— technologies powering Heimdall</p>
+    
+    <div class="stack-grid">
+      <div class="flat-item fade-in"><span class="layer">Frontend</span><span class="tech">React 18 · Vite · D3.js</span></div>
+      <div class="flat-item fade-in"><span class="layer">Backend</span><span class="tech">Node.js 18 · Express</span></div>
+      <div class="flat-item fade-in"><span class="layer">Queue</span><span class="tech">BullMQ · ioredis</span></div>
+      <div class="flat-item fade-in"><span class="layer">Database</span><span class="tech">PostgreSQL 16</span></div>
+      <div class="flat-item fade-in"><span class="layer">Cache</span><span class="tech">Redis 7</span></div>
+      <div class="flat-item fade-in"><span class="layer">Search</span><span class="tech">Elasticsearch 8.13</span></div>
+      <div class="flat-item fade-in"><span class="layer">Storage</span><span class="tech">MinIO (S3 API)</span></div>
+      <div class="flat-item fade-in"><span class="layer">Memory</span><span class="tech">VolWeb · Volatility 3</span></div>
+      <div class="flat-item fade-in"><span class="layer">Antivirus</span><span class="tech">ClamAV 1.4.3</span></div>
+      <div class="flat-item fade-in"><span class="layer">Hunting</span><span class="tech">YARA · Sigma · TAXII</span></div>
+      <div class="flat-item fade-in"><span class="layer">Network</span><span class="tech">tshark (PCAP)</span></div>
+      <div class="flat-item fade-in"><span class="layer">Infra</span><span class="tech">Docker Compose v2</span></div>
+    </div>
+  </section>
+
+  <div class="scan-div"></div>
+
+  <section id="os">
+    <div class="section-label decrypt" data-text="compatibility">compatibility</div>
+    <h2 class="decrypt" data-text="Supported OS">Supported OS</h2>
+    <p class="section-sub fade-in">— host OS for running Heimdall + analyzed artifact OS</p>
+    
+    <div class="os-grid">
+      <div class="flat-item fade-in">
+        <div class="flat-title" style="margin-bottom:0.5rem;color:var(--white);">Linux (host)</div>
+        <div class="os-item"><span class="dot dr" style="width:6px;height:6px;background:var(--accent);"></span>Ubuntu 22.04 LTS — rec.</div>
+        <div class="os-item"><span class="dot dr" style="width:6px;height:6px;background:var(--accent);"></span>Debian 12+</div>
+        <div class="os-item"><span class="dot dr" style="width:6px;height:6px;background:var(--accent);"></span>Any Docker-compatible</div>
+      </div>
+      <div class="flat-item fade-in">
+        <div class="flat-title" style="margin-bottom:0.5rem;color:var(--white);">Windows (host)</div>
+        <div class="os-item"><span class="dot dr" style="width:6px;height:6px;background:var(--accent);"></span>Windows 10/11 (Docker)</div>
+        <div class="os-item"><span class="dot dr" style="width:6px;height:6px;background:var(--accent);"></span>Windows Server 2019+</div>
+        <div class="os-item"><span class="dot dr" style="width:6px;height:6px;background:var(--accent);"></span>WSL2 recommended</div>
+      </div>
+      <div class="flat-item fade-in">
+        <div class="flat-title" style="margin-bottom:0.5rem;color:var(--white);">macOS (host)</div>
+        <div class="os-item"><span class="dot dr" style="width:6px;height:6px;background:var(--accent);"></span>macOS 13+ (Docker)</div>
+        <div class="os-item"><span class="dot dr" style="width:6px;height:6px;background:var(--accent);"></span>Apple Silicon (M1/M2/M3)</div>
+        <div class="os-item"><span class="dot dr" style="width:6px;height:6px;background:var(--accent);"></span>Intel x86_64</div>
+      </div>
+      <div class="flat-item fade-in">
+        <div class="flat-title" style="margin-bottom:0.5rem;color:var(--white);">Analyzed artifacts</div>
+        <div class="os-item"><span class="dot dr" style="width:6px;height:6px;background:var(--accent);"></span>Windows 7 / 8 / 10 / 11</div>
+        <div class="os-item"><span class="dot dr" style="width:6px;height:6px;background:var(--accent);"></span>Windows Server 2008–2022</div>
+        <div class="os-item"><span class="dot dr" style="width:6px;height:6px;background:var(--accent);"></span>Linux (PCAP, RAM dumps)</div>
+      </div>
+    </div>
+
+    <div class="arch-block fade-in" style="margin-top:2.5rem;">
+      <div class="arch-header"><div style="display:flex;gap:0.4rem;"><span class="dot dr"></span><span class="dot dy"></span><span class="dot dg"></span></div>system requirements</div>
+      <table class="data-table">
+        <thead><tr><th>Component</th><th>Minimum</th><th>Recommended</th></tr></thead>
+        <tbody>
+          <tr><td>RAM</td><td>8 GB</td><td class="rec">16 GB+</td></tr>
+          <tr><td>CPU</td><td>4 cores</td><td class="rec">8 cores+</td></tr>
+          <tr><td>Disk</td><td>50 GB SSD</td><td class="rec">200 GB+ NVMe SSD</td></tr>
+          <tr><td>OS</td><td>Linux / Windows / macOS</td><td class="rec">Ubuntu 22.04 LTS</td></tr>
+          <tr><td>Docker</td><td>24.0+</td><td class="rec">latest</td></tr>
+          <tr><td>Docker Compose</td><td>v2.0+</td><td class="rec">latest</td></tr>
+          <tr><td>Node.js</td><td>18.x</td><td class="rec">20.x LTS</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <div class="scan-div"></div>
+
+  <section id="integrations">
+    <div class="section-label decrypt" data-text="ecosystem">ecosystem</div>
+    <h2 class="decrypt" data-text="Integrations">Integrations</h2>
+    <p class="section-sub fade-in">— external tools and services supported</p>
+    
+    <div class="integ-grid">
+      <div class="flat-item fade-in" style="text-align:center;padding:1rem;"><div class="tech">Hayabusa</div><div class="layer" style="margin-top:0.2rem;">Sigma EVTX scanner</div></div>
+      <div class="flat-item fade-in" style="text-align:center;padding:1rem;"><div class="tech">VolWeb</div><div class="layer" style="margin-top:0.2rem;">Memory forensics UI</div></div>
+      <div class="flat-item fade-in" style="text-align:center;padding:1rem;"><div class="tech">Volatility 3</div><div class="layer" style="margin-top:0.2rem;">RAM analysis engine</div></div>
+      <div class="flat-item fade-in" style="text-align:center;padding:1rem;"><div class="tech">Elasticsearch</div><div class="layer" style="margin-top:0.2rem;">Super Timeline index</div></div>
+      <div class="flat-item fade-in" style="text-align:center;padding:1rem;"><div class="tech">ClamAV</div><div class="layer" style="margin-top:0.2rem;">Antivirus scanning</div></div>
+      <div class="flat-item fade-in" style="text-align:center;padding:1rem;"><div class="tech">MinIO</div><div class="layer" style="margin-top:0.2rem;">S3 artifact storage</div></div>
+      <div class="flat-item fade-in" style="text-align:center;padding:1rem;"><div class="tech">VirusTotal</div><div class="layer" style="margin-top:0.2rem;">IOC enrichment</div></div>
+      <div class="flat-item fade-in" style="text-align:center;padding:1rem;"><div class="tech">AbuseIPDB</div><div class="layer" style="margin-top:0.2rem;">IP reputation</div></div>
+      <div class="flat-item fade-in" style="text-align:center;padding:1rem;"><div class="tech">SigmaHQ</div><div class="layer" style="margin-top:0.2rem;">Sigma rule repository</div></div>
+      <div class="flat-item fade-in" style="text-align:center;padding:1rem;"><div class="tech">Neo23x0</div><div class="layer" style="margin-top:0.2rem;">YARA rule repository</div></div>
+      <div class="flat-item fade-in" style="text-align:center;padding:1rem;"><div class="tech">TAXII 2.1</div><div class="layer" style="margin-top:0.2rem;">Threat Intel feeds</div></div>
+      <div class="flat-item fade-in" style="text-align:center;padding:1rem;"><div class="tech">Ollama</div><div class="layer" style="margin-top:0.2rem;">Local AI models</div></div>
+    </div>
+  </section>
+
+  <div class="scan-div"></div>
+
+  <section id="tested">
+    <div class="section-label decrypt" data-text="real-world">real-world</div>
+    <h2 class="decrypt" data-text="Tested On">Tested On</h2>
+    <p class="section-sub fade-in">— incident types Heimdall has been tested against</p>
+    
+    <div class="tested-grid">
+      <div class="flat-item fade-in"><strong style="color:var(--accent);font-family:'JetBrains Mono',monospace;margin-bottom:0.2rem;">Ransomware</strong><span class="flat-desc">LockBit · BlackCat · Ryuk — full kill chain reconstruction</span></div>
+      <div class="flat-item fade-in"><strong style="color:var(--accent);font-family:'JetBrains Mono',monospace;margin-bottom:0.2rem;">RDP Brute Force</strong><span class="flat-desc">Lateral movement via Event IDs 4624 / 4648 / 4768</span></div>
+      <div class="flat-item fade-in"><strong style="color:var(--accent);font-family:'JetBrains Mono',monospace;margin-bottom:0.2rem;">Phishing</strong><span class="flat-desc">Credential harvesting · macro execution · persistence</span></div>
+      <div class="flat-item fade-in"><strong style="color:var(--accent);font-family:'JetBrains Mono',monospace;margin-bottom:0.2rem;">BITS Jobs</strong><span class="flat-desc">Background transfer persistence · LOLBin abuse</span></div>
+      <div class="flat-item fade-in"><strong style="color:var(--accent);font-family:'JetBrains Mono',monospace;margin-bottom:0.2rem;">Living-off-the-Land</strong><span class="flat-desc">LOLBins — certutil · mshta · regsvr32 · wscript</span></div>
+      <div class="flat-item fade-in"><strong style="color:var(--accent);font-family:'JetBrains Mono',monospace;margin-bottom:0.2rem;">Insider Threat</strong><span class="flat-desc">Data exfiltration via USB · cloud sync · email</span></div>
+    </div>
+  </section>
+
+  <div class="scan-div"></div>
+
+  <section id="activity">
+    <div class="section-label decrypt" data-text="live">live</div>
+    <h2 class="decrypt" data-text="GitHub Activity & Team">GitHub Activity & Team</h2>
+    <p class="section-sub fade-in">— latest commits and contributors</p>
+    
+    <div class="contrib-grid fade-in" id="contrib-grid" style="margin-bottom:2rem;">
+      <div style="font-family:'JetBrains Mono',monospace;font-size:0.78rem;color:var(--muted);">Loading contributors...</div>
+    </div>
+
+    <div class="activity-feed fade-in">
+      <div class="activity-header">
+        <div class="activity-dot-live"></div>
+        GitHub Activity — RaiseiX/Heimdall-DFIR
+      </div>
+      <div id="activity-list">
+        <div class="activity-item">
+          <div class="activity-dot" style="background:var(--border2);"></div>
+          <div class="activity-msg" style="color:var(--muted);">Loading commits…</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div class="scan-div"></div>
+
+  <section id="roadmap">
+    <div class="section-label decrypt" data-text="future">future</div>
+    <h2 class="decrypt" data-text="Roadmap">Roadmap</h2>
+    <p class="section-sub fade-in">— planned releases and milestones</p>
+    
+    <div class="roadmap-line">
+      <div class="rm-item fade-in"><div class="rm-dot current"></div><div class="rm-version">v0.9 <span class="rm-badge beta">CURRENT BETA</span></div><div class="rm-desc">Core platform — disk analysis, YARA, Sigma, TAXII, SOAR playbooks, Ollama AI, Legal Hold, collaboration</div></div>
+      <div class="rm-item fade-in"><div class="rm-dot"></div><div class="rm-version future">v1.0 <span class="rm-badge" style="background:var(--bg2);color:var(--text2);border-color:var(--border2);">PLANNED</span></div><div class="rm-desc">Full RAM forensics integration — VolWeb + Volatility 3 plugin execution and result display</div></div>
+      <div class="rm-item fade-in"><div class="rm-dot"></div><div class="rm-version future">v1.1 <span class="rm-badge" style="background:var(--bg2);color:var(--text2);border-color:var(--border2);">PLANNED</span></div><div class="rm-desc">Disk image mounting — .E01, .dd, .vmdk support · WebCache · $UsnJrnl · WMI artifacts</div></div>
+      <div class="rm-item fade-in"><div class="rm-dot"></div><div class="rm-version future">v1.2 <span class="rm-badge" style="background:var(--bg2);color:var(--text2);border-color:var(--border2);">PLANNED</span></div><div class="rm-desc">Extended artifact support — Thumbcache · ESE databases · $I30 · Windows Search index</div></div>
+      <div class="rm-item fade-in"><div class="rm-dot"></div><div class="rm-version future">v2.0 <span class="rm-badge" style="background:var(--bg2);color:var(--text2);border-color:var(--border2);">VISION</span></div><div class="rm-desc">Multi-tenant workspaces · Linux artifact analysis · macOS forensics · API for external integrations</div></div>
+    </div>
+  </section>
+
+  <div class="scan-div"></div>
+
+  <section id="changelog">
+    <div class="section-label decrypt" data-text="history">history</div>
+    <h2 class="decrypt" data-text="Changelog">Changelog</h2>
+    <p class="section-sub fade-in">— recent releases</p>
+    
+    <div class="cl-block fade-in">
+      <div class="cl-header"><div style="display:flex;gap:0.4rem;"><span class="dot dr"></span><span class="dot dy"></span><span class="dot dg"></span></div>CHANGELOG.md — last entries</div>
+      <div class="cl-body">
+<span class="cl-version">v0.9.0</span><span class="cl-date">— 2026</span><br/>
+<span class="cl-add">+</span> Ollama Case Copilot with automatic context injection<br/>
+<span class="cl-add">+</span> TAXII 2.1 / STIX 2.1 Threat Intel with post-ingestion correlation<br/>
+<span class="cl-add">+</span> Legal Hold — HMAC-SHA256 signed manifest<br/>
+<span class="cl-add">+</span> C2 beaconing score (0–100) with beacon detection engine<br/>
+<span class="cl-add">+</span> SOAR parallel engine — Ransomware / RDP / Phishing playbooks<br/>
+<span class="cl-fix">~</span> Fix chunked upload resume on large RAM dumps<br/>
+<span class="cl-fix">~</span> Fix Elasticsearch per-case index isolation<br/><br/>
+
+<span class="cl-version">v0.8.0</span><span class="cl-date">— 2026</span><br/>
+<span class="cl-add">+</span> YARA bulk import from GitHub (Neo23x0, SigmaHQ, Yara-Rules)<br/>
+<span class="cl-add">+</span> Lateral movement graph — D3.js (Event IDs 4624/4648/4768)<br/>
+<span class="cl-add">+</span> MITRE ATT&CK kill chain (14 phases)<br/>
+<span class="cl-add">+</span> Live case chat — Socket.io real-time collaboration<br/>
+<span class="cl-fix">~</span> Fix JWT rotation edge case on concurrent requests
+      </div>
+    </div>
+  </section>
+
+  <div class="scan-div"></div>
+
+  <section id="install">
+    <div class="section-label decrypt" data-text="Setup">Setup</div>
+    <h2 class="decrypt" data-text="Installation">Installation</h2>
+    <p class="section-sub fade-in">— up and running in minutes</p>
+    
+    <div class="warn-box fade-in">Always use the provided installation script. Do not run <code>docker compose up</code> manually — the script handles secret generation, container build and all database migrations automatically.</div>
+    
+    <div class="code-block fade-in" style="margin-top:0;">
+      <div class="code-bar">
+        <div class="code-bar-dots"><span class="t-dot t-red"></span><span class="t-dot t-yellow"></span><span class="t-dot t-green"></span></div>
+        <span>Linux / macOS — bash start.sh</span>
+        <button class="copy-btn" onclick="copyCode(this, 'git clone https://github.com/RaiseiX/Heimdall-DFIR.git\ncd Heimdall-DFIR\nbash start.sh')">copy</button>
+      </div>
+      <div class="code-body">
+        <div><span class="c-muted"># Clone the repository</span></div>
+        <div><span class="c-green-t">$</span> <span class="c-white">git clone https://github.com/RaiseiX/Heimdall-DFIR.git</span></div>
+        <div><span class="c-green-t">$</span> <span class="c-white">cd Heimdall-DFIR</span></div>
+        <div>&nbsp;</div>
+        <div><span class="c-muted"># Run the installation script</span></div>
+        <div><span class="c-green-t">$</span> <span class="c-white">bash start.sh</span></div>
+      </div>
+    </div>
+
+    <div class="code-block fade-in" style="margin-top:0;">
+      <div class="code-bar">
+        <div class="code-bar-dots"><span class="t-dot t-red"></span><span class="t-dot t-yellow"></span><span class="t-dot t-green"></span></div>
+        <span>Windows — PowerShell start.ps1</span>
+        <button class="copy-btn" onclick="copyCode(this, 'git clone https://github.com/RaiseiX/Heimdall-DFIR.git\ncd Heimdall-DFIR\n.\\start.ps1')">copy</button>
+      </div>
+      <div class="code-body">
+        <div><span class="c-muted"># Clone the repository</span></div>
+        <div><span class="c-green-t">></span> <span class="c-white">git clone https://github.com/RaiseiX/Heimdall-DFIR.git</span></div>
+        <div><span class="c-green-t">></span> <span class="c-white">cd Heimdall-DFIR</span></div>
+        <div>&nbsp;</div>
+        <div><span class="c-muted"># Run the installation script</span></div>
+        <div><span class="c-green-t">></span> <span class="c-white">.\start.ps1</span></div>
+      </div>
+    </div>
+
+    <div class="access-grid fade-in">
+      <div class="flat-item" style="text-align:center;padding:1rem;"><div class="layer" style="margin-bottom:0.2rem;">Heimdall UI</div><div class="tech" style="color:var(--text);font-weight:400;">http://localhost</div></div>
+      <div class="flat-item" style="text-align:center;padding:1rem;"><div class="layer" style="margin-bottom:0.2rem;">API</div><div class="tech" style="color:var(--text);font-weight:400;">http://localhost:4000</div></div>
+      <div class="flat-item" style="text-align:center;padding:1rem;"><div class="layer" style="margin-bottom:0.2rem;">VolWeb</div><div class="tech" style="color:var(--text);font-weight:400;">http://localhost:8888</div></div>
+      <div class="flat-item" style="text-align:center;padding:1rem;"><div class="layer" style="margin-bottom:0.2rem;">MinIO Console</div><div class="tech" style="color:var(--text);font-weight:400;">http://localhost:9001</div></div>
+    </div>
+  </section>
+
+  <div class="scan-div"></div>
+
+  <section id="glossary">
+    <div class="section-label decrypt" data-text="reference">reference</div>
+    <h2 class="decrypt" data-text="DFIR Glossary">DFIR Glossary</h2>
+    <p class="section-sub fade-in">— key terms used in Heimdall</p>
+    
+    <div class="arch-block fade-in">
+      <div class="arch-header"><div style="display:flex;gap:0.4rem;"><span class="dot dr"></span><span class="dot dy"></span><span class="dot dg"></span></div>glossary.md</div>
+      <table class="data-table" style="margin:0;">
+        <thead><tr><th>Artifact / Term</th><th>Location / Type</th><th>Forensic Value</th></tr></thead>
+        <tbody>
+          <tr><td>$MFT</td><td><code>C:\$MFT</code></td><td>Core NTFS index. Contains <code>$STANDARD_INFORMATION</code> (0x10) and <code>$FILE_NAME</code> (0x30) timestamps. Crucial for detecting timestomping.</td></tr>
+          <tr><td>Prefetch (.pf)</td><td><code>C:\Windows\Prefetch\</code></td><td>Execution evidence. Stores run counts, last 8 execution times, and handles/DLLs loaded within the first 10 seconds.</td></tr>
+          <tr><td>Amcache</td><td><code>C:\...\Amcache.hve</code></td><td>Tracks installed/executed applications. Stores SHA1 hashes, full file paths, and first execution timestamps.</td></tr>
+          <tr><td>ShimCache</td><td><code>SYSTEM\...\AppCompatCache</code></td><td>Application Compatibility Cache. Stores up to 1024 execution entries, including the Last Modified time of the binary.</td></tr>
+          <tr><td>Shellbags</td><td><code>NTUSER.DAT\...\BagMRU</code></td><td>Proves folder access/navigation by a specific user. Works even for deleted directories, USB drives, and network shares.</td></tr>
+          <tr><td>SRUM</td><td><code>C:\...\SRUDB.dat</code></td><td>System Resource Usage Monitor. ESE database tracking 30-day historical network usage (bytes sent/received) and CPU time per process.</td></tr>
+          <tr><td>EVTX Logs</td><td><code>C:\...\winevt\Logs\</code></td><td>Windows Event Logs. Key IDs: 4624 (Logon), 4688 (Process Creation with Command Line), 7045 (Service Installation).</td></tr>
+          <tr><td>LNK Files</td><td><code>...\Windows\Recent\</code></td><td>Records file/folder access. Contains the Target's MAC address, Volume Serial Number, and Original Path.</td></tr>
+          <tr><td>Jump Lists</td><td><code>...\AutomaticDestinations\</code></td><td>Tracks files opened by specific applications pinned to the taskbar. Analyzed via AppIDs.</td></tr>
+          <tr><td>BITS</td><td><code>C:\...\Downloader</code></td><td>Background Intelligent Transfer Service (qmgr.dat). Legitimate updater service frequently abused by malware for C2 and persistence.</td></tr>
+          <tr><td>YARA</td><td><code>Detection Engine</code></td><td>Pattern matching tool for malware identification based on hexadecimal strings, regular expressions, and byte sequences.</td></tr>
+          <tr><td>Sigma</td><td><code>Detection Engine</code></td><td>Generic signature format for log events (SIEM). Used by Heimdall via Hayabusa to scan EVTX files for malicious behaviors.</td></tr>
+          <tr><td>TAXII / STIX</td><td><code>Threat Intelligence</code></td><td>Standardized JSON format (STIX 2.1) and HTTPS transport protocol (TAXII 2.1) used to ingest and correlate Indicators of Compromise (IOCs).</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <div class="scan-div"></div>
+
+  <section id="faq">
+    <div class="section-label decrypt" data-text="help">help</div>
+    <h2 class="decrypt" data-text="FAQ">FAQ</h2>
+    <p class="section-sub fade-in">— frequently asked questions</p>
+    
+    <div class="faq-list">
+      <div class="faq-item fade-in"><div class="faq-q" onclick="toggleFaq(this)">Does Heimdall require an internet connection?<span class="faq-toggle">▼</span></div><div class="faq-a">No. Heimdall is fully air-gap compatible. All analysis is performed locally. VirusTotal, AbuseIPDB and TAXII Threat Intel feeds are optional and can be disabled.</div></div>
+      <div class="faq-item fade-in"><div class="faq-q" onclick="toggleFaq(this)">Can I use Heimdall on Windows?<span class="faq-toggle">▼</span></div><div class="faq-a">Yes. Use start.ps1 on Windows. Docker Desktop with WSL2 is required. All features are supported on Windows, Linux and macOS.</div></div>
+      <div class="faq-item fade-in"><div class="faq-q" onclick="toggleFaq(this)">Is Heimdall free?<span class="faq-toggle">▼</span></div><div class="faq-a">Yes. Heimdall DFIR is released under the MIT License. Free forever. No subscription, no telemetry, no hidden costs.</div></div>
+      <div class="faq-item fade-in"><div class="faq-q" onclick="toggleFaq(this)">Is RAM forensics available in v0.9?<span class="faq-toggle">▼</span></div><div class="faq-a">Partially. Chunked upload of RAM dumps (up to 256 GB) is functional. Full Volatility 3 plugin execution and result display via VolWeb is coming in v1.0.</div></div>
+      <div class="faq-item fade-in"><div class="faq-q" onclick="toggleFaq(this)">How do I report a bug?<span class="faq-toggle">▼</span></div><div class="faq-a">Open an issue on the GitHub Issues tracker with as much detail as possible — steps to reproduce, logs, environment (OS, Docker version, browser).</div></div>
+    </div>
+  </section>
+
+  <div class="scan-div"></div>
+
+  <section id="credits">
+    <div class="section-label decrypt" data-text="acknowledgements">acknowledgements</div>
+    <h2 class="decrypt" data-text="Credits">Credits</h2>
+    <p class="section-sub fade-in">— open-source projects that make Heimdall possible</p>
+    
+    <div class="grid-3" style="grid-template-columns:repeat(auto-fit,minmax(200px,1fr));">
+      <a href="https://ericzimmerman.github.io" target="_blank" rel="noopener noreferrer" class="flat-item fade-in" style="text-decoration:none;"><div class="flat-title" style="color:var(--accent);">Eric Zimmerman</div><div class="flat-desc">Zimmerman Tools — the gold standard for Windows forensics</div></a>
+      <a href="https://github.com/Yamato-Security/hayabusa" target="_blank" rel="noopener noreferrer" class="flat-item fade-in" style="text-decoration:none;"><div class="flat-title" style="color:var(--accent);">Hayabusa</div><div class="flat-desc">Sigma-based EVTX threat hunting by Yamato Security</div></a>
+      <a href="https://github.com/k1nd0ne/VolWeb" target="_blank" rel="noopener noreferrer" class="flat-item fade-in" style="text-decoration:none;"><div class="flat-title" style="color:var(--accent);">VolWeb</div><div class="flat-desc">Memory forensics platform by k1nd0ne</div></a>
+      <a href="https://www.volatilityfoundation.org" target="_blank" rel="noopener noreferrer" class="flat-item fade-in" style="text-decoration:none;"><div class="flat-title" style="color:var(--accent);">Volatility Foundation</div><div class="flat-desc">The memory forensics framework</div></a>
+      <a href="https://www.elastic.co" target="_blank" rel="noopener noreferrer" class="flat-item fade-in" style="text-decoration:none;"><div class="flat-title" style="color:var(--accent);">Elasticsearch</div><div class="flat-desc">Distributed search and analytics engine</div></a>
+      <a href="https://github.com/SigmaHQ/sigma" target="_blank" rel="noopener noreferrer" class="flat-item fade-in" style="text-decoration:none;"><div class="flat-title" style="color:var(--accent);">SigmaHQ</div><div class="flat-desc">Generic signature format for SIEM systems</div></a>
+      <a href="https://github.com/Neo23x0" target="_blank" rel="noopener noreferrer" class="flat-item fade-in" style="text-decoration:none;"><div class="flat-title" style="color:var(--accent);">Neo23x0 (Florian Roth)</div><div class="flat-desc">YARA rules and threat detection research</div></a>
+      <a href="https://github.com/VirusTotal/yara" target="_blank" rel="noopener noreferrer" class="flat-item fade-in" style="text-decoration:none;"><div class="flat-title" style="color:var(--accent);">YARA</div><div class="flat-desc">Pattern matching for malware researchers</div></a>
+    </div>
+  </section>
+
+  <div class="scan-div"></div>
+
+  <section id="share" style="padding-bottom:8rem;">
+    <div class="section-label decrypt" data-text="spread the word">spread the word</div>
+    <h2 class="decrypt" data-text="Share Heimdall">Share Heimdall</h2>
+    <p class="section-sub fade-in">— help the project grow</p>
+    
+    <div class="share-row fade-in">
+      <a class="share-btn" href="https://twitter.com/intent/tweet?text=Heimdall+DFIR&url=https%3A%2F%2Fraiseix.github.io%2FHeimdall-DFIR%2F" target="_blank" rel="noopener noreferrer">Share on X / Twitter</a>
+      <a class="share-btn" href="https://www.linkedin.com/sharing/share-offsite/?url=https%3A%2F%2Fraiseix.github.io%2FHeimdall-DFIR%2F" target="_blank" rel="noopener noreferrer">Share on LinkedIn</a>
+      <a class="share-btn" href="https://www.reddit.com/submit?url=https%3A%2F%2Fraiseix.github.io%2FHeimdall-DFIR%2F&title=Heimdall+DFIR" target="_blank" rel="noopener noreferrer">Share on Reddit</a>
+      <a class="share-btn" href="https://github.com/RaiseiX/Heimdall-DFIR" target="_blank" rel="noopener noreferrer">Star on GitHub</a>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="f-title decrypt" data-text="HEIMDALL DFIR">HEIMDALL DFIR</div>
+  <div class="f-sub">Guardian of the Nine Worlds</div>
+  <div class="f-links">
+    <a href="https://github.com/RaiseiX/Heimdall-DFIR" target="_blank">GitHub</a>
+    <a href="https://github.com/RaiseiX/Heimdall-DFIR/issues" target="_blank">Issues</a>
+    <a href="https://github.com/RaiseiX/Heimdall-DFIR/blob/main/ROADMAP.md" target="_blank">Roadmap</a>
+    <a href="https://github.com/RaiseiX/Heimdall-DFIR/blob/main/CHANGELOG.md" target="_blank">Changelog</a>
+    <a href="https://github.com/RaiseiX/Heimdall-DFIR/blob/main/LICENSE" target="_blank">MIT License</a>
+    <a href="https://github.com/RaiseiX/Heimdall-DFIR/blob/main/README.fr.md" target="_blank">Français</a>
+  </div>
+  <p style="font-family:'JetBrains Mono',monospace; font-size:0.7rem; color:var(--muted);">
+    MIT License © 2026. <span class="redacted" title="Hold Alt to reveal">Watcher mode active. Type 'heimdall'.</span>
+  </p>
+</footer>
+
+<div id="cmd-overlay">
+  <div id="cmd-box">
+    <input id="cmd-input" type="text" placeholder="Search or jump to..." autocomplete="off"/>
+    <div class="cmd-results" id="cmd-list">
+      <button class="cmd-item" data-hash="#hero"><span class="cmd-item-icon">🏠</span><span class="cmd-item-label">Home / Top</span><span class="cmd-item-hint">Hero</span></button>
+      <button class="cmd-item" data-hash="#features"><span class="cmd-item-icon">⚡</span><span class="cmd-item-label">Features</span><span class="cmd-item-hint">Capabilities</span></button>
+      <button class="cmd-item" data-hash="#parsers"><span class="cmd-item-icon">🗂️</span><span class="cmd-item-label">Parsers</span><span class="cmd-item-hint">Data</span></button>
+      <button class="cmd-item" data-hash="#workflow"><span class="cmd-item-icon">📋</span><span class="cmd-item-label">Workflow</span><span class="cmd-item-hint">Steps</span></button>
+      <button class="cmd-item" data-hash="#mitre"><span class="cmd-item-icon">🎯</span><span class="cmd-item-label">MITRE ATT&CK</span><span class="cmd-item-hint">Coverage</span></button>
+      <button class="cmd-item" data-hash="#security"><span class="cmd-item-icon">🔒</span><span class="cmd-item-label">Security</span><span class="cmd-item-hint">Design</span></button>
+      <button class="cmd-item" data-hash="#architecture"><span class="cmd-item-icon">🏗️</span><span class="cmd-item-label">Architecture</span><span class="cmd-item-hint">Tech</span></button>
+      <button class="cmd-item" data-hash="#stack"><span class="cmd-item-icon">🛠️</span><span class="cmd-item-label">Tech Stack</span><span class="cmd-item-hint">Tools</span></button>
+      <button class="cmd-item" data-hash="#install"><span class="cmd-item-icon">🐳</span><span class="cmd-item-label">Installation</span><span class="cmd-item-hint">Setup</span></button>
+      <button class="cmd-item" data-url="https://github.com/RaiseiX/Heimdall-DFIR"><span class="cmd-item-icon">🐙</span><span class="cmd-item-label">Open GitHub Repository</span><span class="cmd-item-hint">External</span></button>
+    </div>
+    <div class="cmd-footer">
+      <span>↑↓ navigate</span><span>↵ select</span><span>ESC close</span>
+    </div>
+  </div>
+</div>
+
+<div id="ee-overlay" class="ee-overlay">
+  <div class="ee-inner">
+    <div class="ee-glitch" data-text="HEIMDALL">HEIMDALL</div>
+    <div class="ee-runes">ᚺ ᛖ ᛁ ᛗ ᛞ ᚨ ᛚ ᛚ</div>
+    <div style="font-size:0.7rem; letter-spacing:0.2em; color:var(--cyan); margin-bottom:2rem; text-transform:uppercase;">// The Watcher Awakens</div>
+    
+    <div class="brand-wrap" id="brand-3d">
+      <svg class="brand-svg" viewBox="0 0 200 260" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <filter id="glow-red" x="-40%" y="-40%" width="180%" height="180%">
+            <feGaussianBlur stdDeviation="4" result="blur"/>
+            <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+          </filter>
+        </defs>
+        <g filter="url(#glow-red)" fill="#FF3B5C" stroke="none">
+          <polygon points="94,255 106,255 106,140 94,140"/>
+          <polygon points="96,140 104,140 101,30 99,30"/>
+          <polygon points="99,18 101,18 103,38 97,38"/>
+          <polygon points="99,22 94,32 97,34 102,24"/>
+          <polygon points="101,22 106,32 103,34 98,24"/>
+          <polygon points="97,80 55,130 61,136 103,86"/>
+          <polygon points="55,130 40,118 48,128 61,136"/>
+          <polygon points="103,80 145,130 139,136 97,86"/>
+          <polygon points="145,130 160,118 152,128 139,136"/>
+          <polygon points="55,130 61,136 145,200 139,194"/>
+          <polygon points="145,130 139,136 55,200 61,194"/>
+          <polygon points="61,194 55,200 94,240 100,234"/>
+          <polygon points="139,194 145,200 106,240 100,234"/>
+          <polygon points="94,240 100,234 100,255 94,255"/>
+          <polygon points="106,240 100,234 100,255 106,255"/>
+          <polygon points="94,252 106,252 100,262 100,262"/>
+        </g>
+      </svg>
+    </div>
+
+    <div class="easter-quote-wrap" style="margin-top:1rem; font-family:'JetBrains Mono',monospace; font-size:0.8rem; color:#88c0d0; text-align:left; max-width: 580px; margin-left: auto; margin-right: auto; border-left: 2px solid #bf616a; padding-left: 1rem;">
+      <div id="ee-quote" style="display:inline; color:#eceff4;"></div><span class="ee-cursor" style="display:inline-block;width:6px;height:1em;background:#bf616a;animation:blink 1s step-end infinite;vertical-align:text-bottom;margin-left:4px;"></span>
+      <div id="ee-author" style="color:#4c566a; font-size:0.7rem; margin-top:0.5rem; opacity:0; transition:opacity 1s;">— Edmond Locard, Pioneer of Forensic Science</div>
+    </div>
+
+    <div class="easter-terminal" style="margin-top:2rem;">
+      <div class="easter-term-bar">
+        <div style="display:flex;gap:0.4rem;">
+          <span style="width:10px;height:10px;border-radius:50%;background:#bf616a;display:inline-block;"></span>
+          <span style="width:10px;height:10px;border-radius:50%;background:#ebcb8b;display:inline-block;"></span>
+          <span style="width:10px;height:10px;border-radius:50%;background:#a3be8c;display:inline-block;"></span>
+        </div>
+        <span class="easter-term-title">heimdall-shell — classified</span>
+      </div>
+      <div class="easter-term-body">
+        <div><span class="et-out">[ system ] detected user clearance: LEVEL 9 ... </span><span class="et-ok">OK</span></div>
+        <div><span class="et-out">[ system ] activating WATCHER EYE interface ... </span><span class="et-ok">OK</span></div>
+        <div><span class="et-prompt">heimdall@asgard:~$ </span><span class="et-cmd">whoami</span></div>
+        <div><span class="et-val">watcher_of_the_bifrost</span></div>
+        <div><span class="et-prompt">heimdall@asgard:~$ </span><span class="et-cmd">status --all</span></div>
+        <div><span class="et-out">[ </span><span class="et-ok">✓</span><span class="et-out"> ] Bifrost Bridge    — </span><span class="et-ok">ONLINE</span></div>
+        <div><span class="et-out">[ </span><span class="et-ok">✓</span><span class="et-out"> ] Nine Realms Watch — </span><span class="et-ok">ACTIVE</span></div>
+        <div><span class="et-out">[ </span><span class="et-ok">✓</span><span class="et-out"> ] Gjallarhorn       — </span><span class="et-warn">STANDBY</span></div>
+        <div><span class="et-out">[ </span><span class="et-ok">✓</span><span class="et-out"> ] Easter Egg        — </span><span class="et-val">FOUND BY YOU</span></div>
+        <div><span class="et-prompt">heimdall@asgard:~$ </span><span class="et-cmd">echo "welcome, investigator"</span></div>
+        <div><span class="et-val">welcome, investigator</span></div>
+        <div><span class="et-out">[ forensics ] identified classified data: yggdrasil_watcher.conf ... </span><span class="et-ok">100% OK</span></div>
+      </div>
+    </div>
+
+    <div class="easter-divider"></div>
+
+    <p style="font-size:0.72rem;color:#4c566a;margin-bottom:1rem;letter-spacing:0.08em;">// keyboard shortcuts</p>
+    <div class="easter-shortcuts">
+      <div class="esc-row"><span class="esc-key">G</span><span class="esc-desc">Open GitHub</span></div>
+      <div class="esc-row"><span class="esc-key">F</span><span class="esc-desc">Jump to Features</span></div>
+      <div class="esc-row"><span class="esc-key">I</span><span class="esc-desc">Jump to Install</span></div>
+      <div class="esc-row"><span class="esc-key">P</span><span class="esc-desc">Jump to Parsers</span></div>
+      <div class="esc-row"><span class="esc-key">T</span><span class="esc-desc">Back to Top</span></div>
+      <div class="esc-row"><span class="esc-key">Ctrl+K</span><span class="esc-desc">Command palette</span></div>
+      <div class="esc-row"><span class="esc-key">↑↑↓↓←→←→BA</span><span class="esc-desc">???</span></div>
+      <div class="esc-row"><span class="esc-key">ESC</span><span class="esc-desc">Close this panel</span></div>
+    </div>
+
+    <div class="easter-divider"></div>
+
+    <div style="font-family:'JetBrains Mono',monospace; padding:1.5rem 0;">
+      <button class="easter-close" onclick="closeEE()">[ Disconnect ]</button>
+    </div>
+  </div>
+</div>
+
+<div id="konami-overlay">
+  <div id="konami-box">
+    <div class="kon-glitch-title">↑↑↓↓←→←→BA</div>
+    <div class="kon-sub">// KONAMI CODE ACCEPTED — SYSTEM BREACH</div>
+    <div style="height:1px;background:linear-gradient(90deg,transparent,#dc2626,transparent);margin:1rem 0;opacity:0.4;"></div>
+    <div style="font-family:'JetBrains Mono',monospace; font-size:0.78rem;line-height:2;text-align:left; margin-bottom:1.5rem; background:rgba(220,38,38,0.03); border:1px solid rgba(220,38,38,0.1); border-radius:6px;padding:1rem; color: #a6e3a1;">
+      <div><span style="color:#dc2626;font-weight:700;">OPERATOR</span> <span style="color:#4b5563;">::</span> heimdall-dfir@localhost</div>
+      <div><span style="color:#dc2626;font-weight:700;">CLEARANCE</span> <span style="color:#4b5563;">::</span> <span style="color:#f9e2af;">LEVEL 9 — BEYOND TOP SECRET</span></div>
+      <div><span style="color:#dc2626;font-weight:700;">STATUS  </span> <span style="color:#4b5563;">::</span> all eyes open</div>
+      <div><span style="color:#dc2626;font-weight:700;">MESSAGE </span> <span style="color:#4b5563;">::</span> you found the second easter egg.</div>
+      <div>&nbsp;</div>
+      <div><span style="color:#4b5563;">// Heimdall sees all who approach Asgard.</span></div>
+      <div><span style="color:#4b5563;">// And apparently, so do you.</span></div>
+    </div>
+    <div style="font-family:'JetBrains Mono',monospace; font-size:0.75rem;color:#dc2626; letter-spacing:0.15em;margin-bottom:0.5rem;opacity:0.8;">— BIFRÖST BRIDGE ACCESS GRANTED —</div>
+    <div style="font-family:'Noto Sans Runic',sans-serif; font-size:1.5rem;letter-spacing:0.4em;color:#dc2626;opacity:0.5;margin-bottom:2rem;">ᛒ ᛁ ᚠ ᚱ Ö ᛊ ᛏ</div>
+    <button style="background:none;border:1px solid rgba(220,38,38,0.4); color:#dc2626;font-family:'JetBrains Mono',monospace; font-size:0.78rem;padding:0.5rem 2rem;border-radius:6px; cursor:pointer;" onclick="closeKonami()">[ disconnect ]</button>
+  </div>
+</div>
+
+<script>
+// --- TABS (PARSERS) ---
+function switchTab(id,btn){
+  document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+  document.querySelectorAll('.tab-panel').forEach(p=>{
+    p.classList.remove('active');
+    p.style.animation = 'none';
+  });
+  const panel = document.getElementById('tab-'+id);
+  if(panel){
+    panel.classList.add('active');
+    void panel.offsetWidth; 
+    panel.style.animation = null; 
+  }
+  btn.classList.add('active');
+}
+
+// --- FAQ ---
+function toggleFaq(el){el.parentElement.classList.toggle('open');}
+
+// --- WEB AUDIO API (Synth UI Sounds) ---
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+function playSound(type) {
+  if(audioCtx.state === 'suspended') audioCtx.resume();
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.connect(gain); gain.connect(audioCtx.destination);
+  
+  if (type === 'success') {
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(110, audioCtx.currentTime); 
+    osc.frequency.exponentialRampToValueAtTime(55, audioCtx.currentTime + 1.5);
+    gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 1.5);
+    osc.start(); osc.stop(audioCtx.currentTime + 1.5);
+  } else if (type === 'konami') {
+    osc.type = 'square';
+    osc.frequency.setValueAtTime(880, audioCtx.currentTime);
+    osc.frequency.setValueAtTime(1200, audioCtx.currentTime + 0.1);
+    gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
+    gain.gain.setValueAtTime(0, audioCtx.currentTime + 0.3);
+    osc.start(); osc.stop(audioCtx.currentTime + 0.3);
+  }
+}
+
+// --- BOOT PRELOADER ---
+const preloader = document.getElementById('boot-loader');
+const bootSequence = [
+  "[ OK ] Initializing Heimdall Kernel v0.9.4...",
+  "[ OK ] Mounting YGGDRASIL file systems...",
+  "[ OK ] Starting Bifrost Secure Proxy...",
+  "[ OK ] Establishing link to Nine Realms...",
+  "Loading UI Interface..."
+];
+let bootDelay = 0;
+// Removing sessionStorage check so the bootloader runs on EVERY reload
+bootSequence.forEach((text) => {
+  setTimeout(() => {
+    if(!preloader) return;
+    const p = document.createElement('div');
+    p.className = 'boot-line'; p.style.animation = 'showLine 0.1s forwards';
+    p.textContent = text; preloader.appendChild(p);
+  }, bootDelay);
+  bootDelay += 150 + Math.random() * 150;
+});
+setTimeout(() => {
+  if(!preloader) return;
+  preloader.style.transition = 'opacity 0.3s';
+  preloader.style.opacity = '0';
+  setTimeout(() => preloader.remove(), 300);
+}, bootDelay + 200);
+
+// --- DARK MODE LOGIC ---
+const themeBtn = document.getElementById('theme-toggle');
+const root = document.documentElement;
+function setTheme(isDark) {
+  if (isDark) root.setAttribute('data-theme', 'dark');
+  else root.removeAttribute('data-theme');
+  if(themeBtn) themeBtn.textContent = isDark ? '☀️' : '🌙';
+  localStorage.setItem('theme', isDark ? 'dark' : 'light');
+}
+const storedTheme = localStorage.getItem('theme');
+const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+if (storedTheme === 'dark' || (!storedTheme && prefersDark)) setTheme(true);
+if(themeBtn) themeBtn.addEventListener('click', () => setTheme(root.getAttribute('data-theme') !== 'dark'));
+
+// --- LIVE TIME TERMINAL ---
+const timeEl = document.getElementById('live-time');
+if(timeEl) {
+  setInterval(() => {
+    const now = new Date();
+    timeEl.textContent = now.toLocaleTimeString('en-US', {hour12:false});
+  }, 1000);
+}
+
+// --- CONSTELLATION NETWORK GRAPH ---
+const canvas = document.getElementById('network-canvas');
+if(canvas) {
+  const ctx = canvas.getContext('2d');
+  let width, height, particles = [];
+  const mouse = { x: null, y: null, radius: 100 };
+
+  function resize() {
+    width = canvas.width = window.innerWidth;
+    height = canvas.height = window.innerHeight;
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  class Particle {
+    constructor() {
+      this.x = Math.random() * width; this.y = Math.random() * height;
+      this.vx = (Math.random() - 0.5) * 0.5; this.vy = (Math.random() - 0.5) * 0.5;
+      this.size = Math.random() * 2 + 1;
+    }
+    update() {
+      if(this.x < 0 || this.x > width) this.vx *= -1;
+      if(this.y < 0 || this.y > height) this.vy *= -1;
+      this.x += this.vx; this.y += this.vy;
+      
+      if(mouse.x != null) {
+        let dx = mouse.x - this.x; let dy = mouse.y - this.y;
+        let distance = Math.sqrt(dx*dx + dy*dy);
+        if (distance < mouse.radius) {
+          this.x -= dx/20; this.y -= dy/20;
+        }
+      }
+    }
+    draw() {
+      ctx.beginPath(); ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+      ctx.fillStyle = '#00D4FF';
+      ctx.fill();
+    }
+  }
+
+  for(let i=0; i<80; i++) particles.push(new Particle());
+
+  function animateCanvas() {
+    ctx.clearRect(0, 0, width, height);
+    for(let i=0; i<particles.length; i++) {
+      particles[i].update(); particles[i].draw();
+      for(let j=i; j<particles.length; j++) {
+        let dx = particles[i].x - particles[j].x;
+        let dy = particles[i].y - particles[j].y;
+        let dist = Math.sqrt(dx*dx + dy*dy);
+        if(dist < 120) {
+          ctx.beginPath();
+          ctx.strokeStyle = `rgba(0, 212, 255, ${1 - dist/120})`;
+          ctx.lineWidth = 1;
+          ctx.moveTo(particles[i].x, particles[i].y);
+          ctx.lineTo(particles[j].x, particles[j].y);
+          ctx.stroke();
+        }
+      }
+    }
+    requestAnimationFrame(animateCanvas);
+  }
+  animateCanvas();
+
+  window.addEventListener('mousemove', e => { mouse.x = e.x; mouse.y = e.y; });
+  window.addEventListener('mouseout', () => { mouse.x = null; mouse.y = null; });
+}
+
+// --- CIPHER REVEAL (DECRYPTION) ---
+const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789@#$%&*";
+const decryptObserver = new IntersectionObserver((entries) => {
+  entries.forEach(entry => {
+    if (entry.isIntersecting && !entry.target.classList.contains('decrypted')) {
+      entry.target.classList.add('decrypted');
+      const original = entry.target.dataset.text;
+      let iter = 0;
+      const interval = setInterval(() => {
+        entry.target.innerText = original.split("").map((l, i) => {
+          if (i < iter || l === " ") return original[i];
+          return chars[Math.floor(Math.random() * chars.length)];
+        }).join("");
+        if (iter >= original.length) clearInterval(interval);
+        iter += 1/3;
+      }, 30);
+    }
+  });
+}, { threshold: 0.2 });
+document.querySelectorAll('.decrypt').forEach(el => decryptObserver.observe(el));
+
+// --- QUAKE TERMINAL (~) ---
+const qTerm = document.getElementById('quake-term');
+const qInput = document.getElementById('quake-input');
+const qOut = document.getElementById('quake-output');
+document.addEventListener('keydown', e => {
+  if (e.key === '`' || e.key === '~' || e.key === '²') {
+    e.preventDefault();
+    if(qTerm) {
+      qTerm.classList.toggle('open');
+      if(qTerm.classList.contains('open') && qInput) qInput.focus();
+    }
+  }
+});
+if(qInput) {
+  qInput.addEventListener('keydown', e => {
+    if (e.key === 'Enter') {
+      const val = qInput.value.trim().toLowerCase();
+      qOut.innerHTML += `<div><span class="t-prompt" style="color:var(--green);">root@heimdall:~#</span> <span class="t-cmd" style="color:var(--white);">${val}</span></div>`;
+      
+      if (val === 'clear') qOut.innerHTML = '';
+      else if (val === 'theme dark') setTheme(true);
+      else if (val === 'theme light') setTheme(false);
+      else if (val === 'exit') qTerm.classList.remove('open');
+      else if (val === 'status') qOut.innerHTML += `<div><span class="t-cyan" style="color:var(--cyan);">All systems operational. CPU: 12% RAM: 4.2GB</span></div>`;
+      else if (val === 'heimdall') openEE();
+      else if (val !== '') qOut.innerHTML += `<div><span style="color:var(--muted);">Command not found. Try 'theme dark', 'clear', 'status'.</span></div>`;
+      
+      qInput.value = '';
+      qOut.scrollTop = qOut.scrollHeight;
+    }
+  });
+}
+
+// --- COMMAND PALETTE (CTRL+K) ---
+const cmdOverlay = document.getElementById('cmd-overlay');
+const cmdInput = document.getElementById('cmd-input');
+const cmdItems = document.querySelectorAll('.cmd-item');
+let cmdIndex = -1;
+
+function openCmdPalette() { if(cmdOverlay){ cmdOverlay.classList.add('open'); if(cmdInput) cmdInput.focus(); updateCmdSelection(); } }
+function closeCmdPalette(e) { if(cmdOverlay && (!e || e.target === cmdOverlay)) { cmdOverlay.classList.remove('open'); if(cmdInput) cmdInput.value=''; filterCmd(''); } }
+
+document.addEventListener('keydown', e => {
+  if ((e.ctrlKey || e.metaKey) && e.key === 'k') { e.preventDefault(); openCmdPalette(); }
+  if (e.key === 'Escape') { closeCmdPalette(); if(qTerm) qTerm.classList.remove('open'); closeEE(); closeKonami(); }
+  if (e.key === 'Alt') document.body.classList.add('alt-pressed');
+});
+document.addEventListener('keyup', e => {
+  if (e.key === 'Alt') document.body.classList.remove('alt-pressed');
+});
+
+if(cmdInput) {
+  cmdInput.addEventListener('keydown', e => {
+    const visibleItems = Array.from(cmdItems).filter(i => i.style.display !== 'none');
+    if (e.key === 'ArrowDown') { e.preventDefault(); cmdIndex = (cmdIndex + 1) % visibleItems.length; updateCmdSelection(visibleItems); }
+    if (e.key === 'ArrowUp') { e.preventDefault(); cmdIndex = (cmdIndex - 1 + visibleItems.length) % visibleItems.length; updateCmdSelection(visibleItems); }
+    if (e.key === 'Enter' && cmdIndex >= 0) { visibleItems[cmdIndex].click(); }
+  });
+}
+
+function updateCmdSelection(visible = Array.from(cmdItems)) {
+  cmdItems.forEach(i => i.classList.remove('active'));
+  if(visible[cmdIndex]) {
+    visible[cmdIndex].classList.add('active');
+    visible[cmdIndex].scrollIntoView({block: 'nearest'});
+  }
+}
+function filterCmd(val) {
+  cmdIndex = -1;
+  cmdItems.forEach(item => {
+    item.style.display = item.textContent.toLowerCase().includes(val.toLowerCase()) ? 'flex' : 'none';
+  });
+}
+cmdItems.forEach(btn => {
+  btn.addEventListener('click', () => {
+    if(btn.dataset.hash) { const target = document.querySelector(btn.dataset.hash); if(target) target.scrollIntoView({behavior:'smooth'}); closeCmdPalette(); }
+    if(btn.dataset.url) { window.open(btn.dataset.url, '_blank'); closeCmdPalette(); }
+  });
+});
+
+// --- EASTER EGGS & KONAMI ---
+let seq = '';
+const KONAMI = [38,38,40,40,37,39,37,39,66,65]; let kIdx = 0;
+let eeTypewriterTimer = null;
+const eeQuoteText = '"Every contact leaves a trace."';
+
+document.addEventListener('keydown', e => {
+  if (e.keyCode === KONAMI[kIdx]) {
+    kIdx++;
+    if (kIdx === KONAMI.length) { kIdx = 0; playSound('konami'); openKonami(); }
+  } else { kIdx = 0; }
+
+  if (/^[a-z]$/.test(e.key.toLowerCase()) && e.target.tagName !== 'INPUT') {
+    seq = (seq + e.key.toLowerCase()).slice(-8);
+    if (seq === 'heimdall') { seq = ''; playSound('success'); openEE(); }
+  }
+});
+
+function openEE() { 
+  const ee = document.getElementById('ee-overlay'); 
+  if(ee) ee.classList.add('open'); 
+  
+  // Typewriter Quote
+  const quoteEl = document.getElementById('ee-quote');
+  const authorEl = document.getElementById('ee-author');
+  if (quoteEl && authorEl) {
+    quoteEl.textContent = '';
+    authorEl.style.opacity = '0';
+    clearTimeout(eeTypewriterTimer);
+    let i = 0;
+    function typeQuote() {
+      if (i < eeQuoteText.length) {
+        quoteEl.textContent += eeQuoteText.charAt(i);
+        i++;
+        eeTypewriterTimer = setTimeout(typeQuote, 40);
+      } else {
+        authorEl.style.opacity = '1';
+      }
+    }
+    setTimeout(typeQuote, 500); 
+  }
+}
+function closeEE() { 
+  const ee = document.getElementById('ee-overlay'); 
+  if(ee) ee.classList.remove('open'); 
+  clearTimeout(eeTypewriterTimer);
+}
+const eeOverlay = document.getElementById('ee-overlay');
+if(eeOverlay) eeOverlay.addEventListener('click', e => { if(e.target === e.currentTarget) closeEE(); });
+
+function openKonami() { const ko = document.getElementById('konami-overlay'); if(ko){ ko.classList.add('open'); document.body.classList.add('konami-active'); } }
+function closeKonami() { const ko = document.getElementById('konami-overlay'); if(ko){ ko.classList.remove('open'); document.body.classList.remove('konami-active'); } }
+
+// 3D Parallax on SVG
+const brand3D = document.getElementById('brand-3d');
+if(eeOverlay && brand3D) {
+  eeOverlay.addEventListener('mousemove', (e) => {
+    if (!eeOverlay.classList.contains('open')) return;
+    const x = (window.innerWidth / 2 - e.pageX) / 25;
+    const y = (window.innerHeight / 2 - e.pageY) / 25;
+    brand3D.style.transform = `perspective(500px) rotateY(${x}deg) rotateX(${y}deg)`;
+  });
+  eeOverlay.addEventListener('mouseleave', () => {
+    brand3D.style.transform = `perspective(500px) rotateY(0deg) rotateX(0deg)`;
+  });
+}
+
+// --- COPY BUTTON & TOAST ---
+function copyCode(btn, text) {
+  navigator.clipboard.writeText(text).then(() => {
+    const original = btn.innerHTML;
+    btn.innerHTML = '✓ Copied';
+    btn.classList.add('success');
+    showToast('Code copied to clipboard.');
+    setTimeout(() => { btn.innerHTML = original; btn.classList.remove('success'); }, 2000);
+  });
+}
+
+function showToast(msg){
+  const t = document.getElementById('toast');
+  if(!t) return;
+  t.textContent = msg; t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2500);
+}
+
+// --- FADE IN OBSERVER ---
+const fadeObs = new IntersectionObserver(e => e.forEach(en => {
+  if(en.isIntersecting) { en.target.classList.add('visible'); fadeObs.unobserve(en.target); }
+}), {threshold: 0.1});
+document.querySelectorAll('.fade-in').forEach(el => fadeObs.observe(el));
+
+// --- COUNTERS FOR STATS ---
+const statsSection = document.getElementById('stats');
+if (statsSection) {
+  let counted = false;
+  new IntersectionObserver((e) => {
+    if(e[0].isIntersecting && !counted) {
+      counted = true;
+      document.querySelectorAll('.stat-n').forEach(el => {
+        const t = +el.dataset.target; let c = 0;
+        const s = Math.max(1, t/60);
+        const tm = setInterval(() => {
+          c += s;
+          if(c >= t) { el.textContent = t; clearInterval(tm); }
+          else el.textContent = Math.floor(c);
+        }, 18);
+      });
+    }
+  }, {threshold: 0.3}).observe(statsSection);
+}
+
+// --- GITHUB API WITH CACHE & FALLBACK ---
+const GH_REPO = 'RaiseiX/Heimdall-DFIR';
+async function fetchGH(endpoint, cacheKey) {
   const cached = sessionStorage.getItem(cacheKey);
   if (cached) return JSON.parse(cached);
   try {
