@@ -32,6 +32,8 @@ Heimdall DFIR est un **cockpit d'investigation unifié** conçu pour les équipe
 Il ingère, corrèle et visualise n'importe quelle source forensique — artefacts Windows/Linux,
 captures réseau, dumps RAM — dans une interface unique, collaborative et temps réel.
 
+> ⚠️ **NOTE DE BÊTA :** Heimdall DFIR est actuellement en version bêta. Toutes les fonctionnalités ne sont pas encore opérationnelles et vous pourriez rencontrer des bugs. L'utilisation en environnement de production est à vos risques et périls.
+
 > 📍 **[Roadmap →](ROADMAP.fr.md)**
 
 ---
