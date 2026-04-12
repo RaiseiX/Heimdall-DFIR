@@ -11,7 +11,7 @@ import {
   flexRender,
   createColumnHelper,
 } from '@tanstack/react-table';
-import { SortAsc, SortDesc, Copy, CheckCheck, Clock, FileText, HardDrive, Tag, MessageSquare, Send, Trash2, Pencil, ShieldAlert, Eye, AlertTriangle, ChevronDown, ChevronRight, Share2, Pin, PinOff, Globe2, X, Bot, Star, CheckSquare, Square, Cpu } from 'lucide-react';
+import { SortAsc, SortDesc, Copy, CheckCheck, Clock, FileText, HardDrive, Tag, MessageSquare, Send, Trash2, Pencil, ShieldAlert, Eye, AlertTriangle, ChevronDown, ChevronRight, Share2, Pin, PinOff, Globe2, X, Bot, Star, CheckSquare, Square, Cpu, GitBranch, Layers, Network, Target, Download, Users, TrendingUp, Search, Zap, Activity } from 'lucide-react';
 import TimelinePlayback from './TimelinePlayback';
 import TimelineHeatmap from './TimelineHeatmap';
 import GanttView from './GanttView';
@@ -187,6 +187,102 @@ function DescriptionCell({ value }) {
   );
 }
 
+/* ─── IoA Pattern Library ─────────────────────────────────────────────────── */
+const IOA_PATTERNS = [
+  {
+    id: 'pth', name: 'Pass-the-Hash', tactic: 'lateral-movement',
+    color: '#f43f5e',
+    match: r => {
+      const eid = r.raw?.EventID || r.raw?.EventId;
+      const logon = r.raw?.LogonType || r.raw?.logon_type;
+      const ntlm = (r.raw?.AuthenticationPackageName || '').toLowerCase().includes('ntlm');
+      return String(eid) === '4624' && String(logon) === '3' && ntlm;
+    },
+  },
+  {
+    id: 'dcsync', name: 'DCSync', tactic: 'credential-access',
+    color: '#dc2626',
+    match: r => {
+      const eid = String(r.raw?.EventID || r.raw?.EventId || '');
+      const props = r.raw?.Properties || r.raw?.properties || r.description || '';
+      return eid === '4662' && /1131f6aa|1131f6ad|89e95b76/i.test(props);
+    },
+  },
+  {
+    id: 'kerberoast', name: 'Kerberoasting', tactic: 'credential-access',
+    color: '#f59e0b',
+    match: r => {
+      const eid = String(r.raw?.EventID || r.raw?.EventId || '');
+      const ticket = r.raw?.TicketEncryptionType || '';
+      return eid === '4769' && (ticket === '0x17' || ticket === '0x18');
+    },
+  },
+  {
+    id: 'lolbins', name: 'LOLBins', tactic: 'defense-evasion',
+    color: '#a855f7',
+    match: r => {
+      const img = (r.raw?.Image || r.raw?.process_name || r.process_name || '').toLowerCase();
+      const lol = ['certutil','mshta','wscript','cscript','regsvr32','rundll32','msiexec','installutil','regasm','regsvcs','wmic','bitsadmin','forfiles','msbuild'];
+      return lol.some(l => img.includes(l));
+    },
+  },
+  {
+    id: 'mimikatz', name: 'Credential Dumping', tactic: 'credential-access',
+    color: '#ef4444',
+    match: r => {
+      const desc = (r.description || '').toLowerCase();
+      const cmd = (r.raw?.CommandLine || r.raw?.command_line || '').toLowerCase();
+      return /lsass|sekurlsa|logonpasswords|mimikatz|wce\.exe|pwdump/.test(desc + cmd);
+    },
+  },
+  {
+    id: 'psexec', name: 'Lateral Tool Transfer', tactic: 'lateral-movement',
+    color: '#22c55e',
+    match: r => {
+      const img = (r.raw?.Image || r.raw?.ParentImage || r.process_name || '').toLowerCase();
+      const svc = (r.raw?.ServiceName || '').toLowerCase();
+      return /psexec|psexesvc/.test(img + svc);
+    },
+  },
+  {
+    id: 'scheduled_task', name: 'Scheduled Task Persist.', tactic: 'persistence',
+    color: '#ec4899',
+    match: r => {
+      const eid = String(r.raw?.EventID || r.raw?.EventId || '');
+      return ['4698','4702'].includes(eid) || r.artifact_type === 'task';
+    },
+  },
+  {
+    id: 'powershell_enc', name: 'PowerShell Encoded', tactic: 'execution',
+    color: '#818cf8',
+    match: r => {
+      const cmd = (r.raw?.CommandLine || r.raw?.command_line || r.description || '').toLowerCase();
+      return /powershell.*-enc|-encodedcommand|iex\s*\(|invoke-expression/i.test(cmd);
+    },
+  },
+];
+
+function computeAnomalyScore(r, allRecords) {
+  let score = 0;
+  const h = new Date(r.timestamp).getHours();
+  if (h < 6 || h > 22) score += 2; // unusual hours
+  const img = (r.raw?.Image || r.raw?.process_name || r.process_name || '').toLowerCase().split(/[\\/]/).pop();
+  if (img) {
+    const exeCount = allRecords.filter(x =>
+      (x.raw?.Image || x.raw?.process_name || x.process_name || '').toLowerCase().split(/[\\/]/).pop() === img
+    ).length;
+    if (exeCount === 1) score += 3; // unique exe
+    else if (exeCount <= 3) score += 1;
+  }
+  const eid = String(r.raw?.EventID || r.raw?.EventId || '');
+  if (['4698','4702','4720','4728','4732','4756','4768','4769'].includes(eid)) score += 2;
+  const patterns = IOA_PATTERNS.filter(p => { try { return p.match(r); } catch { return false; } });
+  score += patterns.length * 3;
+  return Math.min(score, 10);
+}
+
+/* ─── end IoA ──────────────────────────────────────────────────────────────── */
+
 const ROW_H    = 42;
 const GAP_H    = 22;
 const OVERSCAN = 12;
@@ -344,6 +440,12 @@ function ArtifactGrid({ records, selectedRecord, onSelect, notedRefs, gapThresho
   const [tagPickerRowId, setTagPickerRowId] = useState(null);
   const tagAnchorRef = useRef(null);
   const { t } = useTranslation();
+
+  const anomalyScores = useMemo(() => {
+    const m = new Map();
+    (records || []).forEach(r => m.set(r, computeAnomalyScore(r, records)));
+    return m;
+  }, [records]);
 
   const toggleBookmark = useCallback((rowId) => {
     setBookmarkedRows(prev => {
@@ -708,6 +810,9 @@ function ArtifactGrid({ records, selectedRecord, onSelect, notedRefs, gapThresho
                       const lvl = WB_LEVELS.find(l => l.key === td.level);
                       if (lvl) return <span style={{ fontSize: 13, color: lvl.color, lineHeight: 1 }}>{lvl.dot}</span>;
                       if (td.tags?.length > 0) return <Tag size={11} style={{ color: 'var(--fl-subtle)' }} />;
+                      const score = anomalyScores.get(row.original) || 0;
+                      if (score >= 7) return <span style={{ fontSize: 10, color: 'var(--fl-danger)', lineHeight: 1 }} title={`Score anomalie: ${score}/10`}>⚡</span>;
+                      if (score >= 4) return <span style={{ fontSize: 10, color: 'var(--fl-warn)', lineHeight: 1 }} title={`Score anomalie: ${score}/10`}>△</span>;
                       return <span style={{ fontSize: 11, color: isHovered ? 'var(--fl-card)' : 'var(--fl-bg)' }}>○</span>;
                     })()}
                   </td>
@@ -856,7 +961,7 @@ function PivotButton({ value, isIP, caseId, onFilterTimeline }) {
   );
 }
 
-function ArtifactInspector({ record, caseId, onNotedRefsChange, onFilterTimeline }) {
+function ArtifactInspector({ record, allRecords = [], caseId, onNotedRefsChange, onFilterTimeline }) {
   const { t } = useTranslation();
   const [copied, setCopied]         = useState(false);
   const [inspectorTab, setTab]      = useState('details');
@@ -865,6 +970,9 @@ function ArtifactInspector({ record, caseId, onNotedRefsChange, onFilterTimeline
   const [noteSaving, setNoteSaving] = useState(false);
   const [noteEditId, setNoteEditId] = useState(null);
   const [noteEditText, setNoteEditText] = useState('');
+  const [contextWindow, setContextWindow] = useState(5); // ±N minutes
+  const [verdictLocal, setVerdictLocal]   = useState(null);
+  const [pivotQuery, setPivotQuery]       = useState('');
 
   const json = useMemo(() => {
     if (!record) return null;
@@ -962,22 +1070,31 @@ function ArtifactInspector({ record, caseId, onNotedRefsChange, onFilterTimeline
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, overflow: 'hidden' }}>
           
-          {['details', 'notes'].map(tab => (
-            <button key={tab} onClick={() => setTab(tab)} style={{
+          {[
+            { id: 'details', label: t('workbench.details'), icon: null },
+            { id: 'context', label: '±ctx', icon: Activity },
+            { id: 'pivot',   label: 'Pivot', icon: Target },
+            { id: 'verdict', label: 'Verdict', icon: ShieldAlert },
+            { id: 'notes',   label: t('notes.tab'), icon: MessageSquare, badge: notes.length },
+          ].map(tab => {
+            const Icon = tab.icon;
+            return (
+            <button key={tab.id} onClick={() => setTab(tab.id)} style={{
               background: 'none', border: 'none', cursor: 'pointer',
-              padding: '6px 12px', borderRadius: 4, fontSize: 11, fontFamily: 'monospace',
-              fontWeight: inspectorTab === tab ? 600 : 400,
-              color: inspectorTab === tab ? 'var(--fl-accent)' : 'var(--fl-muted)',
-              borderBottom: inspectorTab === tab ? '2px solid var(--fl-accent)' : '2px solid transparent',
+              padding: '5px 8px', borderRadius: 4, fontSize: 10, fontFamily: 'monospace',
+              fontWeight: inspectorTab === tab.id ? 600 : 400,
+              color: inspectorTab === tab.id ? 'var(--fl-accent)' : 'var(--fl-muted)',
+              borderBottom: inspectorTab === tab.id ? '2px solid var(--fl-accent)' : '2px solid transparent',
+              display: 'flex', alignItems: 'center', gap: 3,
             }}>
-              {tab === 'details' ? t('workbench.details') : (
-                <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                  <MessageSquare size={10} />
-                  {t('notes.tab')} {notes.length > 0 && `(${notes.length})`}
-                </span>
+              {Icon && <Icon size={9} />}
+              {tab.label}
+              {tab.badge > 0 && (
+                <span style={{ fontSize: 8, background: 'var(--fl-accent)', color: '#000', borderRadius: 8, padding: '0 4px', fontWeight: 700 }}>{tab.badge}</span>
               )}
             </button>
-          ))}
+            );
+          })}
           
           <span style={{
             padding: '2px 8px', borderRadius: 4, fontSize: 10, fontWeight: 700,
@@ -1036,6 +1153,196 @@ function ArtifactInspector({ record, caseId, onNotedRefsChange, onFilterTimeline
       </div>
 
       
+      {inspectorTab === 'context' && (() => {
+        const ts = new Date(record.timestamp).getTime();
+        const winMs = contextWindow * 60 * 1000;
+        const nearby = allRecords.filter(x => {
+          const d = Math.abs(new Date(x.timestamp).getTime() - ts);
+          return d > 0 && d <= winMs;
+        }).sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+        return (
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+            <div style={{ flexShrink: 0, padding: '6px 12px', borderBottom: '1px solid var(--fl-border2)', display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: 10, fontFamily: 'monospace', color: 'var(--fl-subtle)' }}>Fenêtre ±</span>
+              {[1, 5, 15, 30, 60].map(n => (
+                <button key={n} onClick={() => setContextWindow(n)}
+                  style={{
+                    padding: '1px 7px', borderRadius: 3, fontSize: 9, fontFamily: 'monospace', cursor: 'pointer',
+                    background: contextWindow === n ? 'rgba(77,130,192,0.2)' : 'transparent',
+                    border: `1px solid ${contextWindow === n ? 'var(--fl-accent)' : 'var(--fl-sep)'}`,
+                    color: contextWindow === n ? 'var(--fl-accent)' : 'var(--fl-muted)',
+                  }}>
+                  {n < 60 ? `${n}m` : '1h'}
+                </button>
+              ))}
+              <span style={{ marginLeft: 'auto', fontSize: 9, fontFamily: 'monospace', color: 'var(--fl-subtle)' }}>{nearby.length} evt</span>
+            </div>
+            <div style={{ flex: 1, overflow: 'auto', padding: '6px 0' }}>
+              {nearby.length === 0 ? (
+                <div style={{ textAlign: 'center', marginTop: 24, fontSize: 11, fontFamily: 'monospace', color: 'var(--fl-muted)' }}>
+                  Aucun événement dans la fenêtre ±{contextWindow} min
+                </div>
+              ) : nearby.map((x, i) => {
+                const c = ac(x.artifact_type);
+                const delta = ((new Date(x.timestamp).getTime() - ts) / 60000).toFixed(1);
+                return (
+                  <div key={i} style={{
+                    display: 'flex', alignItems: 'flex-start', gap: 8,
+                    padding: '4px 12px',
+                    background: x === record ? 'rgba(77,130,192,0.1)' : 'transparent',
+                    borderLeft: `2px solid ${c}`,
+                    marginBottom: 2,
+                  }}>
+                    <span style={{ fontSize: 9, fontFamily: 'monospace', color: '#3a6a9a', flexShrink: 0, width: 46, textAlign: 'right' }}>
+                      {delta > 0 ? `+${delta}` : delta}m
+                    </span>
+                    <span style={{ fontSize: 9, padding: '1px 4px', borderRadius: 2, background: `${c}18`, color: c, fontFamily: 'monospace', flexShrink: 0 }}>
+                      {x.artifact_type}
+                    </span>
+                    <span style={{ fontSize: 10, fontFamily: 'monospace', color: 'var(--fl-on-dark)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
+                      {x.description || x.source || ''}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
+
+      {inspectorTab === 'pivot' && (() => {
+        const raw = record.raw || {};
+        const pivotFields = [];
+        const PIVOT_KEYS = [
+          'Image','ParentImage','CommandLine','ParentCommandLine',
+          'DestinationIp','SourceIp','DestinationHostname','QueryName',
+          'MD5','SHA256','SHA1','Hashes',
+          'SubjectUserName','TargetUserName','UserName',
+          'ProcessId','ParentProcessId',
+          'TargetObject','Details',
+          'SourceFile','Channel',
+        ];
+        for (const k of PIVOT_KEYS) {
+          if (raw[k] && String(raw[k]).length > 1) {
+            pivotFields.push({ key: k, value: String(raw[k]) });
+          }
+        }
+        const filtered = pivotQuery
+          ? pivotFields.filter(f => f.value.toLowerCase().includes(pivotQuery.toLowerCase()) || f.key.toLowerCase().includes(pivotQuery.toLowerCase()))
+          : pivotFields;
+        return (
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+            <div style={{ flexShrink: 0, padding: '6px 12px', borderBottom: '1px solid var(--fl-border2)' }}>
+              <input
+                value={pivotQuery}
+                onChange={e => setPivotQuery(e.target.value)}
+                placeholder="Filtrer les champs…"
+                style={{
+                  width: '100%', background: 'var(--fl-input-bg)', border: '1px solid var(--fl-border)',
+                  borderRadius: 4, color: 'var(--fl-text)', fontFamily: 'monospace', fontSize: 10,
+                  padding: '4px 8px', outline: 'none', boxSizing: 'border-box',
+                }}
+              />
+            </div>
+            <div style={{ flex: 1, overflow: 'auto', padding: '6px 12px', display: 'flex', flexDirection: 'column', gap: 4 }}>
+              {filtered.length === 0 && (
+                <div style={{ textAlign: 'center', marginTop: 20, fontSize: 11, fontFamily: 'monospace', color: 'var(--fl-muted)' }}>
+                  Aucun champ IOC
+                </div>
+              )}
+              {filtered.map(({ key, value }) => {
+                const truncated = value.length > 80 ? value.slice(0, 80) + '…' : value;
+                const matchCount = allRecords.filter(x => {
+                  const v = x.raw?.[key];
+                  return v && String(v) === value;
+                }).length;
+                return (
+                  <div key={key} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 6px', borderRadius: 4, border: '1px solid var(--fl-border)', background: 'var(--fl-bg)' }}>
+                    <span style={{ fontSize: 9, fontFamily: 'monospace', color: '#4d82c0', flexShrink: 0, width: 120, overflow: 'hidden', textOverflow: 'ellipsis' }}>{key}</span>
+                    <span style={{ flex: 1, fontSize: 10, fontFamily: 'monospace', color: 'var(--fl-on-dark)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={value}>{truncated}</span>
+                    {matchCount > 1 && (
+                      <span style={{ fontSize: 8, padding: '1px 5px', borderRadius: 8, background: 'rgba(77,130,192,0.15)', color: 'var(--fl-accent)', flexShrink: 0, fontFamily: 'monospace' }}>
+                        ×{matchCount}
+                      </span>
+                    )}
+                    <button
+                      onClick={() => onFilterTimeline?.({ field: key, value })}
+                      title={`Pivoter sur ${key}=${value}`}
+                      style={{ flexShrink: 0, background: 'none', border: '1px solid var(--fl-sep)', borderRadius: 3, cursor: 'pointer', padding: '1px 5px', fontSize: 8, color: 'var(--fl-accent)', fontFamily: 'monospace' }}>
+                      Pivot
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
+
+      {inspectorTab === 'verdict' && (() => {
+        const ref = computeRef(record);
+        const ioas = IOA_PATTERNS.filter(p => { try { return p.match(record); } catch { return false; } });
+        const score = computeAnomalyScore(record, allRecords);
+        return (
+          <div style={{ flex: 1, overflow: 'auto', padding: '12px' }}>
+
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ fontSize: 9, fontFamily: 'monospace', color: 'var(--fl-subtle)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>Score d'anomalie</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <div style={{ flex: 1, height: 6, background: 'var(--fl-sep)', borderRadius: 3, overflow: 'hidden' }}>
+                  <div style={{
+                    height: '100%', borderRadius: 3, transition: 'width 0.3s',
+                    width: `${score * 10}%`,
+                    background: score >= 7 ? 'var(--fl-danger)' : score >= 4 ? 'var(--fl-warn)' : 'var(--fl-ok)',
+                  }} />
+                </div>
+                <span style={{ fontSize: 11, fontFamily: 'monospace', fontWeight: 700, color: score >= 7 ? 'var(--fl-danger)' : score >= 4 ? 'var(--fl-warn)' : 'var(--fl-ok)', flexShrink: 0 }}>
+                  {score}/10
+                </span>
+              </div>
+            </div>
+
+
+            {ioas.length > 0 && (
+              <div style={{ marginBottom: 12 }}>
+                <div style={{ fontSize: 9, fontFamily: 'monospace', color: 'var(--fl-subtle)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>Patterns IoA détectés</div>
+                {ioas.map(p => (
+                  <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 8px', borderRadius: 4, marginBottom: 4, background: `${p.color}12`, border: `1px solid ${p.color}40` }}>
+                    <span style={{ fontSize: 9, fontWeight: 700, color: p.color, fontFamily: 'monospace' }}>⚡ {p.name}</span>
+                    <span style={{ fontSize: 8, color: '#4d6080', fontFamily: 'monospace' }}>{p.tactic}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+
+            <div>
+              <div style={{ fontSize: 9, fontFamily: 'monospace', color: 'var(--fl-subtle)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>Verdict</div>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                {WB_LEVELS.map(l => (
+                  <button key={l.key}
+                    onClick={() => setVerdictLocal(verdictLocal === l.key ? null : l.key)}
+                    style={{
+                      padding: '4px 10px', borderRadius: 4, fontSize: 10, fontFamily: 'monospace',
+                      fontWeight: 600, cursor: 'pointer',
+                      background: verdictLocal === l.key ? `${l.color}25` : 'transparent',
+                      border: `1px solid ${verdictLocal === l.key ? l.color : 'var(--fl-sep)'}`,
+                      color: verdictLocal === l.key ? l.color : 'var(--fl-muted)',
+                    }}>
+                    {l.dot} {l.label}
+                  </button>
+                ))}
+              </div>
+              {verdictLocal && (
+                <div style={{ marginTop: 8, padding: '6px 10px', borderRadius: 4, background: 'rgba(77,130,192,0.08)', border: '1px solid var(--fl-sep)', fontSize: 10, fontFamily: 'monospace', color: 'var(--fl-muted)' }}>
+                  Verdict «{WB_LEVELS.find(l => l.key === verdictLocal)?.label}» appliqué localement. Utilisez les annotations (onglet Notes) pour persister.
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })()}
+
       {inspectorTab === 'notes' ? (
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
           
@@ -1545,12 +1852,12 @@ function DissimulationPanel({ caseId, records }) {
 
 function ResizeHandle() {
   return (
-    <PanelResizeHandle style={{ height: 6, background: 'var(--fl-bg)', cursor: 'row-resize', position: 'relative', flexShrink: 0 }}>
+    <PanelResizeHandle style={{ width: 6, background: 'var(--fl-bg)', cursor: 'col-resize', position: 'relative', flexShrink: 0 }}>
       <div style={{
         position: 'absolute',
         left: '50%', top: '50%',
         transform: 'translate(-50%, -50%)',
-        width: 36, height: 3,
+        width: 3, height: 36,
         borderRadius: 2,
         background: 'var(--fl-sep)',
         pointerEvents: 'none',
@@ -1559,6 +1866,418 @@ function ResizeHandle() {
   );
 }
 
+
+/* ─── ProcessTree ───────────────────────────────────────────────────────────── */
+function ProcessTreeView({ records }) {
+  const nodes = useMemo(() => {
+    const map = new Map(); // pid → node
+    const roots = [];
+    const evts = records.filter(r => {
+      const eid = String(r.raw?.EventID || r.raw?.EventId || '');
+      return eid === '4688' || (r.artifact_type === 'evtx' && eid === '1') || r.artifact_type === 'process';
+    });
+    evts.forEach(r => {
+      const pid  = String(r.raw?.NewProcessId || r.raw?.ProcessId || r.raw?.pid || '?');
+      const ppid = String(r.raw?.ProcessId    || r.raw?.ParentProcessId || r.raw?.ppid || '0');
+      const img  = r.raw?.NewProcessName || r.raw?.Image || r.raw?.process_name || r.process_name || pid;
+      const name = img.split(/[\\/]/).pop();
+      map.set(pid, { pid, ppid, name, img, ts: r.timestamp, record: r, children: [] });
+    });
+    map.forEach(node => {
+      if (node.ppid && map.has(node.ppid)) {
+        map.get(node.ppid).children.push(node);
+      } else {
+        roots.push(node);
+      }
+    });
+    return roots;
+  }, [records]);
+
+  function renderNode(node, depth) {
+    const c = depth === 0 ? 'var(--fl-accent)' : depth === 1 ? 'var(--fl-warn)' : 'var(--fl-on-dark)';
+    return (
+      <div key={node.pid} style={{ marginLeft: depth * 18 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '3px 6px', borderRadius: 3, marginBottom: 2 }}>
+          <span style={{ fontSize: 9, color: '#2a5a8a', fontFamily: 'monospace', flexShrink: 0 }}>{node.pid}</span>
+          <span style={{ fontSize: 10, fontFamily: 'monospace', fontWeight: 600, color: c, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={node.img}>{node.name}</span>
+          <span style={{ fontSize: 8, color: '#2a4a6a', fontFamily: 'monospace', flexShrink: 0 }}>{node.ts ? fmtTs(node.ts).slice(0, 19) : ''}</span>
+        </div>
+        {node.children.map(ch => renderNode(ch, depth + 1))}
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ flex: 1, overflow: 'auto', padding: '12px', background: '#05080f' }}>
+      <div style={{ fontSize: 9, fontFamily: 'monospace', color: 'var(--fl-subtle)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 10 }}>
+        Arbre de processus — EID 4688 / Sysmon 1 ({nodes.length} racines)
+      </div>
+      {nodes.length === 0 ? (
+        <div style={{ textAlign: 'center', marginTop: 40, fontSize: 12, fontFamily: 'monospace', color: 'var(--fl-muted)' }}>
+          Aucun événement de création de processus (EID 4688 ou Sysmon 1) dans la sélection
+        </div>
+      ) : nodes.map(n => renderNode(n, 0))}
+    </div>
+  );
+}
+
+/* ─── PatternMatcher ────────────────────────────────────────────────────────── */
+function PatternMatcherView({ records }) {
+  const hits = useMemo(() => {
+    const results = [];
+    for (const pattern of IOA_PATTERNS) {
+      const matched = records.filter(r => { try { return pattern.match(r); } catch { return false; } });
+      if (matched.length > 0) results.push({ pattern, matched });
+    }
+    return results;
+  }, [records]);
+
+  const [expanded, setExpanded] = useState(new Set());
+  const toggle = id => setExpanded(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s; });
+
+  return (
+    <div style={{ flex: 1, overflow: 'auto', padding: '12px', background: '#05080f' }}>
+      <div style={{ fontSize: 9, fontFamily: 'monospace', color: 'var(--fl-subtle)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 10 }}>
+        Détection de patterns IoA — {hits.length} pattern(s) détecté(s)
+      </div>
+      {hits.length === 0 ? (
+        <div style={{ textAlign: 'center', marginTop: 40, fontSize: 12, fontFamily: 'monospace', color: 'var(--fl-muted)' }}>
+          Aucun pattern IoA détecté dans les {records.length} événements chargés
+        </div>
+      ) : hits.map(({ pattern, matched }) => (
+        <div key={pattern.id} style={{ marginBottom: 8, borderRadius: 6, border: `1px solid ${pattern.color}40`, overflow: 'hidden' }}>
+          <div
+            onClick={() => toggle(pattern.id)}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px',
+              background: `${pattern.color}12`, cursor: 'pointer',
+            }}>
+            {expanded.has(pattern.id) ? <ChevronDown size={10} style={{ color: pattern.color, flexShrink: 0 }} /> : <ChevronRight size={10} style={{ color: pattern.color, flexShrink: 0 }} />}
+            <span style={{ fontSize: 11, fontWeight: 700, fontFamily: 'monospace', color: pattern.color }}>⚡ {pattern.name}</span>
+            <span style={{ fontSize: 9, fontFamily: 'monospace', color: '#4d6080' }}>{pattern.tactic}</span>
+            <span style={{ marginLeft: 'auto', fontSize: 9, padding: '1px 6px', borderRadius: 8, background: `${pattern.color}25`, color: pattern.color, fontFamily: 'monospace' }}>
+              {matched.length} hit{matched.length > 1 ? 's' : ''}
+            </span>
+          </div>
+          {expanded.has(pattern.id) && (
+            <div style={{ padding: '6px 10px', display: 'flex', flexDirection: 'column', gap: 3 }}>
+              {matched.slice(0, 20).map((r, i) => (
+                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '3px 6px', borderRadius: 3, background: 'rgba(255,255,255,0.02)', fontSize: 10, fontFamily: 'monospace' }}>
+                  <span style={{ color: '#3a6a9a', flexShrink: 0, width: 130 }}>{fmtTs(r.timestamp).slice(0, 19)}</span>
+                  <span style={{ color: 'var(--fl-on-dark)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{r.description || r.source}</span>
+                </div>
+              ))}
+              {matched.length > 20 && <span style={{ fontSize: 9, color: 'var(--fl-muted)', fontFamily: 'monospace' }}>+{matched.length - 20} autres</span>}
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/* ─── ClusterView ───────────────────────────────────────────────────────────── */
+function ClusterView({ records }) {
+  const [groupBy, setGroupBy] = useState('artifact_type');
+  const fields = ['artifact_type', 'host_name', 'user_name', 'process_name', 'source'];
+
+  const clusters = useMemo(() => {
+    const map = new Map();
+    records.forEach(r => {
+      const key = String(r[groupBy] || r.raw?.[groupBy] || '—');
+      if (!map.has(key)) map.set(key, []);
+      map.get(key).push(r);
+    });
+    return [...map.entries()].sort((a, b) => b[1].length - a[1].length);
+  }, [records, groupBy]);
+
+  return (
+    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: '#05080f' }}>
+      <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderBottom: '1px solid var(--fl-border)' }}>
+        <span style={{ fontSize: 9, fontFamily: 'monospace', color: 'var(--fl-subtle)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Grouper par</span>
+        {fields.map(f => (
+          <button key={f} onClick={() => setGroupBy(f)}
+            style={{
+              padding: '2px 8px', borderRadius: 3, fontSize: 9, fontFamily: 'monospace', cursor: 'pointer',
+              background: groupBy === f ? 'rgba(77,130,192,0.2)' : 'transparent',
+              border: `1px solid ${groupBy === f ? 'var(--fl-accent)' : 'var(--fl-sep)'}`,
+              color: groupBy === f ? 'var(--fl-accent)' : 'var(--fl-muted)',
+            }}>{f}</button>
+        ))}
+        <span style={{ marginLeft: 'auto', fontSize: 9, fontFamily: 'monospace', color: 'var(--fl-subtle)' }}>{clusters.length} groupes</span>
+      </div>
+      <div style={{ flex: 1, overflow: 'auto', padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 4 }}>
+        {clusters.map(([key, rows]) => {
+          const pct = records.length > 0 ? (rows.length / records.length) * 100 : 0;
+          const c = ac(rows[0]?.artifact_type);
+          return (
+            <div key={key} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 8px', borderRadius: 4, background: 'var(--fl-bg)', border: '1px solid var(--fl-border)' }}>
+              <span style={{ fontSize: 10, fontFamily: 'monospace', color: 'var(--fl-on-dark)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={key}>{key}</span>
+              <div style={{ width: 80, height: 4, background: 'var(--fl-sep)', borderRadius: 2, overflow: 'hidden', flexShrink: 0 }}>
+                <div style={{ width: `${pct}%`, height: '100%', background: c, borderRadius: 2 }} />
+              </div>
+              <span style={{ fontSize: 9, fontFamily: 'monospace', color: 'var(--fl-subtle)', flexShrink: 0, width: 40, textAlign: 'right' }}>{rows.length}</span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/* ─── MultiHostTrackView ────────────────────────────────────────────────────── */
+function MultiHostTrackView({ records }) {
+  const hosts = useMemo(() => [...new Set(records.map(r => r.host_name).filter(Boolean))].sort(), [records]);
+  const [selHost, setSelHost] = useState(null);
+  const displayed = useMemo(() => selHost ? records.filter(r => r.host_name === selHost) : records, [records, selHost]);
+
+  return (
+    <div style={{ flex: 1, display: 'flex', overflow: 'hidden', background: '#05080f' }}>
+      <div style={{ width: 160, flexShrink: 0, borderRight: '1px solid var(--fl-border)', overflow: 'auto', padding: '8px 0' }}>
+        <div style={{ padding: '4px 12px 6px', fontSize: 9, fontFamily: 'monospace', color: 'var(--fl-subtle)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Hôtes</div>
+        <div onClick={() => setSelHost(null)}
+          style={{ padding: '4px 12px', fontSize: 10, fontFamily: 'monospace', cursor: 'pointer', color: !selHost ? 'var(--fl-accent)' : 'var(--fl-muted)', background: !selHost ? 'rgba(77,130,192,0.1)' : 'transparent' }}>
+          Tous ({records.length})
+        </div>
+        {hosts.map(h => {
+          const cnt = records.filter(r => r.host_name === h).length;
+          return (
+            <div key={h} onClick={() => setSelHost(h)}
+              style={{ padding: '4px 12px', fontSize: 10, fontFamily: 'monospace', cursor: 'pointer', color: selHost === h ? 'var(--fl-accent)' : 'var(--fl-on-dark)', background: selHost === h ? 'rgba(77,130,192,0.1)' : 'transparent', borderLeft: selHost === h ? '2px solid var(--fl-accent)' : '2px solid transparent', display: 'flex', justifyContent: 'space-between' }}>
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{h}</span>
+              <span style={{ color: 'var(--fl-subtle)', flexShrink: 0 }}>{cnt}</span>
+            </div>
+          );
+        })}
+        {hosts.length === 0 && <div style={{ padding: '8px 12px', fontSize: 10, fontFamily: 'monospace', color: 'var(--fl-muted)' }}>Aucun hôte</div>}
+      </div>
+      <div style={{ flex: 1, overflow: 'auto', padding: '8px 12px' }}>
+        <div style={{ fontSize: 9, fontFamily: 'monospace', color: 'var(--fl-subtle)', marginBottom: 8 }}>
+          {selHost ? `Hôte: ${selHost}` : 'Tous les hôtes'} — {displayed.length} événements
+        </div>
+        {displayed.slice(0, 200).map((r, i) => {
+          const c = ac(r.artifact_type);
+          return (
+            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '3px 4px', borderLeft: `2px solid ${c}`, marginBottom: 2, paddingLeft: 8 }}>
+              <span style={{ fontSize: 9, fontFamily: 'monospace', color: '#3a6a9a', flexShrink: 0, width: 130 }}>{fmtTs(r.timestamp).slice(0, 19)}</span>
+              <span style={{ fontSize: 9, padding: '0 4px', borderRadius: 2, background: `${c}18`, color: c, fontFamily: 'monospace', flexShrink: 0 }}>{r.artifact_type}</span>
+              <span style={{ fontSize: 10, fontFamily: 'monospace', color: 'var(--fl-on-dark)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{r.description || r.source}</span>
+              {r.host_name && !selHost && <span style={{ fontSize: 8, fontFamily: 'monospace', color: '#22c55e', flexShrink: 0 }}>{r.host_name}</span>}
+            </div>
+          );
+        })}
+        {displayed.length > 200 && <div style={{ fontSize: 9, fontFamily: 'monospace', color: 'var(--fl-muted)', textAlign: 'center', padding: '8px' }}>+{displayed.length - 200} événements supplémentaires</div>}
+      </div>
+    </div>
+  );
+}
+
+/* ─── AttackChainBuilderView ─────────────────────────────────────────────────── */
+function AttackChainBuilderView({ records }) {
+  const [chain, setChain] = useState([]);
+  const [label, setLabel] = useState('');
+
+  const suggestions = useMemo(() => {
+    return records.filter(r => {
+      const ioas = IOA_PATTERNS.filter(p => { try { return p.match(r); } catch { return false; } });
+      return ioas.length > 0;
+    }).slice(0, 50);
+  }, [records]);
+
+  const addToChain = r => {
+    setChain(prev => {
+      if (prev.find(x => x === r)) return prev;
+      return [...prev, r];
+    });
+  };
+
+  const TACTIC_ORDER = ['recon','initial-access','execution','persistence','privilege-escalation','defense-evasion','credential-access','discovery','lateral-movement','collection','exfiltration','impact'];
+
+  return (
+    <div style={{ flex: 1, display: 'flex', overflow: 'hidden', background: '#05080f' }}>
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', borderRight: '1px solid var(--fl-border)' }}>
+        <div style={{ flexShrink: 0, padding: '8px 12px', borderBottom: '1px solid var(--fl-border)', fontSize: 9, fontFamily: 'monospace', color: 'var(--fl-subtle)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+          Événements notables ({suggestions.length})
+        </div>
+        <div style={{ flex: 1, overflow: 'auto', padding: '6px' }}>
+          {suggestions.map((r, i) => {
+            const ioas = IOA_PATTERNS.filter(p => { try { return p.match(r); } catch { return false; } });
+            return (
+              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 8px', borderRadius: 4, marginBottom: 3, background: 'var(--fl-bg)', border: '1px solid var(--fl-border)' }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 9, fontFamily: 'monospace', color: '#3a6a9a' }}>{fmtTs(r.timestamp).slice(0, 19)}</div>
+                  <div style={{ fontSize: 10, fontFamily: 'monospace', color: 'var(--fl-on-dark)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.description || r.source}</div>
+                  <div style={{ display: 'flex', gap: 3, marginTop: 2 }}>
+                    {ioas.map(p => <span key={p.id} style={{ fontSize: 7, padding: '0 4px', borderRadius: 2, background: `${p.color}20`, color: p.color, fontFamily: 'monospace' }}>{p.name}</span>)}
+                  </div>
+                </div>
+                <button onClick={() => addToChain(r)}
+                  style={{ flexShrink: 0, padding: '2px 6px', borderRadius: 3, fontSize: 9, fontFamily: 'monospace', background: 'rgba(77,130,192,0.1)', border: '1px solid var(--fl-accent)', color: 'var(--fl-accent)', cursor: 'pointer' }}>
+                  +
+                </button>
+              </div>
+            );
+          })}
+          {suggestions.length === 0 && <div style={{ textAlign: 'center', marginTop: 20, fontSize: 11, fontFamily: 'monospace', color: 'var(--fl-muted)' }}>Aucun événement notable détecté</div>}
+        </div>
+      </div>
+
+      <div style={{ width: 300, flexShrink: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        <div style={{ flexShrink: 0, padding: '8px 12px', borderBottom: '1px solid var(--fl-border)', display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span style={{ fontSize: 9, fontFamily: 'monospace', color: 'var(--fl-subtle)', textTransform: 'uppercase', letterSpacing: '0.08em', flex: 1 }}>Chaîne d'attaque ({chain.length})</span>
+          {chain.length > 0 && <button onClick={() => setChain([])} style={{ fontSize: 8, fontFamily: 'monospace', color: 'var(--fl-danger)', background: 'none', border: 'none', cursor: 'pointer' }}>Vider</button>}
+        </div>
+        <div style={{ flex: 1, overflow: 'auto', padding: '6px 10px' }}>
+          {chain.length === 0 ? (
+            <div style={{ textAlign: 'center', marginTop: 20, fontSize: 10, fontFamily: 'monospace', color: 'var(--fl-muted)' }}>Ajoutez des événements depuis la liste</div>
+          ) : chain.map((r, i) => {
+            const c = ac(r.artifact_type);
+            return (
+              <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 6, marginBottom: 4 }}>
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flexShrink: 0 }}>
+                  <div style={{ width: 8, height: 8, borderRadius: '50%', background: c, marginTop: 2 }} />
+                  {i < chain.length - 1 && <div style={{ width: 1, height: 24, background: 'var(--fl-sep)', marginTop: 2 }} />}
+                </div>
+                <div style={{ flex: 1, minWidth: 0, padding: '2px 6px', borderRadius: 3, background: 'var(--fl-bg)', border: `1px solid ${c}30` }}>
+                  <div style={{ fontSize: 8, fontFamily: 'monospace', color: '#3a6a9a' }}>{fmtTs(r.timestamp).slice(0, 19)}</div>
+                  <div style={{ fontSize: 9, fontFamily: 'monospace', color: 'var(--fl-on-dark)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.description || r.source}</div>
+                </div>
+                <button onClick={() => setChain(prev => prev.filter((_, j) => j !== i))}
+                  style={{ flexShrink: 0, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--fl-danger)', fontSize: 9, padding: '2px' }}>✕</button>
+              </div>
+            );
+          })}
+        </div>
+        {chain.length > 0 && (
+          <div style={{ flexShrink: 0, padding: '8px 10px', borderTop: '1px solid var(--fl-border)' }}>
+            <input value={label} onChange={e => setLabel(e.target.value)} placeholder="Nom du rapport…"
+              style={{ width: '100%', background: 'var(--fl-input-bg)', border: '1px solid var(--fl-border)', borderRadius: 4, color: 'var(--fl-text)', fontFamily: 'monospace', fontSize: 9, padding: '4px 8px', outline: 'none', boxSizing: 'border-box', marginBottom: 6 }} />
+            <button
+              onClick={() => {
+                const lines = [`# Chaîne d'attaque${label ? ': ' + label : ''}`, `Générée le ${new Date().toISOString()}`, '', ...chain.map((r, i) => `${i + 1}. [${r.artifact_type}] ${fmtTs(r.timestamp)} — ${r.description || r.source}`)].join('\n');
+                navigator.clipboard.writeText(lines).catch(() => {});
+              }}
+              style={{ width: '100%', padding: '4px', borderRadius: 4, fontSize: 9, fontFamily: 'monospace', background: 'rgba(77,130,192,0.15)', border: '1px solid var(--fl-accent)', color: 'var(--fl-accent)', cursor: 'pointer' }}>
+              Copier le rapport
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ─── ExportFindingsView ─────────────────────────────────────────────────────── */
+function ExportFindingsView({ records, caseId }) {
+  const [format, setFormat] = useState('csv');
+  const [scope, setScope]   = useState('all');
+  const [withIoa, setWithIoa] = useState(true);
+
+  function doExport() {
+    const rows = scope === 'ioa'
+      ? records.filter(r => IOA_PATTERNS.some(p => { try { return p.match(r); } catch { return false; } }))
+      : records;
+
+    if (format === 'csv') {
+      const header = 'timestamp,artifact_type,host,user,process,description,source,ioa_patterns';
+      const csv = [header, ...rows.map(r => {
+        const ioas = withIoa ? IOA_PATTERNS.filter(p => { try { return p.match(r); } catch { return false; } }).map(p => p.name).join('|') : '';
+        return [r.timestamp, r.artifact_type, r.host_name, r.user_name, r.process_name, r.description, r.source, ioas]
+          .map(v => `"${String(v ?? '').replace(/"/g, '""')}"`)
+          .join(',');
+      })].join('\n');
+      const blob = new Blob([csv], { type: 'text/csv' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href = url; a.download = `heimdall-export-${Date.now()}.csv`; a.click();
+      URL.revokeObjectURL(url);
+    } else if (format === 'json') {
+      const data = rows.map(r => ({
+        timestamp: r.timestamp, artifact_type: r.artifact_type, host: r.host_name, user: r.user_name,
+        process: r.process_name, description: r.description, source: r.source,
+        ioa_patterns: withIoa ? IOA_PATTERNS.filter(p => { try { return p.match(r); } catch { return false; } }).map(p => p.name) : [],
+        raw: r.raw,
+      }));
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href = url; a.download = `heimdall-export-${Date.now()}.json`; a.click();
+      URL.revokeObjectURL(url);
+    } else if (format === 'md') {
+      const ioas = IOA_PATTERNS.filter(p => records.some(r => { try { return p.match(r); } catch { return false; } }));
+      const lines = [
+        `# Rapport d'investigation Heimdall DFIR`,
+        `**Date**: ${new Date().toISOString()}`,
+        `**Événements analysés**: ${records.length}`,
+        '',
+        '## Patterns IoA détectés',
+        ioas.length > 0
+          ? ioas.map(p => `- **${p.name}** (${p.tactic}): ${records.filter(r => { try { return p.match(r); } catch { return false; } }).length} occurrence(s)`).join('\n')
+          : '_Aucun pattern détecté_',
+        '',
+        '## Événements exportés',
+        `| Timestamp | Type | Hôte | Description |`,
+        `|---|---|---|---|`,
+        ...rows.slice(0, 500).map(r => `| ${r.timestamp || ''} | ${r.artifact_type || ''} | ${r.host_name || ''} | ${(r.description || '').replace(/\|/g, '\\|').slice(0, 100)} |`),
+        rows.length > 500 ? `\n_...et ${rows.length - 500} événements supplémentaires_` : '',
+      ].join('\n');
+      const blob = new Blob([lines], { type: 'text/markdown' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href = url; a.download = `heimdall-rapport-${Date.now()}.md`; a.click();
+      URL.revokeObjectURL(url);
+    }
+  }
+
+  const scopeRows = scope === 'ioa' ? records.filter(r => IOA_PATTERNS.some(p => { try { return p.match(r); } catch { return false; } })) : records;
+
+  return (
+    <div style={{ flex: 1, overflow: 'auto', padding: '20px', background: '#05080f' }}>
+      <div style={{ maxWidth: 520, margin: '0 auto' }}>
+        <div style={{ fontSize: 9, fontFamily: 'monospace', color: 'var(--fl-subtle)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 16 }}>Export & Rapport</div>
+
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ fontSize: 10, fontFamily: 'monospace', color: 'var(--fl-muted)', marginBottom: 6 }}>Format</div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            {['csv', 'json', 'md'].map(f => (
+              <button key={f} onClick={() => setFormat(f)}
+                style={{ padding: '5px 14px', borderRadius: 4, fontSize: 10, fontFamily: 'monospace', cursor: 'pointer', fontWeight: format === f ? 700 : 400, background: format === f ? 'rgba(77,130,192,0.2)' : 'transparent', border: `1px solid ${format === f ? 'var(--fl-accent)' : 'var(--fl-sep)'}`, color: format === f ? 'var(--fl-accent)' : 'var(--fl-muted)' }}>
+                {f.toUpperCase()}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ fontSize: 10, fontFamily: 'monospace', color: 'var(--fl-muted)', marginBottom: 6 }}>Périmètre</div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            {[{ k: 'all', l: `Tous (${records.length})` }, { k: 'ioa', l: `IoA seulement (${records.filter(r => IOA_PATTERNS.some(p => { try { return p.match(r); } catch { return false; } })).length})` }].map(opt => (
+              <button key={opt.k} onClick={() => setScope(opt.k)}
+                style={{ padding: '5px 14px', borderRadius: 4, fontSize: 10, fontFamily: 'monospace', cursor: 'pointer', fontWeight: scope === opt.k ? 700 : 400, background: scope === opt.k ? 'rgba(77,130,192,0.2)' : 'transparent', border: `1px solid ${scope === opt.k ? 'var(--fl-accent)' : 'var(--fl-sep)'}`, color: scope === opt.k ? 'var(--fl-accent)' : 'var(--fl-muted)' }}>
+                {opt.l}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div style={{ marginBottom: 20, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <input type="checkbox" id="withIoa" checked={withIoa} onChange={e => setWithIoa(e.target.checked)} />
+          <label htmlFor="withIoa" style={{ fontSize: 10, fontFamily: 'monospace', color: 'var(--fl-muted)', cursor: 'pointer' }}>
+            Inclure colonne IoA patterns
+          </label>
+        </div>
+
+        <div style={{ padding: '12px', borderRadius: 6, background: 'rgba(77,130,192,0.05)', border: '1px solid var(--fl-sep)', marginBottom: 16, fontSize: 10, fontFamily: 'monospace', color: 'var(--fl-subtle)' }}>
+          {scopeRows.length} événements · format {format.toUpperCase()}
+        </div>
+
+        <button onClick={doExport}
+          style={{ width: '100%', padding: '10px', borderRadius: 6, fontSize: 11, fontFamily: 'monospace', fontWeight: 700, cursor: 'pointer', background: 'rgba(77,130,192,0.2)', border: '1px solid var(--fl-accent)', color: 'var(--fl-accent)' }}>
+          ↓ Télécharger le rapport
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/* ─── end new view components ──────────────────────────────────────────────── */
 
 export default function SuperTimelineWorkbench({ records, availTypes, caseId, onFilterTimeline, socket, total = 0, page = 1, totalPages = 1, onPageChange, onExitWorkbench, enteredAt, onAITabChange }) {
   const { t } = useTranslation();
@@ -1731,6 +2450,12 @@ export default function SuperTimelineWorkbench({ records, availTypes, caseId, on
     { id: 'mitre',         label: 'MITRE',                        icon: ShieldAlert },
     { id: 'persistence',   label: t('workbench.tab_persistence'), icon: HardDrive },
     { id: 'dissimulation', label: t('workbench.tab_evasion'),     icon: Eye },
+    { id: 'process-tree',  label: 'Processus',                    icon: GitBranch },
+    { id: 'patterns',      label: 'IoA',                          icon: Zap },
+    { id: 'cluster',       label: 'Cluster',                      icon: Layers },
+    { id: 'multi-host',    label: 'Multi-hôte',                   icon: Network },
+    { id: 'attack-chain',  label: 'Kill Chain',                   icon: Activity },
+    { id: 'export',        label: 'Export',                       icon: Download },
     { id: 'ai',            label: 'IA',                           icon: Bot },
   ], [t]);
 
@@ -2150,7 +2875,43 @@ export default function SuperTimelineWorkbench({ records, availTypes, caseId, on
         </div>
       )}
 
-      
+      {activeTab === 'process-tree' && (
+        <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+          <ProcessTreeView records={filteredRecords} />
+        </div>
+      )}
+
+      {activeTab === 'patterns' && (
+        <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+          <PatternMatcherView records={filteredRecords} />
+        </div>
+      )}
+
+      {activeTab === 'cluster' && (
+        <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+          <ClusterView records={filteredRecords} />
+        </div>
+      )}
+
+      {activeTab === 'multi-host' && (
+        <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+          <MultiHostTrackView records={filteredRecords} />
+        </div>
+      )}
+
+      {activeTab === 'attack-chain' && (
+        <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+          <AttackChainBuilderView records={filteredRecords} />
+        </div>
+      )}
+
+      {activeTab === 'export' && (
+        <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+          <ExportFindingsView records={filteredRecords} caseId={caseId} />
+        </div>
+      )}
+
+
       {activeTab === 'timeline' && (
       <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
 
@@ -2270,10 +3031,10 @@ export default function SuperTimelineWorkbench({ records, availTypes, caseId, on
           </div>
         )}
 
-      <PanelGroup direction="vertical" style={{ flex: 1 }}>
+      <PanelGroup direction="horizontal" style={{ flex: 1 }}>
 
-        
-        <Panel defaultSize={60} minSize={20} style={{ overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+
+        <Panel defaultSize={65} minSize={30} style={{ overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
           
           <div style={{
             flexShrink: 0, display: 'flex', alignItems: 'center', gap: 6,
@@ -2379,9 +3140,10 @@ export default function SuperTimelineWorkbench({ records, availTypes, caseId, on
         <ResizeHandle />
 
         
-        <Panel defaultSize={26} minSize={10} style={{ overflow: 'hidden' }}>
+        <Panel defaultSize={35} minSize={20} style={{ overflow: 'hidden' }}>
           <ArtifactInspector
             record={selectedRecord}
+            allRecords={filteredRecords}
             caseId={caseId}
             onNotedRefsChange={loadNotedRefs}
             onFilterTimeline={onFilterTimeline}
