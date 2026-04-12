@@ -91,7 +91,7 @@ const ARTIFACT_PATTERNS = {
     name: 'Event Logs',
     argsBuilder: (input, output) => ['dotnet', path.join(ZIMMERMAN_DIR, 'EvtxECmd.dll'), '-d', input, '--csv', output, '--csvf', 'evtx_results.csv'],
     timestampColumns: ['TimeCreated', 'SystemTime'],
-    descriptionColumns: ['MapDescription', 'PayloadData1', 'PayloadData2', 'PayloadData3'],
+    descriptionColumns: ['MapDescription', 'PayloadData1'],
     sourceColumn: 'Channel',
   },
   prefetch: {
@@ -104,7 +104,7 @@ const ARTIFACT_PATTERNS = {
       return ['dotnet', path.join(ZIMMERMAN_DIR, 'PECmd.dll'), '-d', dir, '--csv', output, '--csvf', 'prefetch_results.csv', '-q'];
     },
     timestampColumns: ['LastRun', 'SourceCreated', 'SourceModified'],
-    descriptionColumns: ['ExecutableName', 'RunCount', 'Hash'],
+    descriptionColumns: ['ExecutableName'],
     sourceColumn: 'SourceFilename',
   },
   mft: {
@@ -114,8 +114,8 @@ const ARTIFACT_PATTERNS = {
     name: '$MFT',
     argsBuilder: (input, output) => ['dotnet', path.join(ZIMMERMAN_DIR, 'MFTECmd.dll'), '-f', input, '--csv', output, '--csvf', 'mft_results.csv'],
     timestampColumns: ['Created0x10', 'Created0x30', 'LastModified0x10', 'LastAccess0x10'],
-    descriptionColumns: ['FileName', 'ParentPath', 'Extension', 'FileSize'],
-    sourceColumn: 'FileName',
+    descriptionColumns: ['FileName'],
+    sourceColumn: 'FolderPath',
   },
   lnk: {
     patterns: ['**/Recent/**/*.lnk', '**/*.lnk'],
@@ -124,7 +124,7 @@ const ARTIFACT_PATTERNS = {
     name: 'LNK Shortcuts',
     argsBuilder: (input, output) => ['dotnet', path.join(ZIMMERMAN_DIR, 'LECmd.dll'), '-d', input, '--csv', output, '--csvf', 'lnk_results.csv'],
     timestampColumns: ['SourceCreated', 'SourceModified', 'TargetCreated', 'TargetModified'],
-    descriptionColumns: ['SourceFile', 'LocalPath', 'Arguments'],
+    descriptionColumns: ['LocalPath', 'SourceFile'],
     sourceColumn: 'SourceFile',
   },
   registry: {
@@ -134,7 +134,7 @@ const ARTIFACT_PATTERNS = {
     name: 'Registry Hives',
     argsBuilder: (input, output) => ['dotnet', path.join(ZIMMERMAN_DIR, 'RECmd.dll'), '-f', input, '--csv', output, '--csvf', 'registry_results.csv', '--bn', path.join(ZIMMERMAN_DIR, 'BatchExamples', 'RECmd_Batch_MC.reb')],
     timestampColumns: ['LastWriteTimestamp'],
-    descriptionColumns: ['ValueName', 'ValueData', 'KeyPath'],
+    descriptionColumns: ['Description', 'ValueName'],
     sourceColumn: 'HivePath',
   },
   amcache: {
@@ -144,7 +144,7 @@ const ARTIFACT_PATTERNS = {
     name: 'Amcache',
     argsBuilder: (input, output) => ['dotnet', path.join(ZIMMERMAN_DIR, 'AmcacheParser.dll'), '-f', input, '--csv', output, '--csvf', 'amcache_results.csv'],
     timestampColumns: ['FileKeyLastWriteTimestamp', 'LinkDate'],
-    descriptionColumns: ['ProgramName', 'FullPath', 'SHA1'],
+    descriptionColumns: ['FileDescription', 'FullPath', 'ProgramName'],
     sourceColumn: 'ProgramName',
   },
   appcompat: {
@@ -154,8 +154,8 @@ const ARTIFACT_PATTERNS = {
     name: 'ShimCache (AppCompat)',
     argsBuilder: (input, output) => ['dotnet', path.join(ZIMMERMAN_DIR, 'AppCompatCacheParser.dll'), '-f', input, '--csv', output, '--csvf', 'shimcache_results.csv'],
     timestampColumns: ['LastModifiedTimeUTC', 'CacheEntryPosition'],
-    descriptionColumns: ['Path', 'Executed'],
-    sourceColumn: 'Path',
+    descriptionColumns: ['Path'],
+    sourceColumn: 'SourceFile',
   },
   shellbags: {
     patterns: ['**/UsrClass.dat', '**/NTUSER.DAT'],
@@ -164,7 +164,7 @@ const ARTIFACT_PATTERNS = {
     name: 'Shellbags',
     argsBuilder: (input, output) => ['dotnet', path.join(ZIMMERMAN_DIR, 'SBECmd.dll'), '-d', input, '--csv', output],
     timestampColumns: ['CreatedOn', 'ModifiedOn', 'AccessedOn', 'LastWriteTime'],
-    descriptionColumns: ['AbsolutePath', 'ShellType', 'Value'],
+    descriptionColumns: ['AbsolutePath'],
     sourceColumn: 'AbsolutePath',
   },
   jumplist: {
@@ -174,7 +174,7 @@ const ARTIFACT_PATTERNS = {
     name: 'Jump Lists',
     argsBuilder: (input, output) => ['dotnet', path.join(ZIMMERMAN_DIR, 'JLECmd.dll'), '-d', input, '--csv', output, '--csvf', 'jumplist_results.csv'],
     timestampColumns: ['SourceCreated', 'SourceModified', 'TargetCreated', 'TargetModified'],
-    descriptionColumns: ['SourceFile', 'LocalPath', 'Arguments'],
+    descriptionColumns: ['AppIdDescription', 'LocalPath'],
     sourceColumn: 'SourceFile',
   },
   srum: {
@@ -185,8 +185,8 @@ const ARTIFACT_PATTERNS = {
 
     argsBuilder: (input, output) => ['python3', '/app/parsers/parse_srum.py', '-f', input, '--csv', output, '--csvf', 'srum_results.csv'],
     timestampColumns: ['Timestamp', 'ConnectStartTime'],
-    descriptionColumns: ['ExeInfo', 'AppId', 'SidType'],
-    sourceColumn: 'ExeInfo',
+    descriptionColumns: ['ExeInfo'],
+    sourceColumn: 'AppId',
   },
   wxtcmd: {
     patterns: ['**/ActivitiesCache.db'],
@@ -199,7 +199,7 @@ const ARTIFACT_PATTERNS = {
       return ['python3', '/app/parsers/parse_wxtcmd.py', '-d', dir, '--csv', output, '--csvf', 'wxtcmd_results.csv'];
     },
     timestampColumns: ['StartTime', 'EndTime', 'LastModifiedTime'],
-    descriptionColumns: ['AppId', 'DisplayText', 'Description'],
+    descriptionColumns: ['DisplayText', 'Description', 'AppId'],
     sourceColumn: 'AppId',
   },
   recycle: {
@@ -209,8 +209,8 @@ const ARTIFACT_PATTERNS = {
     name: 'Recycle Bin ($I)',
     argsBuilder: (input, output) => ['dotnet', path.join(ZIMMERMAN_DIR, 'RBCmd.dll'), '-d', input, '--csv', output],
     timestampColumns: ['DeletedOn'],
-    descriptionColumns: ['FileName', 'FileSize', 'SourceName'],
-    sourceColumn: 'FileName',
+    descriptionColumns: ['FileName'],
+    sourceColumn: 'SourceName',
   },
   bits: {
     patterns: ['**/qmgr*.dat', '**/BITS/**'],
@@ -219,8 +219,8 @@ const ARTIFACT_PATTERNS = {
     name: 'BITS Jobs',
     argsBuilder: (input, output) => ['dotnet', path.join(ZIMMERMAN_DIR, 'BitsParser.dll'), '-f', input, '--csv', output],
     timestampColumns: ['CreationTime', 'ModifiedTime', 'CompletedTime'],
-    descriptionColumns: ['JobName', 'Files', 'OwnerSID'],
-    sourceColumn: 'JobName',
+    descriptionColumns: ['JobName'],
+    sourceColumn: 'TargetDirectory',
   },
   sum: {
     patterns: ['**/Current.mdb', '**/SystemIdentity.mdb'],
@@ -229,7 +229,7 @@ const ARTIFACT_PATTERNS = {
     name: 'User Access Logging',
     argsBuilder: (input, output) => ['dotnet', path.join(ZIMMERMAN_DIR, 'SumECmd.dll'), '-d', input, '--csv', output],
     timestampColumns: ['InsertDate', 'LastAccess'],
-    descriptionColumns: ['UserName', 'ClientName', 'AuthenticatedUserName', 'RoleGuid'],
+    descriptionColumns: ['UserName'],
     sourceColumn: 'UserName',
   },
   sqle: {
@@ -241,7 +241,7 @@ const ARTIFACT_PATTERNS = {
     name: 'Browser History',
     argsBuilder: (input, output) => ['python3', '/app/parsers/parse_sqle.py', '-d', input, '--csv', output, '--csvf', 'sqle_results.csv'],
     timestampColumns: ['LastVisitDate', 'VisitDate', 'StartTime'],
-    descriptionColumns: ['URL', 'Title', 'VisitCount', 'SourceType'],
+    descriptionColumns: ['Title', 'URL'],
     sourceColumn: 'SourceFile',
   },
 };
@@ -336,7 +336,7 @@ function findFiles(dir, patterns) {
 
         let isDir = entry.isDirectory();
         if (!isDir && entry.isSymbolicLink()) {
-          try { isDir = fs.statSync(fullPath).isDirectory(); } catch  }
+          try { isDir = fs.statSync(fullPath).isDirectory(); } catch (_e) {}
         }
         if (isDir) {
           queue.push(fullPath);
@@ -448,7 +448,7 @@ function findCsvFilesRecursive(dir) {
       if (entry.isDirectory()) results.push(...findCsvFilesRecursive(full));
       else if (entry.isFile() && entry.name.toLowerCase().endsWith('.csv')) results.push(full);
     }
-  } catch  }
+  } catch (_e) {}
   return results;
 }
 
@@ -734,13 +734,15 @@ function extractTimestamp(record, timestampColumns) {
 }
 
 function extractDescription(record, descriptionColumns) {
-  const parts = [];
   for (const col of descriptionColumns) {
-    if (record[col] && record[col].trim()) {
-      parts.push(record[col].trim());
-    }
+    const val = (record[col] || '').toString().trim();
+    if (val && val !== '-' && val !== 'N/A') return val;
   }
-  return parts.join(' | ') || Object.values(record).filter(v => v && v.trim()).slice(0, 3).join(' | ');
+  for (const val of Object.values(record)) {
+    const s = (val || '').toString().trim();
+    if (s && s !== '-' && s !== 'N/A') return s;
+  }
+  return '';
 }
 
 router.post('/:caseId/import', authenticate, upload.single('collection'), async (req, res) => {
@@ -759,7 +761,7 @@ router.post('/:caseId/import', authenticate, upload.single('collection'), async 
 
     const ext = path.extname(req.file.originalname).toLowerCase();
     if (!['.zip', '.tar', '.gz', '.tgz', '.7z'].includes(ext)) {
-      try { fs.unlinkSync(req.file.path); } catch (_)  }
+      try { fs.unlinkSync(req.file.path); } catch (_) {}
       return res.status(400).json({ error: 'Format non supporté. Utilisez .zip, .tar.gz ou .7z' });
     }
 
@@ -800,7 +802,7 @@ router.post('/:caseId/import', authenticate, upload.single('collection'), async 
           await spawnTool(['7z', 'x', uploadedPath, `-o${collectionDir}`, '-y'], { timeout: 3600000 });
         }
 
-        try { fs.unlinkSync(uploadedPath); } catch (_)  }
+        try { fs.unlinkSync(uploadedPath); } catch (_) {}
 
         if (socketId && io) io.to(socketId).emit('collection:progress', { type: 'extracted' });
 
@@ -814,7 +816,7 @@ router.post('/:caseId/import', authenticate, upload.single('collection'), async 
             isCatScale = true;
 
             let csFileCount = 0;
-            try { csFileCount = fs.readdirSync(catscaleRoot).length; } catch  }
+            try { csFileCount = fs.readdirSync(catscaleRoot).length; } catch (_e) {}
             detectedArtifacts['catscale'] = {
               files: [catscaleRoot],
               count: csFileCount,
@@ -856,7 +858,7 @@ router.post('/:caseId/import', authenticate, upload.single('collection'), async 
           if (duResult.status === 0 && duResult.stdout) {
             collectionDirSize = parseInt(duResult.stdout.split('\t')[0], 10) || 0;
           }
-        } catch  }
+        } catch (_e) {}
 
         await pool.query(
           `INSERT INTO evidence (case_id, name, original_filename, file_path, evidence_type, notes, added_by, metadata,
@@ -894,7 +896,7 @@ router.post('/:caseId/import', authenticate, upload.single('collection'), async 
         }
       } catch (err) {
         logger.error('[collection] async import error:', err.message);
-        try { fs.unlinkSync(uploadedPath); } catch (_)  }
+        try { fs.unlinkSync(uploadedPath); } catch (_) {}
         if (socketId && io) {
           io.to(socketId).emit('collection:import:error', {
             error: 'Erreur extraction de la collecte',
@@ -944,7 +946,7 @@ router.post('/:caseId/parse', authenticate, async (req, res) => {
       if (latest.rows.length > 0) {
         collDir = latest.rows[0].dir || latest.rows[0].input_file;
       }
-    } catch (e)  }
+    } catch (e) {}
   }
 
   if (!collDir || !fs.existsSync(collDir)) {
@@ -1004,7 +1006,7 @@ router.post('/:caseId/parse', authenticate, async (req, res) => {
         [caseId, collDir]
       );
       if (evRow.rows.length > 0) evidenceId = evRow.rows[0].id;
-    } catch  }
+    } catch (_e) {}
   }
 
   let sourceDevice = null;
@@ -1023,7 +1025,7 @@ router.post('/:caseId/parse', authenticate, async (req, res) => {
       const m = dirBasename.match(/^([A-Za-z0-9][-A-Za-z0-9]{2,})/);
       if (m && !m[1].startsWith('case-')) sourceDevice = m[1].toUpperCase();
     }
-  } catch  }
+  } catch (_e) {}
 
   let resultId;
   try {
@@ -1338,7 +1340,7 @@ router.post('/:caseId/parse', authenticate, async (req, res) => {
       try {
         const mtime = fs.statSync(catscaleRoot).mtime;
         if (mtime && mtime < new Date()) Object.assign(collectionTime, mtime) || (collectionTime.setTime(mtime.getTime()));
-      } catch  }
+      } catch (_e) {}
       const csResult = await parseCatScale(catscaleRoot, caseId, pool, collectionTime, (p) => {
         if (socketId && io) io.to(socketId).emit('collection:progress', { ...p, artifact: 'catscale' });
       }, resultId);
@@ -1380,7 +1382,7 @@ router.post('/:caseId/parse', authenticate, async (req, res) => {
         const keys = await redis.keys(`timeline:aggs:${caseId}:*`);
         if (keys.length) await redis.del(...keys);
       }
-    } catch  }
+    } catch (_e) {}
 
     await auditLog(req.user.id, 'parse_collection', 'collection', resultId,
       { artifact_types: typesToParse, total_records: totalRecords }, req.ip);
@@ -1416,7 +1418,7 @@ router.post('/:caseId/parse', authenticate, async (req, res) => {
              VALUES ${values.join(',')}`,
             params
           );
-        } catch (e)  }
+        } catch (e) {}
       }
     }
 
@@ -1614,7 +1616,7 @@ router.get('/:caseId/timeline', authenticate, async (req, res) => {
         const raw = await redis.get(aggCacheKey);
         if (raw) cachedAggs = JSON.parse(raw);
       }
-    } catch  }
+    } catch (_e) {}
 
     const baseQueries = [
       pool.query(`SELECT COUNT(*)::int AS total FROM collection_timeline WHERE ${where}`, params),
@@ -1661,7 +1663,7 @@ router.get('/:caseId/timeline', authenticate, async (req, res) => {
             users: usersRes.rows,
           }));
         }
-      } catch  }
+      } catch (_e) {}
     }
 
     const total = countRes.rows[0].total;
@@ -1811,7 +1813,7 @@ router.post('/:caseId/hayabusa', authenticate, async (req, res) => {
         [caseId, collectionDir]
       );
       if (evRow.rows.length > 0) hayEvidenceId = evRow.rows[0].id;
-    } catch  }
+    } catch (_e) {}
 
     const evtxFiles = findFiles(collectionDir, ['**/*.evtx', '**/winevt/Logs/*.evtx']);
     if (evtxFiles.length === 0) {
@@ -1884,11 +1886,11 @@ router.post('/:caseId/hayabusa', authenticate, async (req, res) => {
               details: parsed.Details || parsed.details || '',
               mitre_attack: parsed.MitreTactics || parsed.mitre_tactics || '',
               rule_file: parsed.RuleFile || parsed.rule_file || '',
-              description: `[${parsed.Level || 'info'}] ${parsed.RuleTitle || parsed.rule_title || ''} — ${parsed.Details || parsed.details || ''}`,
+              description: `[${(parsed.Level || 'info').toLowerCase()}] ${parsed.RuleTitle || parsed.rule_title || ''}`,
               source: parsed.Channel || parsed.channel || '',
               raw: parsed,
             });
-          } catch  }
+          } catch (_e) {}
         });
         rl.on('close', resolve);
         rl.on('error', reject);
@@ -1909,7 +1911,7 @@ router.post('/:caseId/hayabusa', authenticate, async (req, res) => {
           [caseId]
         );
         evtxRecords = evtxResult.rows;
-      } catch (e)  }
+      } catch (e) {}
 
       const SIGMA_RULES = [
         { title: 'Suspicious PowerShell Download Cradle', level: 'high', match: /invoke-webrequest|downloadstring|invoke-expression|iex\s*\(/i, mitre: 'T1059.001', tactic: 'Execution' },
@@ -1945,7 +1947,7 @@ router.post('/:caseId/hayabusa', authenticate, async (req, res) => {
 
               mitre_attack: rule.mitre,
               tactic: rule.tactic,
-              description: `[${rule.level}] ${rule.title} — ${record.description}`,
+              description: `[${rule.level}] ${rule.title}`,
               source: record.source || '',
               raw: { ...rawObj, hayabusa_rule: rule.title, hayabusa_mitre: rule.mitre },
             });
@@ -2120,7 +2122,7 @@ router.delete('/:caseId/data', authenticate, async (req, res) => {
           const duOut = await spawnTool(['du', '-sb', collDir], { timeout: 10000 });
           const szLine = duOut.trim().split(/\s+/)[0];
           freedBytes += parseInt(szLine) || 0;
-        } catch  }
+        } catch (_e) {}
         fs.rmSync(collDir, { recursive: true, force: true });
         logger.info(`[collection] Deleted collection dir: ${collDir}`);
       }
@@ -2129,10 +2131,10 @@ router.delete('/:caseId/data', authenticate, async (req, res) => {
     try {
       for (const entry of fs.readdirSync(TEMP_DIR)) {
         if (entry.startsWith(`parse-${caseId}-`)) {
-          try { fs.rmSync(path.join(TEMP_DIR, entry), { recursive: true, force: true }); } catch  }
+          try { fs.rmSync(path.join(TEMP_DIR, entry), { recursive: true, force: true }); } catch (_e) {}
         }
       }
-    } catch  }
+    } catch (_e) {}
 
     const ctDeleted = await pool.query(
       `DELETE FROM collection_timeline WHERE case_id = $1`,
