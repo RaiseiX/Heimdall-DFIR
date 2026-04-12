@@ -4,10 +4,11 @@ import {
   Clock, Search, ChevronLeft, ChevronRight, Download, Loader2,
   FolderOpen, Star, Eye, EyeOff, SortAsc, SortDesc, X, Filter, Tag, LayoutTemplate, ArrowLeft,
   Copy, CheckSquare, Square, Layers, Palette, Columns, ChevronDown, Pin, ChevronUp,
+  MessageSquare, Send, Trash2, Pencil,
 } from 'lucide-react';
 import { useNavigate, useParams, useLocation, useSearchParams, useOutletContext } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { collectionAPI, casesAPI, evidenceAPI, timelineRulesAPI } from '../utils/api';
+import { collectionAPI, casesAPI, evidenceAPI, timelineRulesAPI, artifactsAPI } from '../utils/api';
 import { useSocket } from '../hooks/useSocket';
 import { useTheme } from '../utils/theme';
 import SuperTimelineWorkbench from '../components/timeline/SuperTimelineWorkbench';
@@ -431,6 +432,12 @@ export default function SuperTimelinePage() {
   const evidenceFilterRef = useRef(null);
 
   const [selectedRow, setSelectedRow]   = useState(null);
+  const [detailTab, setDetailTab]       = useState('details');
+  const [rowNotes, setRowNotes]         = useState([]);
+  const [noteText, setNoteText]         = useState('');
+  const [noteSaving, setNoteSaving]     = useState(false);
+  const [noteEditId, setNoteEditId]     = useState(null);
+  const [noteEditText, setNoteEditText] = useState('');
   const [bookmarks, setBookmarks]       = useState(new Set());
   const [showBookmarksOnly, setShowBookmarks] = useState(false);
 
@@ -866,9 +873,68 @@ export default function SuperTimelinePage() {
     } else {
 
       setSelectedRows(new Set());
-      setSelectedRow(selectedRow === localIndex ? null : localIndex);
+      const next = selectedRow === localIndex ? null : localIndex;
+      setSelectedRow(next);
+      if (next !== selectedRow) { setDetailTab('details'); setRowNotes([]); setNoteText(''); setNoteEditId(null); }
       lastClickedRowRef.current = localIndex;
     }
+  }
+
+  function computeRowRef(r) {
+    if (!r) return null;
+    const str = `${r.timestamp || ''}|${r.artifact_type || ''}|${r.source || ''}`;
+    let h = 5381;
+    for (let i = 0; i < str.length; i++) h = (((h << 5) + h) ^ str.charCodeAt(i)) >>> 0;
+    return h.toString(16).padStart(8, '0');
+  }
+
+  useEffect(() => {
+    if (detailTab !== 'notes' || selectedRow === null || !caseId) return;
+    const r = displayedRecords[selectedRow];
+    if (!r) return;
+    const ref = computeRowRef(r);
+    const controller = new AbortController();
+    artifactsAPI.getNotes(caseId, ref, { signal: controller.signal })
+      .then(res => setRowNotes(res.data?.notes ?? []))
+      .catch(err => { if (err.name !== 'CanceledError' && err.name !== 'AbortError') setRowNotes([]); });
+    return () => controller.abort();
+  }, [detailTab, selectedRow, caseId]);
+
+  async function submitRowNote() {
+    const r = selectedRow !== null ? displayedRecords[selectedRow] : null;
+    if (!noteText.trim() || !r || !caseId) return;
+    setNoteSaving(true);
+    try {
+      const ref = computeRowRef(r);
+      await artifactsAPI.createNote(caseId, ref, noteText.trim());
+      setNoteText('');
+      const res = await artifactsAPI.getNotes(caseId, ref);
+      setRowNotes(res.data?.notes ?? []);
+    } catch {}
+    setNoteSaving(false);
+  }
+
+  async function saveEditRowNote(noteId) {
+    const r = selectedRow !== null ? displayedRecords[selectedRow] : null;
+    if (!noteEditText.trim() || !r || !caseId) return;
+    try {
+      const ref = computeRowRef(r);
+      await artifactsAPI.updateNote(caseId, ref, noteId, noteEditText.trim());
+      const res = await artifactsAPI.getNotes(caseId, ref);
+      setRowNotes(res.data?.notes ?? []);
+      setNoteEditId(null);
+    } catch {}
+  }
+
+  async function deleteRowNote(noteId) {
+    const r = selectedRow !== null ? displayedRecords[selectedRow] : null;
+    if (!r || !caseId) return;
+    try {
+      const ref = computeRowRef(r);
+      await artifactsAPI.deleteNote(caseId, ref, noteId);
+      const res = await artifactsAPI.getNotes(caseId, ref);
+      setRowNotes(res.data?.notes ?? []);
+    } catch {}
   }
 
   function toggleRowCheckbox(e, localIndex) {
@@ -2382,100 +2448,169 @@ export default function SuperTimelinePage() {
                     overflow: 'hidden',
                   }}>
                     
+                    {/* ── Header ── */}
                     <div style={{
                       display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                      padding: '8px 12px',
+                      padding: '6px 12px',
                       borderBottom: `1px solid ${acol}25`,
                       background: `linear-gradient(90deg, ${acol}14 0%, #0b101a 100%)`,
                       flexShrink: 0,
                     }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
-                        <span style={{
-                          width: 7, height: 7, borderRadius: '50%',
-                          background: acol, flexShrink: 0,
-                          boxShadow: `0 0 8px ${acol}90`,
-                        }} />
-                        <span style={{
-                          fontFamily: 'monospace', fontSize: 11, fontWeight: 700,
-                          color: 'var(--fl-text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                        }}>
+                        <span style={{ width: 7, height: 7, borderRadius: '50%', background: acol, flexShrink: 0, boxShadow: `0 0 8px ${acol}90` }} />
+                        <span style={{ fontFamily: 'monospace', fontSize: 11, fontWeight: 700, color: 'var(--fl-text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                           {r.artifact_name}
                         </span>
                       </div>
-                      <button
-                        onClick={() => setSelectedRow(null)}
-                        style={{ background: 'none', border: 'none', cursor: 'pointer',
-                          color: 'var(--fl-dim)', display: 'flex', padding: 3, borderRadius: 4, flexShrink: 0 }}
-                      >
+                      <button onClick={() => setSelectedRow(null)}
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--fl-dim)', display: 'flex', padding: 3, borderRadius: 4, flexShrink: 0 }}>
                         <X size={13} />
                       </button>
                     </div>
-                    
+
+                    {/* ── Tab bar ── */}
+                    <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center', borderBottom: `1px solid ${acol}20`, background: '#07090f' }}>
+                      {[
+                        { id: 'details', label: 'Details', icon: null },
+                        { id: 'notes',   label: 'Notes',   icon: MessageSquare, badge: rowNotes.length },
+                      ].map(tb => (
+                        <button key={tb.id} onClick={() => setDetailTab(tb.id)}
+                          style={{
+                            background: 'none', border: 'none', cursor: 'pointer',
+                            padding: '6px 12px', fontSize: 10, fontFamily: 'monospace',
+                            fontWeight: detailTab === tb.id ? 700 : 400,
+                            color: detailTab === tb.id ? acol : 'var(--fl-muted)',
+                            borderBottom: detailTab === tb.id ? `2px solid ${acol}` : '2px solid transparent',
+                            display: 'flex', alignItems: 'center', gap: 4,
+                          }}>
+                          {tb.icon && <tb.icon size={9} />}
+                          {tb.label}
+                          {tb.badge > 0 && (
+                            <span style={{ fontSize: 8, background: acol, color: '#000', borderRadius: 8, padding: '0 4px', fontWeight: 700 }}>
+                              {tb.badge}
+                            </span>
+                          )}
+                        </button>
+                      ))}
+                    </div>
+
+                    {/* ── Details tab ── */}
+                    {detailTab === 'details' && (
                     <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: '10px 12px' }}>
-                      
                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 10 }}>
                         <span style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--fl-accent)', width: '100%' }}>
                           {fmtTs(r.timestamp)}
                         </span>
                         {r.timestamp_column && (
-                          <span style={{ fontFamily: 'monospace', fontSize: 9, padding: '1px 5px',
-                            borderRadius: 3, background: 'var(--fl-sep)', color: 'var(--fl-dim)' }}>
+                          <span style={{ fontFamily: 'monospace', fontSize: 9, padding: '1px 5px', borderRadius: 3, background: 'var(--fl-sep)', color: 'var(--fl-dim)' }}>
                             {r.timestamp_column}
                           </span>
                         )}
-                        <span style={{ fontFamily: 'monospace', fontSize: 9, padding: '1px 5px',
-                          borderRadius: 3, background: `${acol}18`, color: acol, border: `1px solid ${acol}35` }}>
+                        <span style={{ fontFamily: 'monospace', fontSize: 9, padding: '1px 5px', borderRadius: 3, background: `${acol}18`, color: acol, border: `1px solid ${acol}35` }}>
                           {r.artifact_type}
                         </span>
                         {lvl && (
-                          <span style={{ padding: '1px 6px', borderRadius: 8, fontSize: 9,
-                            fontFamily: 'monospace', fontWeight: 700,
-                            background: lvl.bg, color: lvl.color, border: `1px solid ${lvl.color}40` }}>
+                          <span style={{ padding: '1px 6px', borderRadius: 8, fontSize: 9, fontFamily: 'monospace', fontWeight: 700, background: lvl.bg, color: lvl.color, border: `1px solid ${lvl.color}40` }}>
                             {lvl.label}
                           </span>
                         )}
                         {td.tags?.map(key => {
                           const ft = FORENSIC_TAG_MAP_T[key];
                           return ft ? (
-                            <span key={key} style={{ padding: '1px 6px', borderRadius: 8, fontSize: 9,
-                              fontFamily: 'monospace', background: `${ft.color}18`,
-                              color: ft.color, border: `1px solid ${ft.color}30` }}>
+                            <span key={key} style={{ padding: '1px 6px', borderRadius: 8, fontSize: 9, fontFamily: 'monospace', background: `${ft.color}18`, color: ft.color, border: `1px solid ${ft.color}30` }}>
                               {ft.label}
                             </span>
                           ) : null;
                         })}
                       </div>
-                      
                       {(fmtDesc(r) || r.description) && (
-                        <div style={{ padding: '7px 9px', fontFamily: 'monospace', fontSize: 10,
-                          color: 'var(--fl-on-dark)', background: `${acol}0c`, borderRadius: 5,
-                          border: `1px solid ${acol}35`, marginBottom: 10, lineHeight: 1.6,
-                          wordBreak: 'break-word' }}>
+                        <div style={{ padding: '7px 9px', fontFamily: 'monospace', fontSize: 10, color: 'var(--fl-on-dark)', background: `${acol}0c`, borderRadius: 5, border: `1px solid ${acol}35`, marginBottom: 10, lineHeight: 1.6, wordBreak: 'break-word' }}>
                           {fmtDesc(r) || r.description}
                         </div>
                       )}
-                      
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
                         {Object.entries(r.raw || {})
                           .filter(([, v]) => v !== '' && v !== null && v !== undefined)
                           .map(([k, v]) => (
                             <div key={k} style={{ borderRadius: 4, overflow: 'hidden', border: `1px solid ${acol}28` }}>
-                              <div style={{
-                                fontFamily: 'monospace', fontSize: 9, color: acol,
-                                padding: '3px 7px', background: `${acol}18`,
-                                textTransform: 'uppercase', letterSpacing: '0.07em', fontWeight: 600,
-                              }}>
+                              <div style={{ fontFamily: 'monospace', fontSize: 9, color: acol, padding: '3px 7px', background: `${acol}18`, textTransform: 'uppercase', letterSpacing: '0.07em', fontWeight: 600 }}>
                                 {labelMap[k] || k}
                               </div>
-                              <div style={{ fontFamily: 'monospace', fontSize: 10, color: '#c0cfe0',
-                                padding: '5px 7px', wordBreak: 'break-all', lineHeight: 1.5,
-                                background: '#0b101a', borderTop: `1px solid ${acol}18` }}>
+                              <div style={{ fontFamily: 'monospace', fontSize: 10, color: '#c0cfe0', padding: '5px 7px', wordBreak: 'break-all', lineHeight: 1.5, background: '#0b101a', borderTop: `1px solid ${acol}18` }}>
                                 {String(v).substring(0, 500)}
                               </div>
                             </div>
                           ))}
                       </div>
                     </div>
+                    )}
+
+                    {/* ── Notes tab ── */}
+                    {detailTab === 'notes' && (
+                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+                      <div style={{ flex: 1, overflow: 'auto', padding: '8px 12px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                        {rowNotes.length === 0 ? (
+                          <div style={{ color: 'var(--fl-muted)', fontFamily: 'monospace', fontSize: 11, textAlign: 'center', marginTop: 24 }}>
+                            No notes yet — add one below
+                          </div>
+                        ) : rowNotes.map(n => (
+                          <div key={n.id} style={{ borderRadius: 6, border: '1px solid var(--fl-border)', background: 'var(--fl-bg)', padding: '8px 10px' }}>
+                            {noteEditId === n.id ? (
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                                <textarea value={noteEditText} onChange={e => setNoteEditText(e.target.value)}
+                                  style={{ width: '100%', background: 'var(--fl-input-bg)', border: '1px solid var(--fl-border)', borderRadius: 4, color: 'var(--fl-text)', fontFamily: 'monospace', fontSize: 11, padding: '6px 8px', resize: 'vertical', minHeight: 60, outline: 'none', boxSizing: 'border-box' }} />
+                                <div style={{ display: 'flex', gap: 6 }}>
+                                  <button onClick={() => saveEditRowNote(n.id)}
+                                    style={{ padding: '3px 10px', borderRadius: 4, background: `${acol}18`, border: `1px solid ${acol}50`, color: acol, fontSize: 10, fontFamily: 'monospace', cursor: 'pointer' }}>
+                                    Save
+                                  </button>
+                                  <button onClick={() => setNoteEditId(null)}
+                                    style={{ padding: '3px 10px', borderRadius: 4, background: 'none', border: '1px solid var(--fl-border)', color: 'var(--fl-dim)', fontSize: 10, fontFamily: 'monospace', cursor: 'pointer' }}>
+                                    Cancel
+                                  </button>
+                                </div>
+                              </div>
+                            ) : (
+                              <>
+                                <div style={{ fontSize: 11, color: 'var(--fl-text)', lineHeight: 1.5, wordBreak: 'break-word', marginBottom: 6 }}>
+                                  {n.note}
+                                </div>
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                  <span style={{ fontSize: 9, color: 'var(--fl-muted)', fontFamily: 'monospace' }}>
+                                    {n.author_name || n.author_username} · {new Date(n.created_at).toLocaleString()}
+                                    {n.updated_at !== n.created_at && ' (edited)'}
+                                  </span>
+                                  <div style={{ display: 'flex', gap: 6 }}>
+                                    <button onClick={() => { setNoteEditId(n.id); setNoteEditText(n.note); }}
+                                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--fl-dim)', display: 'flex' }}>
+                                      <Pencil size={10} />
+                                    </button>
+                                    <button onClick={() => deleteRowNote(n.id)}
+                                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--fl-danger)', display: 'flex' }}>
+                                      <Trash2 size={10} />
+                                    </button>
+                                  </div>
+                                </div>
+                              </>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                      <div style={{ flexShrink: 0, padding: '8px 12px', borderTop: '1px solid var(--fl-border2)', display: 'flex', gap: 8 }}>
+                        <textarea
+                          value={noteText}
+                          onChange={e => setNoteText(e.target.value)}
+                          onKeyDown={e => { if (e.key === 'Enter' && e.ctrlKey) submitRowNote(); }}
+                          placeholder="Add a note… (Ctrl+Enter to send)"
+                          style={{ flex: 1, background: 'var(--fl-input-bg)', border: '1px solid var(--fl-border)', borderRadius: 4, color: 'var(--fl-text)', fontFamily: 'monospace', fontSize: 11, padding: '6px 8px', resize: 'none', height: 52, outline: 'none' }}
+                        />
+                        <button onClick={submitRowNote} disabled={noteSaving || !noteText.trim()}
+                          style={{ padding: '0 12px', borderRadius: 4, background: noteText.trim() ? `${acol}18` : 'var(--fl-bg)', border: `1px solid ${noteText.trim() ? acol + '50' : 'var(--fl-border2)'}`, color: noteText.trim() ? acol : 'var(--fl-muted)', cursor: noteText.trim() ? 'pointer' : 'default', display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, fontFamily: 'monospace' }}>
+                          <Send size={11} /> Send
+                        </button>
+                      </div>
+                    </div>
+                    )}
                   </div>
                 );
               })()}
