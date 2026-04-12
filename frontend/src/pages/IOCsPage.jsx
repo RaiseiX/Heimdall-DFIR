@@ -87,10 +87,10 @@ function GeoBadge({ ioc }) {
   if (!ioc.geo_country_code && !ioc.geo_country) return null;
   const flag = countryFlag(ioc.geo_country_code);
   return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11, color: '#7d8590' }}>
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11, color: 'var(--fl-dim)' }}>
       <span style={{ fontSize: 14 }}>{flag}</span>
       <span>{ioc.geo_country || ioc.geo_country_code}</span>
-      {ioc.geo_is_proxy && <span style={{ fontSize: 10, padding: '1px 4px', background: '#d97c2020', color: '#d97c20', borderRadius: 3, border: '1px solid #d97c2040' }}>PROXY</span>}
+      {ioc.geo_is_proxy && <span style={{ fontSize: 10, padding: '1px 4px', background: '#d97c2020', color: 'var(--fl-warn)', borderRadius: 3, border: '1px solid #d97c2040' }}>PROXY</span>}
       {ioc.geo_is_hosting && <span style={{ fontSize: 10, padding: '1px 4px', background: '#8b5cf620', color: '#8b5cf6', borderRadius: 3, border: '1px solid #8b5cf640' }}>HOSTING</span>}
     </span>
   );
@@ -113,11 +113,11 @@ function DgaPanel({ caseId }) {
   if (!caseId) return null;
 
   return (
-    <div style={{ marginTop: 16, background: '#161b22', border: '1px solid #30363d', borderRadius: 8, overflow: 'hidden' }}>
-      <div style={{ padding: '10px 16px', borderBottom: '1px solid #21303f', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <div style={{ fontSize: 12, fontWeight: 700, color: '#e6edf3', display: 'flex', alignItems: 'center', gap: 6 }}>
+    <div style={{ marginTop: 16, background: 'var(--fl-panel)', border: '1px solid var(--fl-border)', borderRadius: 8, overflow: 'hidden' }}>
+      <div style={{ padding: '10px 16px', borderBottom: '1px solid var(--fl-panel)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--fl-text)', display: 'flex', alignItems: 'center', gap: 6 }}>
           <span>🧬</span> Détection DGA (Domain Generation Algorithm)
-          {data && <span style={{ fontSize: 11, color: '#7d8590', fontWeight: 400 }}>— {data.total} domaines, {data.suspicious_count} suspects</span>}
+          {data && <span style={{ fontSize: 11, color: 'var(--fl-dim)', fontWeight: 400 }}>— {data.total} domaines, {data.suspicious_count} suspects</span>}
         </div>
         <button onClick={analyze} disabled={loading} style={{ fontSize: 11, padding: '4px 10px', background: '#1c6ef2', color: '#fff', border: 'none', borderRadius: 5, cursor: 'pointer' }}>
           {loading ? '…' : 'Analyser'}
@@ -126,30 +126,30 @@ function DgaPanel({ caseId }) {
       {data && data.domains.length > 0 && (
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
           <thead>
-            <tr style={{ background: '#0d1117' }}>
+            <tr style={{ background: 'var(--fl-bg)' }}>
               {['Domaine', 'Entropie', 'Ratio consonnes', 'Longueur', 'Score DGA', 'Statut'].map(h => (
-                <th key={h} style={{ padding: '6px 12px', textAlign: 'left', color: '#7d8590', fontWeight: 600, borderBottom: '1px solid #21303f' }}>{h}</th>
+                <th key={h} style={{ padding: '6px 12px', textAlign: 'left', color: 'var(--fl-dim)', fontWeight: 600, borderBottom: '1px solid var(--fl-panel)' }}>{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
             {data.domains.map((d, i) => (
-              <tr key={d.domain} style={{ background: d.is_suspicious ? '#2d1515' : i % 2 === 0 ? '#161b22' : '#0d1117', borderBottom: '1px solid #21303f10' }}>
-                <td style={{ padding: '5px 12px', color: '#e6edf3', fontFamily: 'monospace' }}>{d.domain}</td>
-                <td style={{ padding: '5px 12px', color: d.entropy > 3.5 ? '#f97316' : '#7d8590' }}>{d.entropy}</td>
-                <td style={{ padding: '5px 12px', color: d.consonant_ratio > 0.65 ? '#f97316' : '#7d8590' }}>{(d.consonant_ratio * 100).toFixed(0)}%</td>
-                <td style={{ padding: '5px 12px', color: '#7d8590' }}>{d.length}</td>
+              <tr key={d.domain} style={{ background: d.is_suspicious ? '#2d1515' : i % 2 === 0 ? 'var(--fl-panel)' : 'var(--fl-bg)', borderBottom: '1px solid #21303f10' }}>
+                <td style={{ padding: '5px 12px', color: 'var(--fl-text)', fontFamily: 'monospace' }}>{d.domain}</td>
+                <td style={{ padding: '5px 12px', color: d.entropy > 3.5 ? '#f97316' : 'var(--fl-dim)' }}>{d.entropy}</td>
+                <td style={{ padding: '5px 12px', color: d.consonant_ratio > 0.65 ? '#f97316' : 'var(--fl-dim)' }}>{(d.consonant_ratio * 100).toFixed(0)}%</td>
+                <td style={{ padding: '5px 12px', color: 'var(--fl-dim)' }}>{d.length}</td>
                 <td style={{ padding: '5px 12px' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <div style={{ flex: 1, height: 6, background: '#21303f', borderRadius: 3, overflow: 'hidden' }}>
-                      <div style={{ height: '100%', width: `${d.dga_score}%`, background: d.dga_score >= 60 ? '#da3633' : d.dga_score >= 40 ? '#d97c20' : '#22c55e', borderRadius: 3 }} />
+                    <div style={{ flex: 1, height: 6, background: 'var(--fl-panel)', borderRadius: 3, overflow: 'hidden' }}>
+                      <div style={{ height: '100%', width: `${d.dga_score}%`, background: d.dga_score >= 60 ? 'var(--fl-danger)' : d.dga_score >= 40 ? 'var(--fl-warn)' : '#22c55e', borderRadius: 3 }} />
                     </div>
-                    <span style={{ fontSize: 11, color: '#7d8590', minWidth: 28 }}>{d.dga_score}</span>
+                    <span style={{ fontSize: 11, color: 'var(--fl-dim)', minWidth: 28 }}>{d.dga_score}</span>
                   </div>
                 </td>
                 <td style={{ padding: '5px 12px' }}>
                   {d.is_suspicious
-                    ? <span style={{ fontSize: 10, padding: '2px 6px', background: '#da363320', color: '#da3633', borderRadius: 4, border: '1px solid #da363340' }}>SUSPECT</span>
+                    ? <span style={{ fontSize: 10, padding: '2px 6px', background: '#da363320', color: 'var(--fl-danger)', borderRadius: 4, border: '1px solid #da363340' }}>SUSPECT</span>
                     : <span style={{ fontSize: 10, padding: '2px 6px', background: '#22c55e20', color: '#22c55e', borderRadius: 4 }}>OK</span>
                   }
                 </td>
@@ -159,7 +159,7 @@ function DgaPanel({ caseId }) {
         </table>
       )}
       {data && data.domains.length === 0 && (
-        <div style={{ padding: 24, textAlign: 'center', color: '#7d8590', fontSize: 12 }}>Aucun domaine IOC trouvé dans ce cas</div>
+        <div style={{ padding: 24, textAlign: 'center', color: 'var(--fl-dim)', fontSize: 12 }}>Aucun domaine IOC trouvé dans ce cas</div>
       )}
     </div>
   );
@@ -529,7 +529,7 @@ export default function IOCsPage() {
                             <select
                               value={confirmConf}
                               onChange={e => setConfirmConf(e.target.value)}
-                              style={{ fontSize: 10, padding: '2px 4px', background: '#161b22', color: '#e6edf3', border: '1px solid #30363d', borderRadius: 3 }}
+                              style={{ fontSize: 10, padding: '2px 4px', background: 'var(--fl-panel)', color: 'var(--fl-text)', border: '1px solid var(--fl-border)', borderRadius: 3 }}
                             >
                               <option value="confirmed">Confirmé</option>
                               <option value="high">Haute confiance</option>
@@ -539,7 +539,7 @@ export default function IOCsPage() {
                               value={confirmNote}
                               onChange={e => setConfirmNote(e.target.value)}
                               placeholder={t('iocs.note_ph')}
-                              style={{ fontSize: 10, padding: '2px 4px', background: '#161b22', color: '#e6edf3', border: '1px solid #30363d', borderRadius: 3 }}
+                              style={{ fontSize: 10, padding: '2px 4px', background: 'var(--fl-panel)', color: 'var(--fl-text)', border: '1px solid var(--fl-border)', borderRadius: 3 }}
                             />
                             <div style={{ display: 'flex', gap: 4 }}>
                               <button
@@ -550,7 +550,7 @@ export default function IOCsPage() {
                               </button>
                               <button
                                 onClick={() => { setConfirmingId(null); setConfirmConf('confirmed'); setConfirmNote(''); }}
-                                style={{ fontSize: 10, padding: '2px 6px', background: 'transparent', color: '#7d8590', border: '1px solid #30363d', borderRadius: 3, cursor: 'pointer' }}
+                                style={{ fontSize: 10, padding: '2px 6px', background: 'transparent', color: 'var(--fl-dim)', border: '1px solid var(--fl-border)', borderRadius: 3, cursor: 'pointer' }}
                               >
                                 ✕
                               </button>

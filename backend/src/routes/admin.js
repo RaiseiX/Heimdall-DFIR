@@ -247,14 +247,14 @@ router.get('/docker/containers', authenticate, requireRole('admin'), async (req,
     const list = allList.filter(info => {
       const project = info.Labels?.['com.docker.compose.project'];
       if (project) return PROJECT_NAMES.has(project);
-      const name = (info.Names[0] || '').replace(/^\
+      const name = (info.Names[0] || '').replace(/^\//, '');
       return CONTAINER_NAMES.has(name);
     });
 
     const results = await Promise.allSettled(list.map(async (info) => {
       const base = {
         id:     info.Id.slice(0, 12),
-        name:   (info.Names[0] || '').replace(/^\
+        name:   (info.Names[0] || '').replace(/^\//, ''),
         image:  info.Image.replace(/^sha256:/, '').slice(0, 60),
         status: info.Status,
         state:  info.State,

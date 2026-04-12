@@ -197,7 +197,7 @@ export default function MemoryUploadPanel({ caseId, onDone, onClose }) {
 
   const s = {
     panel: {
-      background: '#0d1117', border: '1px solid #1e2a3a', borderRadius: 10,
+      background: 'var(--fl-bg)', border: '1px solid var(--fl-card)', borderRadius: 10,
       padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: 16,
     },
     header: {
@@ -205,36 +205,36 @@ export default function MemoryUploadPanel({ caseId, onDone, onClose }) {
     },
     title: {
       display: 'flex', alignItems: 'center', gap: 8,
-      fontSize: 13, fontFamily: 'monospace', fontWeight: 700, color: '#8b72d6',
+      fontSize: 13, fontFamily: 'monospace', fontWeight: 700, color: 'var(--fl-purple)',
     },
     dropzone: {
-      border: '2px dashed #1e2a3a', borderRadius: 8, padding: '28px 20px',
+      border: '2px dashed var(--fl-card)', borderRadius: 8, padding: '28px 20px',
       textAlign: 'center', cursor: 'pointer', transition: 'border-color 0.2s',
       background: '#0a0f1a',
     },
     osRow: {
       display: 'flex', gap: 8, alignItems: 'center',
-      fontSize: 12, fontFamily: 'monospace', color: '#7d8590',
+      fontSize: 12, fontFamily: 'monospace', color: 'var(--fl-dim)',
     },
     osBtnBase: {
       padding: '4px 12px', borderRadius: 5, fontSize: 11, fontFamily: 'monospace',
-      cursor: 'pointer', border: '1px solid #1e2a3a', transition: 'all 0.15s',
+      cursor: 'pointer', border: '1px solid var(--fl-card)', transition: 'all 0.15s',
     },
     progressBar: {
-      background: '#1e2a3a', borderRadius: 4, height: 6, overflow: 'hidden',
+      background: 'var(--fl-card)', borderRadius: 4, height: 6, overflow: 'hidden',
     },
     progressFill: (pct) => ({
       height: '100%', borderRadius: 4, transition: 'width 0.3s ease',
       width: `${pct}%`,
       background: status === 'done' ? '#22c55e'
-        : status === 'error' ? '#da3633'
-        : 'linear-gradient(90deg, #4d82c0, #8b72d6)',
+        : status === 'error' ? 'var(--fl-danger)'
+        : 'linear-gradient(90deg, var(--fl-accent), #8b72d6)',
     }),
     uploadBtn: {
       display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7,
       padding: '9px 20px', borderRadius: 7, cursor: 'pointer',
       fontSize: 12, fontFamily: 'monospace', fontWeight: 700,
-      background: 'rgba(139,114,214,0.15)', color: '#8b72d6',
+      background: 'rgba(139,114,214,0.15)', color: 'var(--fl-purple)',
       border: '1px solid rgba(139,114,214,0.35)', transition: 'all 0.15s',
     },
   };
@@ -247,7 +247,7 @@ export default function MemoryUploadPanel({ caseId, onDone, onClose }) {
       <div style={s.header}>
         <span style={s.title}><Cpu size={14} /> Upload Dump Mémoire (RAM)</span>
         {onClose && (
-          <button onClick={onClose} style={{ color: '#3d5070', background: 'none', border: 'none', cursor: 'pointer' }}>
+          <button onClick={onClose} style={{ color: 'var(--fl-subtle)', background: 'none', border: 'none', cursor: 'pointer' }}>
             <X size={14} />
           </button>
         )}
@@ -269,28 +269,28 @@ export default function MemoryUploadPanel({ caseId, onDone, onClose }) {
             style={{ display: 'none' }}
             onChange={e => handleFile(e.target.files?.[0])}
           />
-          <Upload size={28} style={{ color: '#3d5070', marginBottom: 8 }} />
-          <div style={{ fontSize: 12, fontFamily: 'monospace', color: '#7d8590' }}>
+          <Upload size={28} style={{ color: 'var(--fl-subtle)', marginBottom: 8 }} />
+          <div style={{ fontSize: 12, fontFamily: 'monospace', color: 'var(--fl-dim)' }}>
             Glisser-déposer un dump RAM ou cliquer pour sélectionner
           </div>
-          <div style={{ fontSize: 10, color: '#3d5070', marginTop: 4 }}>
+          <div style={{ fontSize: 10, color: 'var(--fl-subtle)', marginTop: 4 }}>
             .raw · .mem · .vmem · .dmp · .lime · jusqu'à 256 GB
           </div>
         </div>
       )}
 
       {file && status === 'idle' && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', background: '#0a0f1a', borderRadius: 6, border: '1px solid #1e2a3a' }}>
-          <FileArchive size={14} style={{ color: '#4d82c0', flexShrink: 0 }} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', background: '#0a0f1a', borderRadius: 6, border: '1px solid var(--fl-card)' }}>
+          <FileArchive size={14} style={{ color: 'var(--fl-accent)', flexShrink: 0 }} />
           <div style={{ flex: 1, overflow: 'hidden' }}>
-            <div style={{ fontSize: 12, fontFamily: 'monospace', color: '#c9d1d9', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            <div style={{ fontSize: 12, fontFamily: 'monospace', color: 'var(--fl-dim)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {file.name}
             </div>
-            <div style={{ fontSize: 10, color: '#7d8590', fontFamily: 'monospace' }}>
+            <div style={{ fontSize: 10, color: 'var(--fl-dim)', fontFamily: 'monospace' }}>
               {formatBytes(file.size)} · {Math.ceil(file.size / (resumeInfo?.chunkSize || DEFAULT_CHUNK_SIZE))} chunks × {chunkSizeMB} MB
             </div>
           </div>
-          <button onClick={() => { setFile(null); setResumeInfo(null); }} style={{ color: '#3d5070', background: 'none', border: 'none', cursor: 'pointer', flexShrink: 0 }}>
+          <button onClick={() => { setFile(null); setResumeInfo(null); }} style={{ color: 'var(--fl-subtle)', background: 'none', border: 'none', cursor: 'pointer', flexShrink: 0 }}>
             <X size={12} />
           </button>
         </div>
@@ -300,7 +300,7 @@ export default function MemoryUploadPanel({ caseId, onDone, onClose }) {
         <div style={{
           display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px',
           background: 'rgba(77,130,192,0.08)', borderRadius: 6,
-          border: '1px solid rgba(77,130,192,0.25)', fontSize: 11, fontFamily: 'monospace', color: '#4d82c0',
+          border: '1px solid rgba(77,130,192,0.25)', fontSize: 11, fontFamily: 'monospace', color: 'var(--fl-accent)',
         }}>
           <RotateCw size={12} />
           Upload précédent détecté — {resumeInfo.receivedSet.size}/{resumeInfo.totalChunks} chunks reçus ({Math.round((resumeInfo.receivedSet.size / resumeInfo.totalChunks) * 100)}%)
@@ -317,8 +317,8 @@ export default function MemoryUploadPanel({ caseId, onDone, onClose }) {
               style={{
                 ...s.osBtnBase,
                 background:  dumpOs === opt.value ? 'rgba(139,114,214,0.15)' : 'transparent',
-                color:       dumpOs === opt.value ? '#8b72d6' : '#7d8590',
-                borderColor: dumpOs === opt.value ? 'rgba(139,114,214,0.35)' : '#1e2a3a',
+                color:       dumpOs === opt.value ? 'var(--fl-purple)' : 'var(--fl-dim)',
+                borderColor: dumpOs === opt.value ? 'rgba(139,114,214,0.35)' : 'var(--fl-card)',
               }}
             >
               {opt.label}
@@ -330,10 +330,10 @@ export default function MemoryUploadPanel({ caseId, onDone, onClose }) {
       {(isRunning || status === 'done' || status === 'error') && (
         <div>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-            <span style={{ fontSize: 10, fontFamily: 'monospace', color: '#7d8590' }}>
+            <span style={{ fontSize: 10, fontFamily: 'monospace', color: 'var(--fl-dim)' }}>
               {statusMsg}
             </span>
-            <span style={{ fontSize: 10, fontFamily: 'monospace', color: status === 'done' ? '#22c55e' : status === 'error' ? '#da3633' : '#8b72d6' }}>
+            <span style={{ fontSize: 10, fontFamily: 'monospace', color: status === 'done' ? '#22c55e' : status === 'error' ? 'var(--fl-danger)' : 'var(--fl-purple)' }}>
               {progress}%
             </span>
           </div>
@@ -351,7 +351,7 @@ export default function MemoryUploadPanel({ caseId, onDone, onClose }) {
       )}
 
       {error && (
-        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6, fontSize: 11, fontFamily: 'monospace', color: '#da3633', background: 'rgba(218,54,51,0.08)', padding: '8px 12px', borderRadius: 6, border: '1px solid rgba(218,54,51,0.2)' }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6, fontSize: 11, fontFamily: 'monospace', color: 'var(--fl-danger)', background: 'rgba(218,54,51,0.08)', padding: '8px 12px', borderRadius: 6, border: '1px solid rgba(218,54,51,0.2)' }}>
           <AlertCircle size={13} style={{ flexShrink: 0, marginTop: 1 }} />
           {error}
         </div>
@@ -369,7 +369,7 @@ export default function MemoryUploadPanel({ caseId, onDone, onClose }) {
               <RotateCw size={13} /> Reprendre l'upload
             </button>
             <button
-              style={{ ...s.uploadBtn, color: '#7d8590', borderColor: '#1e2a3a', background: 'transparent' }}
+              style={{ ...s.uploadBtn, color: 'var(--fl-dim)', borderColor: 'var(--fl-card)', background: 'transparent' }}
               onClick={() => {
                 localStorage.removeItem(resumeKey(caseId, file.name, file.size));
                 setResumeInfo(null);
@@ -382,13 +382,13 @@ export default function MemoryUploadPanel({ caseId, onDone, onClose }) {
         {isRunning && (
           <button
             onClick={cancel}
-            style={{ ...s.uploadBtn, color: '#da3633', borderColor: 'rgba(218,54,51,0.35)', background: 'rgba(218,54,51,0.08)' }}
+            style={{ ...s.uploadBtn, color: 'var(--fl-danger)', borderColor: 'rgba(218,54,51,0.35)', background: 'rgba(218,54,51,0.08)' }}
           >
             <X size={13} /> Annuler
           </button>
         )}
         {isRunning && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, fontFamily: 'monospace', color: '#7d8590' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, fontFamily: 'monospace', color: 'var(--fl-dim)' }}>
             <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} />
             {status === 'hashing' ? 'Calcul hashes…' : 'Envoi en cours…'}
           </div>

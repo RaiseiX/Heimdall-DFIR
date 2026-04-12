@@ -5,14 +5,14 @@ import {
 } from 'recharts';
 
 const ARTIFACT_COLORS = {
-  evtx:      '#4d82c0', prefetch:  '#22c55e', mft:       '#8b72d6',
-  lnk:       '#d97c20', registry:  '#c96898', amcache:   '#c89d1d',
+  evtx:      'var(--fl-accent)', prefetch:  '#22c55e', mft:       'var(--fl-purple)',
+  lnk:       'var(--fl-warn)', registry:  'var(--fl-pink)', amcache:   'var(--fl-gold)',
   appcompat: '#f59e0b', shellbags: '#06b6d4', jumplist:  '#8b5cf6',
   srum:      '#f43f5e', recycle:   '#84cc16', wxtcmd:    '#d946ef',
-  bits:      '#64748b', sum:       '#0ea5e9', hayabusa:  '#da3633',
+  bits:      '#64748b', sum:       '#0ea5e9', hayabusa:  'var(--fl-danger)',
 
 };
-function ac(t) { return ARTIFACT_COLORS[t] || '#7d8590'; }
+function ac(t) { return ARTIFACT_COLORS[t] || 'var(--fl-dim)'; }
 
 function bucketKey(ts, monthly) {
   const d = new Date(ts);
@@ -35,13 +35,13 @@ const CustomTooltip = ({ active, payload, label }) => {
   const isAnomaly = payload[0]?.payload?._anomaly;
   return (
     <div style={{
-      background: '#07101f', border: `1px solid ${isAnomaly ? '#da363360' : '#2a3a50'}`, borderRadius: 6,
+      background: 'var(--fl-bg)', border: `1px solid ${isAnomaly ? '#da363360' : 'var(--fl-card)'}`, borderRadius: 6,
       padding: '8px 12px', fontFamily: 'monospace', fontSize: 11,
       boxShadow: '0 8px 24px rgba(0,0,0,0.6)',
     }}>
       <div style={{ color: '#8aa0bc', marginBottom: 6, fontWeight: 700 }}>{label}</div>
       {isAnomaly && (
-        <div style={{ marginBottom: 6, color: '#da3633', fontSize: 10, fontWeight: 700 }}>
+        <div style={{ marginBottom: 6, color: 'var(--fl-danger)', fontSize: 10, fontWeight: 700 }}>
           ⚠ Activité anormale · Z-score: {zScore?.toFixed(1)}σ
         </div>
       )}
@@ -49,10 +49,10 @@ const CustomTooltip = ({ active, payload, label }) => {
         <div key={p.dataKey} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
           <span style={{ width: 8, height: 8, borderRadius: 2, background: p.fill, display: 'inline-block', flexShrink: 0 }} />
           <span style={{ color: '#5a7090' }}>{p.dataKey}</span>
-          <span style={{ color: '#c0cce0', marginLeft: 'auto', paddingLeft: 12 }}>{p.value}</span>
+          <span style={{ color: 'var(--fl-on-dark)', marginLeft: 'auto', paddingLeft: 12 }}>{p.value}</span>
         </div>
       ))}
-      <div style={{ borderTop: '1px solid #1a2a3a', marginTop: 6, paddingTop: 4, color: '#4d82c0', display: 'flex', justifyContent: 'space-between' }}>
+      <div style={{ borderTop: '1px solid var(--fl-card)', marginTop: 6, paddingTop: 4, color: 'var(--fl-accent)', display: 'flex', justifyContent: 'space-between' }}>
         <span>Total</span><span>{total}</span>
       </div>
     </div>
@@ -123,7 +123,7 @@ export default function TimelineHistogram({ records, availTypes, compact = false
     } : undefined;
 
     return (
-      <div style={{ marginBottom: 6, borderRadius: 6, overflow: 'hidden', border: '1px solid #1a2035', flexShrink: 0 }}
+      <div style={{ marginBottom: 6, borderRadius: 6, overflow: 'hidden', border: '1px solid var(--fl-sep)', flexShrink: 0 }}
            title="Mini-map : distribution des événements dans le temps. Cliquez sur une barre pour filtrer.">
         <ResponsiveContainer width="100%" height={52}>
           <BarChart data={data} margin={{ top: 2, right: 0, left: 0, bottom: 0 }} barCategoryGap="8%"
@@ -137,7 +137,7 @@ export default function TimelineHistogram({ records, availTypes, compact = false
                 {idx === types.length - 1 && data.map((entry, i) => (
                   <Cell key={`cell-${i}`}
                     fill={entry._anomaly ? '#da363390' : ac(t)}
-                    stroke={entry._anomaly ? '#da3633' : 'none'}
+                    stroke={entry._anomaly ? 'var(--fl-danger)' : 'none'}
                     strokeWidth={entry._anomaly ? 1 : 0}
                   />
                 ))}
@@ -150,12 +150,12 @@ export default function TimelineHistogram({ records, availTypes, compact = false
   }
 
   return (
-    <div style={{ marginBottom: 8, border: '1px solid #1a2035', borderRadius: 8, overflow: 'hidden' }}>
+    <div style={{ marginBottom: 8, border: '1px solid var(--fl-sep)', borderRadius: 8, overflow: 'hidden' }}>
       
       <div style={{
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        padding: '7px 14px', background: '#07101f',
-        borderBottom: collapsed ? 'none' : '1px solid #1a2035',
+        padding: '7px 14px', background: 'var(--fl-bg)',
+        borderBottom: collapsed ? 'none' : '1px solid var(--fl-sep)',
       }}>
         <span style={{ fontFamily: 'monospace', fontSize: 12, fontWeight: 600, color: '#8aa0bc', letterSpacing: '0.03em' }}>
           Histogramme Chronologique Pliable
@@ -165,7 +165,7 @@ export default function TimelineHistogram({ records, availTypes, compact = false
           {!collapsed && types.length > 0 && (
             <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', maxHeight: 36, overflowY: 'auto', overflowX: 'hidden' }}>
               {types.map(t => (
-                <span key={t} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, fontFamily: 'monospace', color: '#484f58', flexShrink: 0 }}>
+                <span key={t} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, fontFamily: 'monospace', color: 'var(--fl-muted)', flexShrink: 0 }}>
                   <span style={{ width: 8, height: 8, borderRadius: 2, background: ac(t), display: 'inline-block', flexShrink: 0 }} />
                   {t}
                 </span>
@@ -174,7 +174,7 @@ export default function TimelineHistogram({ records, availTypes, compact = false
           )}
           <button
             onClick={() => setCollapsed(v => !v)}
-            style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#3d5070', fontSize: 14, lineHeight: 1, padding: '2px 4px' }}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--fl-subtle)', fontSize: 14, lineHeight: 1, padding: '2px 4px' }}
           >
             {collapsed ? '∨' : '∧'}
           </button>
@@ -189,13 +189,13 @@ export default function TimelineHistogram({ records, availTypes, compact = false
               <BarChart data={data} margin={{ top: 4, right: 14, left: -10, bottom: 0 }} barCategoryGap="12%">
                 <XAxis
                   dataKey="label"
-                  tick={{ fontSize: 9, fontFamily: 'monospace', fill: '#3d5070' }}
-                  axisLine={{ stroke: '#1a2035' }}
+                  tick={{ fontSize: 9, fontFamily: 'monospace', fill: 'var(--fl-subtle)' }}
+                  axisLine={{ stroke: 'var(--fl-sep)' }}
                   tickLine={false}
                   interval="preserveStartEnd"
                 />
                 <YAxis
-                  tick={{ fontSize: 9, fontFamily: 'monospace', fill: '#3d5070' }}
+                  tick={{ fontSize: 9, fontFamily: 'monospace', fill: 'var(--fl-subtle)' }}
                   axisLine={false}
                   tickLine={false}
                   width={28}
@@ -214,7 +214,7 @@ export default function TimelineHistogram({ records, availTypes, compact = false
                       <Cell
                         key={`cell-${i}`}
                         fill={entry._anomaly ? '#da363390' : ac(t)}
-                        stroke={entry._anomaly ? '#da3633' : 'none'}
+                        stroke={entry._anomaly ? 'var(--fl-danger)' : 'none'}
                         strokeWidth={entry._anomaly ? 1 : 0}
                       />
                     ))}
@@ -224,7 +224,7 @@ export default function TimelineHistogram({ records, availTypes, compact = false
             </ResponsiveContainer>
             </div>
           ) : (
-            <div style={{ padding: '22px 0', textAlign: 'center', fontFamily: 'monospace', fontSize: 11, color: '#2a3a50' }}>
+            <div style={{ padding: '22px 0', textAlign: 'center', fontFamily: 'monospace', fontSize: 11, color: 'var(--fl-muted)' }}>
               Chargez des données pour afficher l'histogramme
             </div>
           )}

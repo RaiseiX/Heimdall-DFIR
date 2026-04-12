@@ -87,7 +87,7 @@ export default function MitreMatrixLive({ records }) {
       <div style={{ padding: '20px 16px', fontFamily: 'monospace', color: '#2a5a8a', fontSize: 11 }}>
         Aucune technique MITRE ATT&CK dans les enregistrements actuels.
         <br />
-        <span style={{ fontSize: 10, color: '#1a3a5c' }}>
+        <span style={{ fontSize: 10, color: 'var(--fl-accent)' }}>
           Parsez des logs Hayabusa ou Sigma pour enrichir le champ mitre_technique.
         </span>
       </div>
@@ -102,7 +102,7 @@ export default function MitreMatrixLive({ records }) {
         <span style={{ fontFamily: 'monospace', fontSize: 9, color: '#3a6a9a', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
           MITRE ATT&CK Matrix — Live
         </span>
-        <span style={{ fontFamily: 'monospace', fontSize: 10, color: '#4d82c0', fontWeight: 700 }}>
+        <span style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--fl-accent)', fontWeight: 700 }}>
           {totalHits} hit{totalHits > 1 ? 's' : ''} · {activeTactics.length} tactic{activeTactics.length > 1 ? 's' : ''} · {techCounts.size} technique{techCounts.size > 1 ? 's' : ''}
         </span>
       </div>
@@ -114,20 +114,20 @@ export default function MitreMatrixLive({ records }) {
           return (
             <div key={tac.id} style={{
               minWidth: 100, borderRadius: 5,
-              border: `1px solid ${active ? '#1a3a5c' : '#0d1525'}`,
-              background: active ? '#06111f' : '#060b14',
+              border: `1px solid ${active ? 'var(--fl-accent)' : 'var(--fl-bg)'}`,
+              background: active ? '#06111f' : 'var(--fl-bg)',
               overflow: 'hidden',
             }}>
               
               <div style={{
                 padding: '4px 7px',
-                background: active ? 'linear-gradient(90deg, #0a1e35, #060b14)' : 'transparent',
-                borderBottom: `1px solid ${active ? '#1a3a5c' : '#0d1525'}`,
+                background: active ? 'linear-gradient(90deg, #0a1e35, var(--fl-bg))' : 'transparent',
+                borderBottom: `1px solid ${active ? 'var(--fl-accent)' : 'var(--fl-bg)'}`,
               }}>
                 <span style={{
                   fontFamily: 'monospace', fontSize: 8, fontWeight: 700,
                   textTransform: 'uppercase', letterSpacing: '0.08em',
-                  color: active ? '#4d82c0' : '#1a3a5c',
+                  color: active ? 'var(--fl-accent)' : 'var(--fl-accent)',
                 }}>
                   {tac.short}
                 </span>
@@ -144,7 +144,7 @@ export default function MitreMatrixLive({ records }) {
                   <div key={tech} style={{
                     padding: '3px 7px',
                     background: `rgba(77,130,192,${intensity * 0.25})`,
-                    borderBottom: '1px solid #0d1525',
+                    borderBottom: '1px solid var(--fl-bg)',
                     display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 4,
                   }}
                     title={`${tech} — ${count} événement${count > 1 ? 's' : ''}`}
@@ -156,7 +156,7 @@ export default function MitreMatrixLive({ records }) {
                       fontFamily: 'monospace', fontSize: 8, fontWeight: 700,
                       padding: '0 4px', borderRadius: 3,
                       background: `rgba(77,130,192,${intensity * 0.4})`,
-                      color: '#4d82c0',
+                      color: 'var(--fl-accent)',
                     }}>
                       {count}
                     </span>
@@ -165,7 +165,7 @@ export default function MitreMatrixLive({ records }) {
               })}
 
               {!active && (
-                <div style={{ padding: '4px 7px', fontSize: 8, color: '#0d1525', fontFamily: 'monospace' }}>—</div>
+                <div style={{ padding: '4px 7px', fontSize: 8, color: 'var(--fl-muted)', fontFamily: 'monospace' }}>—</div>
               )}
             </div>
           );

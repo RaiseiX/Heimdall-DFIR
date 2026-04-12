@@ -9,30 +9,30 @@ import { useTheme } from '../../utils/theme';
 import TimelineHistogram from './TimelineHistogram';
 
 const ARTIFACT_COLORS = {
-  evtx:      '#4d82c0', prefetch:  '#22c55e', mft:       '#8b72d6',
-  lnk:       '#d97c20', registry:  '#c96898', amcache:   '#c89d1d',
+  evtx:      'var(--fl-accent)', prefetch:  '#22c55e', mft:       'var(--fl-purple)',
+  lnk:       'var(--fl-warn)', registry:  'var(--fl-pink)', amcache:   'var(--fl-gold)',
   appcompat: '#f59e0b', shellbags: '#06b6d4', jumplist:  '#8b5cf6',
   srum:      '#f43f5e', recycle:   '#84cc16', wxtcmd:    '#d946ef',
   bits:      '#64748b', sum:       '#0ea5e9',
 };
-function artifactColor(t) { return ARTIFACT_COLORS[t] || '#7d8590'; }
+function artifactColor(t) { return ARTIFACT_COLORS[t] || 'var(--fl-dim)'; }
 
 const CONFIDENCE_LEVELS = [
-  { key: 'critical', label: 'Malveillant', color: '#ef4444', bg: '#ef444418', dot: '●' },
-  { key: 'high',     label: 'Suspect',     color: '#d97c20', bg: '#d97c2012', dot: '●' },
-  { key: 'medium',   label: 'À analyser',  color: '#c89d1d', bg: '#c89d1d10', dot: '●' },
+  { key: 'critical', label: 'Malveillant', color: 'var(--fl-danger)', bg: '#ef444418', dot: '●' },
+  { key: 'high',     label: 'Suspect',     color: 'var(--fl-warn)', bg: '#d97c2012', dot: '●' },
+  { key: 'medium',   label: 'À analyser',  color: 'var(--fl-gold)', bg: '#c89d1d10', dot: '●' },
   { key: 'low',      label: 'Bénin',       color: '#22c55e', bg: '#22c55e08', dot: '●' },
 ];
 const CONFIDENCE_MAP = Object.fromEntries(CONFIDENCE_LEVELS.map(l => [l.key, l]));
 
 const FORENSIC_TAGS = [
-  { key: 'exec',       label: 'Exécution',            color: '#d97c20' },
-  { key: 'persist',    label: 'Persistance',           color: '#c96898' },
-  { key: 'lateral',    label: 'Latéralisation',        color: '#8b72d6' },
+  { key: 'exec',       label: 'Exécution',            color: 'var(--fl-warn)' },
+  { key: 'persist',    label: 'Persistance',           color: 'var(--fl-pink)' },
+  { key: 'lateral',    label: 'Latéralisation',        color: 'var(--fl-purple)' },
   { key: 'exfil',      label: 'Exfiltration',          color: '#f43f5e' },
-  { key: 'privesc',    label: 'Élév. privilèges',      color: '#c89d1d' },
+  { key: 'privesc',    label: 'Élév. privilèges',      color: 'var(--fl-gold)' },
   { key: 'credential', label: 'Accès credentials',     color: '#06b6d4' },
-  { key: 'network',    label: 'Activité réseau',       color: '#4d82c0' },
+  { key: 'network',    label: 'Activité réseau',       color: 'var(--fl-accent)' },
   { key: 'file',       label: 'Accès fichier',         color: '#22c55e' },
   { key: 'logon',      label: 'Connexion utilisateur', color: '#8b5cf6' },
   { key: 'defense',    label: 'Contournement défense', color: '#64748b' },
@@ -462,9 +462,9 @@ export default function CaseTimelineExplorer({ caseId, onTotalChange, reloadKey 
 
   if (!loading && total === 0) {
     return (
-      <div style={{ textAlign: 'center', padding: '40px 0', borderRadius: 10, background: '#07101f', border: '1px solid #1a2035' }}>
-        <Clock size={32} style={{ color: '#1a2035', margin: '0 auto 10px' }} />
-        <p style={{ fontFamily: 'monospace', fontSize: 12, color: '#3d5070' }}>
+      <div style={{ textAlign: 'center', padding: '40px 0', borderRadius: 10, background: 'var(--fl-bg)', border: '1px solid var(--fl-sep)' }}>
+        <Clock size={32} style={{ color: 'var(--fl-sep)', margin: '0 auto 10px' }} />
+        <p style={{ fontFamily: 'monospace', fontSize: 12, color: 'var(--fl-subtle)' }}>
           Aucune donnée dans la Super Timeline — importez et parsez une collecte.
         </p>
       </div>
@@ -476,17 +476,17 @@ export default function CaseTimelineExplorer({ caseId, onTotalChange, reloadKey 
       display: 'flex', alignItems: 'center', gap: 4,
       padding: '3px 8px', borderRadius: 5, fontSize: 11,
       fontFamily: 'monospace', cursor: 'pointer',
-      background: active ? `${col}18` : '#0d1117',
-      color: active ? col : '#7d8590',
-      border: `1px solid ${active ? col + '35' : '#1e2a3a'}`,
+      background: active ? `${col}18` : 'var(--fl-bg)',
+      color: active ? col : 'var(--fl-dim)',
+      border: `1px solid ${active ? col + '35' : 'var(--fl-card)'}`,
     }),
     chip: (active, col) => ({
       padding: '2px 8px', borderRadius: 10, fontSize: 10,
       fontFamily: 'monospace', cursor: 'pointer',
       display: 'flex', alignItems: 'center', gap: 4,
       background: active ? `${col}18` : 'transparent',
-      color: active ? col : '#484f58',
-      border: `1px solid ${active ? col + '35' : '#1e2a3a'}`,
+      color: active ? col : 'var(--fl-muted)',
+      border: `1px solid ${active ? col + '35' : 'var(--fl-card)'}`,
     }),
   };
 
@@ -508,34 +508,34 @@ export default function CaseTimelineExplorer({ caseId, onTotalChange, reloadKey 
       <div style={{
         display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'nowrap',
         padding: '6px 10px', marginBottom: 4,
-        background: '#0d1117', border: '1px solid #1e2a3a', borderRadius: 8,
+        background: 'var(--fl-bg)', border: '1px solid var(--fl-card)', borderRadius: 8,
       }}>
         
         <div style={{ position: 'relative', flexShrink: 0 }}>
-          <Search size={11} style={{ position: 'absolute', left: 7, top: '50%', transform: 'translateY(-50%)', color: '#484f58', pointerEvents: 'none' }} />
+          <Search size={11} style={{ position: 'absolute', left: 7, top: '50%', transform: 'translateY(-50%)', color: 'var(--fl-muted)', pointerEvents: 'none' }} />
           <input value={search} onChange={e => setSearch(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && applyFilter()}
             placeholder="Rechercher… (Entrée)"
             style={{
               paddingLeft: 22, paddingRight: 8, paddingTop: 4, paddingBottom: 4,
               borderRadius: 5, fontSize: 11, fontFamily: 'monospace', width: 200,
-              background: '#060a10', border: '1px solid #1e2a3a', color: '#e6edf3', outline: 'none',
+              background: '#060a10', border: '1px solid var(--fl-card)', color: 'var(--fl-text)', outline: 'none',
             }} />
         </div>
 
         <input type="datetime-local" value={startTime} onChange={e => setStartTime(e.target.value)}
           style={{ padding: '3px 6px', borderRadius: 5, fontSize: 10, fontFamily: 'monospace', flexShrink: 0,
-            background: '#060a10', border: '1px solid #1e2a3a', color: startTime ? '#8899bb' : '#334155', colorScheme: 'dark', outline: 'none' }} />
-        <span style={{ fontSize: 10, color: '#2a3a50', flexShrink: 0 }}>→</span>
+            background: '#060a10', border: '1px solid var(--fl-card)', color: startTime ? '#8899bb' : 'var(--fl-card)', colorScheme: 'dark', outline: 'none' }} />
+        <span style={{ fontSize: 10, color: 'var(--fl-muted)', flexShrink: 0 }}>→</span>
         <input type="datetime-local" value={endTime} onChange={e => setEndTime(e.target.value)}
           style={{ padding: '3px 6px', borderRadius: 5, fontSize: 10, fontFamily: 'monospace', flexShrink: 0,
-            background: '#060a10', border: '1px solid #1e2a3a', color: endTime ? '#8899bb' : '#334155', colorScheme: 'dark', outline: 'none' }} />
+            background: '#060a10', border: '1px solid var(--fl-card)', color: endTime ? '#8899bb' : 'var(--fl-card)', colorScheme: 'dark', outline: 'none' }} />
 
-        <button onClick={applyFilter} style={{ ...S.btn(false, '#4d82c0'), flexShrink: 0 }}>
+        <button onClick={applyFilter} style={{ ...S.btn(false, 'var(--fl-accent)'), flexShrink: 0 }}>
           <Filter size={10} /> Filtrer
         </button>
         {hasFilters && (
-          <button onClick={clearFilters} style={{ ...S.btn(false, '#7d8590'), flexShrink: 0 }}>
+          <button onClick={clearFilters} style={{ ...S.btn(false, 'var(--fl-dim)'), flexShrink: 0 }}>
             <X size={10} /> Reset
           </button>
         )}
@@ -544,7 +544,7 @@ export default function CaseTimelineExplorer({ caseId, onTotalChange, reloadKey 
 
         {total > 0 && (
           <span style={{ fontSize: 10, fontFamily: 'monospace', padding: '2px 7px', borderRadius: 4, flexShrink: 0,
-            background: '#4d82c010', color: '#4d82c0', border: '1px solid #4d82c020' }}>
+            background: '#4d82c010', color: 'var(--fl-accent)', border: '1px solid #4d82c020' }}>
             {total.toLocaleString()} enreg.
           </span>
         )}
@@ -558,7 +558,7 @@ export default function CaseTimelineExplorer({ caseId, onTotalChange, reloadKey 
 
         {taggedCount > 0 && (
           <span style={{ fontSize: 10, fontFamily: 'monospace', padding: '2px 7px', borderRadius: 4, flexShrink: 0,
-            background: '#8b72d610', color: '#8b72d6', border: '1px solid #8b72d620' }}>
+            background: '#8b72d610', color: 'var(--fl-purple)', border: '1px solid #8b72d620' }}>
             ⬤ {taggedCount} taggé{taggedCount > 1 ? 's' : ''}
           </span>
         )}
@@ -568,21 +568,21 @@ export default function CaseTimelineExplorer({ caseId, onTotalChange, reloadKey 
             <button key={s} onClick={() => changePageSize(s)}
               style={{ padding: '2px 7px', borderRadius: 4, fontSize: 10, fontFamily: 'monospace', cursor: 'pointer',
                 background: pageSize === s ? '#4d82c018' : 'transparent',
-                color: pageSize === s ? '#4d82c0' : '#334155',
-                border: `1px solid ${pageSize === s ? '#4d82c030' : '#1e2a3a'}` }}>
+                color: pageSize === s ? 'var(--fl-accent)' : 'var(--fl-card)',
+                border: `1px solid ${pageSize === s ? '#4d82c030' : 'var(--fl-card)'}` }}>
               {s}
             </button>
           ))}
         </div>
 
         <div style={{ position: 'relative', flexShrink: 0 }} ref={colMenuRef}>
-          <button onClick={() => setShowColMenu(v => !v)} style={S.btn(showColMenu, '#7d8590')}>
+          <button onClick={() => setShowColMenu(v => !v)} style={S.btn(showColMenu, 'var(--fl-dim)')}>
             <Eye size={10} /> Colonnes
           </button>
           {showColMenu && (
             <div style={{
               position: 'absolute', right: 0, top: 'calc(100% + 4px)', zIndex: 50,
-              background: '#0d1117', border: '1px solid #1e2a3a', borderRadius: 8,
+              background: 'var(--fl-bg)', border: '1px solid var(--fl-card)', borderRadius: 8,
               padding: '6px 4px', minWidth: 150,
               boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
             }}>
@@ -590,7 +590,7 @@ export default function CaseTimelineExplorer({ caseId, onTotalChange, reloadKey 
                 <label key={c.key} style={{
                   display: 'flex', alignItems: 'center', gap: 7, padding: '4px 8px',
                   fontFamily: 'monospace', fontSize: 11, cursor: 'pointer', borderRadius: 4,
-                  color: hiddenCols.has(c.key) ? '#334155' : '#c0cce0',
+                  color: hiddenCols.has(c.key) ? 'var(--fl-card)' : 'var(--fl-on-dark)',
                 }}>
                   <input type="checkbox" checked={!hiddenCols.has(c.key)}
                     onChange={() => setHiddenCols(prev => {
@@ -605,7 +605,7 @@ export default function CaseTimelineExplorer({ caseId, onTotalChange, reloadKey 
 
         <button onClick={exportCSV} disabled={!records.length} style={{
           ...S.btn(false, '#22c55e'), flexShrink: 0,
-          color: records.length ? '#22c55e' : '#334155',
+          color: records.length ? '#22c55e' : 'var(--fl-card)',
           cursor: records.length ? 'pointer' : 'default',
         }}>
           <Download size={10} /> CSV
@@ -619,7 +619,7 @@ export default function CaseTimelineExplorer({ caseId, onTotalChange, reloadKey 
           background: '#080d15', border: '1px solid #1a2030', borderRadius: 7,
         }}>
           {['all', ...availTypes].map(t => {
-            const col = t === 'all' ? '#4d82c0' : artifactColor(t);
+            const col = t === 'all' ? 'var(--fl-accent)' : artifactColor(t);
             const active = typeFilter === t;
             return (
               <button key={t}
@@ -641,8 +641,8 @@ export default function CaseTimelineExplorer({ caseId, onTotalChange, reloadKey 
           padding: '5px 10px', marginBottom: 4,
           background: '#080d15', border: '1px solid #1a2030', borderRadius: 7,
         }}>
-          <Tag size={10} style={{ color: '#2a3a50', flexShrink: 0 }} />
-          <span style={{ fontSize: 10, fontFamily: 'monospace', color: '#2a3a50' }}>Tags :</span>
+          <Tag size={10} style={{ color: 'var(--fl-muted)', flexShrink: 0 }} />
+          <span style={{ fontSize: 10, fontFamily: 'monospace', color: 'var(--fl-muted)' }}>Tags :</span>
           {CONFIDENCE_LEVELS.map(l => {
             if (!confidenceCounts[l.key]) return null;
             const active = confidenceFilter === l.key;
@@ -665,7 +665,7 @@ export default function CaseTimelineExplorer({ caseId, onTotalChange, reloadKey 
           })}
           {(confidenceFilter || forensicTagFilter) && (
             <button onClick={() => { setConfidenceFilter(null); setForensicTagFilter(null); }}
-              style={{ ...S.btn(false, '#7d8590'), fontSize: 10 }}>
+              style={{ ...S.btn(false, 'var(--fl-dim)'), fontSize: 10 }}>
               <X size={9} /> Reset
             </button>
           )}
@@ -674,8 +674,8 @@ export default function CaseTimelineExplorer({ caseId, onTotalChange, reloadKey 
 
       {loading && (
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '48px 0', gap: 8 }}>
-          <Loader2 size={18} className="animate-spin" style={{ color: '#4d82c0' }} />
-          <span style={{ fontFamily: 'monospace', fontSize: 12, color: '#334155' }}>Chargement…</span>
+          <Loader2 size={18} className="animate-spin" style={{ color: 'var(--fl-accent)' }} />
+          <span style={{ fontFamily: 'monospace', fontSize: 12, color: 'var(--fl-muted)' }}>Chargement…</span>
         </div>
       )}
 
@@ -683,7 +683,7 @@ export default function CaseTimelineExplorer({ caseId, onTotalChange, reloadKey 
         <>
           <div style={{
             overflowX: 'auto', overflowY: 'auto',
-            border: '1px solid #1e2a3a', borderRadius: 8,
+            border: '1px solid var(--fl-card)', borderRadius: 8,
             height: selectedRow !== null ? 'calc(100vh - 730px)' : 'calc(100vh - 530px)',
             minHeight: selectedRow !== null ? 160 : 260,
           }}>
@@ -696,11 +696,11 @@ export default function CaseTimelineExplorer({ caseId, onTotalChange, reloadKey 
               </colgroup>
               <thead>
                 <tr style={{ background: '#060a10', position: 'sticky', top: 0, zIndex: 10 }}>
-                  <th style={{ padding: '5px 4px', borderBottom: '1px solid #1e2a3a' }} />
-                  <th style={{ padding: '5px 4px', borderBottom: '1px solid #1e2a3a' }} />
+                  <th style={{ padding: '5px 4px', borderBottom: '1px solid var(--fl-card)' }} />
+                  <th style={{ padding: '5px 4px', borderBottom: '1px solid var(--fl-card)' }} />
                   <th style={{
-                    padding: '5px 4px', borderBottom: '1px solid #1e2a3a',
-                    fontFamily: 'monospace', fontSize: 9, color: '#2a3a50', textAlign: 'center',
+                    padding: '5px 4px', borderBottom: '1px solid var(--fl-card)',
+                    fontFamily: 'monospace', fontSize: 9, color: 'var(--fl-muted)', textAlign: 'center',
                   }}>
                     <Tag size={9} />
                   </th>
@@ -710,8 +710,8 @@ export default function CaseTimelineExplorer({ caseId, onTotalChange, reloadKey 
                         padding: '5px 8px', textAlign: 'left', cursor: 'pointer', userSelect: 'none',
                         fontFamily: 'monospace', fontSize: 10, fontWeight: 600,
                         letterSpacing: '0.07em', textTransform: 'uppercase',
-                        color: sortCol === col.key ? '#4d82c0' : '#3d5070',
-                        borderBottom: '1px solid #1e2a3a', whiteSpace: 'nowrap',
+                        color: sortCol === col.key ? 'var(--fl-accent)' : 'var(--fl-subtle)',
+                        borderBottom: '1px solid var(--fl-card)', whiteSpace: 'nowrap',
                         background: sortCol === col.key ? '#4d82c008' : 'transparent',
                       }}>
                       <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
@@ -741,7 +741,7 @@ export default function CaseTimelineExplorer({ caseId, onTotalChange, reloadKey 
                       style={{
                         background: rowBg,
                         borderLeft: `3px solid ${lvl ? lvl.color : isSel ? acol : acol + '55'}`,
-                        borderBottom: '1px solid #0d1525',
+                        borderBottom: '1px solid var(--fl-bg)',
                         cursor: 'pointer',
                         transition: 'background 0.08s',
                       }}>
@@ -749,12 +749,12 @@ export default function CaseTimelineExplorer({ caseId, onTotalChange, reloadKey 
                       <td onClick={e => toggleBookmark(e, globalIdx)}
                         style={{ padding: '2px 2px', textAlign: 'center', width: 26 }}>
                         <Star size={9} fill={isBkm ? '#f59e0b' : 'none'}
-                          style={{ color: isBkm ? '#f59e0b' : '#1e2a3a' }} />
+                          style={{ color: isBkm ? '#f59e0b' : 'var(--fl-card)' }} />
                       </td>
 
                       <td style={{ padding: '2px 2px', textAlign: 'center', width: 20 }}>
                         {hasNote && (
-                          <MessageSquare size={9} style={{ color: '#4d82c0' }} fill="#4d82c020" />
+                          <MessageSquare size={9} style={{ color: 'var(--fl-accent)' }} fill="#4d82c020" />
                         )}
                       </td>
 
@@ -764,9 +764,9 @@ export default function CaseTimelineExplorer({ caseId, onTotalChange, reloadKey 
                         {lvl ? (
                           <span style={{ fontSize: 12, color: lvl.color }} title={lvl.label}>{lvl.dot}</span>
                         ) : td.tags?.length > 0 ? (
-                          <Tag size={9} style={{ color: '#2a3a50' }} />
+                          <Tag size={9} style={{ color: 'var(--fl-muted)' }} />
                         ) : (
-                          <span style={{ fontSize: 9, color: '#1e2a3a' }}>○</span>
+                          <span style={{ fontSize: 9, color: 'var(--fl-muted)' }}>○</span>
                         )}
                       </td>
 
@@ -787,16 +787,16 @@ export default function CaseTimelineExplorer({ caseId, onTotalChange, reloadKey 
                           );
                         } else if (col2.key === 'source_short') {
                           const s = (r.source || '').replace(/^.*[/\\]/, '').substring(0, 32);
-                          content = <span style={{ color: '#3d5070' }}><Highlight text={s || '-'} term={search} /></span>;
+                          content = <span style={{ color: 'var(--fl-subtle)' }}><Highlight text={s || '-'} term={search} /></span>;
                         } else if (col2.key === 'event_type') {
                           const et = raw.EventType || raw.event_type || raw.Type || raw.type || '-';
-                          content = <span style={{ color: '#7d8590' }}>{String(et).substring(0, 22)}</span>;
+                          content = <span style={{ color: 'var(--fl-dim)' }}>{String(et).substring(0, 22)}</span>;
                         } else if (col2.key === 'category') {
                           const cat = raw.Category || raw.category || r.artifact_type || '-';
-                          content = <span style={{ color: '#484f58' }}>{String(cat).substring(0, 18)}</span>;
+                          content = <span style={{ color: 'var(--fl-muted)' }}>{String(cat).substring(0, 18)}</span>;
                         } else if (col2.key === 'description') {
                           content = (
-                            <span style={{ color: isSel ? '#e8f0fe' : '#c0cce0' }}>
+                            <span style={{ color: isSel ? '#e8f0fe' : 'var(--fl-on-dark)' }}>
                               <Highlight text={r.description || '-'} term={search} />
                               {td.tags?.length > 0 && (
                                 <span style={{ marginLeft: 6 }}>
@@ -818,15 +818,15 @@ export default function CaseTimelineExplorer({ caseId, onTotalChange, reloadKey 
                           );
                         } else if (col2.key === 'record_id') {
                           const rid = raw.RecordNumber || raw.Id || raw.id || raw.EventRecordID || (globalIdx + 1);
-                          content = <span style={{ color: '#3d5070' }}>{String(rid).substring(0, 10)}</span>;
+                          content = <span style={{ color: 'var(--fl-subtle)' }}>{String(rid).substring(0, 10)}</span>;
                         } else if (col2.key === 'username') {
                           const un = raw.UserName || raw.Username || raw.user || raw.User || raw.SubjectUserName || '-';
-                          content = <span style={{ color: '#7d8590' }}>{String(un).substring(0, 22)}</span>;
+                          content = <span style={{ color: 'var(--fl-dim)' }}>{String(un).substring(0, 22)}</span>;
                         } else if (col2.key === 'security_id') {
                           const sid = raw.SecurityId || raw.security_id || raw.SID || raw.SubjectUserSid || '-';
-                          content = <span style={{ color: '#2a3a50' }}>{String(sid).substring(0, 18)}</span>;
+                          content = <span style={{ color: 'var(--fl-muted)' }}>{String(sid).substring(0, 18)}</span>;
                         } else {
-                          content = <span style={{ color: '#3d5070' }}>{r[col2.key] || '-'}</span>;
+                          content = <span style={{ color: 'var(--fl-subtle)' }}>{r[col2.key] || '-'}</span>;
                         }
                         return (
                           <td key={col2.key} style={{
@@ -846,7 +846,7 @@ export default function CaseTimelineExplorer({ caseId, onTotalChange, reloadKey 
                   <tr>
                     <td colSpan={visibleCols.length + 2} style={{
                       textAlign: 'center', padding: '32px 0',
-                      fontFamily: 'monospace', fontSize: 11, color: '#334155',
+                      fontFamily: 'monospace', fontSize: 11, color: 'var(--fl-muted)',
                     }}>
                       Aucun résultat pour ce filtre
                     </td>
@@ -866,11 +866,11 @@ export default function CaseTimelineExplorer({ caseId, onTotalChange, reloadKey 
             const rid  = raw.RecordNumber || raw.Id || raw.id || raw.EventRecordID || (gIdx + 1);
 
             return (
-              <div style={{ marginTop: 6, border: '1px solid #1a2035', borderRadius: 8, overflow: 'hidden' }}>
+              <div style={{ marginTop: 6, border: '1px solid var(--fl-sep)', borderRadius: 8, overflow: 'hidden' }}>
                 
                 <div style={{
                   display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                  padding: '6px 14px', background: '#07101f', borderBottom: '1px solid #1a2035',
+                  padding: '6px 14px', background: 'var(--fl-bg)', borderBottom: '1px solid var(--fl-sep)',
                 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     
@@ -879,8 +879,8 @@ export default function CaseTimelineExplorer({ caseId, onTotalChange, reloadKey 
                         background: 'none', border: 'none', cursor: 'pointer',
                         padding: '3px 10px', borderRadius: 4, fontSize: 11, fontFamily: 'monospace',
                         fontWeight: inspectorTab === tab ? 600 : 400,
-                        color: inspectorTab === tab ? '#4d82c0' : '#3d5070',
-                        borderBottom: inspectorTab === tab ? '2px solid #4d82c0' : '2px solid transparent',
+                        color: inspectorTab === tab ? 'var(--fl-accent)' : 'var(--fl-subtle)',
+                        borderBottom: inspectorTab === tab ? '2px solid var(--fl-accent)' : '2px solid transparent',
                       }}>
                         {tab === 'details' ? 'Détails' : (
                           <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
@@ -905,11 +905,11 @@ export default function CaseTimelineExplorer({ caseId, onTotalChange, reloadKey 
                     })}
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <span style={{ fontFamily: 'monospace', fontSize: 11, color: '#3d5070' }}>
+                    <span style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--fl-subtle)' }}>
                       ID {rid} — <span style={{ color: acol }}>{r.artifact_type}</span>
                     </span>
                     <button onClick={() => setSelectedRow(null)}
-                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#2a3a50', display: 'flex' }}>
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--fl-muted)', display: 'flex' }}>
                       <X size={13} />
                     </button>
                   </div>
@@ -922,43 +922,43 @@ export default function CaseTimelineExplorer({ caseId, onTotalChange, reloadKey 
                     
                     <div style={{ flex: 1, overflow: 'auto', padding: '8px 14px', display: 'flex', flexDirection: 'column', gap: 8 }}>
                       {notes.length === 0 ? (
-                        <div style={{ color: '#2a3a50', fontFamily: 'monospace', fontSize: 11, textAlign: 'center', marginTop: 24 }}>
+                        <div style={{ color: 'var(--fl-muted)', fontFamily: 'monospace', fontSize: 11, textAlign: 'center', marginTop: 24 }}>
                           Aucune note — ajoutez-en une ci-dessous
                         </div>
                       ) : notes.map(n => (
-                        <div key={n.id} style={{ borderRadius: 6, border: '1px solid #1a2a3a', background: '#060e1c', padding: '8px 10px' }}>
+                        <div key={n.id} style={{ borderRadius: 6, border: '1px solid var(--fl-card)', background: '#060e1c', padding: '8px 10px' }}>
                           {noteEditId === n.id ? (
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                               <textarea value={noteEditText} onChange={e => setNoteEditText(e.target.value)}
-                                style={{ width: '100%', background: '#050c18', border: '1px solid #2a3a50', borderRadius: 4,
-                                  color: '#c8d8ec', fontFamily: 'monospace', fontSize: 11, padding: '6px 8px',
+                                style={{ width: '100%', background: '#050c18', border: '1px solid var(--fl-card)', borderRadius: 4,
+                                  color: 'var(--fl-on-dark)', fontFamily: 'monospace', fontSize: 11, padding: '6px 8px',
                                   resize: 'vertical', minHeight: 60, outline: 'none', boxSizing: 'border-box' }} />
                               <div style={{ display: 'flex', gap: 6 }}>
                                 <button onClick={() => saveEditNote(caseId, computeRef(r), n.id)}
                                   style={{ padding: '3px 10px', borderRadius: 4, background: '#1a3a5a', border: '1px solid #2a5080',
-                                    color: '#4d82c0', fontSize: 10, fontFamily: 'monospace', cursor: 'pointer' }}>
+                                    color: 'var(--fl-accent)', fontSize: 10, fontFamily: 'monospace', cursor: 'pointer' }}>
                                   Enregistrer
                                 </button>
                                 <button onClick={() => setNoteEditId(null)}
-                                  style={{ padding: '3px 10px', borderRadius: 4, background: 'none', border: '1px solid #1a2a3a',
-                                    color: '#3d5070', fontSize: 10, fontFamily: 'monospace', cursor: 'pointer' }}>
+                                  style={{ padding: '3px 10px', borderRadius: 4, background: 'none', border: '1px solid var(--fl-card)',
+                                    color: 'var(--fl-subtle)', fontSize: 10, fontFamily: 'monospace', cursor: 'pointer' }}>
                                   Annuler
                                 </button>
                               </div>
                             </div>
                           ) : (
                             <>
-                              <div style={{ fontSize: 11, color: '#c8d8ec', lineHeight: 1.5, wordBreak: 'break-word', marginBottom: 6 }}>
+                              <div style={{ fontSize: 11, color: 'var(--fl-on-dark)', lineHeight: 1.5, wordBreak: 'break-word', marginBottom: 6 }}>
                                 {n.note}
                               </div>
                               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                                <span style={{ fontSize: 9, color: '#3d5070', fontFamily: 'monospace' }}>
+                                <span style={{ fontSize: 9, color: 'var(--fl-subtle)', fontFamily: 'monospace' }}>
                                   {n.author_name || n.author_username} · {new Date(n.created_at).toLocaleString('fr-FR')}
                                   {n.updated_at !== n.created_at && ' (modifié)'}
                                 </span>
                                 <div style={{ display: 'flex', gap: 6 }}>
                                   <button onClick={() => { setNoteEditId(n.id); setNoteEditText(n.note); }}
-                                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#3d5070', display: 'flex' }}>
+                                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--fl-subtle)', display: 'flex' }}>
                                     <Pencil size={10} />
                                   </button>
                                   <button onClick={() => deleteNote(caseId, computeRef(r), n.id)}
@@ -973,17 +973,17 @@ export default function CaseTimelineExplorer({ caseId, onTotalChange, reloadKey 
                       ))}
                     </div>
                     
-                    <div style={{ flexShrink: 0, padding: '8px 14px', borderTop: '1px solid #0d1525', display: 'flex', gap: 8 }}>
+                    <div style={{ flexShrink: 0, padding: '8px 14px', borderTop: '1px solid var(--fl-bg)', display: 'flex', gap: 8 }}>
                       <textarea value={noteText} onChange={e => setNoteText(e.target.value)}
                         placeholder="Ajouter une note d'investigation…"
                         onKeyDown={e => { if (e.key === 'Enter' && e.ctrlKey) submitNote(r); }}
-                        style={{ flex: 1, background: '#050c18', border: '1px solid #1a2a3a', borderRadius: 4,
-                          color: '#c8d8ec', fontFamily: 'monospace', fontSize: 11, padding: '6px 8px',
+                        style={{ flex: 1, background: '#050c18', border: '1px solid var(--fl-card)', borderRadius: 4,
+                          color: 'var(--fl-on-dark)', fontFamily: 'monospace', fontSize: 11, padding: '6px 8px',
                           resize: 'none', height: 52, outline: 'none' }} />
                       <button onClick={() => submitNote(r)} disabled={noteSaving || !noteText.trim()}
                         style={{ padding: '0 12px', borderRadius: 4, background: noteText.trim() ? '#1a3a5a' : '#0a1020',
                           border: `1px solid ${noteText.trim() ? '#2a5080' : '#0e1828'}`,
-                          color: noteText.trim() ? '#4d82c0' : '#1e2a3a', cursor: noteText.trim() ? 'pointer' : 'default',
+                          color: noteText.trim() ? 'var(--fl-accent)' : 'var(--fl-card)', cursor: noteText.trim() ? 'pointer' : 'default',
                           display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, fontFamily: 'monospace' }}>
                         <Send size={11} /> Envoyer
                       </button>
@@ -992,7 +992,7 @@ export default function CaseTimelineExplorer({ caseId, onTotalChange, reloadKey 
                 ) : (
                   <>
                   
-                  <div style={{ flexShrink: 0, padding: '8px 14px', borderBottom: '1px solid #0d1525', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <div style={{ flexShrink: 0, padding: '8px 14px', borderBottom: '1px solid var(--fl-bg)', display: 'flex', flexDirection: 'column', gap: 6 }}>
                     
                     <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
                       <span style={{ fontFamily: 'monospace', fontSize: 10, color: '#4d6080', minWidth: 84, flexShrink: 0, paddingTop: 1 }}>Horodatage</span>
@@ -1011,7 +1011,7 @@ export default function CaseTimelineExplorer({ caseId, onTotalChange, reloadKey 
                     {r.description && (
                       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
                         <span style={{ fontFamily: 'monospace', fontSize: 10, color: '#4d6080', minWidth: 84, flexShrink: 0, paddingTop: 1 }}>Détails</span>
-                        <span style={{ fontSize: 11, color: '#c8d8ec', lineHeight: 1.5, wordBreak: 'break-word' }}>{r.description}</span>
+                        <span style={{ fontSize: 11, color: 'var(--fl-on-dark)', lineHeight: 1.5, wordBreak: 'break-word' }}>{r.description}</span>
                       </div>
                     )}
                   </div>
@@ -1020,8 +1020,8 @@ export default function CaseTimelineExplorer({ caseId, onTotalChange, reloadKey 
                     
                     <div style={{
                       position: 'sticky', top: 0, zIndex: 1,
-                      padding: '4px 14px', background: '#060c18', borderBottom: '1px solid #0d1525',
-                      fontFamily: 'monospace', fontSize: 9, color: '#3d5070',
+                      padding: '4px 14px', background: '#060c18', borderBottom: '1px solid var(--fl-bg)',
+                      fontFamily: 'monospace', fontSize: 9, color: 'var(--fl-subtle)',
                       textTransform: 'uppercase', letterSpacing: '0.08em',
                     }}>
                       Données brutes CSV — {Object.entries(raw).filter(([,v]) => v !== null && v !== undefined && v !== '').length} champs
@@ -1068,28 +1068,28 @@ export default function CaseTimelineExplorer({ caseId, onTotalChange, reloadKey 
               display: 'flex', alignItems: 'center', justifyContent: 'space-between',
               marginTop: 6, padding: '5px 2px',
             }}>
-              <span style={{ fontFamily: 'monospace', fontSize: 10, color: '#2a3a50' }}>
+              <span style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--fl-muted)' }}>
                 {((page - 1) * pageSize + 1).toLocaleString()}–{Math.min(page * pageSize, total).toLocaleString()} / {total.toLocaleString()}
               </span>
 
               <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
                 <button disabled={page <= 1} onClick={() => changePage(1)}
-                  style={{ ...S.btn(false, '#7d8590'), color: page <= 1 ? '#1e2a3a' : '#484f58', cursor: page <= 1 ? 'default' : 'pointer' }}>
+                  style={{ ...S.btn(false, 'var(--fl-dim)'), color: page <= 1 ? 'var(--fl-card)' : 'var(--fl-muted)', cursor: page <= 1 ? 'default' : 'pointer' }}>
                   «
                 </button>
                 <button disabled={page <= 1} onClick={() => changePage(page - 1)}
-                  style={{ ...S.btn(false, '#7d8590'), color: page <= 1 ? '#1e2a3a' : '#484f58', cursor: page <= 1 ? 'default' : 'pointer' }}>
+                  style={{ ...S.btn(false, 'var(--fl-dim)'), color: page <= 1 ? 'var(--fl-card)' : 'var(--fl-muted)', cursor: page <= 1 ? 'default' : 'pointer' }}>
                   <ChevronLeft size={11} />
                 </button>
-                <span style={{ fontFamily: 'monospace', fontSize: 11, color: '#484f58', padding: '0 8px', whiteSpace: 'nowrap' }}>
-                  {page} <span style={{ color: '#2a3a50' }}>/</span> {totalPages}
+                <span style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--fl-muted)', padding: '0 8px', whiteSpace: 'nowrap' }}>
+                  {page} <span style={{ color: 'var(--fl-muted)' }}>/</span> {totalPages}
                 </span>
                 <button disabled={page >= totalPages} onClick={() => changePage(page + 1)}
-                  style={{ ...S.btn(false, '#7d8590'), color: page >= totalPages ? '#1e2a3a' : '#484f58', cursor: page >= totalPages ? 'default' : 'pointer' }}>
+                  style={{ ...S.btn(false, 'var(--fl-dim)'), color: page >= totalPages ? 'var(--fl-card)' : 'var(--fl-muted)', cursor: page >= totalPages ? 'default' : 'pointer' }}>
                   <ChevronRight size={11} />
                 </button>
                 <button disabled={page >= totalPages} onClick={() => changePage(totalPages)}
-                  style={{ ...S.btn(false, '#7d8590'), color: page >= totalPages ? '#1e2a3a' : '#484f58', cursor: page >= totalPages ? 'default' : 'pointer' }}>
+                  style={{ ...S.btn(false, 'var(--fl-dim)'), color: page >= totalPages ? 'var(--fl-card)' : 'var(--fl-muted)', cursor: page >= totalPages ? 'default' : 'pointer' }}>
                   »
                 </button>
                 <input value={jumpPage} onChange={e => setJumpPage(e.target.value)}
@@ -1103,11 +1103,11 @@ export default function CaseTimelineExplorer({ caseId, onTotalChange, reloadKey 
                   style={{
                     width: 66, padding: '3px 6px', borderRadius: 4, textAlign: 'center',
                     fontFamily: 'monospace', fontSize: 10, outline: 'none',
-                    background: '#060a10', border: '1px solid #1e2a3a', color: '#484f58',
+                    background: '#060a10', border: '1px solid var(--fl-card)', color: 'var(--fl-muted)',
                   }} />
               </div>
 
-              <span style={{ fontFamily: 'monospace', fontSize: 10, color: '#2a3a50' }}>
+              <span style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--fl-muted)' }}>
                 {taggedCount > 0 ? `⬤ ${taggedCount} taggé${taggedCount > 1 ? 's' : ''}` : ''}
               </span>
             </div>

@@ -71,72 +71,118 @@ function sortRawByPriority(entries) {
 
 const DESC_CHIP_RULES = [
 
-  { test: s => /\.(exe|dll|bat|ps1|sh|py|cmd|vbs|js)(\s|$|:)/i.test(s) || /^(Image|Process|CommandLine|ParentImage):/i.test(s), color: '#c792ea', bg: '#c792ea18' },
+  { test: s => /\.(exe|dll|bat|ps1|sh|py|cmd|vbs|js)(\s|$|:)/i.test(s) || /^(Image|Process|CommandLine|ParentImage):/i.test(s), color: '#c792ea', bg: '#c792ea28' },
 
-  { test: s => /[A-Za-z]:\\|\/home\/|\/etc\/|\/var\/|\/tmp\/|%\w+%/i.test(s) || /^(Path|File|Dir|TargetFilename|ObjectName):/i.test(s), color: '#4d82c0', bg: '#4d82c018' },
+  { test: s => /[A-Za-z]:\\|\/home\/|\/etc\/|\/var\/|\/tmp\/|%\w+%/i.test(s) || /^(Path|File|Dir|TargetFilename|ObjectName):/i.test(s), color: '#6ab0f5', bg: '#4d82c028' },
 
-  { test: s => /^(User|Username|SubjectUserName|TargetUserName|Account):/i.test(s), color: '#d4a44c', bg: '#d4a44c18' },
+  { test: s => /^(User|Username|SubjectUserName|TargetUserName|Account):/i.test(s), color: '#d4a44c', bg: '#d4a44c28' },
 
-  { test: s => /^(PID|ProcessId|ParentProcessId|ppid):/i.test(s) || /\bpid\s*[:=]\s*\d+/i.test(s), color: '#8b72d6', bg: '#8b72d618' },
+  { test: s => /^(PID|ProcessId|ParentProcessId|ppid):/i.test(s) || /\bpid\s*[:=]\s*\d+/i.test(s), color: '#a98ee8', bg: '#8b72d628' },
 
-  { test: s => /\b\d{1,3}(\.\d{1,3}){3}\b/.test(s) || /^(IP|DestinationIp|SourceIp|dst|src):/i.test(s), color: '#3fb950', bg: '#3fb95018' },
+  { test: s => /\b\d{1,3}(\.\d{1,3}){3}\b/.test(s) || /^(IP|DestinationIp|SourceIp|dst|src):/i.test(s), color: '#4ade80', bg: '#3fb95028' },
 
-  { test: s => /^(MD5|SHA1|SHA256|Hash|Hashes):/i.test(s) || /\b[0-9a-f]{32,64}\b/i.test(s), color: '#58a6ff', bg: '#58a6ff18' },
+  { test: s => /^(MD5|SHA1|SHA256|Hash|Hashes):/i.test(s) || /\b[0-9a-f]{32,64}\b/i.test(s), color: '#58a6ff', bg: '#58a6ff28' },
 
-  { test: s => /^(Key|Registry|TargetObject|HKLM|HKCU|HKU)/i.test(s), color: '#d97c20', bg: '#d97c2018' },
+  { test: s => /^(Key|Registry|TargetObject|HKLM|HKCU|HKU)/i.test(s), color: '#f0883e', bg: '#d97c2028' },
 
-  { test: s => /^(Port|DestinationPort|SourcePort|dst_port|src_port):/i.test(s), color: '#79c0ff', bg: '#79c0ff18' },
+  { test: s => /^(Port|DestinationPort|SourcePort|dst_port|src_port):/i.test(s), color: '#79c0ff', bg: '#79c0ff28' },
 ];
 
 function chipColor(segment) {
   for (const rule of DESC_CHIP_RULES) {
     if (rule.test(segment)) return { color: rule.color, bg: rule.bg };
   }
-  return { color: '#5a7a9a', bg: '#5a7a9a12' };
+  return { color: '#7a9ab8', bg: '#7a9ab822' };
+}
+
+function shortenPath(p) {
+  const norm = p.replace(/\\/g, '/');
+  const parts = norm.split('/').filter(Boolean);
+  if (parts.length <= 2) return p;
+  return '…/' + parts.slice(-2).join('/');
+}
+
+function shortenHash(h) {
+  if (h.length >= 32) return h.slice(0, 8) + '…';
+  return h;
+}
+
+function extractChipDisplay(raw) {
+  const s = raw.trim();
+  const colonIdx = s.indexOf(':');
+  if (colonIdx < 1 || colonIdx > 30) return s;
+  const key = s.slice(0, colonIdx).trim();
+  const val = s.slice(colonIdx + 1).trim();
+  if (!val) return key;
+
+  if (/^(MD5|SHA1|SHA256|Hash|Hashes|Imphash)$/i.test(key)) {
+    return shortenHash(val);
+  }
+  if (/^(Image|ParentImage|TargetFilename|file_path|full_path|path|ObjectName|TargetObject)$/i.test(key)) {
+    return shortenPath(val);
+  }
+  if (/^(CommandLine|CommandLine_full|command_line)$/i.test(key)) {
+    const trimmed = val.length > 55 ? val.slice(0, 55) + '…' : val;
+    return trimmed;
+  }
+  if (/^(PID|ProcessId|ParentProcessId|ppid|pid)$/i.test(key)) {
+    return `PID ${val}`;
+  }
+  if (/^(Port|DestinationPort|SourcePort|dst_port|src_port)$/i.test(key)) {
+    return `:${val}`;
+  }
+  if (val.length > 40) return val.slice(0, 40) + '…';
+  return val;
 }
 
 function DescriptionCell({ value }) {
-  if (!value || value === '-') return <span style={{ color: '#2a3a50' }}>—</span>;
+  if (!value || value === '-') return <span style={{ color: 'var(--fl-muted)' }}>—</span>;
 
   const parts = value.split(/\s*\|\s*/);
   if (parts.length === 1) {
-
+    const display = value.length > 120 ? value.slice(0, 120) + '…' : value;
     return (
-      <span title={value} style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#c0cce0' }}>
-        {value}
+      <span title={value} style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--fl-on-dark)' }}>
+        {display}
       </span>
     );
   }
 
   const [main, ...chips] = parts;
   const tooltip = parts.join('\n');
+  const mainTrim = main.trim();
+  const mainDisplay = mainTrim.length > 60
+    ? (mainTrim.includes('/') || mainTrim.includes('\\') ? shortenPath(mainTrim) : mainTrim.slice(0, 60) + '…')
+    : mainTrim;
 
   return (
-    <span title={tooltip} style={{ display: 'flex', alignItems: 'center', gap: 4, overflow: 'hidden', minWidth: 0 }}>
-      
+    <span title={tooltip} style={{ display: 'flex', alignItems: 'center', gap: 4, overflow: 'hidden', minWidth: 0, width: '100%' }}>
       <span style={{
-        color: '#e2eaf5', fontWeight: 600, flexShrink: 0,
+        color: '#e2eaf5', fontWeight: 600, flexShrink: 1,
         overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-        maxWidth: '35%',
+        minWidth: 40, maxWidth: '50%',
       }}>
-        {main.trim()}
+        {mainDisplay}
       </span>
-      
-      {chips.map((chip, i) => {
+      {chips.slice(0, 4).map((chip, i) => {
         const { color, bg } = chipColor(chip.trim());
+        const label = extractChipDisplay(chip.trim());
         return (
           <span key={i} style={{
             flexShrink: 0, display: 'inline-block',
             padding: '0px 5px', borderRadius: 3,
             fontSize: 10, fontFamily: 'monospace',
             background: bg, color, border: `1px solid ${color}30`,
-            whiteSpace: 'nowrap', maxWidth: 160,
+            whiteSpace: 'nowrap', maxWidth: 180,
             overflow: 'hidden', textOverflow: 'ellipsis',
           }}>
-            {chip.trim()}
+            {label}
           </span>
         );
       })}
+      {chips.length > 4 && (
+        <span style={{ fontSize: 9, color: 'var(--fl-subtle)', flexShrink: 0 }}>+{chips.length - 4}</span>
+      )}
     </span>
   );
 }
@@ -194,21 +240,21 @@ const GRID_COLUMNS = [
 ];
 
 const WB_LEVELS = [
-  { key: 'critical', label: 'Malveillant', color: '#ef4444', dot: '●' },
-  { key: 'high',     label: 'Suspect',     color: '#d97c20', dot: '●' },
-  { key: 'medium',   label: 'Ambigu',      color: '#c89d1d', dot: '●' },
+  { key: 'critical', label: 'Malveillant', color: 'var(--fl-danger)', dot: '●' },
+  { key: 'high',     label: 'Suspect',     color: 'var(--fl-warn)', dot: '●' },
+  { key: 'medium',   label: 'Ambigu',      color: 'var(--fl-gold)', dot: '●' },
   { key: 'low',      label: 'Bénin',       color: '#22c55e', dot: '●' },
 ];
 const WB_TAGS = [
-  { key: 'exec',            label: 'Exécution',       color: '#d97c20' },
-  { key: 'persist',         label: 'Persistance',     color: '#8b72d6' },
+  { key: 'exec',            label: 'Exécution',       color: 'var(--fl-warn)' },
+  { key: 'persist',         label: 'Persistance',     color: 'var(--fl-purple)' },
   { key: 'lateral',         label: 'Mvt latéral',     color: '#22c55e' },
-  { key: 'exfil',           label: 'Exfiltration',    color: '#ef4444' },
+  { key: 'exfil',           label: 'Exfiltration',    color: 'var(--fl-danger)' },
   { key: 'c2',              label: 'C2',               color: '#f43f5e' },
   { key: 'recon',           label: 'Reconnaissance',  color: '#06b6d4' },
   { key: 'privesc',         label: 'Privesc',          color: '#f59e0b' },
   { key: 'defense_evasion', label: 'Évasion défense', color: '#64748b' },
-  { key: 'credential',      label: 'Credentials',     color: '#c96898' },
+  { key: 'credential',      label: 'Credentials',     color: 'var(--fl-pink)' },
   { key: 'discovery',       label: 'Découverte',      color: '#0ea5e9' },
   { key: 'collection',      label: 'Collection',      color: '#84cc16' },
   { key: 'impact',          label: 'Impact',           color: '#dc2626' },
@@ -239,14 +285,14 @@ function WbTagPicker({ rowId, current = {}, onChange, onClose, anchorRef }) {
       ref={ref}
       style={{
         position: 'fixed', left: pos.x, top: pos.y, zIndex: 9999,
-        background: '#0d1525', border: '1px solid #1a2a40', borderRadius: 6,
+        background: 'var(--fl-bg)', border: '1px solid #1a2a40', borderRadius: 6,
         boxShadow: '0 8px 32px #00000080', padding: '8px 10px', width: 210,
         fontFamily: 'monospace',
       }}
       onClick={e => e.stopPropagation()}
     >
       
-      <div style={{ fontSize: 8, color: '#3d5070', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 5 }}>Niveau</div>
+      <div style={{ fontSize: 8, color: 'var(--fl-subtle)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 5 }}>Niveau</div>
       <div style={{ display: 'flex', gap: 4, marginBottom: 8 }}>
         {WB_LEVELS.map(l => (
           <button key={l.key} onClick={() => onChange({ ...current, level: lvl === l.key ? null : l.key })}
@@ -262,7 +308,7 @@ function WbTagPicker({ rowId, current = {}, onChange, onClose, anchorRef }) {
         ))}
       </div>
       
-      <div style={{ fontSize: 8, color: '#3d5070', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 5 }}>Tags</div>
+      <div style={{ fontSize: 8, color: 'var(--fl-subtle)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 5 }}>Tags</div>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
         {WB_TAGS.map(t => {
           const active = tags.includes(t.key);
@@ -271,7 +317,7 @@ function WbTagPicker({ rowId, current = {}, onChange, onClose, anchorRef }) {
               style={{
                 padding: '2px 6px', borderRadius: 8, fontSize: 9, cursor: 'pointer', fontWeight: 600,
                 background: active ? `${t.color}30` : 'rgba(255,255,255,0.05)',
-                color: active ? t.color : '#7d8590',
+                color: active ? t.color : 'var(--fl-dim)',
                 border: `1px solid ${active ? t.color + '60' : 'rgba(255,255,255,0.1)'}`,
               }}>
               {t.label}
@@ -281,7 +327,7 @@ function WbTagPicker({ rowId, current = {}, onChange, onClose, anchorRef }) {
       </div>
       
       <button onClick={() => { onChange({ level: null, tags: [] }); onClose(); }}
-        style={{ marginTop: 7, background: 'none', border: 'none', cursor: 'pointer', fontSize: 9, color: '#3d5070', padding: 0 }}>
+        style={{ marginTop: 7, background: 'none', border: 'none', cursor: 'pointer', fontSize: 9, color: 'var(--fl-subtle)', padding: 0 }}>
         Effacer
       </button>
     </div>
@@ -345,7 +391,7 @@ function ArtifactGrid({ records, selectedRecord, onSelect, notedRefs, gapThresho
         size: 150,
         cell: info => {
           const val = info.getValue();
-          if (val === null || val === undefined || val === '') return <span style={{ color: '#2a3a50' }}>—</span>;
+          if (val === null || val === undefined || val === '') return <span style={{ color: 'var(--fl-muted)' }}>—</span>;
           const str = String(val);
           return <span title={str} style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{str}</span>;
         },
@@ -412,7 +458,7 @@ function ArtifactGrid({ records, selectedRecord, onSelect, notedRefs, gapThresho
   }, []);
 
   return (
-    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', background: '#0d1117' }}>
+    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', background: 'var(--fl-bg)' }}>
       
       {ctxMenu && (
         <div style={{ position: 'fixed', zIndex: 9500 }}>
@@ -473,32 +519,32 @@ function ArtifactGrid({ records, selectedRecord, onSelect, notedRefs, gapThresho
 
           <thead style={{ position: 'sticky', top: 0, zIndex: 10 }}>
             {table.getHeaderGroups().map(hg => (
-              <tr key={hg.id} style={{ background: '#07101f' }}>
+              <tr key={hg.id} style={{ background: 'var(--fl-bg)' }}>
                 
                 <th
                   onClick={() => {
                     const allIds = new Set(tableRows.map(r => r.id));
                     setSelectedRows(prev => prev.size === tableRows.length ? new Set() : allIds);
                   }}
-                  style={{ width: 24, padding: '6px 4px', borderBottom: '2px solid #1a2035', background: '#07101f', textAlign: 'center', cursor: 'pointer' }}
+                  style={{ width: 24, padding: '6px 4px', borderBottom: '2px solid var(--fl-sep)', background: 'var(--fl-bg)', textAlign: 'center', cursor: 'pointer' }}
                   title="Tout sélectionner"
                 >
                   {selectedRows.size > 0 && selectedRows.size === tableRows.length
-                    ? <CheckSquare size={11} style={{ color: '#4d82c0' }} />
-                    : <Square size={11} style={{ color: selectedRows.size > 0 ? '#4d82c060' : '#30363d' }} />
+                    ? <CheckSquare size={11} style={{ color: 'var(--fl-accent)' }} />
+                    : <Square size={11} style={{ color: selectedRows.size > 0 ? '#4d82c060' : 'var(--fl-border)' }} />
                   }
                 </th>
                 
-                <th style={{ width: 22, padding: '6px 4px', borderBottom: '2px solid #1a2035', background: '#07101f', textAlign: 'center' }} title="Signets">
-                  <Star size={10} style={{ color: '#30363d' }} />
+                <th style={{ width: 22, padding: '6px 4px', borderBottom: '2px solid var(--fl-sep)', background: 'var(--fl-bg)', textAlign: 'center' }} title="Signets">
+                  <Star size={10} style={{ color: 'var(--fl-border)' }} />
                 </th>
                 
-                <th style={{ width: 20, padding: '6px 4px', borderBottom: '2px solid #1a2035', background: '#07101f', textAlign: 'center' }} title="Épingles">
-                  <Pin size={10} style={{ color: '#30363d' }} />
+                <th style={{ width: 20, padding: '6px 4px', borderBottom: '2px solid var(--fl-sep)', background: 'var(--fl-bg)', textAlign: 'center' }} title="Épingles">
+                  <Pin size={10} style={{ color: 'var(--fl-border)' }} />
                 </th>
                 
-                <th style={{ width: 30, padding: '6px 4px', borderBottom: '2px solid #1a2035', background: '#07101f', textAlign: 'center' }} title="Tags forensiques">
-                  <Tag size={10} style={{ color: '#30363d' }} />
+                <th style={{ width: 30, padding: '6px 4px', borderBottom: '2px solid var(--fl-sep)', background: 'var(--fl-bg)', textAlign: 'center' }} title="Tags forensiques">
+                  <Tag size={10} style={{ color: 'var(--fl-border)' }} />
                 </th>
                 {hg.headers.map((h) => {
                   const pinned  = h.column.columnDef.meta?.pinned;
@@ -524,8 +570,8 @@ function ArtifactGrid({ records, selectedRecord, onSelect, notedRefs, gapThresho
                         position: pinned ? 'sticky' : undefined,
                         left:     pinned ? 0 : undefined,
                         zIndex:   pinned ? 20 : undefined,
-                        background: '#07101f',
-                        borderRight: pinned ? '1px solid #1a2035' : undefined,
+                        background: 'var(--fl-bg)',
+                        borderRight: pinned ? '1px solid var(--fl-sep)' : undefined,
                       }}
                     >
                       <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
@@ -610,8 +656,8 @@ function ArtifactGrid({ records, selectedRecord, onSelect, notedRefs, gapThresho
                     style={{ padding: '2px 0', textAlign: 'center', width: 24, cursor: 'pointer' }}
                   >
                     {selectedRows.has(row.id)
-                      ? <CheckSquare size={11} style={{ color: '#4d82c0' }} />
-                      : <Square size={11} style={{ color: isHovered ? '#3d5070' : '#1e2535' }} />
+                      ? <CheckSquare size={11} style={{ color: 'var(--fl-accent)' }} />
+                      : <Square size={11} style={{ color: isHovered ? 'var(--fl-subtle)' : 'var(--fl-sep)' }} />
                     }
                   </td>
 
@@ -623,7 +669,7 @@ function ArtifactGrid({ records, selectedRecord, onSelect, notedRefs, gapThresho
                     <Star
                       size={11}
                       fill={bookmarkedRows.has(row.id) ? '#f59e0b' : 'none'}
-                      style={{ color: bookmarkedRows.has(row.id) ? '#f59e0b' : (isHovered ? '#3d5070' : '#1e2535') }}
+                      style={{ color: bookmarkedRows.has(row.id) ? '#f59e0b' : (isHovered ? 'var(--fl-subtle)' : 'var(--fl-sep)') }}
                     />
                   </td>
 
@@ -639,13 +685,13 @@ function ArtifactGrid({ records, selectedRecord, onSelect, notedRefs, gapThresho
                       if (pinEntry) {
                         return pinEntry.is_global
                           ? <Globe2 size={11} style={{ color: '#f0b040' }} />
-                          : <Pin size={11} fill="#d97c20" style={{ color: '#d97c20' }} />;
+                          : <Pin size={11} fill="var(--fl-warn)" style={{ color: 'var(--fl-warn)' }} />;
                       }
                       return (
                         <Pin
                           size={11}
                           fill="none"
-                          style={{ color: isHovered ? '#3d5070' : '#1e2535' }}
+                          style={{ color: isHovered ? 'var(--fl-subtle)' : 'var(--fl-sep)' }}
                         />
                       );
                     })()}
@@ -661,8 +707,8 @@ function ArtifactGrid({ records, selectedRecord, onSelect, notedRefs, gapThresho
                       const td = tagData.get(row.id) || {};
                       const lvl = WB_LEVELS.find(l => l.key === td.level);
                       if (lvl) return <span style={{ fontSize: 13, color: lvl.color, lineHeight: 1 }}>{lvl.dot}</span>;
-                      if (td.tags?.length > 0) return <Tag size={11} style={{ color: '#3d5070' }} />;
-                      return <span style={{ fontSize: 11, color: isHovered ? '#2a3a50' : '#111827' }}>○</span>;
+                      if (td.tags?.length > 0) return <Tag size={11} style={{ color: 'var(--fl-subtle)' }} />;
+                      return <span style={{ fontSize: 11, color: isHovered ? 'var(--fl-card)' : 'var(--fl-bg)' }}>○</span>;
                     })()}
                   </td>
 
@@ -680,12 +726,12 @@ function ArtifactGrid({ records, selectedRecord, onSelect, notedRefs, gapThresho
                           whiteSpace: 'nowrap',
                           minWidth: isDesc ? 0 : undefined,
                           fontFamily: mono ? 'monospace' : undefined,
-                          color: mono ? '#7a9abf' : '#c0cce0',
+                          color: mono ? 'var(--fl-accent)' : 'var(--fl-on-dark)',
                           position:   pinned ? 'sticky' : undefined,
                           left:       pinned ? 0 : undefined,
                           zIndex:     pinned ? 5 : undefined,
                           background: pinned ? rowBg : undefined,
-                          borderRight: pinned ? '1px solid #1a2035' : undefined,
+                          borderRight: pinned ? '1px solid var(--fl-sep)' : undefined,
                         }}
                       >
                         {flexRender(cell.column.columnDef.cell, cell.getContext())}
@@ -710,11 +756,11 @@ function ArtifactGrid({ records, selectedRecord, onSelect, notedRefs, gapThresho
       <div style={{
         flexShrink: 0,
         padding: '3px 12px',
-        background: '#07101f',
-        borderTop: '1px solid #1a2035',
+        background: 'var(--fl-bg)',
+        borderTop: '1px solid var(--fl-sep)',
         fontFamily: 'monospace',
         fontSize: 10,
-        color: '#2a3a50',
+        color: 'var(--fl-muted)',
         display: 'flex',
         alignItems: 'center',
         gap: 10,
@@ -733,7 +779,7 @@ function ArtifactGrid({ records, selectedRecord, onSelect, notedRefs, gapThresho
           </span>
         )}
         {selectedRecord && (
-          <span style={{ color: '#3d5070', marginLeft: 'auto' }}>
+          <span style={{ color: 'var(--fl-subtle)', marginLeft: 'auto' }}>
             <span style={{ color: ac(selectedRecord.artifact_type) }}>{selectedRecord.artifact_type}</span>
             {' '}{fmtTs(selectedRecord.timestamp)}
           </span>
@@ -763,9 +809,9 @@ function PivotButton({ value, isIP, caseId, onFilterTimeline }) {
         onClick={() => setOpen(v => !v)}
         title="Pivot"
         style={{
-          background: 'none', border: '1px solid #1a2a3a', borderRadius: 3,
+          background: 'none', border: '1px solid var(--fl-card)', borderRadius: 3,
           cursor: 'pointer', padding: '1px 6px', fontSize: 9, fontFamily: 'monospace',
-          color: '#4d82c0', display: 'flex', alignItems: 'center', gap: 3, flexShrink: 0,
+          color: 'var(--fl-accent)', display: 'flex', alignItems: 'center', gap: 3, flexShrink: 0,
         }}
       >
         ⤢ Pivot
@@ -773,7 +819,7 @@ function PivotButton({ value, isIP, caseId, onFilterTimeline }) {
       {open && (
         <div style={{
           position: 'absolute', right: 0, top: '100%', zIndex: 100, marginTop: 2,
-          background: '#07101f', border: '1px solid #2a3a50', borderRadius: 6,
+          background: 'var(--fl-bg)', border: '1px solid var(--fl-card)', borderRadius: 6,
           padding: '4px 0', minWidth: 180, boxShadow: '0 8px 24px rgba(0,0,0,0.6)',
         }}>
           {onFilterTimeline && (
@@ -782,9 +828,9 @@ function PivotButton({ value, isIP, caseId, onFilterTimeline }) {
               style={{
                 display: 'block', width: '100%', textAlign: 'left',
                 padding: '5px 12px', fontSize: 10, fontFamily: 'monospace',
-                background: 'none', border: 'none', cursor: 'pointer', color: '#c0cce0',
+                background: 'none', border: 'none', cursor: 'pointer', color: 'var(--fl-on-dark)',
               }}
-              onMouseEnter={e => e.currentTarget.style.background = '#1a2a3a'}
+              onMouseEnter={e => e.currentTarget.style.background = 'var(--fl-card)'}
               onMouseLeave={e => e.currentTarget.style.background = 'none'}
             >
               {t('timeline.filter_timeline')}
@@ -796,9 +842,9 @@ function PivotButton({ value, isIP, caseId, onFilterTimeline }) {
               style={{
                 display: 'block', width: '100%', textAlign: 'left',
                 padding: '5px 12px', fontSize: 10, fontFamily: 'monospace',
-                background: 'none', border: 'none', cursor: 'pointer', color: '#c0cce0',
+                background: 'none', border: 'none', cursor: 'pointer', color: 'var(--fl-on-dark)',
               }}
-              onMouseEnter={e => e.currentTarget.style.background = '#1a2a3a'}
+              onMouseEnter={e => e.currentTarget.style.background = 'var(--fl-card)'}
               onMouseLeave={e => e.currentTarget.style.background = 'none'}
             >
               {t('timeline.see_in_network')}
@@ -890,7 +936,7 @@ function ArtifactInspector({ record, caseId, onNotedRefsChange, onFilterTimeline
         background: '#05080f', gap: 8,
       }}>
         <div style={{ fontSize: 22, opacity: 0.15 }}>⬛</div>
-        <div style={{ fontFamily: 'monospace', fontSize: 11, color: '#2a3a50' }}>
+        <div style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--fl-muted)' }}>
           {t('timeline.inspector_placeholder')}
         </div>
       </div>
@@ -958,7 +1004,7 @@ function ArtifactInspector({ record, caseId, onNotedRefsChange, onFilterTimeline
           const pid = raw.Pid || raw.pid || raw.PID || null;
           if (!isMemory) return null;
           const url = pid
-            ? `http:
+            ? `http://localhost:8888/processes/${pid}`
             : 'http://localhost:8888';
           return (
             <button
@@ -968,7 +1014,7 @@ function ArtifactInspector({ record, caseId, onNotedRefsChange, onFilterTimeline
                 marginLeft: 4, background: 'rgba(139,114,214,0.12)',
                 border: '1px solid rgba(139,114,214,0.35)',
                 borderRadius: 4, cursor: 'pointer', padding: '2px 8px',
-                fontSize: 10, fontFamily: 'monospace', color: '#8b72d6',
+                fontSize: 10, fontFamily: 'monospace', color: 'var(--fl-purple)',
               }}
               title={pid ? `Ouvrir VolWeb — PID ${pid}` : 'Ouvrir VolWeb'}
             >
@@ -979,10 +1025,10 @@ function ArtifactInspector({ record, caseId, onNotedRefsChange, onFilterTimeline
         
         <button onClick={copyJson} style={{
           flexShrink: 0, display: 'flex', alignItems: 'center', gap: 4,
-          marginLeft: 8, background: 'none', border: '1px solid #1a2035',
+          marginLeft: 8, background: 'none', border: '1px solid var(--fl-sep)',
           borderRadius: 4, cursor: 'pointer', padding: '2px 8px',
           fontSize: 10, fontFamily: 'monospace',
-          color: copied ? '#3fb950' : '#3d5070', transition: 'color 0.15s',
+          color: copied ? 'var(--fl-ok)' : 'var(--fl-subtle)', transition: 'color 0.15s',
         }}>
           {copied ? <CheckCheck size={11} /> : <Copy size={11} />}
           {copied ? t('timeline.copy_success') : t('workbench.copy')}
@@ -1071,18 +1117,18 @@ function ArtifactInspector({ record, caseId, onNotedRefsChange, onFilterTimeline
         <div style={{
           flexShrink: 0,
           padding: '8px 12px',
-          borderBottom: '1px solid #0d1525',
+          borderBottom: '1px solid rgba(255,255,255,0.08)',
           display: 'flex', flexDirection: 'column', gap: 5,
         }}>
           
           <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
-            <span style={{ display: 'flex', alignItems: 'center', gap: 4, width: 80, flexShrink: 0, fontSize: 10, color: '#3d5070', fontFamily: 'monospace', paddingTop: 1 }}>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 4, width: 80, flexShrink: 0, fontSize: 10, color: 'var(--fl-subtle)', fontFamily: 'monospace', paddingTop: 1 }}>
               <Clock size={10} /> {t('workbench.timestamp_label')}
             </span>
             <span style={{ fontSize: 11, fontFamily: 'monospace', color: '#7abfff', fontWeight: 600, lineHeight: 1.4 }}>
               {fmtTs(record.timestamp)}
               {record.timestamp_column && (
-                <span style={{ marginLeft: 8, fontSize: 9, padding: '1px 5px', borderRadius: 3, background: '#1a2035', color: '#4d6080', fontWeight: 400 }}>
+                <span style={{ marginLeft: 8, fontSize: 9, padding: '1px 5px', borderRadius: 3, background: 'var(--fl-sep)', color: '#4d6080', fontWeight: 400 }}>
                   {record.timestamp_column}
                 </span>
               )}
@@ -1092,7 +1138,7 @@ function ArtifactInspector({ record, caseId, onNotedRefsChange, onFilterTimeline
           
           {(record.host_name || record.source_device) && (
             <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
-              <span style={{ display: 'flex', alignItems: 'center', gap: 4, width: 80, flexShrink: 0, fontSize: 10, color: '#3d5070', fontFamily: 'monospace', paddingTop: 1 }}>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 4, width: 80, flexShrink: 0, fontSize: 10, color: 'var(--fl-subtle)', fontFamily: 'monospace', paddingTop: 1 }}>
                 <HardDrive size={10} /> Hôte
               </span>
               <span style={{ fontSize: 11, fontFamily: 'monospace', color: '#22c55e', fontWeight: 600 }}>
@@ -1104,10 +1150,10 @@ function ArtifactInspector({ record, caseId, onNotedRefsChange, onFilterTimeline
           
           {record.user_name && (
             <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
-              <span style={{ display: 'flex', alignItems: 'center', gap: 4, width: 80, flexShrink: 0, fontSize: 10, color: '#3d5070', fontFamily: 'monospace', paddingTop: 1 }}>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 4, width: 80, flexShrink: 0, fontSize: 10, color: 'var(--fl-subtle)', fontFamily: 'monospace', paddingTop: 1 }}>
                 <Eye size={10} /> Utilisateur
               </span>
-              <span style={{ fontSize: 11, fontFamily: 'monospace', color: '#c89d1d', fontWeight: 600 }}>
+              <span style={{ fontSize: 11, fontFamily: 'monospace', color: 'var(--fl-gold)', fontWeight: 600 }}>
                 {record.user_name}
               </span>
             </div>
@@ -1116,10 +1162,10 @@ function ArtifactInspector({ record, caseId, onNotedRefsChange, onFilterTimeline
           
           {record.process_name && (
             <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
-              <span style={{ display: 'flex', alignItems: 'center', gap: 4, width: 80, flexShrink: 0, fontSize: 10, color: '#3d5070', fontFamily: 'monospace', paddingTop: 1 }}>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 4, width: 80, flexShrink: 0, fontSize: 10, color: 'var(--fl-subtle)', fontFamily: 'monospace', paddingTop: 1 }}>
                 <Cpu size={10} /> Processus
               </span>
-              <span style={{ fontSize: 11, fontFamily: 'monospace', color: '#d97c20', fontWeight: 600, wordBreak: 'break-all' }}>
+              <span style={{ fontSize: 11, fontFamily: 'monospace', color: 'var(--fl-warn)', fontWeight: 600, wordBreak: 'break-all' }}>
                 {record.process_name}
               </span>
             </div>
@@ -1128,7 +1174,7 @@ function ArtifactInspector({ record, caseId, onNotedRefsChange, onFilterTimeline
           
           {record.mitre_technique_id && (
             <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
-              <span style={{ display: 'flex', alignItems: 'center', gap: 4, width: 80, flexShrink: 0, fontSize: 10, color: '#3d5070', fontFamily: 'monospace', paddingTop: 1 }}>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 4, width: 80, flexShrink: 0, fontSize: 10, color: 'var(--fl-subtle)', fontFamily: 'monospace', paddingTop: 1 }}>
                 <ShieldAlert size={10} /> MITRE
               </span>
               <MitreBadge id={record.mitre_technique_id} name={record.mitre_technique_name} />
@@ -1139,17 +1185,35 @@ function ArtifactInspector({ record, caseId, onNotedRefsChange, onFilterTimeline
           {record.description && (
             <div style={{
               padding: '6px 8px', borderRadius: 5,
-              background: `${color}08`, border: `1px solid ${color}20`,
-              fontSize: 11, color: '#c0cce0', lineHeight: 1.55, wordBreak: 'break-word',
+              background: `${color}10`, border: `1px solid ${color}35`,
+              fontSize: 11, lineHeight: 1.55, wordBreak: 'break-word',
+              display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 4,
             }}>
-              {record.description}
+              {record.description.split(/\s*\|\s*/).map((part, i, arr) => {
+                const { color: c, bg } = chipColor(part.trim());
+                return (
+                  <span key={i} style={{
+                    padding: i === 0 ? '0' : '1px 6px',
+                    borderRadius: i === 0 ? 0 : 4,
+                    fontFamily: 'monospace',
+                    fontSize: i === 0 ? 11 : 10,
+                    fontWeight: i === 0 ? 600 : 400,
+                    color: i === 0 ? 'var(--fl-on-dark)' : c,
+                    background: i === 0 ? 'transparent' : bg,
+                    border: i === 0 ? 'none' : `1px solid ${c}40`,
+                    whiteSpace: 'nowrap',
+                  }}>
+                    {part.trim()}
+                  </span>
+                );
+              })}
             </div>
           )}
 
           
           {record.source && (
             <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
-              <span style={{ display: 'flex', alignItems: 'center', gap: 4, width: 80, flexShrink: 0, fontSize: 10, color: '#3d5070', fontFamily: 'monospace', paddingTop: 1 }}>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 4, width: 80, flexShrink: 0, fontSize: 10, color: 'var(--fl-subtle)', fontFamily: 'monospace', paddingTop: 1 }}>
                 <FileText size={10} /> Source
               </span>
               <span style={{ fontSize: 10, fontFamily: 'monospace', color: '#4d6080', wordBreak: 'break-all', lineHeight: 1.4 }}>
@@ -1167,53 +1231,51 @@ function ArtifactInspector({ record, caseId, onNotedRefsChange, onFilterTimeline
                 position: 'sticky', top: 0,
                 padding: '4px 12px',
                 fontSize: 9, fontFamily: 'monospace', fontWeight: 700,
-                color: '#2a3a50', letterSpacing: '0.08em', textTransform: 'uppercase',
-                background: '#05080f', borderBottom: '1px solid #0d1525',
+                color: 'var(--fl-muted)', letterSpacing: '0.08em', textTransform: 'uppercase',
+                background: '#05080f', borderBottom: '1px solid rgba(255,255,255,0.07)',
                 display: 'flex', alignItems: 'center', gap: 5,
               }}>
                 <Tag size={9} />
                 {t('workbench.raw_csv')} — {rawFields.length}
               </div>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 10 }}>
-                <tbody>
-                  {rawFields.map(([key, val]) => {
-                    const strVal = String(val);
-                    const isIP   = /^\d{1,3}(\.\d{1,3}){3}$/.test(strVal);
-                    const isHash = /^[0-9a-fA-F]{32,}$/.test(strVal);
-                    const isURL  = /^https?:\/\//.test(strVal);
-                    const isPivotable = isIP || isHash || isURL;
-                    return (
-                      <tr key={key} style={{ borderBottom: '1px solid #090e1a' }}>
-                        <td style={{
-                          padding: '3px 12px 3px 12px',
-                          fontFamily: 'monospace', color: '#3d6080',
-                          whiteSpace: 'nowrap', verticalAlign: 'top',
-                          width: '35%', maxWidth: 160, userSelect: 'none',
-                        }}>
-                          {key}
-                        </td>
-                        <td style={{
-                          padding: '3px 12px 3px 6px',
-                          fontFamily: 'monospace', color: '#a0b8d0',
-                          wordBreak: 'break-all', lineHeight: 1.45,
-                        }}>
-                          <span style={{ display: 'flex', alignItems: 'flex-start', gap: 6, flexWrap: 'wrap' }}>
-                            <span style={{ flex: 1, wordBreak: 'break-all' }}>{strVal}</span>
-                            {isPivotable && (
-                              <PivotButton value={strVal} isIP={isIP} caseId={caseId} onFilterTimeline={onFilterTimeline} />
-                            )}
-                          </span>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 5, padding: '8px 12px' }}>
+                {rawFields.map(([key, val]) => {
+                  const strVal = String(val);
+                  const isIP   = /^\d{1,3}(\.\d{1,3}){3}$/.test(strVal);
+                  const isHash = /^[0-9a-fA-F]{32,}$/.test(strVal);
+                  const isURL  = /^https?:\/\//.test(strVal);
+                  const isPivotable = isIP || isHash || isURL;
+                  return (
+                    <div key={key} style={{ borderRadius: 4, overflow: 'hidden', border: `1px solid ${color}28` }}>
+                      <div style={{
+                        fontFamily: 'monospace', fontSize: 9, color,
+                        padding: '3px 8px', background: `${color}18`,
+                        textTransform: 'uppercase', letterSpacing: '0.07em', fontWeight: 600,
+                        userSelect: 'none',
+                      }}>
+                        {key}
+                      </div>
+                      <div style={{
+                        padding: '5px 8px',
+                        fontFamily: 'monospace', color: '#c0cfe0', fontSize: 10,
+                        wordBreak: 'break-all', lineHeight: 1.5,
+                        background: '#05080f', borderTop: `1px solid ${color}18`,
+                        display: 'flex', alignItems: 'flex-start', gap: 6,
+                      }}>
+                        <span style={{ flex: 1 }}>{strVal}</span>
+                        {isPivotable && (
+                          <PivotButton value={strVal} isIP={isIP} caseId={caseId} onFilterTimeline={onFilterTimeline} />
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             </>
           ) : (
             <div style={{ padding: '8px 12px' }}>
               <div style={{
-                fontSize: 9, fontFamily: 'monospace', fontWeight: 700, color: '#2a3a50',
+                fontSize: 9, fontFamily: 'monospace', fontWeight: 700, color: 'var(--fl-muted)',
                 letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 6,
               }}>
                 {t('workbench.json_raw')}
@@ -1240,7 +1302,7 @@ function MitreBadge({ id, name }) {
     <span style={{
       display: 'inline-flex', alignItems: 'center', gap: 3,
       padding: '1px 6px', borderRadius: 3, fontSize: 9, fontFamily: 'monospace', fontWeight: 700,
-      background: '#8b72d615', color: '#8b72d6', border: '1px solid #8b72d630',
+      background: '#8b72d615', color: 'var(--fl-purple)', border: '1px solid #8b72d630',
       whiteSpace: 'nowrap', flexShrink: 0,
     }} title={name || id}>
       {id}
@@ -1249,9 +1311,9 @@ function MitreBadge({ id, name }) {
 }
 
 const SEV_COLORS = {
-  critical: { bg: '#da363318', color: '#da3633', border: '#da363340' },
-  high:     { bg: '#d97c2014', color: '#d97c20', border: '#d97c2035' },
-  medium:   { bg: '#c89d1d12', color: '#c89d1d', border: '#c89d1d30' },
+  critical: { bg: '#da363318', color: 'var(--fl-danger)', border: '#da363340' },
+  high:     { bg: '#d97c2014', color: 'var(--fl-warn)', border: '#d97c2035' },
+  medium:   { bg: '#c89d1d12', color: 'var(--fl-gold)', border: '#c89d1d30' },
   low:      { bg: '#22c55e0c', color: '#22c55e', border: '#22c55e25' },
 };
 function SeverityBadge({ level }) {
@@ -1298,7 +1360,7 @@ function PersistancePanel({ caseId }) {
   if (!Array.isArray(findings) || findings.length === 0) return (
     <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, flexDirection: 'column' }}>
       <ShieldAlert size={28} style={{ color: '#22c55e', opacity: 0.5 }} />
-      <span style={{ fontFamily: 'monospace', fontSize: 11, color: '#3d5070' }}>
+      <span style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--fl-subtle)' }}>
         {t('workbench.no_persistence')}
       </span>
     </div>
@@ -1315,20 +1377,20 @@ function PersistancePanel({ caseId }) {
   }, [findings]);
 
   const VECTOR_COLORS = {
-    'Registry RunKey': '#c96898', registry: '#c96898',
-    lnk: '#d97c20', bits: '#64748b', prefetch: '#22c55e',
-    jumplist: '#8b5cf6', amcache: '#c89d1d',
+    'Registry RunKey': 'var(--fl-pink)', registry: 'var(--fl-pink)',
+    lnk: 'var(--fl-warn)', bits: '#64748b', prefetch: '#22c55e',
+    jumplist: '#8b5cf6', amcache: 'var(--fl-gold)',
   };
 
   return (
     <div style={{ flex: 1, overflow: 'auto', padding: '8px 12px', display: 'flex', flexDirection: 'column', gap: 6 }}>
-      <div style={{ fontSize: 9, fontFamily: 'monospace', fontWeight: 700, color: '#3d5070', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 5 }}>
+      <div style={{ fontSize: 9, fontFamily: 'monospace', fontWeight: 700, color: 'var(--fl-subtle)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 5 }}>
         <ShieldAlert size={10} />
         {findings.length} {findings.length !== 1 ? t('workbench.persistence_items_pl') : t('workbench.persistence_items')} — {Object.keys(byVector).length} {Object.keys(byVector).length !== 1 ? t('workbench.vectors_pl') : t('workbench.vectors')}
       </div>
       {Object.entries(byVector).map(([vector, items]) => {
         const isOpen = !collapsed[vector];
-        const col = VECTOR_COLORS[vector] || '#4d82c0';
+        const col = VECTOR_COLORS[vector] || 'var(--fl-accent)';
         const sample = items[0];
         const mitre_id   = sample?.mitre_technique_id || sample?.technique_id;
         const mitre_name = sample?.mitre_technique_name || sample?.technique_name;
@@ -1347,7 +1409,7 @@ function PersistancePanel({ caseId }) {
               <span style={{ fontSize: 11, fontFamily: 'monospace', fontWeight: 700, color: col, flex: 1 }}>
                 {vector}
               </span>
-              <span style={{ fontSize: 10, fontFamily: 'monospace', color: '#3d5070' }}>
+              <span style={{ fontSize: 10, fontFamily: 'monospace', color: 'var(--fl-subtle)' }}>
                 {items.length} {items.length !== 1 ? t('workbench.artifacts_pl') : t('workbench.artifacts')}
               </span>
               <MitreBadge id={mitre_id} name={mitre_name} />
@@ -1358,7 +1420,7 @@ function PersistancePanel({ caseId }) {
                 padding: '5px 12px 5px 26px', borderBottom: i < items.length - 1 ? `1px solid ${col}12` : 'none',
                 display: 'flex', flexDirection: 'column', gap: 2,
               }}>
-                <span style={{ fontSize: 11, color: '#c0cce0', fontFamily: 'monospace', wordBreak: 'break-all' }}>
+                <span style={{ fontSize: 11, color: 'var(--fl-on-dark)', fontFamily: 'monospace', wordBreak: 'break-all' }}>
                   {item.description || item.value || item.name || item.source || JSON.stringify(item).slice(0, 120)}
                 </span>
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
@@ -1368,7 +1430,7 @@ function PersistancePanel({ caseId }) {
                     </span>
                   )}
                   {item.source && item.source !== (item.description || '') && (
-                    <span style={{ fontSize: 9, fontFamily: 'monospace', color: '#3d5070', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 200 }}>
+                    <span style={{ fontSize: 9, fontFamily: 'monospace', color: 'var(--fl-subtle)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 200 }}>
                       {item.source}
                     </span>
                   )}
@@ -1425,7 +1487,7 @@ function DissimulationPanel({ caseId, records }) {
   if (total === 0) return (
     <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, flexDirection: 'column' }}>
       <Eye size={28} style={{ color: '#22c55e', opacity: 0.5 }} />
-      <span style={{ fontFamily: 'monospace', fontSize: 11, color: '#3d5070' }}>
+      <span style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--fl-subtle)' }}>
         {t('workbench.no_evasion')}
       </span>
     </div>
@@ -1435,14 +1497,14 @@ function DissimulationPanel({ caseId, records }) {
     return (
       <div style={{
         display: 'flex', alignItems: 'flex-start', gap: 8, padding: '6px 12px',
-        borderBottom: '1px solid #0d1525', flexWrap: 'wrap',
+        borderBottom: '1px solid var(--fl-bg)', flexWrap: 'wrap',
       }}>
         <SeverityBadge level={item.severity || (type === 'timestomping' ? 'high' : type === 'double_ext' ? 'medium' : 'low')} />
         <span style={{ fontSize: 9, fontFamily: 'monospace', padding: '1px 6px', borderRadius: 3,
           background: `${color}15`, color, border: `1px solid ${color}30`, flexShrink: 0 }}>
           {label}
         </span>
-        <span style={{ fontSize: 11, color: '#c0cce0', fontFamily: 'monospace', flex: 1, wordBreak: 'break-all', minWidth: 0 }}>
+        <span style={{ fontSize: 11, color: 'var(--fl-on-dark)', fontFamily: 'monospace', flex: 1, wordBreak: 'break-all', minWidth: 0 }}>
           {item.description || item.filename || item.name || item.value || item.source || JSON.stringify(item).slice(0, 120)}
         </span>
         {item.timestamp && (
@@ -1458,24 +1520,24 @@ function DissimulationPanel({ caseId, records }) {
     <div style={{ flex: 1, overflow: 'auto', display: 'flex', flexDirection: 'column' }}>
       
       <div style={{
-        flexShrink: 0, padding: '6px 12px', background: '#07101f', borderBottom: '1px solid #0d1525',
-        fontSize: 9, fontFamily: 'monospace', fontWeight: 700, color: '#3d5070',
+        flexShrink: 0, padding: '6px 12px', background: 'var(--fl-bg)', borderBottom: '1px solid var(--fl-bg)',
+        fontSize: 9, fontFamily: 'monospace', fontWeight: 700, color: 'var(--fl-subtle)',
         textTransform: 'uppercase', letterSpacing: '0.1em', display: 'flex', gap: 10, alignItems: 'center',
       }}>
         <Eye size={10} />
         {total} {total !== 1 ? t('workbench.evasion_items_pl') : t('workbench.evasion_items')}
-        {tsFindings.length > 0 && <span style={{ color: '#d97c20' }}>Timestomping ×{tsFindings.length}</span>}
-        {dextFindings.length > 0 && <span style={{ color: '#da3633' }}>Double ext. ×{dextFindings.length}</span>}
-        {mftAnomalies.length > 0 && <span style={{ color: '#8b72d6' }}>{t('workbench.mft_anomalies')} ×{mftAnomalies.length}</span>}
+        {tsFindings.length > 0 && <span style={{ color: 'var(--fl-warn)' }}>Timestomping ×{tsFindings.length}</span>}
+        {dextFindings.length > 0 && <span style={{ color: 'var(--fl-danger)' }}>Double ext. ×{dextFindings.length}</span>}
+        {mftAnomalies.length > 0 && <span style={{ color: 'var(--fl-purple)' }}>{t('workbench.mft_anomalies')} ×{mftAnomalies.length}</span>}
       </div>
       
-      {tsFindings.map((item, i) => <ArtifactRow key={`ts-${i}`} item={item} type="timestomping" label="Timestomping" color="#d97c20" />)}
+      {tsFindings.map((item, i) => <ArtifactRow key={`ts-${i}`} item={item} type="timestomping" label="Timestomping" color="var(--fl-warn)" />)}
       
-      {dextFindings.map((item, i) => <ArtifactRow key={`dx-${i}`} item={item} type="double_ext" label="Double extension" color="#da3633" />)}
+      {dextFindings.map((item, i) => <ArtifactRow key={`dx-${i}`} item={item} type="double_ext" label="Double extension" color="var(--fl-danger)" />)}
       
       {mftAnomalies.map((item, i) => (
         <ArtifactRow key={`mft-${i}`} item={{ ...item, description: `${item.raw?.['FileName'] || item.source} — ${t('workbench.mft_desc', { sia: item.raw?.['Created0x10'], fn: item.raw?.['Created0x30'] })}` }}
-          type="mft_anomaly" label={t('workbench.mft_anomaly')} color="#8b72d6" />
+          type="mft_anomaly" label={t('workbench.mft_anomaly')} color="var(--fl-purple)" />
       ))}
     </div>
   );
@@ -1483,14 +1545,14 @@ function DissimulationPanel({ caseId, records }) {
 
 function ResizeHandle() {
   return (
-    <PanelResizeHandle style={{ height: 6, background: '#0d1117', cursor: 'row-resize', position: 'relative', flexShrink: 0 }}>
+    <PanelResizeHandle style={{ height: 6, background: 'var(--fl-bg)', cursor: 'row-resize', position: 'relative', flexShrink: 0 }}>
       <div style={{
         position: 'absolute',
         left: '50%', top: '50%',
         transform: 'translate(-50%, -50%)',
         width: 36, height: 3,
         borderRadius: 2,
-        background: '#1a2035',
+        background: 'var(--fl-sep)',
         pointerEvents: 'none',
       }} />
     </PanelResizeHandle>
@@ -1762,37 +1824,37 @@ export default function SuperTimelineWorkbench({ records, availTypes, caseId, on
   }
 
   return (
-    <div style={{ height: '100%', overflow: 'hidden', display: 'flex', flexDirection: 'column', background: '#060b14' }}>
+    <div style={{ height: '100%', overflow: 'hidden', display: 'flex', flexDirection: 'column', background: 'var(--fl-bg)' }}>
 
       
       <div style={{
         flexShrink: 0,
         display: 'flex', alignItems: 'center', gap: 10,
         padding: '6px 14px',
-        background: 'linear-gradient(90deg, #06111f 0%, #091624 60%, #060b14 100%)',
-        borderBottom: '2px solid #1a3a5c',
+        background: 'linear-gradient(90deg, #06111f 0%, #091624 60%, var(--fl-bg) 100%)',
+        borderBottom: '2px solid var(--fl-accent)',
         boxShadow: '0 1px 12px rgba(77,130,192,0.12)',
       }}>
         
         <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
           <span style={{
             display: 'inline-block', width: 7, height: 7, borderRadius: '50%',
-            background: '#4d82c0',
-            boxShadow: '0 0 6px #4d82c0',
+            background: 'var(--fl-accent)',
+            boxShadow: '0 0 6px var(--fl-accent)',
             animation: 'wbPulse 2s ease-in-out infinite',
           }} />
-          <style>{`@keyframes wbPulse { 0%,100%{opacity:1;box-shadow:0 0 6px #4d82c0} 50%{opacity:.5;box-shadow:0 0 12px #4d82c0} }`}</style>
+          <style>{`@keyframes wbPulse { 0%,100%{opacity:1;box-shadow:0 0 6px var(--fl-accent)} 50%{opacity:.5;box-shadow:0 0 12px var(--fl-accent)} }`}</style>
           <span style={{
             fontSize: 9, fontFamily: 'monospace', fontWeight: 800,
             textTransform: 'uppercase', letterSpacing: '0.12em',
-            color: '#4d82c0',
+            color: 'var(--fl-accent)',
           }}>
             Mode Investigation
           </span>
         </div>
 
         
-        <div style={{ width: 1, height: 14, background: '#1a3a5c' }} />
+        <div style={{ width: 1, height: 14, background: 'var(--fl-accent)' }} />
 
         
         <span style={{ fontSize: 10, fontFamily: 'monospace', color: '#3a6a9a' }}>
@@ -1806,15 +1868,15 @@ export default function SuperTimelineWorkbench({ records, availTypes, caseId, on
         
         {total > 2000 && totalPages > 1 && onPageChange && (
           <>
-            <div style={{ width: 1, height: 14, background: '#1a3a5c' }} />
+            <div style={{ width: 1, height: 14, background: 'var(--fl-accent)' }} />
             <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
               <button
                 onClick={() => onPageChange(page - 1)}
                 disabled={page <= 1}
                 style={{
                   padding: '1px 6px', borderRadius: 3, fontSize: 10, fontFamily: 'monospace',
-                  background: 'transparent', border: '1px solid #1a3a5c',
-                  color: page <= 1 ? '#1a3a5c' : '#4d82c0', cursor: page <= 1 ? 'default' : 'pointer',
+                  background: 'transparent', border: '1px solid var(--fl-accent)',
+                  color: page <= 1 ? 'var(--fl-accent)' : 'var(--fl-accent)', cursor: page <= 1 ? 'default' : 'pointer',
                 }}>‹</button>
               <span style={{ fontSize: 10, fontFamily: 'monospace', color: '#3a6a9a' }}>
                 {page} / {totalPages}
@@ -1824,8 +1886,8 @@ export default function SuperTimelineWorkbench({ records, availTypes, caseId, on
                 disabled={page >= totalPages}
                 style={{
                   padding: '1px 6px', borderRadius: 3, fontSize: 10, fontFamily: 'monospace',
-                  background: 'transparent', border: '1px solid #1a3a5c',
-                  color: page >= totalPages ? '#1a3a5c' : '#4d82c0', cursor: page >= totalPages ? 'default' : 'pointer',
+                  background: 'transparent', border: '1px solid var(--fl-accent)',
+                  color: page >= totalPages ? 'var(--fl-accent)' : 'var(--fl-accent)', cursor: page >= totalPages ? 'default' : 'pointer',
                 }}>›</button>
             </div>
           </>
@@ -1852,8 +1914,8 @@ export default function SuperTimelineWorkbench({ records, availTypes, caseId, on
               display: 'flex', alignItems: 'center', gap: 5,
               padding: '3px 10px', borderRadius: 5, fontSize: 10, fontFamily: 'monospace',
               background: showActionsMenu ? 'rgba(77,130,192,0.18)' : 'rgba(77,130,192,0.08)',
-              border: `1px solid ${showActionsMenu ? '#4d82c060' : '#1a3a5c'}`,
-              color: showActionsMenu ? '#7abfff' : '#4d82c0',
+              border: `1px solid ${showActionsMenu ? '#4d82c060' : 'var(--fl-accent)'}`,
+              color: showActionsMenu ? '#7abfff' : 'var(--fl-accent)',
               cursor: 'pointer', fontWeight: 600,
             }}
           >
@@ -1862,7 +1924,7 @@ export default function SuperTimelineWorkbench({ records, availTypes, caseId, on
           {showActionsMenu && (
             <div style={{
               position: 'absolute', top: '100%', right: 0, marginTop: 4,
-              zIndex: 9000, background: '#0a1520', border: '1px solid #1a3a5c',
+              zIndex: 9000, background: '#0a1520', border: '1px solid var(--fl-accent)',
               borderRadius: 8, boxShadow: '0 12px 40px rgba(0,0,0,0.7)',
               width: 520, padding: '10px 0', userSelect: 'none',
             }}>
@@ -1921,8 +1983,8 @@ export default function SuperTimelineWorkbench({ records, availTypes, caseId, on
               </div>
               
               {availTypes?.length > 0 && (
-                <div style={{ borderTop: '1px solid #0d1f30', margin: '6px 0 0', padding: '8px 14px 2px' }}>
-                  <div style={{ fontSize: 8, fontFamily: 'monospace', color: '#1a3a5c', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 6 }}>
+                <div style={{ borderTop: '1px solid var(--fl-bg)', margin: '6px 0 0', padding: '8px 14px 2px' }}>
+                  <div style={{ fontSize: 8, fontFamily: 'monospace', color: 'var(--fl-accent)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 6 }}>
                     🏷 Filtrer par type d'artefact
                   </div>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
@@ -1930,7 +1992,7 @@ export default function SuperTimelineWorkbench({ records, availTypes, caseId, on
                       <button key={t} onClick={() => { handlePaletteCommand(`type:${t}`); setShowActionsMenu(false); }}
                         style={{
                           padding: '2px 8px', borderRadius: 3, fontSize: 9, fontFamily: 'monospace',
-                          background: 'rgba(77,130,192,0.08)', border: '1px solid #1a3a5c',
+                          background: 'rgba(77,130,192,0.08)', border: '1px solid var(--fl-accent)',
                           color: '#7abfff', cursor: 'pointer',
                         }}>
                         {t}
@@ -1939,9 +2001,9 @@ export default function SuperTimelineWorkbench({ records, availTypes, caseId, on
                   </div>
                 </div>
               )}
-              <div style={{ padding: '8px 14px 2px', borderTop: '1px solid #0d1f30', marginTop: 6 }}>
-                <div style={{ fontSize: 8, fontFamily: 'monospace', color: '#1a3a5c', marginTop: 2 }}>
-                  Astuce : <kbd style={{ border: '1px solid #1a3a5c', borderRadius: 2, padding: '0 4px', fontSize: 8, color: '#2a5a8a' }}>Ctrl+K</kbd> pour la palette complète avec recherche
+              <div style={{ padding: '8px 14px 2px', borderTop: '1px solid var(--fl-bg)', marginTop: 6 }}>
+                <div style={{ fontSize: 8, fontFamily: 'monospace', color: 'var(--fl-accent)', marginTop: 2 }}>
+                  Astuce : <kbd style={{ border: '1px solid var(--fl-accent)', borderRadius: 2, padding: '0 4px', fontSize: 8, color: '#2a5a8a' }}>Ctrl+K</kbd> pour la palette complète avec recherche
                 </div>
               </div>
             </div>
@@ -1955,7 +2017,7 @@ export default function SuperTimelineWorkbench({ records, availTypes, caseId, on
           style={{
             display: 'flex', alignItems: 'center', gap: 4,
             padding: '2px 8px', borderRadius: 4, fontSize: 9, fontFamily: 'monospace',
-            background: 'transparent', border: '1px solid #0d1f30',
+            background: 'transparent', border: '1px solid var(--fl-bg)',
             color: '#2a5a8a', cursor: 'pointer',
           }}
         >
@@ -1970,12 +2032,12 @@ export default function SuperTimelineWorkbench({ records, availTypes, caseId, on
             style={{
               display: 'flex', alignItems: 'center', gap: 4,
               padding: '2px 8px', borderRadius: 4, fontSize: 9, fontFamily: 'monospace',
-              background: 'transparent', border: '1px solid #1a3a5c',
+              background: 'transparent', border: '1px solid var(--fl-accent)',
               color: '#3a6a9a', cursor: 'pointer',
               transition: 'all 0.1s',
             }}
             onMouseEnter={e => { e.currentTarget.style.color = '#7abfff'; e.currentTarget.style.borderColor = '#4d82c060'; }}
-            onMouseLeave={e => { e.currentTarget.style.color = '#3a6a9a'; e.currentTarget.style.borderColor = '#1a3a5c'; }}
+            onMouseLeave={e => { e.currentTarget.style.color = '#3a6a9a'; e.currentTarget.style.borderColor = 'var(--fl-accent)'; }}
           >
             <X size={9} /> Quitter
           </button>
@@ -1985,15 +2047,15 @@ export default function SuperTimelineWorkbench({ records, availTypes, caseId, on
       
       <div style={{
         flexShrink: 0, display: 'flex', alignItems: 'center', gap: 2,
-        padding: '3px 10px', background: '#05080f', borderBottom: '1px solid #0d1525',
+        padding: '3px 10px', background: '#05080f', borderBottom: '1px solid var(--fl-bg)',
       }}>
         {workbenchTabs.map(tab => {
           const Icon   = tab.icon;
           const active = activeTab === tab.id;
           const color  = tab.id === 'persistence'
-            ? '#c96898'
+            ? 'var(--fl-pink)'
             : tab.id === 'dissimulation'
-            ? '#d97c20'
+            ? 'var(--fl-warn)'
             : tab.id === 'gantt'
             ? '#22d3ee'
             : tab.id === 'heatmap'
@@ -2052,21 +2114,21 @@ export default function SuperTimelineWorkbench({ records, availTypes, caseId, on
 
       
       {activeTab === 'heatmap' && (
-        <div style={{ flex: 1, overflow: 'auto', background: '#060b14' }}>
+        <div style={{ flex: 1, overflow: 'auto', background: 'var(--fl-bg)' }}>
           <TimelineHeatmap caseId={caseId} availTypes={availTypes} />
         </div>
       )}
 
       
       {activeTab === 'gantt' && (
-        <div style={{ flex: 1, overflow: 'hidden', background: '#060b14' }}>
+        <div style={{ flex: 1, overflow: 'hidden', background: 'var(--fl-bg)' }}>
           <GanttView records={filteredRecords} onSelectRecord={r => handleSelect(r)} />
         </div>
       )}
 
       
       {activeTab === 'mitre' && (
-        <div style={{ flex: 1, overflow: 'auto', background: '#060b14' }}>
+        <div style={{ flex: 1, overflow: 'auto', background: 'var(--fl-bg)' }}>
           <MitreMatrixLive records={filteredRecords} />
         </div>
       )}
@@ -2104,13 +2166,13 @@ export default function SuperTimelineWorkbench({ records, availTypes, caseId, on
             <div
               onClick={e => e.stopPropagation()}
               style={{
-                background: '#0d1525', border: '1px solid #1e2d45', borderRadius: 10,
+                background: 'var(--fl-bg)', border: '1px solid #1e2d45', borderRadius: 10,
                 padding: '20px 24px', width: 360, boxShadow: '0 8px 32px rgba(0,0,0,0.6)',
               }}
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
                 <Globe2 size={16} style={{ color: promoteDialog.is_global ? 'var(--fl-danger)' : '#f0b040' }} />
-                <span style={{ fontFamily: 'monospace', fontWeight: 700, color: '#c0cce0', fontSize: 13 }}>
+                <span style={{ fontFamily: 'monospace', fontWeight: 700, color: 'var(--fl-on-dark)', fontSize: 13 }}>
                   {promoteDialog.is_global ? 'Retirer le pin global' : 'Partager ce pin avec tous'}
                 </span>
               </div>
@@ -2119,10 +2181,10 @@ export default function SuperTimelineWorkbench({ records, availTypes, caseId, on
                   ? 'Ce pin ne sera plus visible par les autres membres du cas.'
                   : 'Tous les membres du cas pourront voir ce pin dans leur Workbench.'}
               </div>
-              <div style={{ display: 'flex', gap: 6, fontSize: 10, fontFamily: 'monospace', color: '#4d82c0', marginBottom: 14 }}>
+              <div style={{ display: 'flex', gap: 6, fontSize: 10, fontFamily: 'monospace', color: 'var(--fl-accent)', marginBottom: 14 }}>
                 <span style={{ color: ac(promoteDialog.artifact_type), flexShrink: 0 }}>[{promoteDialog.artifact_type || '?'}]</span>
                 <span style={{ color: '#7abfff', flexShrink: 0 }}>{promoteDialog.event_ts ? fmtTs(promoteDialog.event_ts) : '-'}</span>
-                <span style={{ color: '#c0cce0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{promoteDialog.description || '-'}</span>
+                <span style={{ color: 'var(--fl-on-dark)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{promoteDialog.description || '-'}</span>
               </div>
               <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
                 <button
@@ -2135,7 +2197,7 @@ export default function SuperTimelineWorkbench({ records, availTypes, caseId, on
                   onClick={() => handlePromoteConfirm(promoteDialog)}
                   style={{
                     padding: '5px 14px', borderRadius: 5, border: 'none', cursor: 'pointer', fontFamily: 'monospace', fontSize: 11, fontWeight: 700,
-                    background: promoteDialog.is_global ? 'color-mix(in srgb, var(--fl-danger) 20%, #0d1525)' : 'color-mix(in srgb, #f0b040 20%, #0d1525)',
+                    background: promoteDialog.is_global ? 'color-mix(in srgb, var(--fl-danger) 20%, var(--fl-bg))' : 'color-mix(in srgb, #f0b040 20%, var(--fl-bg))',
                     color: promoteDialog.is_global ? 'var(--fl-danger)' : '#f0b040',
                     border: `1px solid ${promoteDialog.is_global ? 'color-mix(in srgb, var(--fl-danger) 40%, transparent)' : 'color-mix(in srgb, #f0b040 40%, transparent)'}`,
                   }}
@@ -2149,18 +2211,18 @@ export default function SuperTimelineWorkbench({ records, availTypes, caseId, on
 
         
         {pinnedRows.size > 0 && (
-          <div style={{ flexShrink: 0, borderBottom: '1px solid #1a2035', background: '#070d1a' }}>
+          <div style={{ flexShrink: 0, borderBottom: '1px solid var(--fl-sep)', background: '#070d1a' }}>
             <button
               onClick={() => setPinsOpen(v => !v)}
               style={{
                 display: 'flex', alignItems: 'center', gap: 6, width: '100%',
                 padding: '4px 10px', background: 'none', border: 'none', cursor: 'pointer',
-                borderBottom: pinsOpen ? '1px solid #1a2035' : 'none',
+                borderBottom: pinsOpen ? '1px solid var(--fl-sep)' : 'none',
               }}
             >
-              {pinsOpen ? <ChevronDown size={10} style={{ color: '#4d82c0' }} /> : <ChevronRight size={10} style={{ color: '#4d82c0' }} />}
-              <Pin size={10} style={{ color: '#4d82c0' }} />
-              <span style={{ fontSize: 9, fontFamily: 'monospace', fontWeight: 700, color: '#4d82c0', textTransform: 'uppercase', letterSpacing: '0.07em' }}>
+              {pinsOpen ? <ChevronDown size={10} style={{ color: 'var(--fl-accent)' }} /> : <ChevronRight size={10} style={{ color: 'var(--fl-accent)' }} />}
+              <Pin size={10} style={{ color: 'var(--fl-accent)' }} />
+              <span style={{ fontSize: 9, fontFamily: 'monospace', fontWeight: 700, color: 'var(--fl-accent)', textTransform: 'uppercase', letterSpacing: '0.07em' }}>
                 Épinglés ({pinnedRows.size})
               </span>
               {[...pinnedRows.values()].some(p => p.is_global) && (
@@ -2174,22 +2236,22 @@ export default function SuperTimelineWorkbench({ records, availTypes, caseId, on
                 {[...pinnedRows.values()].map(pin => (
                   <div key={pin.id} style={{
                     display: 'flex', alignItems: 'center', gap: 6, padding: '4px 10px 4px 24px',
-                    borderBottom: '1px solid #0d1525', fontSize: 10, fontFamily: 'monospace',
+                    borderBottom: '1px solid var(--fl-bg)', fontSize: 10, fontFamily: 'monospace',
                     borderLeft: pin.is_global ? '2px solid #f0b04060' : '2px solid transparent',
                   }}>
                     {pin.is_global
                       ? <Globe2 size={9} style={{ color: '#f0b040', flexShrink: 0 }} title={`Global — partagé par ${pin.promoted_by_name || 'un membre'}`} />
-                      : <Pin size={9} style={{ color: '#4d82c0', flexShrink: 0 }} />
+                      : <Pin size={9} style={{ color: 'var(--fl-accent)', flexShrink: 0 }} />
                     }
                     <span style={{ color: ac(pin.artifact_type), flexShrink: 0 }}>{pin.artifact_type || '?'}</span>
                     <span style={{ color: '#7abfff', flexShrink: 0 }}>{pin.event_ts ? fmtTs(pin.event_ts) : '-'}</span>
-                    <span style={{ color: '#c0cce0', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{pin.description || '-'}</span>
+                    <span style={{ color: 'var(--fl-on-dark)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{pin.description || '-'}</span>
                     {pin.note && <span style={{ color: '#6a8090', fontStyle: 'italic', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 100 }}>{pin.note}</span>}
                     <button
                       onClick={() => setPromoteDialog(pin)}
                       title={pin.is_global ? 'Retirer le partage global' : 'Partager avec tous les membres'}
                       style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 1, flexShrink: 0, display: 'flex', alignItems: 'center',
-                        color: pin.is_global ? '#f0b040' : '#2a3a50',
+                        color: pin.is_global ? '#f0b040' : 'var(--fl-card)',
                       }}
                     >
                       <Globe2 size={9} />
@@ -2215,7 +2277,7 @@ export default function SuperTimelineWorkbench({ records, availTypes, caseId, on
           
           <div style={{
             flexShrink: 0, display: 'flex', alignItems: 'center', gap: 6,
-            padding: '3px 10px', background: '#07101f', borderBottom: '1px solid #0d1525',
+            padding: '3px 10px', background: 'var(--fl-bg)', borderBottom: '1px solid var(--fl-bg)',
           }}>
             <span style={{ fontSize: 9, fontFamily: 'monospace', color: 'var(--fl-muted)', textTransform: 'uppercase', letterSpacing: '0.07em' }}>
               {t('workbench.gaps_label')} :
@@ -2245,9 +2307,9 @@ export default function SuperTimelineWorkbench({ records, availTypes, caseId, on
                 title="Lecture chronologique (W-4)"
                 style={{
                   padding: '1px 8px', borderRadius: 3, fontSize: 9, fontFamily: 'monospace',
-                  cursor: 'pointer', border: `1px solid ${showPlayback ? '#4d82c030' : '#0d1f30'}`,
+                  cursor: 'pointer', border: `1px solid ${showPlayback ? '#4d82c030' : 'var(--fl-bg)'}`,
                   background: showPlayback ? 'rgba(77,130,192,0.15)' : 'transparent',
-                  color: showPlayback ? '#4d82c0' : '#2a5a8a',
+                  color: showPlayback ? 'var(--fl-accent)' : '#2a5a8a',
                 }}>▶ Lecture</button>
             </div>
           </div>
@@ -2338,18 +2400,18 @@ function QuickFilterBar({ records, availTypes, quickFilter, processFilter, onFil
   const hosts   = useMemo(() => [...new Set((records || []).map(r => r.host_name).filter(Boolean))].sort(), [records]);
   const users   = useMemo(() => [...new Set((records || []).map(r => r.user_name).filter(Boolean))].sort(), [records]);
   const sevs    = ['critical', 'high', 'medium', 'low'];
-  const SEV_COLOR = { critical: '#da3633', high: '#d97c20', medium: '#c89d1d', low: '#3fb950' };
+  const SEV_COLOR = { critical: 'var(--fl-danger)', high: 'var(--fl-warn)', medium: 'var(--fl-gold)', low: 'var(--fl-ok)' };
 
   const isActive = quickFilter || processFilter;
 
   return (
     <div style={{
       flexShrink: 0, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'nowrap',
-      padding: '4px 10px', background: '#04070e', borderBottom: '1px solid #0d1525',
+      padding: '4px 10px', background: '#04070e', borderBottom: '1px solid var(--fl-bg)',
       overflowX: 'auto',
     }}>
       
-      <span style={{ fontSize: 8, fontFamily: 'monospace', color: '#1a3a5c', whiteSpace: 'nowrap' }}>SÉVÉRITÉ</span>
+      <span style={{ fontSize: 8, fontFamily: 'monospace', color: 'var(--fl-accent)', whiteSpace: 'nowrap' }}>SÉVÉRITÉ</span>
       {sevs.map(s => {
         const active = quickFilter?.field === 'hay_severity' && quickFilter.value === s;
         return (
@@ -2358,7 +2420,7 @@ function QuickFilterBar({ records, availTypes, quickFilter, processFilter, onFil
               padding: '1px 7px', borderRadius: 3, fontSize: 9, fontFamily: 'monospace', whiteSpace: 'nowrap',
               cursor: 'pointer', fontWeight: active ? 700 : 400,
               background: active ? `${SEV_COLOR[s]}22` : 'transparent',
-              border: `1px solid ${active ? SEV_COLOR[s] : '#0d1f30'}`,
+              border: `1px solid ${active ? SEV_COLOR[s] : 'var(--fl-bg)'}`,
               color: active ? SEV_COLOR[s] : '#2a5a8a',
             }}>
             {s}
@@ -2366,18 +2428,18 @@ function QuickFilterBar({ records, availTypes, quickFilter, processFilter, onFil
         );
       })}
 
-      <div style={{ width: 1, height: 14, background: '#0d1f30', flexShrink: 0 }} />
+      <div style={{ width: 1, height: 14, background: 'var(--fl-bg)', flexShrink: 0 }} />
 
       
       {hosts.length > 0 && (
         <>
-          <span style={{ fontSize: 8, fontFamily: 'monospace', color: '#1a3a5c', whiteSpace: 'nowrap' }}>HÔTE</span>
+          <span style={{ fontSize: 8, fontFamily: 'monospace', color: 'var(--fl-accent)', whiteSpace: 'nowrap' }}>HÔTE</span>
           <select
             value={quickFilter?.field === 'host' ? quickFilter.value : ''}
             onChange={e => onFilter('host', e.target.value || null)}
             style={{
               background: quickFilter?.field === 'host' ? 'rgba(77,130,192,0.12)' : '#04070e',
-              border: `1px solid ${quickFilter?.field === 'host' ? '#4d82c060' : '#0d1f30'}`,
+              border: `1px solid ${quickFilter?.field === 'host' ? '#4d82c060' : 'var(--fl-bg)'}`,
               borderRadius: 3, color: quickFilter?.field === 'host' ? '#7abfff' : '#3a6a9a',
               fontSize: 9, fontFamily: 'monospace', padding: '1px 4px', cursor: 'pointer',
               maxWidth: 130,
@@ -2391,13 +2453,13 @@ function QuickFilterBar({ records, availTypes, quickFilter, processFilter, onFil
       
       {users.length > 0 && (
         <>
-          <span style={{ fontSize: 8, fontFamily: 'monospace', color: '#1a3a5c', whiteSpace: 'nowrap' }}>USER</span>
+          <span style={{ fontSize: 8, fontFamily: 'monospace', color: 'var(--fl-accent)', whiteSpace: 'nowrap' }}>USER</span>
           <select
             value={quickFilter?.field === 'user' ? quickFilter.value : ''}
             onChange={e => onFilter('user', e.target.value || null)}
             style={{
               background: quickFilter?.field === 'user' ? 'rgba(77,130,192,0.12)' : '#04070e',
-              border: `1px solid ${quickFilter?.field === 'user' ? '#4d82c060' : '#0d1f30'}`,
+              border: `1px solid ${quickFilter?.field === 'user' ? '#4d82c060' : 'var(--fl-bg)'}`,
               borderRadius: 3, color: quickFilter?.field === 'user' ? '#7abfff' : '#3a6a9a',
               fontSize: 9, fontFamily: 'monospace', padding: '1px 4px', cursor: 'pointer',
               maxWidth: 130,
@@ -2411,13 +2473,13 @@ function QuickFilterBar({ records, availTypes, quickFilter, processFilter, onFil
       
       {availTypes?.length > 0 && (
         <>
-          <div style={{ width: 1, height: 14, background: '#0d1f30', flexShrink: 0 }} />
-          <span style={{ fontSize: 8, fontFamily: 'monospace', color: '#1a3a5c', whiteSpace: 'nowrap' }}>TYPE</span>
+          <div style={{ width: 1, height: 14, background: 'var(--fl-bg)', flexShrink: 0 }} />
+          <span style={{ fontSize: 8, fontFamily: 'monospace', color: 'var(--fl-accent)', whiteSpace: 'nowrap' }}>TYPE</span>
           <select
             defaultValue=""
             onChange={e => { if (e.target.value) onFilter('type', e.target.value); e.target.value = ''; }}
             style={{
-              background: '#04070e', border: '1px solid #0d1f30',
+              background: '#04070e', border: '1px solid var(--fl-bg)',
               borderRadius: 3, color: '#3a6a9a',
               fontSize: 9, fontFamily: 'monospace', padding: '1px 4px', cursor: 'pointer',
               maxWidth: 140,
@@ -2431,12 +2493,12 @@ function QuickFilterBar({ records, availTypes, quickFilter, processFilter, onFil
       
       {isActive && (
         <>
-          <div style={{ width: 1, height: 14, background: '#0d1f30', flexShrink: 0 }} />
+          <div style={{ width: 1, height: 14, background: 'var(--fl-bg)', flexShrink: 0 }} />
           <button onClick={onClearAll}
             style={{
               padding: '1px 8px', borderRadius: 3, fontSize: 9, fontFamily: 'monospace',
               background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)',
-              color: '#ef4444', cursor: 'pointer', whiteSpace: 'nowrap',
+              color: 'var(--fl-danger)', cursor: 'pointer', whiteSpace: 'nowrap',
             }}>
             ✕ Réinitialiser filtres
           </button>
@@ -2449,7 +2511,7 @@ function QuickFilterBar({ records, availTypes, quickFilter, processFilter, onFil
 function ActionMenuSection({ title, icon, children }) {
   return (
     <div style={{ padding: '0 0 8px' }}>
-      <div style={{ padding: '2px 14px 6px', fontSize: 8, fontFamily: 'monospace', color: '#1a3a5c', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+      <div style={{ padding: '2px 14px 6px', fontSize: 8, fontFamily: 'monospace', color: 'var(--fl-accent)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
         {icon} {title}
       </div>
       {children}
@@ -2468,10 +2530,10 @@ function ActionMenuItem({ icon, label, onClick, danger }) {
         display: 'flex', alignItems: 'center', gap: 8,
         padding: '5px 14px', cursor: 'pointer',
         background: hov ? (danger ? 'rgba(239,68,68,0.08)' : '#0d1f35') : 'transparent',
-        borderLeft: `2px solid ${hov ? (danger ? '#ef4444' : '#4d82c0') : 'transparent'}`,
+        borderLeft: `2px solid ${hov ? (danger ? 'var(--fl-danger)' : 'var(--fl-accent)') : 'transparent'}`,
       }}>
       <span style={{ fontSize: 11, flexShrink: 0 }}>{icon}</span>
-      <span style={{ fontFamily: 'monospace', fontSize: 10, color: danger ? '#ef4444' : (hov ? '#c0cce0' : '#7abfff'), overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+      <span style={{ fontFamily: 'monospace', fontSize: 10, color: danger ? 'var(--fl-danger)' : (hov ? 'var(--fl-on-dark)' : '#7abfff'), overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
         {label}
       </span>
     </div>

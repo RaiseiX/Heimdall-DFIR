@@ -65,7 +65,7 @@ async function runYara(
         existing.evidence.push(ev.name);
         existing.count++;
         ruleMap.set(rule.name, existing);
-      } catch  }
+      } catch (_e) {}
     }
   }
 

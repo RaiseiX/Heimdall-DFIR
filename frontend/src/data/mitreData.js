@@ -1,17 +1,17 @@
 export const TACTICS = [
   { id: 'TA0043', name: 'Reconnaissance',        color: '#7dd3fc' },
   { id: 'TA0042', name: 'Resource Development',  color: '#84cc16' },
-  { id: 'TA0001', name: 'Initial Access',         color: '#d97c20' },
-  { id: 'TA0002', name: 'Execution',              color: '#ef4444' },
-  { id: 'TA0003', name: 'Persistence',            color: '#c96898' },
-  { id: 'TA0004', name: 'Privilege Escalation',   color: '#8b72d6' },
+  { id: 'TA0001', name: 'Initial Access',         color: 'var(--fl-warn)' },
+  { id: 'TA0002', name: 'Execution',              color: 'var(--fl-danger)' },
+  { id: 'TA0003', name: 'Persistence',            color: 'var(--fl-pink)' },
+  { id: 'TA0004', name: 'Privilege Escalation',   color: 'var(--fl-purple)' },
   { id: 'TA0005', name: 'Defense Evasion',        color: '#64748b' },
   { id: 'TA0006', name: 'Credential Access',      color: '#06b6d4' },
   { id: 'TA0007', name: 'Discovery',              color: '#22c55e' },
   { id: 'TA0008', name: 'Lateral Movement',       color: '#0ea5e9' },
   { id: 'TA0009', name: 'Collection',             color: '#8b5cf6' },
   { id: 'TA0011', name: 'Command and Control',    color: '#f43f5e' },
-  { id: 'TA0010', name: 'Exfiltration',           color: '#c89d1d' },
+  { id: 'TA0010', name: 'Exfiltration',           color: 'var(--fl-gold)' },
   { id: 'TA0040', name: 'Impact',                 color: '#dc2626' },
 ];
 

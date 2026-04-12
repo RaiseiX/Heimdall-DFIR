@@ -3,20 +3,20 @@ import { RefreshCw, ChevronDown, ChevronRight } from 'lucide-react';
 import { bookmarksAPI } from '../../utils/api';
 
 const PHASES = [
-  { id: 'Reconnaissance',       short: 'RECON',    color: '#7d8590' },
-  { id: 'Resource Development', short: 'RESOURCE', color: '#7d8590' },
-  { id: 'Initial Access',       short: 'INIT',     color: '#d97c20' },
-  { id: 'Execution',            short: 'EXEC',     color: '#da3633' },
-  { id: 'Persistence',          short: 'PERSIST',  color: '#c96898' },
-  { id: 'Privilege Escalation', short: 'PRIVESC',  color: '#8b72d6' },
-  { id: 'Defense Evasion',      short: 'EVADE',    color: '#4d82c0' },
-  { id: 'Credential Access',    short: 'CREDS',    color: '#da3633' },
-  { id: 'Discovery',            short: 'DISC',     color: '#c89d1d' },
-  { id: 'Lateral Movement',     short: 'LATERAL',  color: '#d97c20' },
-  { id: 'Collection',           short: 'COLLECT',  color: '#3fb950' },
-  { id: 'Command and Control',  short: 'C2',       color: '#da3633' },
+  { id: 'Reconnaissance',       short: 'RECON',    color: 'var(--fl-dim)' },
+  { id: 'Resource Development', short: 'RESOURCE', color: 'var(--fl-dim)' },
+  { id: 'Initial Access',       short: 'INIT',     color: 'var(--fl-warn)' },
+  { id: 'Execution',            short: 'EXEC',     color: 'var(--fl-danger)' },
+  { id: 'Persistence',          short: 'PERSIST',  color: 'var(--fl-pink)' },
+  { id: 'Privilege Escalation', short: 'PRIVESC',  color: 'var(--fl-purple)' },
+  { id: 'Defense Evasion',      short: 'EVADE',    color: 'var(--fl-accent)' },
+  { id: 'Credential Access',    short: 'CREDS',    color: 'var(--fl-danger)' },
+  { id: 'Discovery',            short: 'DISC',     color: 'var(--fl-gold)' },
+  { id: 'Lateral Movement',     short: 'LATERAL',  color: 'var(--fl-warn)' },
+  { id: 'Collection',           short: 'COLLECT',  color: 'var(--fl-ok)' },
+  { id: 'Command and Control',  short: 'C2',       color: 'var(--fl-danger)' },
   { id: 'Exfiltration',         short: 'EXFIL',    color: '#f43f5e' },
-  { id: 'Impact',               short: 'IMPACT',   color: '#da3633' },
+  { id: 'Impact',               short: 'IMPACT',   color: 'var(--fl-danger)' },
 ];
 
 function BookmarkCard({ b, color }) {
@@ -27,12 +27,12 @@ function BookmarkCard({ b, color }) {
       background: '#0a1625', padding: '5px 8px',
       display: 'flex', flexDirection: 'column', gap: 2,
     }}>
-      <span style={{ fontSize: 10, fontWeight: 600, color: '#c8d8ec', lineHeight: 1.3 }}>{b.title}</span>
+      <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--fl-on-dark)', lineHeight: 1.3 }}>{b.title}</span>
       {b.mitre_technique && (
-        <span style={{ fontSize: 9, fontFamily: 'monospace', color: '#3d5070' }}>{b.mitre_technique}</span>
+        <span style={{ fontSize: 9, fontFamily: 'monospace', color: 'var(--fl-subtle)' }}>{b.mitre_technique}</span>
       )}
       {b.event_timestamp && (
-        <span style={{ fontSize: 9, fontFamily: 'monospace', color: '#2a3a50' }}>
+        <span style={{ fontSize: 9, fontFamily: 'monospace', color: 'var(--fl-muted)' }}>
           {new Date(b.event_timestamp).toLocaleString('fr-FR')}
         </span>
       )}
@@ -52,14 +52,14 @@ function PhaseColumn({ phase, bookmarks, compact }) {
         style={{
           display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3,
           padding: '6px 4px', borderRadius: 6, cursor: active ? 'pointer' : 'default',
-          background: active ? `${phase.color}15` : '#07101f',
-          border: `1px solid ${active ? phase.color + '40' : '#1a2035'}`,
+          background: active ? `${phase.color}15` : 'var(--fl-bg)',
+          border: `1px solid ${active ? phase.color + '40' : 'var(--fl-sep)'}`,
           minWidth: 52, position: 'relative',
         }}
       >
         <span style={{
           fontSize: 8, fontFamily: 'monospace', fontWeight: 700, letterSpacing: '0.05em',
-          color: active ? phase.color : '#2a3a50', textAlign: 'center',
+          color: active ? phase.color : 'var(--fl-card)', textAlign: 'center',
         }}>
           {phase.short}
         </span>
@@ -71,7 +71,7 @@ function PhaseColumn({ phase, bookmarks, compact }) {
           </span>
         )}
         {!active && (
-          <span style={{ fontSize: 11, color: '#1a2035' }}>—</span>
+          <span style={{ fontSize: 11, color: 'var(--fl-sep)' }}>—</span>
         )}
       </div>
     );
@@ -80,10 +80,10 @@ function PhaseColumn({ phase, bookmarks, compact }) {
   return (
     <div style={{
       display: 'flex', flexDirection: 'column',
-      border: `1px solid ${active ? phase.color + '35' : '#1a2035'}`,
-      borderTop: `2px solid ${active ? phase.color : '#1a2035'}`,
+      border: `1px solid ${active ? phase.color + '35' : 'var(--fl-sep)'}`,
+      borderTop: `2px solid ${active ? phase.color : 'var(--fl-sep)'}`,
       borderRadius: '0 0 6px 6px',
-      background: active ? `${phase.color}08` : '#07101f',
+      background: active ? `${phase.color}08` : 'var(--fl-bg)',
       minWidth: 160, maxWidth: 200, flex: '0 0 160px',
     }}>
       
@@ -98,7 +98,7 @@ function PhaseColumn({ phase, bookmarks, compact }) {
       >
         <span style={{
           fontSize: 9, fontFamily: 'monospace', fontWeight: 700, letterSpacing: '0.08em',
-          color: active ? phase.color : '#2a3a50', textTransform: 'uppercase',
+          color: active ? phase.color : 'var(--fl-card)', textTransform: 'uppercase',
         }}>
           {phase.short}
         </span>
@@ -114,7 +114,7 @@ function PhaseColumn({ phase, bookmarks, compact }) {
         {active && (open ? <ChevronDown size={9} style={{ color: phase.color }} /> : <ChevronRight size={9} style={{ color: phase.color }} />)}
       </button>
 
-      <div style={{ padding: '2px 8px 4px', fontSize: 9, color: active ? '#7d8590' : '#1e2a3a' }}>
+      <div style={{ padding: '2px 8px 4px', fontSize: 9, color: active ? 'var(--fl-dim)' : 'var(--fl-card)' }}>
         {phase.id}
       </div>
 
@@ -164,7 +164,7 @@ export default function AttackChain({ caseId }) {
             Chaîne d'Attaque MITRE ATT&CK
           </span>
           {activePhasesCount > 0 && (
-            <span style={{ fontSize: 10, fontFamily: 'monospace', color: '#7d8590' }}>
+            <span style={{ fontSize: 10, fontFamily: 'monospace', color: 'var(--fl-dim)' }}>
               · {activePhasesCount} phase{activePhasesCount > 1 ? 's' : ''} · {bookmarks.length} bookmark{bookmarks.length > 1 ? 's' : ''}
             </span>
           )}
@@ -174,28 +174,28 @@ export default function AttackChain({ caseId }) {
             onClick={() => setView(v => v === 'full' ? 'compact' : 'full')}
             style={{
               padding: '3px 8px', borderRadius: 4, background: 'none',
-              border: '1px solid #1a2035', color: '#3d5070', fontSize: 10,
+              border: '1px solid var(--fl-sep)', color: 'var(--fl-subtle)', fontSize: 10,
               fontFamily: 'monospace', cursor: 'pointer',
             }}
           >
             {view === 'full' ? 'Vue compacte' : 'Vue complète'}
           </button>
-          <button onClick={load} style={{ background: 'none', border: '1px solid #1a2035', borderRadius: 4, cursor: 'pointer', padding: '3px 7px', color: '#3d5070' }}>
+          <button onClick={load} style={{ background: 'none', border: '1px solid var(--fl-sep)', borderRadius: 4, cursor: 'pointer', padding: '3px 7px', color: 'var(--fl-subtle)' }}>
             <RefreshCw size={11} />
           </button>
         </div>
       </div>
 
       {loading && (
-        <div style={{ textAlign: 'center', color: '#3d5070', fontFamily: 'monospace', fontSize: 11, padding: 12 }}>
+        <div style={{ textAlign: 'center', color: 'var(--fl-subtle)', fontFamily: 'monospace', fontSize: 11, padding: 12 }}>
           Chargement…
         </div>
       )}
 
       {!loading && bookmarks.length === 0 && (
         <div style={{
-          textAlign: 'center', color: '#2a3a50', fontFamily: 'monospace', fontSize: 11,
-          padding: '28px 16px', border: '1px dashed #1a2035', borderRadius: 8,
+          textAlign: 'center', color: 'var(--fl-muted)', fontFamily: 'monospace', fontSize: 11,
+          padding: '28px 16px', border: '1px dashed var(--fl-sep)', borderRadius: 8,
         }}>
           Aucun bookmark — créez des bookmarks avec la tactique MITRE pour construire la chaîne d'attaque.
         </div>
@@ -213,7 +213,7 @@ export default function AttackChain({ caseId }) {
                 <div key={phase.id} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                   <PhaseColumn phase={phase} bookmarks={byTactic[phase.id] || []} compact />
                   {i < PHASES.length - 1 && (
-                    <span style={{ fontSize: 14, color: '#1a2035', flexShrink: 0 }}>→</span>
+                    <span style={{ fontSize: 14, color: 'var(--fl-sep)', flexShrink: 0 }}>→</span>
                   )}
                 </div>
               ))}
@@ -231,7 +231,7 @@ export default function AttackChain({ caseId }) {
                       <PhaseColumn phase={phase} bookmarks={pBkms} compact={false} />
                       {i < PHASES.length - 1 && pBkms.length > 0 && (
                         <div style={{
-                          alignSelf: 'center', fontSize: 18, color: '#1a2035', marginTop: -20, flexShrink: 0,
+                          alignSelf: 'center', fontSize: 18, color: 'var(--fl-sep)', marginTop: -20, flexShrink: 0,
                         }}>
                           →
                         </div>
@@ -242,14 +242,14 @@ export default function AttackChain({ caseId }) {
 
                 {untaggedCount > 0 && (
                   <div style={{
-                    borderRadius: 6, border: '1px solid #2a3045', background: '#07101f',
+                    borderRadius: 6, border: '1px solid #2a3045', background: 'var(--fl-bg)',
                     minWidth: 160, padding: '8px 10px',
                   }}>
-                    <div style={{ fontSize: 9, fontFamily: 'monospace', fontWeight: 700, color: '#3d5070', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                    <div style={{ fontSize: 9, fontFamily: 'monospace', fontWeight: 700, color: 'var(--fl-subtle)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
                       Non classifié
                     </div>
                     {(byTactic['__none__'] || []).map(b => (
-                      <BookmarkCard key={b.id} b={b} color="#7d8590" />
+                      <BookmarkCard key={b.id} b={b} color="var(--fl-dim)" />
                     ))}
                   </div>
                 )}
@@ -262,18 +262,18 @@ export default function AttackChain({ caseId }) {
       {bookmarks.length > 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 4 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <span style={{ fontSize: 9, fontFamily: 'monospace', color: '#3d5070', textTransform: 'uppercase' }}>
+            <span style={{ fontSize: 9, fontFamily: 'monospace', color: 'var(--fl-subtle)', textTransform: 'uppercase' }}>
               Couverture kill chain
             </span>
-            <span style={{ fontSize: 9, fontFamily: 'monospace', color: '#7d8590' }}>
+            <span style={{ fontSize: 9, fontFamily: 'monospace', color: 'var(--fl-dim)' }}>
               {activePhasesCount}/{PHASES.length} phases
             </span>
           </div>
-          <div style={{ height: 4, background: '#0d1117', borderRadius: 2, overflow: 'hidden' }}>
+          <div style={{ height: 4, background: 'var(--fl-bg)', borderRadius: 2, overflow: 'hidden' }}>
             <div style={{
               height: '100%', borderRadius: 2,
               width: `${(activePhasesCount / PHASES.length) * 100}%`,
-              background: 'linear-gradient(90deg, #4d82c0, #da3633)',
+              background: 'linear-gradient(90deg, var(--fl-accent), #da3633)',
               transition: 'width 0.4s',
             }} />
           </div>

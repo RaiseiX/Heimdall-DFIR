@@ -5,12 +5,12 @@ import { collectionAPI, casesAPI } from '../utils/api';
 
 const ARTIFACTS = {
 
-  evtx:      { name: 'Event Logs (EVTX)', color: '#4d82c0', parser: 'EvtxECmd',      platform: 'windows' },
+  evtx:      { name: 'Event Logs (EVTX)', color: 'var(--fl-accent)', parser: 'EvtxECmd',      platform: 'windows' },
   prefetch:  { name: 'Prefetch',          color: '#22c55e', parser: 'PECmd',          platform: 'windows' },
-  mft:       { name: '$MFT',              color: '#8b72d6', parser: 'MFTECmd',        platform: 'windows' },
-  lnk:       { name: 'LNK Shortcuts',     color: '#d97c20', parser: 'LECmd',          platform: 'windows' },
-  registry:  { name: 'Registry Hives',    color: '#c96898', parser: 'RECmd',          platform: 'windows' },
-  amcache:   { name: 'Amcache',           color: '#c89d1d', parser: 'AmcacheParser',  platform: 'windows' },
+  mft:       { name: '$MFT',              color: 'var(--fl-purple)', parser: 'MFTECmd',        platform: 'windows' },
+  lnk:       { name: 'LNK Shortcuts',     color: 'var(--fl-warn)', parser: 'LECmd',          platform: 'windows' },
+  registry:  { name: 'Registry Hives',    color: 'var(--fl-pink)', parser: 'RECmd',          platform: 'windows' },
+  amcache:   { name: 'Amcache',           color: 'var(--fl-gold)', parser: 'AmcacheParser',  platform: 'windows' },
   shellbags: { name: 'Shellbags',         color: '#06b6d4', parser: 'SBECmd',         platform: 'windows' },
   jumplist:  { name: 'Jump Lists',        color: '#8b5cf6', parser: 'JLECmd',         platform: 'windows' },
   srum:      { name: 'SRUM',              color: '#f43f5e', parser: 'SrumECmd',       platform: 'windows' },
@@ -284,7 +284,7 @@ export default function CollectionPage() {
   const toggle = (t) => setSelected(p => p.includes(t) ? p.filter(x => x !== t) : [...p, t]);
   const isProcessing = ['uploading', 'extracting', 'detecting', 'parsing', 'hayabusa'].includes(step);
   const caseObj = cases.find(c => String(c.id) === String(selectedCase));
-  const PC = { critical: '#da3633', high: '#d97c20', medium: '#c89d1d', low: '#3fb950' };
+  const PC = { critical: 'var(--fl-danger)', high: 'var(--fl-warn)', medium: 'var(--fl-gold)', low: 'var(--fl-ok)' };
 
   const currentStepIdx = PIPELINE_STEPS.findIndex(s =>
     (step === 'uploading' && s.key === 'upload') || (step === 'extracting' && s.key === 'extract') ||
@@ -301,7 +301,7 @@ export default function CollectionPage() {
           <p className="fl-header-sub">Windows: Magnet RESPONSE · KAPE · Velociraptor · CyLR — Parsing Zimmerman + Hayabusa &nbsp;|&nbsp; Linux: CatScale (WithSecure)</p>
         </div>
         {step !== 'idle' && step !== 'done' && (
-          <span className="text-xs font-mono px-2 py-1 rounded" style={{ background: '#4d82c014', color: '#4d82c0', border: '1px solid #4d82c025' }}>
+          <span className="text-xs font-mono px-2 py-1 rounded" style={{ background: '#4d82c014', color: 'var(--fl-accent)', border: '1px solid #4d82c025' }}>
             {fileName}
           </span>
         )}
@@ -312,11 +312,11 @@ export default function CollectionPage() {
           <FolderOpen size={12} className="inline mr-1" /> Dossier cible
         </label>
         {loadingCases ? (
-          <div className="flex items-center gap-2 text-sm" style={{ color: '#7d8590' }}>
+          <div className="flex items-center gap-2 text-sm" style={{ color: 'var(--fl-dim)' }}>
             <Loader2 size={14} className="animate-spin" /> Chargement…
           </div>
         ) : cases.length === 0 ? (
-          <div className="text-sm" style={{ color: '#da3633' }}>Aucun dossier. Créez un cas depuis la page Cas.</div>
+          <div className="text-sm" style={{ color: 'var(--fl-danger)' }}>Aucun dossier. Créez un cas depuis la page Cas.</div>
         ) : (
           <>
             <select
@@ -332,7 +332,7 @@ export default function CollectionPage() {
               ))}
             </select>
             {caseObj?.description && (
-              <p className="text-xs mt-2" style={{ color: '#7d8590' }}>{caseObj.description.substring(0, 120)}</p>
+              <p className="text-xs mt-2" style={{ color: 'var(--fl-dim)' }}>{caseObj.description.substring(0, 120)}</p>
             )}
           </>
         )}
@@ -342,7 +342,7 @@ export default function CollectionPage() {
         <div
           className="rounded-xl cursor-pointer transition-all"
           style={{
-            border: `2px dashed ${dragging ? '#4d82c0' : '#30363d'}`,
+            border: `2px dashed ${dragging ? 'var(--fl-accent)' : 'var(--fl-border)'}`,
             background: dragging ? 'rgba(77,130,192,0.04)' : 'transparent',
             padding: 48,
           }}
@@ -352,15 +352,15 @@ export default function CollectionPage() {
           onDrop={e => { e.preventDefault(); setDragging(false); handleFile(e.dataTransfer.files[0]); }}
         >
           <div className="text-center">
-            <Package size={48} style={{ color: dragging ? '#4d82c0' : '#30363d', margin: '0 auto 16px', transition: 'color 0.2s' }} />
-            <p className="text-base font-semibold mb-2" style={{ color: '#e6edf3' }}>
+            <Package size={48} style={{ color: dragging ? 'var(--fl-accent)' : 'var(--fl-border)', margin: '0 auto 16px', transition: 'color 0.2s' }} />
+            <p className="text-base font-semibold mb-2" style={{ color: 'var(--fl-text)' }}>
               Glissez votre archive de collecte ici
             </p>
-            <p className="text-sm mb-1" style={{ color: '#7d8590' }}>ou cliquez pour sélectionner</p>
-            <p className="text-xs mb-4" style={{ color: '#7d8590' }}>
-              Dossier cible : <strong style={{ color: '#4d82c0' }}>{caseObj?.case_number}</strong>
+            <p className="text-sm mb-1" style={{ color: 'var(--fl-dim)' }}>ou cliquez pour sélectionner</p>
+            <p className="text-xs mb-4" style={{ color: 'var(--fl-dim)' }}>
+              Dossier cible : <strong style={{ color: 'var(--fl-accent)' }}>{caseObj?.case_number}</strong>
             </p>
-            <p className="text-xs font-mono" style={{ color: '#484f58' }}>.zip · .tar.gz · .7z — Taille illimitée</p>
+            <p className="text-xs font-mono" style={{ color: 'var(--fl-muted)' }}>.zip · .tar.gz · .7z — Taille illimitée</p>
           </div>
           <input ref={fileRef} type="file" accept=".zip,.tar,.gz,.7z" className="hidden" onChange={e => handleFile(e.target.files[0])} />
         </div>
@@ -379,8 +379,8 @@ export default function CollectionPage() {
                     <div
                       className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold font-mono flex-shrink-0"
                       style={{
-                        background: isDone ? '#3fb950' : isActive ? '#4d82c0' : '#21262d',
-                        color: isDone || isActive ? '#ffffff' : '#484f58',
+                        background: isDone ? 'var(--fl-ok)' : isActive ? 'var(--fl-accent)' : 'var(--fl-panel)',
+                        color: isDone || isActive ? '#ffffff' : 'var(--fl-muted)',
                         transition: 'all 0.3s',
                       }}
                     >
@@ -388,13 +388,13 @@ export default function CollectionPage() {
                     </div>
                     <span
                       className="text-xs font-mono hidden sm:inline"
-                      style={{ color: isActive ? '#4d82c0' : isDone ? '#3fb950' : '#484f58', fontWeight: isActive ? 700 : 400 }}
+                      style={{ color: isActive ? 'var(--fl-accent)' : isDone ? 'var(--fl-ok)' : 'var(--fl-muted)', fontWeight: isActive ? 700 : 400 }}
                     >
                       {ps.label}
                     </span>
                   </div>
                   {i < PIPELINE_STEPS.length - 1 && (
-                    <ChevronRight size={12} style={{ color: '#30363d', flexShrink: 0 }} />
+                    <ChevronRight size={12} style={{ color: 'var(--fl-border)', flexShrink: 0 }} />
                   )}
                 </div>
               );
@@ -402,20 +402,20 @@ export default function CollectionPage() {
           </div>
 
           <div className="flex justify-between items-center mb-2">
-            <span className="text-sm font-semibold flex items-center gap-2" style={{ color: '#e6edf3' }}>
-              <Loader2 size={15} className="animate-spin" style={{ color: '#4d82c0' }} />
+            <span className="text-sm font-semibold flex items-center gap-2" style={{ color: 'var(--fl-text)' }}>
+              <Loader2 size={15} className="animate-spin" style={{ color: 'var(--fl-accent)' }} />
               {step === 'uploading' && 'Upload en cours…'}
               {step === 'extracting' && 'Extraction de l\'archive…'}
               {step === 'detecting' && 'Détection des artefacts…'}
               {step === 'parsing' && 'Analyse des artefacts…'}
               {step === 'hayabusa' && 'Analyse Hayabusa (EVTX)…'}
             </span>
-            <span className="font-mono text-sm font-bold" style={{ color: '#4d82c0' }}>{progress}%</span>
+            <span className="font-mono text-sm font-bold" style={{ color: 'var(--fl-accent)' }}>{progress}%</span>
           </div>
-          <div className="h-1.5 rounded-full overflow-hidden" style={{ background: '#21262d' }}>
+          <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--fl-panel)' }}>
             <div
               className="h-full rounded-full transition-all duration-500"
-              style={{ width: `${progress}%`, background: 'linear-gradient(90deg, #4d82c0, #8b72d6)' }}
+              style={{ width: `${progress}%`, background: 'linear-gradient(90deg, var(--fl-accent), #8b72d6)' }}
             />
           </div>
         </div>
@@ -423,17 +423,17 @@ export default function CollectionPage() {
 
       {fileHashes && (fileHashes.md5 || fileHashes.sha256) && (
         <div className="fl-card p-4 mb-4">
-          <p className="text-xs font-mono uppercase tracking-widest mb-3" style={{ color: '#7d8590' }}>
+          <p className="text-xs font-mono uppercase tracking-widest mb-3" style={{ color: 'var(--fl-dim)' }}>
             Intégrité du fichier — {fileName}
           </p>
           <div className="space-y-1.5">
-            {[['MD5', fileHashes.md5, '#7d8590'], ['SHA-1', fileHashes.sha1, '#c89d1d'], ['SHA-256', fileHashes.sha256, '#4d82c0']].map(([label, value, color]) => value && (
-              <div key={label} className="flex items-center gap-3 rounded px-3 py-2" style={{ background: '#0d1117', border: '1px solid #1e2a3a' }}>
-                <span className="font-mono text-xs flex-shrink-0 w-14" style={{ color: '#484f58' }}>{label}</span>
+            {[['MD5', fileHashes.md5, 'var(--fl-dim)'], ['SHA-1', fileHashes.sha1, 'var(--fl-gold)'], ['SHA-256', fileHashes.sha256, 'var(--fl-accent)']].map(([label, value, color]) => value && (
+              <div key={label} className="flex items-center gap-3 rounded px-3 py-2" style={{ background: 'var(--fl-bg)', border: '1px solid var(--fl-card)' }}>
+                <span className="font-mono text-xs flex-shrink-0 w-14" style={{ color: 'var(--fl-muted)' }}>{label}</span>
                 <span className="font-mono text-xs flex-1 break-all" style={{ color }}>{value}</span>
                 <button onClick={() => navigator.clipboard.writeText(value)}
                   className="flex-shrink-0 text-xs px-2 py-0.5 rounded font-mono"
-                  style={{ background: '#1e2a3a', color: '#484f58', border: '1px solid #30363d' }}>
+                  style={{ background: 'var(--fl-card)', color: 'var(--fl-muted)', border: '1px solid var(--fl-border)' }}>
                   copier
                 </button>
               </div>
@@ -444,9 +444,9 @@ export default function CollectionPage() {
 
       {step === 'detected' && detected && Object.keys(detected).length === 0 && (
         <div className="fl-card p-5 text-center">
-          <AlertTriangle size={28} style={{ color: '#c89d1d', margin: '0 auto 8px' }} />
-          <p className="text-sm font-mono" style={{ color: '#c9d1d9' }}>Aucun artefact reconnu dans cette archive.</p>
-          <p className="text-xs mt-1" style={{ color: '#7d8590' }}>Vérifiez que l'archive est bien un export KAPE, Magnet RESPONSE, CatScale, Velociraptor ou CyLR.</p>
+          <AlertTriangle size={28} style={{ color: 'var(--fl-gold)', margin: '0 auto 8px' }} />
+          <p className="text-sm font-mono" style={{ color: 'var(--fl-dim)' }}>Aucun artefact reconnu dans cette archive.</p>
+          <p className="text-xs mt-1" style={{ color: 'var(--fl-dim)' }}>Vérifiez que l'archive est bien un export KAPE, Magnet RESPONSE, CatScale, Velociraptor ou CyLR.</p>
         </div>
       )}
 
@@ -454,7 +454,7 @@ export default function CollectionPage() {
         <div className="fl-card p-5">
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-3">
-              <p className="text-xs font-mono uppercase tracking-widest" style={{ color: '#7d8590' }}>
+              <p className="text-xs font-mono uppercase tracking-widest" style={{ color: 'var(--fl-dim)' }}>
                 Artefacts détectés
               </p>
               {isCatScaleCollection ? (
@@ -462,7 +462,7 @@ export default function CollectionPage() {
                   🐧 Linux / CatScale
                 </span>
               ) : (
-                <span className="text-xs font-mono px-2 py-0.5 rounded" style={{ background: '#4d82c018', color: '#4d82c0', border: '1px solid #4d82c030' }}>
+                <span className="text-xs font-mono px-2 py-0.5 rounded" style={{ background: '#4d82c018', color: 'var(--fl-accent)', border: '1px solid #4d82c030' }}>
                   🪟 Windows
                 </span>
               )}
@@ -480,7 +480,7 @@ export default function CollectionPage() {
             {Object.entries(detected).map(([type, info]) => {
               const sel = selected.includes(type);
               const art = ARTIFACTS[type];
-              const color = art?.color || '#7d8590';
+              const color = art?.color || 'var(--fl-dim)';
               const disabled = info.ok === false;
               return (
                 <div
@@ -489,14 +489,14 @@ export default function CollectionPage() {
                   className="flex items-center gap-3 p-3 rounded-lg transition-all"
                   style={{
                     cursor: disabled ? 'default' : 'pointer',
-                    background: sel ? `${color}0c` : '#0d1117',
-                    border: `1px solid ${sel ? color + '40' : '#30363d'}`,
+                    background: sel ? `${color}0c` : 'var(--fl-bg)',
+                    border: `1px solid ${sel ? color + '40' : 'var(--fl-border)'}`,
                     opacity: disabled ? 0.45 : 1,
                   }}
                 >
                   <div
                     className="w-4 h-4 rounded flex-shrink-0 flex items-center justify-center"
-                    style={{ border: `2px solid ${sel ? color : '#334155'}`, background: sel ? color : 'transparent' }}
+                    style={{ border: `2px solid ${sel ? color : 'var(--fl-card)'}`, background: sel ? color : 'transparent' }}
                   >
                     {sel && <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="4"><polyline points="20 6 9 17 4 12" /></svg>}
                   </div>
@@ -505,13 +505,13 @@ export default function CollectionPage() {
                       <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: color }} />
                       <span className="truncate">{art?.name || type}</span>
                     </div>
-                    <div className="text-xs mt-0.5" style={{ color: '#7d8590' }}>
+                    <div className="text-xs mt-0.5" style={{ color: 'var(--fl-dim)' }}>
                       {info.n || 0} fichier{(info.n || 0) > 1 ? 's' : ''} · {info.sz || '?'}
-                      {type === 'evtx' && <span className="ml-1.5 font-mono" style={{ color: '#4d82c0' }}>+ Hayabusa</span>}
+                      {type === 'evtx' && <span className="ml-1.5 font-mono" style={{ color: 'var(--fl-accent)' }}>+ Hayabusa</span>}
                     </div>
                   </div>
                   {disabled && (
-                    <span className="text-xs font-mono" style={{ color: '#da3633', flexShrink: 0 }}>Absent</span>
+                    <span className="text-xs font-mono" style={{ color: 'var(--fl-danger)', flexShrink: 0 }}>Absent</span>
                   )}
                 </div>
               );
@@ -526,11 +526,11 @@ export default function CollectionPage() {
                 </span>
               ) : (
                 <>
-                  <span className="text-sm" style={{ color: '#7d8590' }}>
-                    <strong style={{ color: '#e6edf3' }}>{selected.length}</strong> sélectionné(s)
+                  <span className="text-sm" style={{ color: 'var(--fl-dim)' }}>
+                    <strong style={{ color: 'var(--fl-text)' }}>{selected.length}</strong> sélectionné(s)
                   </span>
                   {selected.includes('evtx') && (
-                    <span className="fl-badge" style={{ background: '#4d82c012', color: '#4d82c0', border: '1px solid #4d82c025' }}>
+                    <span className="fl-badge" style={{ background: '#4d82c012', color: 'var(--fl-accent)', border: '1px solid #4d82c025' }}>
                       <Shield size={10} className="inline mr-1" />Hayabusa inclus
                     </span>
                   )}
@@ -553,8 +553,8 @@ export default function CollectionPage() {
       {step === 'done' && (
         <div className="fl-card p-5" style={{ borderLeft: '3px solid #3fb950' }}>
           <div className="flex items-center gap-3 mb-4">
-            <CheckCircle2 size={20} style={{ color: '#3fb950' }} />
-            <span className="text-base font-bold" style={{ color: '#3fb950' }}>
+            <CheckCircle2 size={20} style={{ color: 'var(--fl-ok)' }} />
+            <span className="text-base font-bold" style={{ color: 'var(--fl-ok)' }}>
               Pipeline terminé — {caseObj?.case_number}
             </span>
           </div>
@@ -571,18 +571,18 @@ export default function CollectionPage() {
                   );
                 })}
               </div>
-              <p className="text-sm" style={{ color: '#7d8590' }}>
+              <p className="text-sm" style={{ color: 'var(--fl-dim)' }}>
                 {results.total.toLocaleString()} enregistrements importés
               </p>
             </div>
           )}
 
           {hayabusaResults && (
-            <div className="mb-4 rounded-lg p-3 flex items-center gap-4" style={{ background: '#0d1117', border: '1px solid #30363d' }}>
-              <Shield size={16} style={{ color: '#da3633' }} />
-              <span className="text-xs font-mono" style={{ color: '#7d8590' }}>Hayabusa</span>
+            <div className="mb-4 rounded-lg p-3 flex items-center gap-4" style={{ background: 'var(--fl-bg)', border: '1px solid var(--fl-border)' }}>
+              <Shield size={16} style={{ color: 'var(--fl-danger)' }} />
+              <span className="text-xs font-mono" style={{ color: 'var(--fl-dim)' }}>Hayabusa</span>
               {['critical', 'high', 'medium', 'low'].map(l => {
-                const colors = { critical: '#da3633', high: '#d97c20', medium: '#c89d1d', low: '#3fb950' };
+                const colors = { critical: 'var(--fl-danger)', high: 'var(--fl-warn)', medium: 'var(--fl-gold)', low: 'var(--fl-ok)' };
                 return (
                   <span key={l} className="text-xs font-mono font-bold" style={{ color: colors[l] }}>
                     {hayabusaResults.stats?.[l] || 0} {l}
@@ -608,23 +608,23 @@ export default function CollectionPage() {
 
       
       {error && (
-        <div className="mt-4 p-3 rounded-lg text-sm flex items-center gap-2" style={{ background: 'rgba(218,54,51,0.08)', border: '1px solid rgba(218,54,51,0.2)', color: '#da3633' }}>
+        <div className="mt-4 p-3 rounded-lg text-sm flex items-center gap-2" style={{ background: 'rgba(218,54,51,0.08)', border: '1px solid rgba(218,54,51,0.2)', color: 'var(--fl-danger)' }}>
           <AlertTriangle size={14} /> {error}
-          <button onClick={() => setError('')} className="ml-auto" style={{ color: '#da3633' }}><X size={14} /></button>
+          <button onClick={() => setError('')} className="ml-auto" style={{ color: 'var(--fl-danger)' }}><X size={14} /></button>
         </div>
       )}
 
       
       {pipelineLog.length > 0 && (
-        <div className="mt-4 rounded-xl border" style={{ background: '#0d1117', borderColor: '#30363d' }}>
-          <div className="px-4 py-2 border-b flex items-center justify-between" style={{ borderColor: '#30363d' }}>
-            <span className="text-xs font-mono uppercase tracking-widest" style={{ color: '#484f58' }}>Journal pipeline</span>
-            <span className="text-xs font-mono" style={{ color: '#484f58' }}>{pipelineLog.length} entrées</span>
+        <div className="mt-4 rounded-xl border" style={{ background: 'var(--fl-bg)', borderColor: 'var(--fl-border)' }}>
+          <div className="px-4 py-2 border-b flex items-center justify-between" style={{ borderColor: 'var(--fl-border)' }}>
+            <span className="text-xs font-mono uppercase tracking-widest" style={{ color: 'var(--fl-muted)' }}>Journal pipeline</span>
+            <span className="text-xs font-mono" style={{ color: 'var(--fl-muted)' }}>{pipelineLog.length} entrées</span>
           </div>
           <div className="p-4 space-y-0.5 font-mono text-xs overflow-y-auto" style={{ maxHeight: 200 }}>
             {pipelineLog.map((log, i) => (
-              <div key={i} style={{ color: log.msg.startsWith('ERREUR') || log.msg.includes('✗') ? '#da3633' : log.msg.includes('✓') ? '#3fb950' : '#7d8590' }}>
-                <span style={{ color: '#30363d' }}>[{log.time}]</span> {log.msg}
+              <div key={i} style={{ color: log.msg.startsWith('ERREUR') || log.msg.includes('✗') ? 'var(--fl-danger)' : log.msg.includes('✓') ? 'var(--fl-ok)' : 'var(--fl-dim)' }}>
+                <span style={{ color: 'var(--fl-border)' }}>[{log.time}]</span> {log.msg}
               </div>
             ))}
           </div>

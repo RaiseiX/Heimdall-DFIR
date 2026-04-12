@@ -80,6 +80,7 @@ export const casesAPI = {
   leaderboard: () => api.get('/cases/leaderboard'),
   exportAnonymized: (id) => api.get(`/cases/${id}/export/anonymized`, { responseType: 'blob' }),
   riskScore: (id) => api.get(`/cases/${id}/risk-score`),
+  timeStats: (id) => api.get(`/cases/${id}/time`),
 };
 
 export const attributionAPI = {

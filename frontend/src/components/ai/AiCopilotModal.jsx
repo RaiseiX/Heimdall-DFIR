@@ -115,7 +115,7 @@ function ThinkingSteps({ steps, collapsed, onToggle }) {
         }
         <span style={{ color: '#1a4a6a' }}>
           {isGenerating
-            ? <><span style={{ color: '#4d82c0' }}>🤖</span> Génération en cours…</>
+            ? <><span style={{ color: 'var(--fl-accent)' }}>🤖</span> Génération en cours…</>
             : `Contexte lu — ${doneCount}/${total} sources`
           }
         </span>
@@ -136,14 +136,14 @@ function ThinkingSteps({ steps, collapsed, onToggle }) {
                 <span style={{ color: '#22c55e', flexShrink: 0, fontSize: 8 }}>✓</span>
               )}
               {step.status === 'generating' && (
-                <span style={{ color: '#4d82c0', flexShrink: 0, animation: 'blink 1s step-end infinite' }}>▌</span>
+                <span style={{ color: 'var(--fl-accent)', flexShrink: 0, animation: 'blink 1s step-end infinite' }}>▌</span>
               )}
 
               <span style={{
                 color: step.status === 'done'
                   ? '#3a8a5a'
                   : step.status === 'generating'
-                    ? '#4d82c0'
+                    ? 'var(--fl-accent)'
                     : '#2a5a8a',
               }}>
                 {step.icon} {step.label}
@@ -172,7 +172,7 @@ function MitreTag({ id }) {
     <span style={{
       display: 'inline-block', fontSize: 8, fontFamily: 'monospace',
       padding: '0 5px', borderRadius: 3, margin: '0 2px',
-      background: 'rgba(139,114,214,0.15)', color: '#8b72d6',
+      background: 'rgba(139,114,214,0.15)', color: 'var(--fl-purple)',
       border: '1px solid rgba(139,114,214,0.3)',
       lineHeight: '16px',
     }}
@@ -200,7 +200,7 @@ function MessageContent({ content, hasContext }) {
     <div>
       <div style={{
         fontFamily: 'monospace', fontSize: 10.5, lineHeight: 1.7,
-        color: '#c0cce0', whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+        color: 'var(--fl-on-dark)', whiteSpace: 'pre-wrap', wordBreak: 'break-word',
       }}>
         {parts}
       </div>
@@ -447,7 +447,7 @@ export default function AiCopilotModal({ caseId, caseName, isOpen, onClose, sock
             }
 
             if (parsed.done && parsed.hasContext) ctxFlag = true;
-          } catch  }
+          } catch (_e) {}
         }
       }
 
@@ -505,7 +505,7 @@ export default function AiCopilotModal({ caseId, caseName, isOpen, onClose, sock
       ...modalStyle,
       zIndex: 9100,
       background: '#080f1a',
-      border: '1px solid #1a3a5c',
+      border: '1px solid var(--fl-accent)',
       boxShadow: '0 16px 64px rgba(0,0,0,0.8)',
       display: 'flex', flexDirection: 'column',
       overflow: 'hidden',
@@ -525,7 +525,7 @@ export default function AiCopilotModal({ caseId, caseName, isOpen, onClose, sock
           flexShrink: 0, height: 52,
           display: 'flex', alignItems: 'center', gap: 8, padding: '0 12px',
           background: 'linear-gradient(90deg, #06111f, #080f1a)',
-          borderBottom: '1px solid #0d1f30',
+          borderBottom: '1px solid var(--fl-bg)',
           ...dragStyle,
         }}
       >
@@ -542,7 +542,7 @@ export default function AiCopilotModal({ caseId, caseName, isOpen, onClose, sock
             <button key={t.id} onClick={() => setTab(t.id)} style={{
               padding: '3px 10px', borderRadius: 4, fontSize: 9, fontFamily: 'monospace',
               background: tab === t.id ? 'rgba(77,130,192,0.2)' : 'transparent',
-              border: `1px solid ${tab === t.id ? 'rgba(77,130,192,0.4)' : '#0d1f30'}`,
+              border: `1px solid ${tab === t.id ? 'rgba(77,130,192,0.4)' : 'var(--fl-bg)'}`,
               color: tab === t.id ? '#7abfff' : '#2a5a8a',
               cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4,
             }}>
@@ -569,7 +569,7 @@ export default function AiCopilotModal({ caseId, caseName, isOpen, onClose, sock
               <div style={{ fontFamily: 'monospace', fontSize: 10, color: '#2a5a8a', textAlign: 'center', paddingTop: 40 }}>Chargement…</div>
             ) : messages.length === 0 ? (
               <div style={{ fontFamily: 'monospace', fontSize: 10, color: '#2a5a8a', lineHeight: 1.8 }}>
-                Analyste IA pour le cas <strong style={{ color: '#4d82c0' }}>{caseName}</strong>.
+                Analyste IA pour le cas <strong style={{ color: 'var(--fl-accent)' }}>{caseName}</strong>.
                 {hasContext && (
                   <div style={{ marginTop: 6, padding: '5px 8px', borderRadius: 4, background: 'rgba(34,197,94,0.06)', border: '1px solid rgba(34,197,94,0.15)', fontSize: 9, color: '#22c55e' }}>
                     ✓ Contexte investigateur actif
@@ -607,18 +607,18 @@ export default function AiCopilotModal({ caseId, caseName, isOpen, onClose, sock
                     padding: '8px 11px',
                     borderRadius: msg.role === 'user' ? '8px 8px 2px 8px' : '2px 8px 8px 8px',
                     background: msg.role === 'user' ? 'rgba(77,130,192,0.15)' : msg.error ? 'rgba(239,68,68,0.06)' : 'rgba(6,17,31,0.95)',
-                    border: `1px solid ${msg.role === 'user' ? 'rgba(77,130,192,0.25)' : msg.error ? 'rgba(239,68,68,0.2)' : '#0d1f30'}`,
+                    border: `1px solid ${msg.role === 'user' ? 'rgba(77,130,192,0.25)' : msg.error ? 'rgba(239,68,68,0.2)' : 'var(--fl-bg)'}`,
                   }}>
                     {msg.role === 'user' ? (
                       <div style={{ fontFamily: 'monospace', fontSize: 10.5, color: '#7abfff', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{msg.content}</div>
                     ) : msg.isThinking ? (
                       <span style={{ fontFamily: 'monospace', fontSize: 9, color: '#1a5a2a' }}>Raisonnement…</span>
                     ) : msg.loading && !msg.thinkingSteps?.length ? (
-                      <span style={{ fontFamily: 'monospace', fontSize: 12, color: '#4d82c0', animation: 'blink 1s step-end infinite' }}>▌</span>
+                      <span style={{ fontFamily: 'monospace', fontSize: 12, color: 'var(--fl-accent)', animation: 'blink 1s step-end infinite' }}>▌</span>
                     ) : msg.loading && msg.thinkingSteps?.length > 0 ? (
                       <span style={{ fontFamily: 'monospace', fontSize: 9, color: '#1a4060' }}>Lecture du contexte…</span>
                     ) : msg.error ? (
-                      <div style={{ fontFamily: 'monospace', fontSize: 10.5, color: '#ef4444', display: 'flex', alignItems: 'center', gap: 4 }}>
+                      <div style={{ fontFamily: 'monospace', fontSize: 10.5, color: 'var(--fl-danger)', display: 'flex', alignItems: 'center', gap: 4 }}>
                         <AlertCircle size={12} /> {msg.content}
                       </div>
                     ) : (
@@ -635,16 +635,16 @@ export default function AiCopilotModal({ caseId, caseName, isOpen, onClose, sock
             {QUICK_ACTIONS.map((qa, i) => (
               <button key={i} onClick={() => send(qa)} disabled={streaming} style={{
                 padding: '3px 8px', fontSize: 8.5, fontFamily: 'monospace',
-                background: 'rgba(77,130,192,0.06)', border: '1px solid #0d1f30',
+                background: 'rgba(77,130,192,0.06)', border: '1px solid var(--fl-bg)',
                 borderRadius: 4, color: '#3a6a9a', cursor: streaming ? 'not-allowed' : 'pointer',
                 whiteSpace: 'nowrap', opacity: streaming ? 0.5 : 1,
               }}>{qa}</button>
             ))}
           </div>
 
-          <div style={{ flexShrink: 0, padding: '8px 10px', borderTop: '1px solid #0d1f30', background: '#060c15', display: 'flex', gap: 6, alignItems: 'flex-end' }}>
+          <div style={{ flexShrink: 0, padding: '8px 10px', borderTop: '1px solid var(--fl-bg)', background: '#060c15', display: 'flex', gap: 6, alignItems: 'flex-end' }}>
             {models.length > 0 && (
-              <select value={model} onChange={e => setModel(e.target.value)} style={{ background: '#06111f', border: '1px solid #0d1f30', borderRadius: 4, color: '#3a6a9a', fontSize: 8, fontFamily: 'monospace', padding: '2px 4px', maxWidth: 100, flexShrink: 0, alignSelf: 'center' }}>
+              <select value={model} onChange={e => setModel(e.target.value)} style={{ background: '#06111f', border: '1px solid var(--fl-bg)', borderRadius: 4, color: '#3a6a9a', fontSize: 8, fontFamily: 'monospace', padding: '2px 4px', maxWidth: 100, flexShrink: 0, alignSelf: 'center' }}>
                 {models.map(m => <option key={m} value={m}>{m}</option>)}
               </select>
             )}
@@ -656,31 +656,31 @@ export default function AiCopilotModal({ caseId, caseName, isOpen, onClose, sock
               disabled={streaming}
               placeholder="Message… (Entrée = envoyer, Maj+Entrée = saut de ligne)"
               rows={2}
-              style={{ flex: 1, background: '#06111f', border: '1px solid #0d1f30', borderRadius: 6, color: '#c0cce0', fontSize: 10.5, fontFamily: 'monospace', padding: '6px 8px', resize: 'none', outline: 'none', lineHeight: 1.5 }}
+              style={{ flex: 1, background: '#06111f', border: '1px solid var(--fl-bg)', borderRadius: 6, color: 'var(--fl-on-dark)', fontSize: 10.5, fontFamily: 'monospace', padding: '6px 8px', resize: 'none', outline: 'none', lineHeight: 1.5 }}
             />
             {streaming ? (
-              <button onClick={() => abortRef.current?.abort()} style={{ padding: '0 10px', borderRadius: 6, alignSelf: 'stretch', background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.25)', color: '#ef4444', cursor: 'pointer', fontSize: 14, display: 'flex', alignItems: 'center' }}>⏹</button>
+              <button onClick={() => abortRef.current?.abort()} style={{ padding: '0 10px', borderRadius: 6, alignSelf: 'stretch', background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.25)', color: 'var(--fl-danger)', cursor: 'pointer', fontSize: 14, display: 'flex', alignItems: 'center' }}>⏹</button>
             ) : (
-              <button onClick={() => send()} disabled={!input.trim()} style={{ padding: '0 10px', borderRadius: 6, alignSelf: 'stretch', background: input.trim() ? 'rgba(77,130,192,0.2)' : 'transparent', border: `1px solid ${input.trim() ? 'rgba(77,130,192,0.3)' : '#0d1f30'}`, color: input.trim() ? '#4d82c0' : '#1a3a5c', cursor: input.trim() ? 'pointer' : 'default', display: 'flex', alignItems: 'center' }}>
+              <button onClick={() => send()} disabled={!input.trim()} style={{ padding: '0 10px', borderRadius: 6, alignSelf: 'stretch', background: input.trim() ? 'rgba(77,130,192,0.2)' : 'transparent', border: `1px solid ${input.trim() ? 'rgba(77,130,192,0.3)' : 'var(--fl-bg)'}`, color: input.trim() ? 'var(--fl-accent)' : 'var(--fl-accent)', cursor: input.trim() ? 'pointer' : 'default', display: 'flex', alignItems: 'center' }}>
                 <Send size={13} />
               </button>
             )}
           </div>
 
           <div style={{ flexShrink: 0, padding: '4px 10px 6px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <span style={{ fontSize: 8, fontFamily: 'monospace', color: '#0d1f30' }}>
+            <span style={{ fontSize: 8, fontFamily: 'monospace', color: 'var(--fl-muted)' }}>
               {messages.filter(m => m.role === 'user').length} échanges · contexte isolé cas #{caseId}
             </span>
             {messages.length > 0 && !clearConfirm && (
-              <button onClick={() => setClearConfirm(true)} style={{ fontSize: 8, fontFamily: 'monospace', color: '#1a3a5c', background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 3 }}>
+              <button onClick={() => setClearConfirm(true)} style={{ fontSize: 8, fontFamily: 'monospace', color: 'var(--fl-accent)', background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 3 }}>
                 <Trash2 size={9} /> Effacer l'historique
               </button>
             )}
             {clearConfirm && (
               <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                <span style={{ fontSize: 8, fontFamily: 'monospace', color: '#d97c20' }}>Confirmer ?</span>
-                <button onClick={clearHistory} style={{ fontSize: 8, fontFamily: 'monospace', padding: '1px 6px', borderRadius: 3, background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)', color: '#ef4444', cursor: 'pointer' }}>Oui</button>
-                <button onClick={() => setClearConfirm(false)} style={{ fontSize: 8, fontFamily: 'monospace', padding: '1px 6px', borderRadius: 3, background: 'transparent', border: '1px solid #0d1f30', color: '#3d5070', cursor: 'pointer' }}>Non</button>
+                <span style={{ fontSize: 8, fontFamily: 'monospace', color: 'var(--fl-warn)' }}>Confirmer ?</span>
+                <button onClick={clearHistory} style={{ fontSize: 8, fontFamily: 'monospace', padding: '1px 6px', borderRadius: 3, background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)', color: 'var(--fl-danger)', cursor: 'pointer' }}>Oui</button>
+                <button onClick={() => setClearConfirm(false)} style={{ fontSize: 8, fontFamily: 'monospace', padding: '1px 6px', borderRadius: 3, background: 'transparent', border: '1px solid var(--fl-bg)', color: 'var(--fl-subtle)', cursor: 'pointer' }}>Non</button>
               </div>
             )}
           </div>
@@ -691,15 +691,15 @@ export default function AiCopilotModal({ caseId, caseName, isOpen, onClose, sock
       {tab === 'context' && (
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', padding: 14, gap: 10 }}>
           <div>
-            <div style={{ fontFamily: 'monospace', fontSize: 12, fontWeight: 700, color: '#b0ccec', marginBottom: 3 }}>Contexte de l'investigation</div>
+            <div style={{ fontFamily: 'monospace', fontSize: 12, fontWeight: 700, color: 'var(--fl-on-dark)', marginBottom: 3 }}>Contexte de l'investigation</div>
             <div style={{ fontFamily: 'monospace', fontSize: 9, color: '#2a5a8a', marginBottom: 6 }}>Ce contexte est injecté dans chaque réponse IA. Il oriente toute l'analyse.</div>
-            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 8px', borderRadius: 4, background: 'rgba(77,130,192,0.08)', border: '1px solid #0d1f30', fontSize: 8, fontFamily: 'monospace', color: '#3a6a9a' }}>
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 8px', borderRadius: 4, background: 'rgba(77,130,192,0.08)', border: '1px solid var(--fl-bg)', fontSize: 8, fontFamily: 'monospace', color: '#3a6a9a' }}>
               <Users size={9} /> Partagé entre analystes
             </div>
           </div>
 
           {rtNotif && (
-            <div style={{ padding: '6px 10px', borderRadius: 6, background: 'rgba(77,130,192,0.08)', border: '1px solid rgba(77,130,192,0.2)', fontSize: 9, fontFamily: 'monospace', color: '#4d82c0' }}>
+            <div style={{ padding: '6px 10px', borderRadius: 6, background: 'rgba(77,130,192,0.08)', border: '1px solid rgba(77,130,192,0.2)', fontSize: 9, fontFamily: 'monospace', color: 'var(--fl-accent)' }}>
               ⚡ Contexte mis à jour par <strong>{rtNotif.updatedBy}</strong> — «{rtNotif.preview}»
             </div>
           )}
@@ -715,18 +715,18 @@ export default function AiCopilotModal({ caseId, caseName, isOpen, onClose, sock
 • Vecteur d'entrée suspecté (ex: phishing reçu le 13/03)
 • Périmètre compromis connu (ex: 3 serveurs, 12 postes)
 • Objectif de l'attaquant supposé (ex: exfiltration RH)`}
-            style={{ flex: 1, background: '#06111f', border: '1px solid #1a2a3a', borderRadius: 6, color: '#c0cce0', fontSize: 10.5, fontFamily: 'monospace', padding: '10px 12px', resize: 'none', outline: 'none', lineHeight: 1.7, minHeight: 200 }}
+            style={{ flex: 1, background: '#06111f', border: '1px solid var(--fl-card)', borderRadius: 6, color: 'var(--fl-on-dark)', fontSize: 10.5, fontFamily: 'monospace', padding: '10px 12px', resize: 'none', outline: 'none', lineHeight: 1.7, minHeight: 200 }}
           />
 
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <span style={{ fontFamily: 'monospace', fontSize: 9, color: freeText.length > 3800 ? '#d97c20' : '#2a5a8a' }}>{freeText.length} / 4000</span>
+            <span style={{ fontFamily: 'monospace', fontSize: 9, color: freeText.length > 3800 ? 'var(--fl-warn)' : '#2a5a8a' }}>{freeText.length} / 4000</span>
             {saveStatus === 'saving' && <span style={{ fontFamily: 'monospace', fontSize: 9, color: '#3a6a9a' }}>Sauvegarde…</span>}
             {saveStatus === 'saved'  && <span style={{ fontFamily: 'monospace', fontSize: 9, color: '#22c55e' }}>✓ Sauvegardé</span>}
-            {saveStatus === 'error'  && <span style={{ fontFamily: 'monospace', fontSize: 9, color: '#ef4444' }}>⚠ Erreur</span>}
+            {saveStatus === 'error'  && <span style={{ fontFamily: 'monospace', fontSize: 9, color: 'var(--fl-danger)' }}>⚠ Erreur</span>}
           </div>
 
           {ctxMeta.updatedAt && (
-            <div style={{ fontFamily: 'monospace', fontSize: 8, color: '#1a3a5c' }}>
+            <div style={{ fontFamily: 'monospace', fontSize: 8, color: 'var(--fl-accent)' }}>
               Dernière modif. : {fmtDate(ctxMeta.updatedAt)}{ctxMeta.updatedBy ? ` par ${ctxMeta.updatedBy}` : ''}
             </div>
           )}
@@ -736,9 +736,9 @@ export default function AiCopilotModal({ caseId, caseName, isOpen, onClose, sock
               <button onClick={() => setClearCtxConfirm(true)} disabled={!freeText && !savedText} style={{ padding: '5px 12px', borderRadius: 5, fontSize: 9, fontFamily: 'monospace', background: 'transparent', border: '1px solid rgba(239,68,68,0.2)', color: '#ef444450', cursor: (freeText || savedText) ? 'pointer' : 'not-allowed' }}>Effacer</button>
             ) : (
               <div style={{ display: 'flex', gap: 5, alignItems: 'center' }}>
-                <span style={{ fontSize: 8, fontFamily: 'monospace', color: '#d97c20' }}>Effacer le contexte ?</span>
-                <button onClick={clearContext} style={{ padding: '3px 8px', borderRadius: 3, fontSize: 8, fontFamily: 'monospace', background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.25)', color: '#ef4444', cursor: 'pointer' }}>Oui</button>
-                <button onClick={() => setClearCtxConfirm(false)} style={{ padding: '3px 8px', borderRadius: 3, fontSize: 8, fontFamily: 'monospace', background: 'transparent', border: '1px solid #0d1f30', color: '#3d5070', cursor: 'pointer' }}>Non</button>
+                <span style={{ fontSize: 8, fontFamily: 'monospace', color: 'var(--fl-warn)' }}>Effacer le contexte ?</span>
+                <button onClick={clearContext} style={{ padding: '3px 8px', borderRadius: 3, fontSize: 8, fontFamily: 'monospace', background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.25)', color: 'var(--fl-danger)', cursor: 'pointer' }}>Oui</button>
+                <button onClick={() => setClearCtxConfirm(false)} style={{ padding: '3px 8px', borderRadius: 3, fontSize: 8, fontFamily: 'monospace', background: 'transparent', border: '1px solid var(--fl-bg)', color: 'var(--fl-subtle)', cursor: 'pointer' }}>Non</button>
               </div>
             )}
             <button onClick={saveContextNow} style={{ padding: '5px 14px', borderRadius: 5, fontSize: 9, fontFamily: 'monospace', background: 'rgba(77,130,192,0.2)', border: '1px solid rgba(77,130,192,0.3)', color: '#7abfff', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}>

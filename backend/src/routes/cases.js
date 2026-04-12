@@ -1252,4 +1252,29 @@ router.get('/:id/risk-score', authenticate, async (req, res) => {
   }
 });
 
+// GET /cases/:id/time — temps analytique cumulé par analyste
+router.get('/:id/time', authenticate, async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT
+         u.id,
+         u.username,
+         u.full_name,
+         COUNT(s.id)::int          AS session_count,
+         COALESCE(SUM(s.duration_s), 0)::int AS total_seconds
+       FROM case_sessions s
+       JOIN users u ON u.id = s.user_id
+       WHERE s.case_id = $1 AND s.ended_at IS NOT NULL
+       GROUP BY u.id, u.username, u.full_name
+       ORDER BY total_seconds DESC`,
+      [req.params.id]
+    );
+    const grand_total = rows.reduce((acc, r) => acc + r.total_seconds, 0);
+    res.json({ analysts: rows, grand_total_seconds: grand_total });
+  } catch (err) {
+    logger.error('[cases/time]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;

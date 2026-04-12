@@ -135,9 +135,9 @@ export function findCatScaleRoot(extractDir: string): string | null {
       const sub = path.join(extractDir, e);
       try {
         if (fs.statSync(sub).isDirectory() && countMarkers(sub) >= 2) return sub;
-      } catch  }
+      } catch (_e) {}
     }
-  } catch  }
+  } catch (_e) {}
   return null;
 }
 
@@ -649,7 +649,7 @@ export async function parseCatScale(
   }
 
   for (const dir of tempDirs) {
-    try { fs.rmSync(dir, { recursive: true, force: true }); } catch  }
+    try { fs.rmSync(dir, { recursive: true, force: true }); } catch (_e) {}
   }
 
   logger.info(`[CatScale] ${hostname} (${osInfo || 'Linux'}): ${totalEvents} events — ${artifacts.length} sources`);

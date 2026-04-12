@@ -33,19 +33,19 @@ export default function UsersPage() {
 
       <div className="grid grid-cols-3 gap-4 mb-6">
         {[
-          { label: 'Administrateurs', value: adminCount, color: '#d97c20', icon: Shield },
-          { label: 'Analystes', value: analystCount, color: '#4d82c0', icon: UserCheck },
-          { label: 'Inactifs', value: inactiveCount, color: '#da3633', icon: UserX },
+          { label: 'Administrateurs', value: adminCount, color: 'var(--fl-warn)', icon: Shield },
+          { label: 'Analystes', value: analystCount, color: 'var(--fl-accent)', icon: UserCheck },
+          { label: 'Inactifs', value: inactiveCount, color: 'var(--fl-danger)', icon: UserX },
         ].map(s => (
           <div key={s.label} className="rounded-lg p-4 border flex items-center gap-4"
-            style={{ background: '#1c2333', borderColor: '#30363d', borderLeft: `3px solid ${s.color}` }}>
+            style={{ background: 'var(--fl-card)', borderColor: 'var(--fl-border)', borderLeft: `3px solid ${s.color}` }}>
             <div className="w-9 h-9 rounded-lg flex items-center justify-center"
               style={{ background: `${s.color}14` }}>
               <s.icon size={18} style={{ color: s.color }} />
             </div>
             <div>
-              <div className="font-mono font-bold text-2xl" style={{ color: '#e6edf3' }}>{s.value}</div>
-              <div className="text-xs" style={{ color: '#7d8590' }}>{s.label}</div>
+              <div className="font-mono font-bold text-2xl" style={{ color: 'var(--fl-text)' }}>{s.value}</div>
+              <div className="text-xs" style={{ color: 'var(--fl-dim)' }}>{s.label}</div>
             </div>
           </div>
         ))}
@@ -67,14 +67,14 @@ export default function UsersPage() {
             {users.map(u => (
               <tr key={u.id}>
                 <td>
-                  <div className="font-semibold text-sm" style={{ color: '#e6edf3' }}>{u.full_name}</div>
-                  <div className="text-xs font-mono" style={{ color: '#7d8590' }}>@{u.username}</div>
+                  <div className="font-semibold text-sm" style={{ color: 'var(--fl-text)' }}>{u.full_name}</div>
+                  <div className="text-xs font-mono" style={{ color: 'var(--fl-dim)' }}>@{u.username}</div>
                 </td>
                 <td className="fl-td-mono fl-td-dim">{u.email}</td>
                 <td>
                   <span className="fl-badge" style={{
                     background: u.role === 'admin' ? '#d97c2014' : '#4d82c014',
-                    color: u.role === 'admin' ? '#d97c20' : '#4d82c0',
+                    color: u.role === 'admin' ? 'var(--fl-warn)' : 'var(--fl-accent)',
                     border: `1px solid ${u.role === 'admin' ? '#d97c2030' : '#4d82c030'}`,
                   }}>
                     {u.role === 'admin' && <Shield size={10} className="inline mr-1" />}
@@ -84,7 +84,7 @@ export default function UsersPage() {
                 <td>
                   <span className="fl-badge" style={{
                     background: u.is_active ? '#3fb95014' : '#da363314',
-                    color: u.is_active ? '#3fb950' : '#da3633',
+                    color: u.is_active ? 'var(--fl-ok)' : 'var(--fl-danger)',
                     border: `1px solid ${u.is_active ? '#3fb95030' : '#da363330'}`,
                   }}>
                     {u.is_active ? 'Actif' : 'Inactif'}
@@ -106,7 +106,7 @@ export default function UsersPage() {
         <div className="fl-modal-overlay" onClick={e => e.target === e.currentTarget && setShowNew(false)}>
           <div className="fl-modal">
             <div className="fl-modal-header">
-              <Plus size={16} style={{ color: '#4d82c0' }} /> Nouvel utilisateur
+              <Plus size={16} style={{ color: 'var(--fl-accent)' }} /> Nouvel utilisateur
             </div>
             <div className="fl-modal-body">
               <div className="space-y-4">
@@ -131,8 +131,8 @@ export default function UsersPage() {
                   <label className="fl-label">Rôle</label>
                   <div className="flex gap-3">
                     {[
-                      { key: 'analyst', label: 'Analyste', color: '#4d82c0' },
-                      { key: 'admin', label: 'Administrateur', color: '#d97c20' },
+                      { key: 'analyst', label: 'Analyste', color: 'var(--fl-accent)' },
+                      { key: 'admin', label: 'Administrateur', color: 'var(--fl-warn)' },
                     ].map(r => (
                       <button
                         key={r.key}
@@ -141,7 +141,7 @@ export default function UsersPage() {
                         style={{
                           background: newUser.role === r.key ? `${r.color}18` : 'transparent',
                           color: r.color,
-                          border: `1px solid ${newUser.role === r.key ? r.color + '50' : '#30363d'}`,
+                          border: `1px solid ${newUser.role === r.key ? r.color + '50' : 'var(--fl-border)'}`,
                           fontWeight: newUser.role === r.key ? 700 : 400,
                         }}
                       >

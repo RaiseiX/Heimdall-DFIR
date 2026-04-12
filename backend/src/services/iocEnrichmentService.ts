@@ -90,16 +90,16 @@ async function enrichVirusTotal(value: string, iocType: string): Promise<VTResul
   if (iocType === 'ip') {
     url = `https://www.virustotal.com/api/v3/ip_addresses/${encodeURIComponent(value)}`;
   } else if (iocType === 'domain') {
-    url = `https:
+    url = `https://www.virustotal.com/api/v3/domains/${encodeURIComponent(value)}`;
   } else if (['hash_md5', 'hash_sha1', 'hash_sha256'].includes(iocType)) {
-    url = `https:
+    url = `https://www.virustotal.com/api/v3/files/${value}`;
   } else if (iocType === 'url') {
     const b64 = Buffer.from(value)
       .toString('base64')
       .replace(/=/g, '')
       .replace(/\+/g, '-')
-      .replace(/\
-    url = `https:
+      .replace(/\//g, '_');
+    url = `https://www.virustotal.com/api/v3/urls/${b64}`;
   } else {
     return null;
   }
@@ -177,7 +177,7 @@ async function enrichShodan(ip: string): Promise<ShodanResult | null> {
 
   try {
     const resp = await axios.get(
-      `https:
+      `https://api.shodan.io/shodan/host/${ip}`,
       { params: { key: apiKey }, timeout: 15000 }
     );
 
@@ -226,7 +226,7 @@ async function enrichGeoIP(ip: string): Promise<GeoResult | null> {
 
   try {
     const resp = await axios.get(
-      `http:
+      `http://ip-api.com/json/${ip}`,
       {
         params: { fields: 'status,country,countryCode,regionName,city,lat,lon,isp,org,as,proxy,hosting,query' },
         timeout: 5000,

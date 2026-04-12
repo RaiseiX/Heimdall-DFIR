@@ -7,23 +7,23 @@ import {
 } from 'lucide-react';
 
 const PARSER_COLORS = {
-  mft:      '#8b72d6',
+  mft:      'var(--fl-purple)',
   prefetch: '#22c55e',
-  evtx:     '#4d82c0',
-  lnk:      '#d97c20',
-  registry: '#c96898',
-  amcache:  '#c89d1d',
+  evtx:     'var(--fl-accent)',
+  lnk:      'var(--fl-warn)',
+  registry: 'var(--fl-pink)',
+  amcache:  'var(--fl-gold)',
   appcompat:'#f59e0b',
   shellbags:'#06b6d4',
   jumplist: '#8b5cf6',
   srum:     '#f43f5e',
   wxtcmd:   '#d946ef',
-  hayabusa: '#ef4444',
+  hayabusa: 'var(--fl-danger)',
 };
 
 function parserColor(name) {
   const key = (name || '').toLowerCase().replace(/[^a-z]/g, '');
-  return PARSER_COLORS[key] || '#7d8590';
+  return PARSER_COLORS[key] || 'var(--fl-dim)';
 }
 
 function fmtDate(iso) {
@@ -93,7 +93,7 @@ function DataTable({ records, T }) {
     <div className="overflow-x-auto rounded-xl border" style={{ borderColor: T.border }}>
       <table className="text-xs w-full" style={{ borderCollapse: 'collapse', minWidth: 600 }}>
         <thead>
-          <tr style={{ background: T.panel ?? '#0d1117' }}>
+          <tr style={{ background: T.panel ?? 'var(--fl-bg)' }}>
             {columns.map(col => (
               <th
                 key={col}
@@ -237,7 +237,7 @@ export default function ParsedDataPage() {
             <Loader2 size={14} className="animate-spin" /> Chargement des cas…
           </div>
         ) : cases.length === 0 ? (
-          <span className="text-sm" style={{ color: '#ef4444' }}>
+          <span className="text-sm" style={{ color: 'var(--fl-danger)' }}>
             Aucun cas disponible. Créez un cas d'abord.
           </span>
         ) : (
@@ -388,7 +388,7 @@ export default function ParsedDataPage() {
                     style={{
                       background: 'rgba(239,68,68,0.05)',
                       borderColor: 'rgba(239,68,68,0.25)',
-                      color: '#ef4444',
+                      color: 'var(--fl-danger)',
                     }}
                   >
                     ⚠ {dataError}

@@ -9,7 +9,7 @@ const IOC_COLORS = {
   ipv4:   '#e05252',
   ipv6:   '#e07e52',
   domain: '#d4a017',
-  url:    '#4d82c0',
+  url:    'var(--fl-accent)',
   email:  '#9b59b6',
   md5:    '#27ae60',
   sha1:   '#1abc9c',
@@ -17,7 +17,7 @@ const IOC_COLORS = {
 };
 
 const STIX_COLORS = {
-  indicator:       '#4d82c0',
+  indicator:       'var(--fl-accent)',
   malware:         '#e05252',
   'attack-pattern':'#d4a017',
 };
@@ -321,7 +321,7 @@ function IndicatorsTab() {
       ]);
       setData(res.data);
       if (sRes) setStats(sRes.data);
-    } catch  }
+    } catch (_e) {}
     finally { setLoading(false); }
   }, [q, iocType, stixType, page, stats]);
 

@@ -4,16 +4,16 @@ import { playbooksAPI } from '../utils/api';
 import { useTranslation } from 'react-i18next';
 
 const S = {
-  bg:      '#0d1117',
-  card:    '#161b22',
-  border:  '#30363d',
-  text:    '#e6edf3',
-  muted:   '#7d8590',
-  blue:    '#4d82c0',
-  green:   '#3fb950',
+  bg:      'var(--fl-bg)',
+  card:    'var(--fl-panel)',
+  border:  'var(--fl-border)',
+  text:    'var(--fl-text)',
+  muted:   'var(--fl-dim)',
+  blue:    'var(--fl-accent)',
+  green:   'var(--fl-ok)',
   orange:  '#d29922',
-  red:     '#da3633',
-  purple:  '#8b72d6',
+  red:     'var(--fl-danger)',
+  purple:  'var(--fl-purple)',
 };
 
 const TYPE_ICON = {
@@ -63,7 +63,7 @@ function PlaybookCard({ playbook, onSelect, selected }) {
         </div>
         <div className="flex flex-col items-end gap-1 shrink-0">
           <span className="text-xs font-mono px-2 py-0.5 rounded"
-            style={{ background: '#30363d', color: S.muted }}>{playbook.step_count} étapes</span>
+            style={{ background: 'var(--fl-border)', color: S.muted }}>{playbook.step_count} étapes</span>
           <ChevronRight size={16} style={{ color: S.muted }} />
         </div>
       </div>

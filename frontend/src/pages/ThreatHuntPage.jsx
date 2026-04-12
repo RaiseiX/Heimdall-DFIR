@@ -10,11 +10,11 @@ import { casesAPI, evidenceAPI, threatHuntingAPI } from '../utils/api';
 import { Button, Modal, TabGroup, Badge, Spinner } from '../components/ui';
 
 const C = {
-  yara:    '#4d82c0',
-  sigma:   '#8b72d6',
-  match:   '#da3633',
-  clean:   '#3fb950',
-  warn:    '#d97c20',
+  yara:    'var(--fl-accent)',
+  sigma:   'var(--fl-purple)',
+  match:   'var(--fl-danger)',
+  clean:   'var(--fl-ok)',
+  warn:    'var(--fl-warn)',
   surface: 'rgba(255,255,255,0.04)',
   border:  'rgba(255,255,255,0.08)',
 };
@@ -161,11 +161,11 @@ function GitHubImportModal({ open, type, onClose, onImported }) {
             <div>
               <div style={{ display: 'flex', gap: 10, marginBottom: 16 }}>
                 <div style={{ flex: 1, textAlign: 'center', padding: '14px 10px', background: 'rgba(63,185,80,0.08)', border: '1px solid rgba(63,185,80,0.25)', borderRadius: 8 }}>
-                  <div style={{ fontSize: 26, fontWeight: 700, color: '#3fb950' }}>{result.imported}</div>
+                  <div style={{ fontSize: 26, fontWeight: 700, color: 'var(--fl-ok)' }}>{result.imported}</div>
                   <div style={{ fontSize: 12, color: 'var(--fl-dim)' }}>importées</div>
                 </div>
                 <div style={{ flex: 1, textAlign: 'center', padding: '14px 10px', background: 'rgba(217,124,32,0.08)', border: '1px solid rgba(217,124,32,0.25)', borderRadius: 8 }}>
-                  <div style={{ fontSize: 26, fontWeight: 700, color: '#d97c20' }}>{result.skipped}</div>
+                  <div style={{ fontSize: 26, fontWeight: 700, color: 'var(--fl-warn)' }}>{result.skipped}</div>
                   <div style={{ fontSize: 12, color: 'var(--fl-dim)' }}>ignorées (invalides)</div>
                 </div>
                 {result.total > 0 && (
@@ -275,12 +275,12 @@ function YaraRulesTab() {
 
   async function del(id) {
     if (!confirm('Supprimer cette règle YARA ?')) return;
-    try { await threatHuntingAPI.deleteYaraRule(id); load(); } catch  }
+    try { await threatHuntingAPI.deleteYaraRule(id); load(); } catch (_e) {}
   }
 
   async function toggle(r) {
     try { await threatHuntingAPI.updateYaraRule(r.id, { is_active: !r.is_active }); load(); }
-    catch  }
+    catch (_e) {}
   }
 
   return (
@@ -398,7 +398,7 @@ function ScanProgressBar({ progress, color }) {
         </span>
         <span style={{ flexShrink: 0 }}>{pct}%</span>
       </div>
-      <div style={{ height: 5, background: 'var(--fl-border, #30363d)', borderRadius: 3, overflow: 'hidden' }}>
+      <div style={{ height: 5, background: 'var(--fl-border, var(--fl-border))', borderRadius: 3, overflow: 'hidden' }}>
         <div style={{ height: '100%', width: `${pct}%`, background: color || C.yara, borderRadius: 3, transition: 'width 0.15s ease' }} />
       </div>
     </div>
@@ -454,10 +454,10 @@ function YaraScanTab() {
               const r = await threatHuntingAPI.yaraResultsCase(caseId);
               setResults(r.data.results || []);
             }
-          } catch  }
+          } catch (_e) {}
         }
       }
-    } catch  } finally { setScanning(false); setProgress(null); }
+    } catch (_e) {} finally { setScanning(false); setProgress(null); }
   }
 
   const grouped = results.reduce((acc, r) => {
@@ -631,7 +631,7 @@ function SigmaRulesTab() {
 
   async function del(id) {
     if (!confirm('Supprimer cette règle Sigma ?')) return;
-    try { await threatHuntingAPI.deleteSigmaRule(id); load(); } catch  }
+    try { await threatHuntingAPI.deleteSigmaRule(id); load(); } catch (_e) {}
   }
 
   return (
@@ -730,10 +730,10 @@ function SigmaRulesTab() {
 }
 
 const ARTIFACT_COLORS = {
-  evtx: '#4d82c0', hayabusa: '#da3633', mft: '#8b72d6', prefetch: '#22c55e',
-  lnk: '#d97c20', registry: '#c96898', amcache: '#c89d1d',
+  evtx: 'var(--fl-accent)', hayabusa: 'var(--fl-danger)', mft: 'var(--fl-purple)', prefetch: '#22c55e',
+  lnk: 'var(--fl-warn)', registry: 'var(--fl-pink)', amcache: 'var(--fl-gold)',
 };
-function ac(t) { return ARTIFACT_COLORS[t] || '#7d8590'; }
+function ac(t) { return ARTIFACT_COLORS[t] || 'var(--fl-dim)'; }
 
 function SigmaHuntTab() {
   const [cases, setCases]           = useState([]);
@@ -802,7 +802,7 @@ function SigmaHuntTab() {
               setHistory(h.data.hunts || []);
             }
             if (ev.type === 'error') setScanResult({ error: ev.error });
-          } catch  }
+          } catch (_e) {}
         }
       }
     } catch (e) {

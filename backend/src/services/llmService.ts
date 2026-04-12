@@ -34,7 +34,7 @@ export async function streamAnalysis(
   res.flushHeaders();
 
   const keepAlive = setInterval(() => {
-    try { res.write(': ping\n\n'); } catch  }
+    try { res.write(': ping\n\n'); } catch (_e) {}
   }, 5000);
 
   const ollamaUrl = new URL('/api/generate', OLLAMA_URL);
@@ -60,7 +60,7 @@ export async function streamAnalysis(
               const j = JSON.parse(line);
               if (j.response) res.write(`data: ${JSON.stringify({ response: j.response })}\n\n`);
               if (j.done) { res.write('data: [DONE]\n\n'); }
-            } catch  }
+            } catch (_e) {}
           }
         });
         ollamaRes.on('end', () => {
@@ -123,7 +123,7 @@ export async function pullModel(
 
               res.write(`data: ${JSON.stringify(j)}\n\n`);
               if (j.status === 'success') res.write('data: [DONE]\n\n');
-            } catch  }
+            } catch (_e) {}
           }
         });
         ollamaRes.on('end', () => { res.end(); resolve(); });

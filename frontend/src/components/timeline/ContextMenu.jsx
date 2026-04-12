@@ -38,7 +38,7 @@ export default function ContextMenu({ record, pos, onClose, onFollowProcess, onF
         top: pos.y, left: pos.x,
         zIndex: 9999,
         background: '#0a1520',
-        border: '1px solid #1a3a5c',
+        border: '1px solid var(--fl-accent)',
         borderRadius: 7,
         boxShadow: '0 8px 32px rgba(0,0,0,0.6)',
         minWidth: 200,
@@ -48,7 +48,7 @@ export default function ContextMenu({ record, pos, onClose, onFollowProcess, onF
       onContextMenu={e => e.preventDefault()}
     >
       
-      <div style={{ padding: '7px 12px', borderBottom: '1px solid #0d1f30', background: '#06111f' }}>
+      <div style={{ padding: '7px 12px', borderBottom: '1px solid var(--fl-bg)', background: '#06111f' }}>
         <div style={{ fontFamily: 'monospace', fontSize: 9, color: '#3a6a9a', textTransform: 'uppercase', letterSpacing: '0.07em' }}>
           {record?.artifact_type || '?'}
         </div>
@@ -92,20 +92,20 @@ export default function ContextMenu({ record, pos, onClose, onFollowProcess, onF
 
         {ip && (
           <>
-            <div style={{ height: 1, background: '#0d1f30', margin: '4px 0' }} />
+            <div style={{ height: 1, background: 'var(--fl-bg)', margin: '4px 0' }} />
             <Item
               icon="🔍"
               label={enrichLoading ? 'Enrichissement…' : `Enrichir IP: ${ip}`}
               onClick={quickEnrich}
             />
             {enrichResult && (
-              <div style={{ padding: '6px 12px', background: '#06111f', borderTop: '1px solid #0d1f30' }}>
+              <div style={{ padding: '6px 12px', background: '#06111f', borderTop: '1px solid var(--fl-bg)' }}>
                 <div style={{ fontFamily: 'monospace', fontSize: 9, color: '#2a5a8a', marginBottom: 4 }}>
                   VirusTotal · AbuseIPDB
                 </div>
                 {enrichResult.virustotal?.verdict && (
                   <div style={{ fontFamily: 'monospace', fontSize: 10, color:
-                    enrichResult.virustotal.verdict === 'malicious' ? '#ef4444' :
+                    enrichResult.virustotal.verdict === 'malicious' ? 'var(--fl-danger)' :
                     enrichResult.virustotal.verdict === 'suspicious' ? '#f59e0b' : '#22c55e'
                   }}>
                     VT: {enrichResult.virustotal.verdict}
@@ -113,7 +113,7 @@ export default function ContextMenu({ record, pos, onClose, onFollowProcess, onF
                   </div>
                 )}
                 {enrichResult.abuseipdb?.score != null && (
-                  <div style={{ fontFamily: 'monospace', fontSize: 10, color: enrichResult.abuseipdb.score > 50 ? '#ef4444' : '#7abfff' }}>
+                  <div style={{ fontFamily: 'monospace', fontSize: 10, color: enrichResult.abuseipdb.score > 50 ? 'var(--fl-danger)' : '#7abfff' }}>
                     AbuseIPDB score: {enrichResult.abuseipdb.score}%
                   </div>
                 )}
@@ -122,7 +122,7 @@ export default function ContextMenu({ record, pos, onClose, onFollowProcess, onF
           </>
         )}
 
-        <div style={{ height: 1, background: '#0d1f30', margin: '4px 0' }} />
+        <div style={{ height: 1, background: 'var(--fl-bg)', margin: '4px 0' }} />
         <Item
           icon="📋"
           label="Copier la description"
@@ -150,7 +150,7 @@ function Item({ icon, label, onClick }) {
         padding: '6px 12px', cursor: 'pointer',
         background: hov ? '#0d1f35' : 'transparent',
         fontFamily: 'monospace', fontSize: 10,
-        color: hov ? '#c0cce0' : '#7abfff',
+        color: hov ? 'var(--fl-on-dark)' : '#7abfff',
       }}
     >
       <span>{icon}</span>

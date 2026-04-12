@@ -5,8 +5,8 @@ import * as d3 from 'd3';
 
 function fmtBytes(b) {
   if (!b) return '0 B';
-  const k = 1024, s = ['B', 'KB', 'MB', 'GB'];
-  const i = Math.floor(Math.log(b) / Math.log(k));
+  const k = 1024, s = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const i = Math.min(Math.floor(Math.log(b) / Math.log(k)), s.length - 1);
   return `${(b / Math.pow(k, i)).toFixed(1)} ${s[i]}`;
 }
 
@@ -258,6 +258,8 @@ export default function NetworkMapPage() {
   useEffect(() => {
     if (!caseId) { setGraphData({ nodes: [], edges: [] }); return; }
     setLoading(true);
+    setSelectedNode(null);
+    setSelectedEdge(null);
     const load = async () => {
       try {
         const { networkAPI, casesAPI } = await import('../utils/api');
@@ -278,7 +280,7 @@ export default function NetworkMapPage() {
       setLoading(false);
     };
     load();
-  }, [caseId]);
+  }, [caseId, evidenceId]);
 
   const handleSelectEdge = useCallback((edge) => { setSelectedEdge(edge); setSelectedNode(null); }, []);
   const handleSelectNode = useCallback((node) => { setSelectedNode(node); setSelectedEdge(null); }, []);
@@ -301,6 +303,10 @@ export default function NetworkMapPage() {
 
   const addConnection = async () => {
     if (!newConn.src || !newConn.dst) return;
+    const reset = () => {
+      setNewConn({ src: '', dst: '', srcPort: '', dstPort: '', proto: 'TCP', label: '', suspicious: false, srcCity: '', srcCountry: '', dstCity: '', dstCountry: '' });
+      setShowAdd(false);
+    };
     if (caseId) {
       try {
         const { networkAPI } = await import('../utils/api');
@@ -312,10 +318,13 @@ export default function NetworkMapPage() {
           geo_src: { country: newConn.srcCountry, city: newConn.srcCity },
           geo_dst: { country: newConn.dstCountry, city: newConn.dstCity },
         });
-      } catch (err) { console.error('Network save error:', err); }
+        reset();
+      } catch (err) {
+        setCsvResult({ ok: false, msg: err.response?.data?.error || 'Erreur lors de l\'ajout de la connexion' });
+      }
+    } else {
+      reset();
     }
-    setNewConn({ src: '', dst: '', srcPort: '', dstPort: '', proto: 'TCP', label: '', suspicious: false, srcCity: '', srcCountry: '', dstCity: '', dstCountry: '' });
-    setShowAdd(false);
   };
 
   const handleCsvImport = async (e) => {
@@ -606,7 +615,7 @@ export default function NetworkMapPage() {
                 <div style={{ color: '#484f58', margin: '2px 0' }}>↓</div>
                 <div style={{
                   wordBreak: 'break-all',
-                  color: /^https?:\/\
+                  color: /^https?:\/\//.test(selectedEdge.target) ? '#a371f7'
                     : (!isInternalIP(selectedEdge.target) ? '#f0883e' : '#4d82c0'),
                 }}>
                   {selectedEdge.target}

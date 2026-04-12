@@ -19,7 +19,7 @@ function fmtDate(ts) {
 function hashCode(s) {
   return Math.abs([...s].reduce((h, c) => Math.imul(31, h) + c.charCodeAt(0) | 0, 0));
 }
-const AVATAR_COLORS = ['#4d82c0', '#8b5cf6', '#22c55e', '#f97316', '#e11d48', '#06b6d4'];
+const AVATAR_COLORS = ['var(--fl-accent)', '#8b5cf6', '#22c55e', '#f97316', '#e11d48', '#06b6d4'];
 function avatarColor(u) { return AVATAR_COLORS[hashCode(u || '') % AVATAR_COLORS.length]; }
 function initials(n) { return (n || '?').slice(0, 2).toUpperCase(); }
 
@@ -33,7 +33,7 @@ function playPing() {
     gain.gain.setValueAtTime(0.25, ctx.currentTime);
     gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4);
     osc.start(); osc.stop(ctx.currentTime + 0.4);
-  } catch  }
+  } catch (_e) {}
 }
 
 const QUICK_EMOJIS = ['👍', '✅', '🔴', '⚠️', '🔍', '💡', '🚨', '😂'];
@@ -48,9 +48,9 @@ const EMOJI_GRID = [
 const IOC_RE = /(@\w+)|(\b[a-fA-F0-9]{64}\b)|(\b[a-fA-F0-9]{40}\b)|(\b[a-fA-F0-9]{32}\b)|(\b(?:\d{1,3}\.){3}\d{1,3}\b)/g;
 
 const IOC_STYLE = {
-  mention: { color: '#4d82c0', fontWeight: 700, background: '#4d82c018', borderRadius: 3, padding: '0 3px' },
-  sha256:  { color: '#da3633', fontFamily: 'monospace', fontSize: 11, background: '#da363318', borderRadius: 3, padding: '0 3px', cursor: 'help' },
-  sha1:    { color: '#c89d1d', fontFamily: 'monospace', fontSize: 11, background: '#c89d1d18', borderRadius: 3, padding: '0 3px', cursor: 'help' },
+  mention: { color: 'var(--fl-accent)', fontWeight: 700, background: '#4d82c018', borderRadius: 3, padding: '0 3px' },
+  sha256:  { color: 'var(--fl-danger)', fontFamily: 'monospace', fontSize: 11, background: '#da363318', borderRadius: 3, padding: '0 3px', cursor: 'help' },
+  sha1:    { color: 'var(--fl-gold)', fontFamily: 'monospace', fontSize: 11, background: '#c89d1d18', borderRadius: 3, padding: '0 3px', cursor: 'help' },
   md5:     { color: '#8b5cf6', fontFamily: 'monospace', fontSize: 11, background: '#8b5cf618', borderRadius: 3, padding: '0 3px', cursor: 'help' },
   ipv4:    { color: '#f0883e', fontFamily: 'monospace', fontSize: 12, background: '#f0883e18', borderRadius: 3, padding: '0 3px' },
 };
@@ -110,11 +110,11 @@ function PinBanner({ pinned, onUnpin, onScrollTo, canPin }) {
   if (!pinned) return null;
   return (
     <div style={{
-      background: '#1a2535', borderBottom: '1px solid #2d4a5e',
+      background: 'var(--fl-sep)', borderBottom: '1px solid #2d4a5e',
       padding: '5px 12px', display: 'flex', alignItems: 'center', gap: 8,
       flexShrink: 0,
     }}>
-      <Pin size={11} color="#4d82c0" />
+      <Pin size={11} color="var(--fl-accent)" />
       <button
         onClick={onScrollTo}
         style={{ flex: 1, background: 'none', border: 'none', cursor: 'pointer',
@@ -122,14 +122,14 @@ function PinBanner({ pinned, onUnpin, onScrollTo, canPin }) {
           overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
         title="Aller au message épinglé"
       >
-        <span style={{ color: '#7d8590', marginRight: 5 }}>
+        <span style={{ color: 'var(--fl-dim)', marginRight: 5 }}>
           {pinned.username} :
         </span>
         {pinned.content}
       </button>
       {canPin && (
         <button onClick={onUnpin} title="Désépingler"
-          style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#4d5460', padding: 0 }}>
+          style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--fl-muted)', padding: 0 }}>
           <PinOff size={11} />
         </button>
       )}
@@ -142,22 +142,22 @@ function ReplyBar({ replyTo, onClear }) {
   return (
     <div style={{
       margin: '0 10px 4px',
-      padding: '5px 10px', background: '#1a2535',
-      borderLeft: '3px solid #4d82c0', borderRadius: 4,
+      padding: '5px 10px', background: 'var(--fl-sep)',
+      borderLeft: '3px solid var(--fl-accent)', borderRadius: 4,
       display: 'flex', alignItems: 'center', gap: 8,
     }}>
-      <Reply size={10} color="#4d82c0" />
+      <Reply size={10} color="var(--fl-accent)" />
       <div style={{ flex: 1, minWidth: 0 }}>
-        <span style={{ fontSize: 10, color: '#4d82c0', fontWeight: 700 }}>
+        <span style={{ fontSize: 10, color: 'var(--fl-accent)', fontWeight: 700 }}>
           {replyTo.full_name || replyTo.username}
         </span>
-        <span style={{ fontSize: 11, color: '#7d8590', marginLeft: 6,
+        <span style={{ fontSize: 11, color: 'var(--fl-dim)', marginLeft: 6,
           overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'inline-block', maxWidth: 200, verticalAlign: 'bottom' }}>
           {replyTo.content}
         </span>
       </div>
       <button onClick={onClear}
-        style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#4d5460', padding: 0 }}>
+        style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--fl-muted)', padding: 0 }}>
         <X size={12} />
       </button>
     </div>
@@ -169,12 +169,12 @@ function MentionDropdown({ users, onSelect, onlineIds = new Set() }) {
   return (
     <div style={{
       position: 'absolute', bottom: '100%', left: 0, right: 0,
-      background: '#0d1117', border: '1px solid #4d82c080', borderRadius: 8,
+      background: 'var(--fl-bg)', border: '1px solid #4d82c080', borderRadius: 8,
       marginBottom: 6, overflow: 'hidden', zIndex: 30,
       animation: 'fl-fadein 0.1s ease',
       boxShadow: '0 -4px 16px rgba(0,0,0,0.6)',
     }}>
-      <div style={{ padding: '4px 10px 3px', fontSize: 10, color: '#4d82c0', fontWeight: 600, borderBottom: '1px solid #21262d' }}>
+      <div style={{ padding: '4px 10px 3px', fontSize: 10, color: 'var(--fl-accent)', fontWeight: 600, borderBottom: '1px solid var(--fl-panel)' }}>
         Mentionner un analyste
       </div>
       {users.map(u => {
@@ -188,7 +188,7 @@ function MentionDropdown({ users, onSelect, onlineIds = new Set() }) {
               padding: '7px 12px', background: 'none', border: 'none',
               cursor: 'pointer', textAlign: 'left',
             }}
-            onMouseEnter={e => e.currentTarget.style.background = '#1c2333'}
+            onMouseEnter={e => e.currentTarget.style.background = 'var(--fl-card)'}
             onMouseLeave={e => e.currentTarget.style.background = 'none'}
           >
             
@@ -204,16 +204,16 @@ function MentionDropdown({ users, onSelect, onlineIds = new Set() }) {
               <div style={{
                 position: 'absolute', bottom: 0, right: 0,
                 width: 8, height: 8, borderRadius: '50%',
-                background: online ? '#3fb950' : '#4d5460',
+                background: online ? 'var(--fl-ok)' : 'var(--fl-muted)',
                 border: '1.5px solid #0d1117',
               }} />
             </div>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: '#e6edf3' }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--fl-text)' }}>
                 @{u.username}
               </div>
               {u.full_name && (
-                <div style={{ fontSize: 10, color: '#8b949e', marginTop: 1 }}>
+                <div style={{ fontSize: 10, color: 'var(--fl-dim)', marginTop: 1 }}>
                   {u.full_name}{online ? ' · en ligne' : ''}
                 </div>
               )}
@@ -221,7 +221,7 @@ function MentionDropdown({ users, onSelect, onlineIds = new Set() }) {
             <span style={{
               fontSize: 9, padding: '1px 5px', borderRadius: 3,
               background: u.role === 'admin' ? '#8b5cf620' : '#4d82c015',
-              color: u.role === 'admin' ? '#8b5cf6' : '#4d82c0',
+              color: u.role === 'admin' ? '#8b5cf6' : 'var(--fl-accent)',
               border: `1px solid ${u.role === 'admin' ? '#8b5cf630' : '#4d82c025'}`,
               flexShrink: 0,
             }}>{u.role}</span>
@@ -235,9 +235,9 @@ function MentionDropdown({ users, onSelect, onlineIds = new Set() }) {
 function DaySep({ date }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '12px 0' }}>
-      <div style={{ flex: 1, height: 1, background: '#21262d' }} />
-      <span style={{ fontSize: 10, color: '#4d5460' }}>{date}</span>
-      <div style={{ flex: 1, height: 1, background: '#21262d' }} />
+      <div style={{ flex: 1, height: 1, background: 'var(--fl-panel)' }} />
+      <span style={{ fontSize: 10, color: 'var(--fl-muted)' }}>{date}</span>
+      <div style={{ flex: 1, height: 1, background: 'var(--fl-panel)' }} />
     </div>
   );
 }
@@ -259,9 +259,9 @@ function Bubble({ msg, currentUserId, onDelete, onReact, onPin, onReply,
     return (
       <div style={{ display: 'flex', justifyContent: 'center', margin: '6px 0' }}>
         <div style={{
-          background: '#21303f', border: '1px solid #2d4a5e',
+          background: 'var(--fl-panel)', border: '1px solid #2d4a5e',
           borderRadius: 8, padding: '4px 10px',
-          fontSize: 11, color: '#7d8590', fontStyle: 'italic',
+          fontSize: 11, color: 'var(--fl-dim)', fontStyle: 'italic',
           maxWidth: '90%', textAlign: 'center',
         }}>
           {msg.content}
@@ -303,13 +303,13 @@ function Bubble({ msg, currentUserId, onDelete, onReact, onPin, onReply,
         alignItems: isOwn ? 'flex-end' : 'flex-start', position: 'relative' }}>
 
         {!isOwn && !hideHeader && (
-          <div style={{ fontSize: 12, color: '#7d8590', marginBottom: 2 }}>
+          <div style={{ fontSize: 12, color: 'var(--fl-dim)', marginBottom: 2 }}>
             {msg.full_name || msg.username}
           </div>
         )}
 
         {msg.pinned && (
-          <div style={{ fontSize: 9, color: '#4d82c0', display: 'flex', alignItems: 'center', gap: 3, marginBottom: 2 }}>
+          <div style={{ fontSize: 9, color: 'var(--fl-accent)', display: 'flex', alignItems: 'center', gap: 3, marginBottom: 2 }}>
             <Pin size={9} /> épinglé par {msg.pinned_by_username || '?'}
           </div>
         )}
@@ -318,16 +318,16 @@ function Bubble({ msg, currentUserId, onDelete, onReact, onPin, onReply,
           <button
             onClick={() => onScrollTo(msg.reply_to.id)}
             style={{
-              display: 'block', width: '100%', background: '#1a2535',
+              display: 'block', width: '100%', background: 'var(--fl-sep)',
               border: 'none', borderLeft: '2px solid #4d82c060',
               borderRadius: 4, padding: '3px 8px', marginBottom: 3,
               cursor: 'pointer', textAlign: isOwn ? 'right' : 'left',
             }}
           >
-            <div style={{ fontSize: 10, color: '#4d82c0', fontWeight: 600 }}>
+            <div style={{ fontSize: 10, color: 'var(--fl-accent)', fontWeight: 600 }}>
               {msg.reply_to.full_name || msg.reply_to.username}
             </div>
-            <div style={{ fontSize: 11, color: '#7d8590',
+            <div style={{ fontSize: 11, color: 'var(--fl-dim)',
               overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 200 }}>
               {msg.reply_to.content}
             </div>
@@ -341,7 +341,7 @@ function Bubble({ msg, currentUserId, onDelete, onReact, onPin, onReply,
             style={{
               position: 'absolute', top: -32,
               ...(isOwn ? { right: 0 } : { left: 34 }),
-              background: '#161b22', border: '1px solid #30363d',
+              background: 'var(--fl-panel)', border: '1px solid var(--fl-border)',
               borderRadius: 20, padding: '3px 6px',
               display: 'flex', gap: 2, zIndex: 20,
               animation: 'fl-fadein 0.1s ease',
@@ -352,19 +352,19 @@ function Bubble({ msg, currentUserId, onDelete, onReact, onPin, onReply,
                 style={{ width: 22, height: 22, background: 'transparent', border: 'none',
                   cursor: 'pointer', fontSize: 14, display: 'flex', alignItems: 'center',
                   justifyContent: 'center', borderRadius: '50%' }}
-                onMouseEnter={ev => ev.currentTarget.style.background = '#21303f'}
+                onMouseEnter={ev => ev.currentTarget.style.background = 'var(--fl-panel)'}
                 onMouseLeave={ev => ev.currentTarget.style.background = 'transparent'}
               >{e}</button>
             ))}
             
-            <div style={{ width: 1, background: '#30363d', margin: '2px 2px' }} />
+            <div style={{ width: 1, background: 'var(--fl-border)', margin: '2px 2px' }} />
             
             <button onClick={() => { onReply(msg); setShowEmojiBar(false); }}
               style={{ width: 22, height: 22, background: 'transparent', border: 'none',
                 cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                borderRadius: '50%', color: '#7d8590' }}
+                borderRadius: '50%', color: 'var(--fl-dim)' }}
               title="Répondre"
-              onMouseEnter={ev => ev.currentTarget.style.background = '#21303f'}
+              onMouseEnter={ev => ev.currentTarget.style.background = 'var(--fl-panel)'}
               onMouseLeave={ev => ev.currentTarget.style.background = 'transparent'}
             ><Reply size={12} /></button>
             
@@ -372,9 +372,9 @@ function Bubble({ msg, currentUserId, onDelete, onReact, onPin, onReply,
               <button onClick={() => { onPin(msg.id); setShowEmojiBar(false); }}
                 style={{ width: 22, height: 22, background: 'transparent', border: 'none',
                   cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  borderRadius: '50%', color: msg.pinned ? '#4d82c0' : '#7d8590' }}
+                  borderRadius: '50%', color: msg.pinned ? 'var(--fl-accent)' : 'var(--fl-dim)' }}
                 title={msg.pinned ? 'Désépingler' : 'Épingler'}
-                onMouseEnter={ev => ev.currentTarget.style.background = '#21303f'}
+                onMouseEnter={ev => ev.currentTarget.style.background = 'var(--fl-panel)'}
                 onMouseLeave={ev => ev.currentTarget.style.background = 'transparent'}
               ><Pin size={12} /></button>
             )}
@@ -383,9 +383,9 @@ function Bubble({ msg, currentUserId, onDelete, onReact, onPin, onReply,
               <button onClick={() => onDelete(msg.id)}
                 style={{ width: 22, height: 22, background: 'transparent', border: 'none',
                   cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  borderRadius: '50%', color: '#7d8590' }}
+                  borderRadius: '50%', color: 'var(--fl-dim)' }}
                 title="Supprimer"
-                onMouseEnter={ev => ev.currentTarget.style.background = '#21303f'}
+                onMouseEnter={ev => ev.currentTarget.style.background = 'var(--fl-panel)'}
                 onMouseLeave={ev => ev.currentTarget.style.background = 'transparent'}
               ><Trash2 size={11} /></button>
             )}
@@ -396,10 +396,10 @@ function Bubble({ msg, currentUserId, onDelete, onReact, onPin, onReply,
           onMouseEnter={() => setShowTimestamp(true)}
           onMouseLeave={() => setShowTimestamp(false)}
           style={{
-            background: msg.pinned ? '#1a2535' : (isOwn ? (ownColor || '#1c6ef2') : '#21303f'),
+            background: msg.pinned ? 'var(--fl-sep)' : (isOwn ? (ownColor || '#1c6ef2') : 'var(--fl-panel)'),
             borderRadius: isOwn ? '18px 18px 4px 18px' : '18px 18px 18px 4px',
             padding: '8px 12px', fontSize: 15,
-            color: isOwn ? '#fff' : '#e6edf3',
+            color: isOwn ? '#fff' : 'var(--fl-text)',
             lineHeight: 1.5, wordBreak: 'break-word', whiteSpace: 'pre-wrap',
             border: msg.pinned ? '1px solid #2d4a5e' : 'none',
             position: 'relative',
@@ -411,8 +411,8 @@ function Bubble({ msg, currentUserId, onDelete, onReact, onPin, onReply,
             <span style={{
               position: 'absolute', bottom: -16,
               ...(isOwn ? { right: 4 } : { left: 4 }),
-              fontSize: 9, color: '#4d5460', whiteSpace: 'nowrap',
-              background: '#0d1117', padding: '1px 4px', borderRadius: 3,
+              fontSize: 9, color: 'var(--fl-muted)', whiteSpace: 'nowrap',
+              background: 'var(--fl-bg)', padding: '1px 4px', borderRadius: 3,
               pointerEvents: 'none',
             }}>
               {fmtTime(msg.created_at)}
@@ -428,12 +428,12 @@ function Bubble({ msg, currentUserId, onDelete, onReact, onPin, onReply,
                 title={[...users].join(', ')}
                 style={{
                   fontSize: 12, padding: '2px 6px', borderRadius: 12, cursor: 'pointer',
-                  background: users.has(currentUserId) ? '#1c6ef225' : '#21303f',
-                  border: `1px solid ${users.has(currentUserId) ? '#1c6ef260' : '#30363d'}`,
-                  color: '#e6edf3', display: 'flex', alignItems: 'center', gap: 3,
+                  background: users.has(currentUserId) ? '#1c6ef225' : 'var(--fl-panel)',
+                  border: `1px solid ${users.has(currentUserId) ? '#1c6ef260' : 'var(--fl-border)'}`,
+                  color: 'var(--fl-text)', display: 'flex', alignItems: 'center', gap: 3,
                   transition: 'all 0.1s',
                 }}>
-                {emoji} <span style={{ fontSize: 10, color: '#7d8590' }}>{users.size}</span>
+                {emoji} <span style={{ fontSize: 10, color: 'var(--fl-dim)' }}>{users.size}</span>
               </button>
             ))}
           </div>
@@ -461,6 +461,7 @@ export default function CaseChatPanel({ caseId, socket, currentUser, presenceUse
   const [showSearch, setShowSearch] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [emojiPickerPos, setEmojiPickerPos]   = useState({ top: 0, left: 0 });
   const [mentionDropdown, setMentionDropdown] = useState({ show: false, users: [], start: 0 });
   const [allUsers, setAllUsers] = useState([]);
   const [pinging, setPinging]   = useState(false);
@@ -486,7 +487,8 @@ export default function CaseChatPanel({ caseId, socket, currentUser, presenceUse
   const bottomRef     = useRef(null);
   const msgsElRef     = useRef(null);
   const textareaRef   = useRef(null);
-  const emojiPickerRef = useRef(null);
+  const emojiPickerRef    = useRef(null);
+  const emojiPickerBtnRef = useRef(null);
   const typingDebRef  = useRef(null);
   const dragRef       = useRef({ active: false, startY: 0, startH: 0 });
   const pendingDragY  = useRef(null);
@@ -598,7 +600,7 @@ export default function CaseChatPanel({ caseId, socket, currentUser, presenceUse
         if (m.reactions?.length) rm.set(m.id, buildReactMap(m.reactions));
       }
       setReactionsMap(prev => new Map([...rm, ...prev]));
-    } catch  }
+    } catch (_e) {}
     setLoadingMore(false);
   }, [hasMore, loadingMore, messages, caseId]);
 
@@ -716,7 +718,7 @@ export default function CaseChatPanel({ caseId, socket, currentUser, presenceUse
 
     try {
       await api.post(`/chat/${caseId}/${messageId}/react`, { emoji });
-    } catch 
+    } catch (_e) {
       toggleReactionLocal(messageId, emoji, userId, !added);
       return;
     }
@@ -734,7 +736,7 @@ export default function CaseChatPanel({ caseId, socket, currentUser, presenceUse
         setPinned(null);
       }
       setMsgs(prev => prev.map(m => ({ ...m, pinned: res.data.pinned && m.id === messageId })));
-    } catch  }
+    } catch (_e) {}
   }, [caseId]);
 
   useEffect(() => {
@@ -804,7 +806,7 @@ export default function CaseChatPanel({ caseId, socket, currentUser, presenceUse
     try {
       await api.delete(`/chat/${caseId}/${id}`);
       setMsgs(prev => prev.filter(m => m.id !== id));
-    } catch  }
+    } catch (_e) {}
   }, [caseId]);
 
   const sendPing = useCallback(async (targetUserId = null) => {
@@ -818,7 +820,7 @@ export default function CaseChatPanel({ caseId, socket, currentUser, presenceUse
       setPingDone(true);
       if (soundEnabled) playPing();
       setTimeout(() => { setPingDone(false); setPingingUser(null); }, 2500);
-    } catch  }
+    } catch (_e) {}
     setPinging(false);
   }, [caseId, pinging, soundEnabled]);
 
@@ -906,7 +908,7 @@ export default function CaseChatPanel({ caseId, socket, currentUser, presenceUse
                 return arr;
               });
             }
-          } catch  }
+          } catch (_e) {}
         }
       }
     } catch {
@@ -932,7 +934,7 @@ export default function CaseChatPanel({ caseId, socket, currentUser, presenceUse
         style={{
           position: 'fixed', bottom: 24, right: 24, zIndex: 1000,
           width: 48, height: 48, borderRadius: '50%',
-          background: chatMode === 'ai' ? '#8b5cf6' : '#4d82c0',
+          background: chatMode === 'ai' ? '#8b5cf6' : 'var(--fl-accent)',
           border: 'none', cursor: 'pointer',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           boxShadow: '0 4px 16px rgba(0,0,0,0.4)',
@@ -945,7 +947,7 @@ export default function CaseChatPanel({ caseId, socket, currentUser, presenceUse
         {!open && unread > 0 && (
           <span style={{
             position: 'absolute', top: 0, right: 0,
-            background: '#da3633', color: '#fff', borderRadius: '50%',
+            background: 'var(--fl-danger)', color: '#fff', borderRadius: '50%',
             width: 18, height: 18, fontSize: 10, fontWeight: 700,
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             border: '2px solid #0d1117',
@@ -963,9 +965,9 @@ export default function CaseChatPanel({ caseId, socket, currentUser, presenceUse
             : { bottom: fullscreen ? 0 : 24, right: fullscreen ? 0 : 24 }),
           ...(fullscreen
             ? { width: '100vw', height: '100vh', border: 'none', borderRadius: 0 }
-            : { width: PANEL_WIDTH, height: panelHeight, border: '1px solid #30363d', borderRadius: 12 }),
+            : { width: PANEL_WIDTH, height: panelHeight, border: '1px solid var(--fl-border)', borderRadius: 12 }),
           zIndex: 999,
-          background: '#161b22', boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+          background: 'var(--fl-panel)', boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
           display: 'flex', flexDirection: 'column', overflow: 'hidden',
           animation: 'fl-fadein 0.15s ease',
         }}>
@@ -979,18 +981,18 @@ export default function CaseChatPanel({ caseId, socket, currentUser, presenceUse
                 background: 'transparent',
               }}
             >
-              <div style={{ width: 32, height: 3, borderRadius: 2, background: '#30363d' }} />
+              <div style={{ width: 32, height: 3, borderRadius: 2, background: 'var(--fl-border)' }} />
             </div>
           )}
 
           <div style={{
             padding: '6px 12px 8px', display: 'flex', alignItems: 'center', gap: 6,
-            borderBottom: '1px solid #21262d', flexShrink: 0,
+            borderBottom: '1px solid var(--fl-panel)', flexShrink: 0,
           }}>
-            {chatMode === 'ai' ? <Bot size={13} color="#8b5cf6" /> : <MessageSquare size={13} color="#4d82c0" />}
+            {chatMode === 'ai' ? <Bot size={13} color="#8b5cf6" /> : <MessageSquare size={13} color="var(--fl-accent)" />}
             <span
               onMouseDown={getDragHandleProps(PANEL_WIDTH, panelHeight).onMouseDown}
-              style={{ cursor: 'grab', fontWeight: 600, fontSize: 13, color: chatMode === 'ai' ? '#8b5cf6' : '#c9d1d9', flex: 1, userSelect: 'none' }}
+              style={{ cursor: 'grab', fontWeight: 600, fontSize: 13, color: chatMode === 'ai' ? '#8b5cf6' : 'var(--fl-dim)', flex: 1, userSelect: 'none' }}
             >
               {chatMode === 'ai' ? 'Chat IA' : 'Chat'}
             </span>
@@ -1013,9 +1015,9 @@ export default function CaseChatPanel({ caseId, socket, currentUser, presenceUse
                 {presenceUsers.length > 4 && (
                   <div style={{
                     width: 22, height: 22, borderRadius: '50%',
-                    background: '#21303f', border: '2px solid #161b22',
+                    background: 'var(--fl-panel)', border: '2px solid #161b22',
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    fontSize: 9, color: '#7d8590', marginLeft: -6,
+                    fontSize: 9, color: 'var(--fl-dim)', marginLeft: -6,
                   }}>+{presenceUsers.length - 4}</div>
                 )}
               </div>
@@ -1027,10 +1029,10 @@ export default function CaseChatPanel({ caseId, socket, currentUser, presenceUse
               title="Pinger tous les analystes du cas"
               style={{
                 background: pingDone && !pingingUser ? '#3fb95015' : 'none',
-                border: `1px solid ${pingDone && !pingingUser ? '#3fb95030' : '#21262d'}`,
+                border: `1px solid ${pingDone && !pingingUser ? '#3fb95030' : 'var(--fl-panel)'}`,
                 borderRadius: 4, cursor: pinging ? 'default' : 'pointer',
                 padding: '2px 6px', display: 'flex', alignItems: 'center', gap: 3,
-                color: pingDone && !pingingUser ? '#3fb950' : '#c89d1d',
+                color: pingDone && !pingingUser ? 'var(--fl-ok)' : 'var(--fl-gold)',
                 fontSize: 10, fontFamily: 'monospace',
               }}
             >
@@ -1045,7 +1047,7 @@ export default function CaseChatPanel({ caseId, socket, currentUser, presenceUse
                 background: chatMode === 'ai' ? '#8b5cf618' : 'none',
                 border: chatMode === 'ai' ? '1px solid #8b5cf635' : '1px solid transparent',
                 borderRadius: 4, cursor: 'pointer',
-                color: chatMode === 'ai' ? '#8b5cf6' : '#7d8590',
+                color: chatMode === 'ai' ? '#8b5cf6' : 'var(--fl-dim)',
                 padding: '2px 5px', display: 'flex', alignItems: 'center',
               }}
             >
@@ -1060,7 +1062,7 @@ export default function CaseChatPanel({ caseId, socket, currentUser, presenceUse
               }}
               title={soundEnabled ? 'Désactiver les sons' : 'Activer les sons'}
               style={{ background: 'none', border: 'none', cursor: 'pointer',
-                color: soundEnabled ? '#4d82c0' : '#4d5460', padding: 0 }}
+                color: soundEnabled ? 'var(--fl-accent)' : 'var(--fl-muted)', padding: 0 }}
             >
               {soundEnabled ? <Volume2 size={13} /> : <VolumeX size={13} />}
             </button>
@@ -1069,7 +1071,7 @@ export default function CaseChatPanel({ caseId, socket, currentUser, presenceUse
               onClick={() => { setShowSearch(s => !s); if (showSearch) setSearchQuery(''); }}
               title="Rechercher dans le chat"
               style={{ background: 'none', border: 'none', cursor: 'pointer',
-                color: showSearch ? '#4d82c0' : '#7d8590', padding: 0 }}
+                color: showSearch ? 'var(--fl-accent)' : 'var(--fl-dim)', padding: 0 }}
             >
               <Search size={13} />
             </button>
@@ -1077,13 +1079,13 @@ export default function CaseChatPanel({ caseId, socket, currentUser, presenceUse
             <button
               onClick={() => setFullscreen(f => !f)}
               title={fullscreen ? 'Réduire' : 'Plein écran'}
-              style={{ background: 'none', border: 'none', cursor: 'pointer', color: fullscreen ? '#4d82c0' : '#7d8590', padding: 0 }}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', color: fullscreen ? 'var(--fl-accent)' : 'var(--fl-dim)', padding: 0 }}
             >
               {fullscreen ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
             </button>
 
             <button onClick={() => setOpen(false)}
-              style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#8b949e', padding: 0 }}>
+              style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--fl-dim)', padding: 0 }}>
               <X size={14} />
             </button>
           </div>
@@ -1092,7 +1094,7 @@ export default function CaseChatPanel({ caseId, socket, currentUser, presenceUse
             <>
               <div style={{ flex: 1, overflowY: 'auto', padding: '8px 10px 4px', scrollbarWidth: 'thin' }}>
                 {aiMessages.length === 0 && (
-                  <div style={{ textAlign: 'center', color: '#4d5460', fontSize: 14, marginTop: 40 }}>
+                  <div style={{ textAlign: 'center', color: 'var(--fl-muted)', fontSize: 14, marginTop: 40 }}>
                     <Bot size={28} style={{ color: '#8b5cf630', marginBottom: 8 }} />
                     <div>Posez une question à l'IA sur ce cas</div>
                   </div>
@@ -1107,7 +1109,7 @@ export default function CaseChatPanel({ caseId, socket, currentUser, presenceUse
                       maxWidth: '85%', padding: '7px 11px', borderRadius: 10,
                       fontSize: 14, lineHeight: 1.6, fontFamily: 'monospace',
                       background: m.role === 'user' ? '#4d82c018' : '#8b5cf615',
-                      color: m.role === 'user' ? '#c9d1d9' : '#c0b0f0',
+                      color: m.role === 'user' ? 'var(--fl-dim)' : '#c0b0f0',
                       border: `1px solid ${m.role === 'user' ? '#4d82c030' : '#8b5cf630'}`,
                       whiteSpace: 'pre-wrap', wordBreak: 'break-word',
                     }}>
@@ -1123,7 +1125,7 @@ export default function CaseChatPanel({ caseId, socket, currentUser, presenceUse
                 ))}
                 <div ref={aiEndRef} />
               </div>
-              <div style={{ padding: '8px 10px', borderTop: '1px solid #21262d', display: 'flex', gap: 6, alignItems: 'flex-end', flexShrink: 0 }}>
+              <div style={{ padding: '8px 10px', borderTop: '1px solid var(--fl-panel)', display: 'flex', gap: 6, alignItems: 'flex-end', flexShrink: 0 }}>
                 <textarea
                   value={aiInput}
                   onChange={e => setAiInput(e.target.value)}
@@ -1131,16 +1133,16 @@ export default function CaseChatPanel({ caseId, socket, currentUser, presenceUse
                   placeholder="Demander à l'IA…"
                   rows={2}
                   style={{
-                    flex: 1, resize: 'none', background: '#0d1117', outline: 'none',
+                    flex: 1, resize: 'none', background: 'var(--fl-bg)', outline: 'none',
                     border: '1px solid #8b5cf630', borderRadius: 8,
-                    color: '#c9d1d9', fontSize: 14, padding: '6px 10px', fontFamily: 'inherit',
+                    color: 'var(--fl-dim)', fontSize: 14, padding: '6px 10px', fontFamily: 'inherit',
                   }}
                 />
                 <button
                   onClick={sendAI}
                   disabled={!aiInput.trim() || aiStreaming}
                   style={{
-                    background: aiInput.trim() && !aiStreaming ? '#8b5cf6' : '#21262d',
+                    background: aiInput.trim() && !aiStreaming ? '#8b5cf6' : 'var(--fl-panel)',
                     border: 'none', borderRadius: 8, padding: '8px 10px', cursor: 'pointer',
                     display: 'flex', alignItems: 'center', color: '#fff', flexShrink: 0,
                   }}
@@ -1162,7 +1164,7 @@ export default function CaseChatPanel({ caseId, socket, currentUser, presenceUse
               padding: '4px 12px', display: 'flex', alignItems: 'center', gap: 8,
               borderBottom: '1px solid #1a2030', flexShrink: 0, flexWrap: 'wrap',
             }}>
-              <span style={{ fontSize: 10, color: '#4d5460', fontFamily: 'monospace' }}>En ligne :</span>
+              <span style={{ fontSize: 10, color: 'var(--fl-muted)', fontFamily: 'monospace' }}>En ligne :</span>
               {presenceUsers.filter(u => u.id !== userId).map((u, i) => (
                 <button
                   key={u.id || i}
@@ -1171,19 +1173,19 @@ export default function CaseChatPanel({ caseId, socket, currentUser, presenceUse
                   title={`Pinger ${u.full_name || u.username}`}
                   style={{
                     display: 'flex', alignItems: 'center', gap: 4,
-                    background: pingingUser === u.id && pingDone ? '#3fb95015' : '#1a2535',
-                    border: `1px solid ${pingingUser === u.id && pingDone ? '#3fb95030' : '#21262d'}`,
+                    background: pingingUser === u.id && pingDone ? '#3fb95015' : 'var(--fl-sep)',
+                    border: `1px solid ${pingingUser === u.id && pingDone ? '#3fb95030' : 'var(--fl-panel)'}`,
                     borderRadius: 12, padding: '1px 7px 1px 4px',
                     cursor: pinging ? 'default' : 'pointer', fontSize: 10,
-                    color: pingingUser === u.id && pingDone ? '#3fb950' : '#c9d1d9',
+                    color: pingingUser === u.id && pingDone ? 'var(--fl-ok)' : 'var(--fl-dim)',
                   }}
                 >
                   <div style={{
                     width: 6, height: 6, borderRadius: '50%',
-                    background: '#3fb950', boxShadow: '0 0 4px #3fb95080',
+                    background: 'var(--fl-ok)', boxShadow: '0 0 4px #3fb95080',
                   }} />
                   {u.username}
-                  <Bell size={8} style={{ color: pingingUser === u.id && pingDone ? '#3fb950' : '#c89d1d' }} />
+                  <Bell size={8} style={{ color: pingingUser === u.id && pingDone ? 'var(--fl-ok)' : 'var(--fl-gold)' }} />
                 </button>
               ))}
             </div>
@@ -1193,21 +1195,21 @@ export default function CaseChatPanel({ caseId, socket, currentUser, presenceUse
           {showSearch && (
             <div style={{ padding: '6px 12px', borderBottom: '1px solid #1a2030', flexShrink: 0 }}>
               <div style={{ position: 'relative' }}>
-                <Search size={12} style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', color: '#4d5460' }} />
+                <Search size={12} style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', color: 'var(--fl-muted)' }} />
                 <input
                   autoFocus
                   value={searchQuery}
                   onChange={e => setSearchQuery(e.target.value)}
                   placeholder="Rechercher…"
                   style={{
-                    width: '100%', background: '#0d1117', border: '1px solid #30363d',
+                    width: '100%', background: 'var(--fl-bg)', border: '1px solid var(--fl-border)',
                     borderRadius: 6, padding: '4px 8px 4px 26px',
-                    color: '#c9d1d9', fontSize: 12, outline: 'none', boxSizing: 'border-box',
+                    color: 'var(--fl-dim)', fontSize: 12, outline: 'none', boxSizing: 'border-box',
                   }}
                 />
                 {searchQuery && (
                   <span style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)',
-                    fontSize: 10, color: '#4d5460' }}>
+                    fontSize: 10, color: 'var(--fl-muted)' }}>
                     {filtered.length} résultat{filtered.length !== 1 ? 's' : ''}
                   </span>
                 )}
@@ -1237,8 +1239,8 @@ export default function CaseChatPanel({ caseId, socket, currentUser, presenceUse
                     onClick={loadMore}
                     disabled={loadingMore}
                     style={{
-                      background: '#21303f', border: '1px solid #30363d', borderRadius: 6,
-                      padding: '3px 12px', fontSize: 11, color: '#7d8590', cursor: 'pointer',
+                      background: 'var(--fl-panel)', border: '1px solid var(--fl-border)', borderRadius: 6,
+                      padding: '3px 12px', fontSize: 11, color: 'var(--fl-dim)', cursor: 'pointer',
                     }}
                   >
                     {loadingMore
@@ -1250,18 +1252,18 @@ export default function CaseChatPanel({ caseId, socket, currentUser, presenceUse
 
               {loading && (
                 <div style={{ display: 'flex', justifyContent: 'center', marginTop: 40 }}>
-                  <Loader2 size={20} color="#4d82c0" style={{ animation: 'spin 1s linear infinite' }} />
+                  <Loader2 size={20} color="var(--fl-accent)" style={{ animation: 'spin 1s linear infinite' }} />
                 </div>
               )}
 
               {!loading && messages.length === 0 && (
-                <div style={{ textAlign: 'center', color: '#4d5460', fontSize: 12, marginTop: 40 }}>
+                <div style={{ textAlign: 'center', color: 'var(--fl-muted)', fontSize: 12, marginTop: 40 }}>
                   Aucun message — commencez la discussion !
                 </div>
               )}
 
               {!loading && searchQuery && filtered.length === 0 && (
-                <div style={{ textAlign: 'center', color: '#4d5460', fontSize: 12, marginTop: 20 }}>
+                <div style={{ textAlign: 'center', color: 'var(--fl-muted)', fontSize: 12, marginTop: 20 }}>
                   Aucun résultat pour « {searchQuery} »
                 </div>
               )}
@@ -1296,16 +1298,16 @@ export default function CaseChatPanel({ caseId, socket, currentUser, presenceUse
                 style={{
                   position: 'absolute', bottom: 8, right: 12,
                   width: 28, height: 28, borderRadius: '50%',
-                  background: '#21303f', border: '1px solid #30363d',
+                  background: 'var(--fl-panel)', border: '1px solid var(--fl-border)',
                   cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  color: '#7d8590', boxShadow: '0 2px 8px rgba(0,0,0,0.4)', zIndex: 10,
+                  color: 'var(--fl-dim)', boxShadow: '0 2px 8px rgba(0,0,0,0.4)', zIndex: 10,
                 }}
               >
                 <ChevronDown size={14} />
                 {unread > 0 && (
                   <span style={{
                     position: 'absolute', top: -4, right: -4,
-                    background: '#da3633', color: '#fff', borderRadius: '50%',
+                    background: 'var(--fl-danger)', color: '#fff', borderRadius: '50%',
                     width: 14, height: 14, fontSize: 9, fontWeight: 700,
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                   }}>{unread}</span>
@@ -1316,13 +1318,13 @@ export default function CaseChatPanel({ caseId, socket, currentUser, presenceUse
 
           
           {othersTyping.length > 0 && (
-            <div style={{ padding: '3px 12px', fontSize: 11, color: '#7d8590',
+            <div style={{ padding: '3px 12px', fontSize: 11, color: 'var(--fl-dim)',
               fontStyle: 'italic', display: 'flex', alignItems: 'center', flexShrink: 0 }}>
               {othersTyping.map(u => u.username).join(', ')} écrit…
               <span style={{ display: 'inline-flex', gap: 2, marginLeft: 6 }}>
                 {[0, 1, 2].map(i => (
                   <span key={i} style={{
-                    width: 4, height: 4, borderRadius: '50%', background: '#7d8590',
+                    width: 4, height: 4, borderRadius: '50%', background: 'var(--fl-dim)',
                     display: 'inline-block',
                     animation: `fl-bounce 1.2s ease-in-out ${i * 0.2}s infinite`,
                   }} />
@@ -1335,14 +1337,14 @@ export default function CaseChatPanel({ caseId, socket, currentUser, presenceUse
           {draft != null && (
             <div style={{
               margin: '0 10px 4px', padding: '5px 10px',
-              background: '#1c2c3c', borderLeft: '3px solid #4d82c0',
-              borderRadius: 4, fontSize: 11, color: '#e6edf3',
+              background: '#1c2c3c', borderLeft: '3px solid var(--fl-accent)',
+              borderRadius: 4, fontSize: 11, color: 'var(--fl-text)',
               whiteSpace: 'pre-wrap', position: 'relative', flexShrink: 0,
             }}>
               {draft}
               <button onClick={() => setDraft(null)}
                 style={{ position: 'absolute', top: 4, right: 6, background: 'none',
-                  border: 'none', color: '#7d8590', cursor: 'pointer', fontSize: 11 }}>
+                  border: 'none', color: 'var(--fl-dim)', cursor: 'pointer', fontSize: 11 }}>
                 ✕
               </button>
             </div>
@@ -1353,7 +1355,7 @@ export default function CaseChatPanel({ caseId, socket, currentUser, presenceUse
 
           
           <div style={{
-            padding: '8px 10px', borderTop: '1px solid #21262d',
+            padding: '8px 10px', borderTop: '1px solid var(--fl-panel)',
             display: 'flex', gap: 6, alignItems: 'flex-end', flexShrink: 0,
             position: 'relative',
           }}>
@@ -1385,52 +1387,69 @@ export default function CaseChatPanel({ caseId, socket, currentUser, presenceUse
               placeholder={replyTo ? `Répondre à ${replyTo.username}…` : 'Message… (Entrée pour envoyer)'}
               rows={2}
               style={{
-                flex: 1, resize: 'none', background: '#0d1117', outline: 'none',
-                border: `1px solid ${draft != null ? '#4d82c0' : replyTo ? '#4d82c060' : '#30363d'}`,
-                borderRadius: 8, color: '#c9d1d9', fontSize: 14,
+                flex: 1, resize: 'none', background: 'var(--fl-bg)', outline: 'none',
+                border: `1px solid ${draft != null ? 'var(--fl-accent)' : replyTo ? '#4d82c060' : 'var(--fl-border)'}`,
+                borderRadius: 8, color: 'var(--fl-dim)', fontSize: 14,
                 padding: '6px 10px', fontFamily: 'inherit',
               }}
             />
 
             
-            <div ref={emojiPickerRef} style={{ position: 'relative', flexShrink: 0 }}>
+            <div style={{ position: 'relative', flexShrink: 0 }}>
               <button
-                onClick={() => setShowEmojiPicker(p => !p)}
+                ref={emojiPickerBtnRef}
+                onClick={() => {
+                  if (!showEmojiPicker) {
+                    const rect = emojiPickerBtnRef.current?.getBoundingClientRect();
+                    if (rect) {
+                      const pickerW = 244;
+                      const left = Math.max(4, Math.min(rect.right - pickerW, window.innerWidth - pickerW - 4));
+                      setEmojiPickerPos({ top: rect.top - 4, left });
+                    }
+                  }
+                  setShowEmojiPicker(p => !p);
+                }}
                 title="Insérer un emoji"
                 style={{ background: 'none', border: 'none', cursor: 'pointer',
                   fontSize: 16, padding: 2, lineHeight: 1 }}
               >
                 😊
               </button>
-              {showEmojiPicker && (
-                <div style={{
-                  position: 'absolute', bottom: 'calc(100% + 4px)', right: 0,
-                  width: 228, background: '#161b22', border: '1px solid #30363d',
+            </div>
+            {showEmojiPicker && (
+              <div
+                ref={emojiPickerRef}
+                style={{
+                  position: 'fixed',
+                  top: emojiPickerPos.top,
+                  left: emojiPickerPos.left,
+                  transform: 'translateY(-100%)',
+                  width: 244, background: 'var(--fl-panel)', border: '1px solid var(--fl-border)',
                   borderRadius: 10, padding: 8,
                   display: 'grid', gridTemplateColumns: 'repeat(8, 1fr)', gap: 2,
-                  zIndex: 30,
+                  zIndex: 9999,
+                  boxShadow: '0 4px 24px rgba(0,0,0,0.4)',
                 }}>
-                  {EMOJI_GRID.map(emoji => (
-                    <button key={emoji} onClick={() => insertEmoji(emoji)}
-                      style={{
-                        width: 28, height: 28, fontSize: 16, background: 'transparent',
-                        border: 'none', cursor: 'pointer', borderRadius: 4,
-                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      }}
-                      onMouseEnter={e => e.currentTarget.style.background = '#21303f'}
-                      onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-                    >{emoji}</button>
-                  ))}
-                </div>
-              )}
-            </div>
+                {EMOJI_GRID.map(emoji => (
+                  <button key={emoji} onClick={() => insertEmoji(emoji)}
+                    style={{
+                      width: 28, height: 28, fontSize: 16, background: 'transparent',
+                      border: 'none', cursor: 'pointer', borderRadius: 4,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    }}
+                    onMouseEnter={e => e.currentTarget.style.background = 'var(--fl-hover-bg)'}
+                    onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                  >{emoji}</button>
+                ))}
+              </div>
+            )}
 
             
             <button
               onClick={send}
               disabled={!canSend}
               style={{
-                background: canSend ? '#4d82c0' : '#21262d',
+                background: canSend ? 'var(--fl-accent)' : 'var(--fl-panel)',
                 border: 'none', borderRadius: 8, padding: '8px 10px',
                 cursor: canSend ? 'pointer' : 'default',
                 display: 'flex', alignItems: 'center', color: '#fff',

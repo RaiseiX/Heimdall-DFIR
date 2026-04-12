@@ -38,27 +38,27 @@ function ResultItem({ item, active, onSelect }) {
         transition: 'background 0.1s',
       }}
     >
-      <Icon size={14} style={{ color: active ? '#4d82c0' : '#7d8590', flexShrink: 0 }} />
+      <Icon size={14} style={{ color: active ? 'var(--fl-accent)' : 'var(--fl-dim)', flexShrink: 0 }} />
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontFamily: 'monospace', fontSize: 12, color: active ? '#e6edf3' : '#c9d1d9',
+        <div style={{ fontFamily: 'monospace', fontSize: 12, color: active ? 'var(--fl-text)' : 'var(--fl-dim)',
           overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {item.label}
         </div>
         {item.sub && (
-          <div style={{ fontFamily: 'monospace', fontSize: 10, color: '#484f58',
+          <div style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--fl-muted)',
             overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {item.sub}
           </div>
         )}
       </div>
       {item.category === 'nav' && (
-        <span style={{ fontSize: 9, fontFamily: 'monospace', color: '#30363d', flexShrink: 0 }}>nav</span>
+        <span style={{ fontSize: 9, fontFamily: 'monospace', color: 'var(--fl-border)', flexShrink: 0 }}>nav</span>
       )}
       {item.category === 'case' && (
-        <span style={{ fontSize: 9, fontFamily: 'monospace', color: '#30363d', flexShrink: 0 }}>cas</span>
+        <span style={{ fontSize: 9, fontFamily: 'monospace', color: 'var(--fl-border)', flexShrink: 0 }}>cas</span>
       )}
       {item.category === 'ioc' && (
-        <span style={{ fontSize: 9, fontFamily: 'monospace', color: '#c89d1d', flexShrink: 0 }}>IOC</span>
+        <span style={{ fontSize: 9, fontFamily: 'monospace', color: 'var(--fl-gold)', flexShrink: 0 }}>IOC</span>
       )}
     </div>
   );
@@ -68,7 +68,7 @@ function SectionHeader({ label }) {
   return (
     <div style={{
       padding: '6px 14px 2px', fontSize: 9, fontFamily: 'monospace',
-      color: '#484f58', textTransform: 'uppercase', letterSpacing: '0.08em',
+      color: 'var(--fl-muted)', textTransform: 'uppercase', letterSpacing: '0.08em',
     }}>
       {label}
     </div>
@@ -176,16 +176,16 @@ export default function CommandPalette({ open, onClose }) {
         style={{
           position: 'relative', zIndex: 1,
           width: '100%', maxWidth: 560,
-          background: '#161b22',
-          border: '1px solid #30363d',
+          background: 'var(--fl-panel)',
+          border: '1px solid var(--fl-border)',
           borderRadius: 12,
           boxShadow: '0 24px 64px rgba(0,0,0,0.7)',
           overflow: 'hidden',
         }}
       >
         
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px', borderBottom: '1px solid #21262d' }}>
-          <Search size={16} style={{ color: '#484f58', flexShrink: 0 }} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px', borderBottom: '1px solid var(--fl-panel)' }}>
+          <Search size={16} style={{ color: 'var(--fl-muted)', flexShrink: 0 }} />
           <input
             ref={inputRef}
             value={query}
@@ -194,18 +194,18 @@ export default function CommandPalette({ open, onClose }) {
             placeholder="Naviguer, rechercher une IP / hash / cas…"
             style={{
               flex: 1, background: 'none', border: 'none', outline: 'none',
-              fontFamily: 'monospace', fontSize: 13, color: '#e6edf3',
+              fontFamily: 'monospace', fontSize: 13, color: 'var(--fl-text)',
             }}
           />
-          <kbd style={{ fontSize: 9, fontFamily: 'monospace', color: '#484f58',
-            background: '#0d1117', border: '1px solid #30363d', borderRadius: 4, padding: '2px 5px' }}>
+          <kbd style={{ fontSize: 9, fontFamily: 'monospace', color: 'var(--fl-muted)',
+            background: 'var(--fl-bg)', border: '1px solid var(--fl-border)', borderRadius: 4, padding: '2px 5px' }}>
             ESC
           </kbd>
         </div>
 
         <div style={{ maxHeight: 380, overflowY: 'auto', padding: '6px 0 8px' }}>
           {flatItems.length === 0 ? (
-            <div style={{ padding: '20px 14px', fontFamily: 'monospace', fontSize: 12, color: '#484f58', textAlign: 'center' }}>
+            <div style={{ padding: '20px 14px', fontFamily: 'monospace', fontSize: 12, color: 'var(--fl-muted)', textAlign: 'center' }}>
               Aucun résultat
             </div>
           ) : (
@@ -228,8 +228,8 @@ export default function CommandPalette({ open, onClose }) {
           )}
         </div>
 
-        <div style={{ display: 'flex', gap: 14, padding: '6px 14px', borderTop: '1px solid #21262d',
-          background: '#0d1117', fontSize: 9, fontFamily: 'monospace', color: '#30363d' }}>
+        <div style={{ display: 'flex', gap: 14, padding: '6px 14px', borderTop: '1px solid var(--fl-panel)',
+          background: 'var(--fl-bg)', fontSize: 9, fontFamily: 'monospace', color: 'var(--fl-border)' }}>
           <span><kbd style={{ marginRight: 4 }}>↑↓</kbd>naviguer</span>
           <span><kbd style={{ marginRight: 4 }}>↵</kbd>ouvrir</span>
           <span><kbd style={{ marginRight: 4 }}>ESC</kbd>fermer</span>

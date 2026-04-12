@@ -484,7 +484,7 @@ export async function chatStream(
                 emit({ done: true, hasContext: Boolean(ctx.investigatorContext) });
                 res.write('data: [DONE]\n\n');
               }
-            } catch  }
+            } catch (_e) {}
           }
         });
 

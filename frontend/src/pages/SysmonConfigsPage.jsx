@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Download, CheckCircle, Clock, Shield, AlertTriangle, Star, BookOpen, ChevronDown, ChevronRight, Loader2, Tag } from 'lucide-react';
 import { sysmonAPI } from '../utils/api';
 
-const NOISE_COLOR = { low: '#3fb950', medium: '#d97c20', high: '#da3633' };
+const NOISE_COLOR = { low: 'var(--fl-ok)', medium: 'var(--fl-warn)', high: 'var(--fl-danger)' };
 const NOISE_LABEL = { low: 'Faible', medium: 'Moyen', high: 'Élevé' };
 
 const DEPLOY_GUIDE = `# Déploiement Sysmon — Guide rapide
@@ -33,29 +33,29 @@ function ConfigCard({ config, onDownload, onMarkDeployed, downloading }) {
   const [showTech, setShowTech] = useState(false);
 
   return (
-    <div className="fl-card p-5" style={{ borderLeft: config.is_recommended ? '3px solid #4d82c0' : '3px solid #30363d' }}>
+    <div className="fl-card p-5" style={{ borderLeft: config.is_recommended ? '3px solid var(--fl-accent)' : '3px solid var(--fl-border)' }}>
       
       <div className="flex items-start justify-between gap-4 mb-3">
         <div>
           <div className="flex items-center gap-2 mb-1">
-            <h3 className="font-semibold text-sm" style={{ color: '#e6edf3' }}>{config.name}</h3>
+            <h3 className="font-semibold text-sm" style={{ color: 'var(--fl-text)' }}>{config.name}</h3>
             {config.is_recommended && (
-              <span className="fl-badge" style={{ background: '#4d82c015', color: '#4d82c0', border: '1px solid #4d82c030' }}>
+              <span className="fl-badge" style={{ background: '#4d82c015', color: 'var(--fl-accent)', border: '1px solid #4d82c030' }}>
                 <Star size={9} className="inline mr-1" />Recommandée
               </span>
             )}
             {config.mitre_tagged && (
-              <span className="fl-badge" style={{ background: '#8b72d615', color: '#8b72d6', border: '1px solid #8b72d630' }}>
+              <span className="fl-badge" style={{ background: '#8b72d615', color: 'var(--fl-purple)', border: '1px solid #8b72d630' }}>
                 <Tag size={9} className="inline mr-1" />ATT&CK
               </span>
             )}
             {config.risk_scored && (
-              <span className="fl-badge" style={{ background: '#d97c2015', color: '#d97c20', border: '1px solid #d97c2030' }}>
+              <span className="fl-badge" style={{ background: '#d97c2015', color: 'var(--fl-warn)', border: '1px solid #d97c2030' }}>
                 <Shield size={9} className="inline mr-1" />Risk-scoré
               </span>
             )}
           </div>
-          <p className="text-xs" style={{ color: '#7d8590', lineHeight: 1.5, maxWidth: 600 }}>{config.description}</p>
+          <p className="text-xs" style={{ color: 'var(--fl-dim)', lineHeight: 1.5, maxWidth: 600 }}>{config.description}</p>
         </div>
         <div className="flex gap-2 shrink-0">
           <button
@@ -80,52 +80,52 @@ function ConfigCard({ config, onDownload, onMarkDeployed, downloading }) {
 
       <div className="grid grid-cols-5 gap-3 mb-3 text-xs">
         <div>
-          <div style={{ color: '#7d8590' }}>Schéma</div>
-          <div className="font-mono font-semibold" style={{ color: '#e6edf3' }}>v{config.schema_version}</div>
+          <div style={{ color: 'var(--fl-dim)' }}>Schéma</div>
+          <div className="font-mono font-semibold" style={{ color: 'var(--fl-text)' }}>v{config.schema_version}</div>
         </div>
         <div>
-          <div style={{ color: '#7d8590' }}>Stratégie</div>
-          <div className="font-mono font-semibold" style={{ color: '#4d82c0' }}>{config.strategy}</div>
+          <div style={{ color: 'var(--fl-dim)' }}>Stratégie</div>
+          <div className="font-mono font-semibold" style={{ color: 'var(--fl-accent)' }}>{config.strategy}</div>
         </div>
         <div>
-          <div style={{ color: '#7d8590' }}>Bruit</div>
+          <div style={{ color: 'var(--fl-dim)' }}>Bruit</div>
           <div className="font-mono font-semibold" style={{ color: NOISE_COLOR[config.noise_level] }}>
             {NOISE_LABEL[config.noise_level]}
           </div>
         </div>
         <div>
-          <div style={{ color: '#7d8590' }}>Hashes</div>
-          <div className="font-mono" style={{ color: '#e6edf3', fontSize: 10 }}>{config.hash_algorithms}</div>
+          <div style={{ color: 'var(--fl-dim)' }}>Hashes</div>
+          <div className="font-mono" style={{ color: 'var(--fl-text)', fontSize: 10 }}>{config.hash_algorithms}</div>
         </div>
         <div>
-          <div style={{ color: '#7d8590' }}>Taille</div>
-          <div className="font-mono font-semibold" style={{ color: '#e6edf3' }}>
+          <div style={{ color: 'var(--fl-dim)' }}>Taille</div>
+          <div className="font-mono font-semibold" style={{ color: 'var(--fl-text)' }}>
             {config.file_size ? `${Math.round(config.file_size / 1024)} KB` : '—'}
           </div>
         </div>
       </div>
 
-      <div className="text-xs mb-3 px-3 py-2 rounded" style={{ background: 'rgba(77,130,192,0.04)', border: '1px solid rgba(77,130,192,0.12)', color: '#7d8590' }}>
-        <span style={{ color: '#4d82c0' }}>Audience cible :</span> {config.target_audience}
+      <div className="text-xs mb-3 px-3 py-2 rounded" style={{ background: 'rgba(77,130,192,0.04)', border: '1px solid rgba(77,130,192,0.12)', color: 'var(--fl-dim)' }}>
+        <span style={{ color: 'var(--fl-accent)' }}>Audience cible :</span> {config.target_audience}
       </div>
 
       <div className="flex items-center justify-between">
         <button
           onClick={() => setShowTech(v => !v)}
           className="flex items-center gap-1 text-xs"
-          style={{ color: '#7d8590' }}
+          style={{ color: 'var(--fl-dim)' }}
         >
           {showTech ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
           Event IDs couverts ({config.event_ids?.length || 0})
         </button>
         <div className="flex items-center gap-2 text-xs">
           {config.deployed_at ? (
-            <span style={{ color: '#3fb950' }}>
+            <span style={{ color: 'var(--fl-ok)' }}>
               <CheckCircle size={11} className="inline mr-1" />
               Déployée le {new Date(config.deployed_at).toLocaleDateString('fr-FR')}
             </span>
           ) : (
-            <span style={{ color: '#484f58' }}>
+            <span style={{ color: 'var(--fl-muted)' }}>
               <Clock size={11} className="inline mr-1" />Non déployée
             </span>
           )}
@@ -134,7 +134,7 @@ function ConfigCard({ config, onDownload, onMarkDeployed, downloading }) {
             target="_blank"
             rel="noopener noreferrer"
             className="flex items-center gap-1"
-            style={{ color: '#4d82c0' }}
+            style={{ color: 'var(--fl-accent)' }}
           >
             <BookOpen size={11} /> Source
           </a>
@@ -144,7 +144,7 @@ function ConfigCard({ config, onDownload, onMarkDeployed, downloading }) {
       {showTech && (
         <div className="flex flex-wrap gap-1 mt-2">
           {(config.event_ids || []).map(eid => (
-            <span key={eid} className="font-mono text-xs px-2 py-0.5 rounded" style={{ background: '#4d82c010', color: '#4d82c0', border: '1px solid #4d82c020' }}>
+            <span key={eid} className="font-mono text-xs px-2 py-0.5 rounded" style={{ background: '#4d82c010', color: 'var(--fl-accent)', border: '1px solid #4d82c020' }}>
               EID {eid}
             </span>
           ))}
@@ -214,24 +214,24 @@ export default function SysmonConfigsPage() {
       </div>
 
       {error && (
-        <div className="mb-4 p-3 rounded text-sm" style={{ background: '#da363314', color: '#da3633', border: '1px solid #da363330' }}>
+        <div className="mb-4 p-3 rounded text-sm" style={{ background: '#da363314', color: 'var(--fl-danger)', border: '1px solid #da363330' }}>
           {error}
         </div>
       )}
 
       {showGuide && (
-        <div className="mb-5 rounded-lg overflow-hidden" style={{ border: '1px solid #30363d' }}>
-          <div className="px-4 py-3 flex items-center gap-2" style={{ background: '#161b22', borderBottom: '1px solid #30363d' }}>
-            <BookOpen size={14} style={{ color: '#4d82c0' }} />
-            <span className="text-sm font-semibold" style={{ color: '#e6edf3' }}>Guide de déploiement Sysmon</span>
+        <div className="mb-5 rounded-lg overflow-hidden" style={{ border: '1px solid var(--fl-border)' }}>
+          <div className="px-4 py-3 flex items-center gap-2" style={{ background: 'var(--fl-panel)', borderBottom: '1px solid var(--fl-border)' }}>
+            <BookOpen size={14} style={{ color: 'var(--fl-accent)' }} />
+            <span className="text-sm font-semibold" style={{ color: 'var(--fl-text)' }}>Guide de déploiement Sysmon</span>
           </div>
-          <pre className="p-4 text-xs font-mono overflow-x-auto" style={{ background: '#0d1117', color: '#7d8590', lineHeight: 1.7, margin: 0 }}>
+          <pre className="p-4 text-xs font-mono overflow-x-auto" style={{ background: 'var(--fl-bg)', color: 'var(--fl-dim)', lineHeight: 1.7, margin: 0 }}>
             {DEPLOY_GUIDE}
           </pre>
         </div>
       )}
 
-      <div className="mb-5 p-3 rounded-lg flex items-start gap-3 text-xs" style={{ background: 'rgba(217,124,32,0.06)', border: '1px solid rgba(217,124,32,0.2)', color: '#d97c20' }}>
+      <div className="mb-5 p-3 rounded-lg flex items-start gap-3 text-xs" style={{ background: 'rgba(217,124,32,0.06)', border: '1px solid rgba(217,124,32,0.2)', color: 'var(--fl-warn)' }}>
         <AlertTriangle size={14} className="shrink-0 mt-0.5" />
         <div>
           <strong>Ces configurations sont des outils de collecte, pas des règles de détection.</strong> Elles définissent ce que Sysmon va logger sur les endpoints. Plus la stratégie est "include", moins il y a de bruit — mais des angles morts sont possibles. Adapter selon l'environnement.
@@ -239,7 +239,7 @@ export default function SysmonConfigsPage() {
       </div>
 
       {loading ? (
-        <div className="fl-empty"><Loader2 size={28} className="animate-spin" style={{ color: '#4d82c0' }} /></div>
+        <div className="fl-empty"><Loader2 size={28} className="animate-spin" style={{ color: 'var(--fl-accent)' }} /></div>
       ) : (
         <div className="space-y-4">
           {configs.map(c => (
