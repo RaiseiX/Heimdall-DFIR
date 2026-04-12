@@ -102,6 +102,11 @@ function fmtDesc(r) {
     }
     case 'registry':
       return raw.Description || raw.ValueName || raw.KeyPath || r.description || '';
+    case 'prefetch': {
+      const name = raw.ExecutableName || r.description || '';
+      // PECmd sometimes includes RunCount/Hash: "EXE.EXE | 4 | HASH" — keep only the exe name
+      return name.split('|')[0].trim() || name;
+    }
     case 'mft':
       return raw.FileName || r.description || '';
     case 'amcache':
