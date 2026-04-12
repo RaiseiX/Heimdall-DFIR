@@ -27,6 +27,138 @@ function includeParam(excluded, available) {
   return incl.length ? incl.join(',') : '__none__';
 }
 
+function getColFieldValue(r, key) {
+  if (key === 'timestamp')        return String(r.timestamp ?? '');
+  if (key === 'artifact_type')    return r.artifact_type   || '';
+  if (key === 'description')      return r.description     || '';
+  if (key === 'source')           return r.source          || '';
+  if (key === 'host_name')        return r.host_name       || '';
+  if (key === 'user_name')        return r.user_name       || '';
+  if (key === 'process_name')     return r.process_name    || '';
+  if (key === 'timestamp_column') return r.timestamp_column|| '';
+  if (key.startsWith('raw.'))     return String(r.raw?.[key.slice(4)] ?? '');
+  return String(r[key] ?? '');
+}
+
+function applyColFilter(fieldValue, { op, value }) {
+  const fv = String(fieldValue ?? '').toLowerCase();
+  const v  = (value ?? '').toLowerCase();
+  switch (op) {
+    case 'not_contains': return !fv.includes(v);
+    case 'equals':       return fv === v;
+    case 'not_equals':   return fv !== v;
+    case 'starts_with':  return fv.startsWith(v);
+    case 'ends_with':    return fv.endsWith(v);
+    case 'empty':        return !fieldValue || String(fieldValue).trim() === '';
+    case 'not_empty':    return !!(fieldValue && String(fieldValue).trim());
+    case 'regex':
+      try { return new RegExp(value, 'i').test(String(fieldValue ?? '')); } catch { return true; }
+    default:             return fv.includes(v); // 'contains'
+  }
+}
+
+// Hex colors for artifact tabs (CSS variables can't be used with ${col}18 opacity trick in inline styles)
+const ARTIFACT_TAB_HEX = {
+  evtx:      '#4d82c0',
+  prefetch:  '#22c55e',
+  mft:       '#8b72d6',
+  lnk:       '#d97c20',
+  registry:  '#c96898',
+  amcache:   '#c89d1d',
+  shellbags: '#06b6d4',
+  jumplist:  '#8b5cf6',
+  srum:      '#f43f5e',
+  recycle:   '#84cc16',
+  wxtcmd:    '#d946ef',
+  sqle:      '#0ea5e9',
+  sum:       '#0ea5e9',
+  appcompat: '#f59e0b',
+  bits:      '#64748b',
+  hayabusa:  '#da3633',
+};
+function tabColor(type) {
+  return ARTIFACT_TAB_HEX[type] || '#8b9ab4';
+}
+
+// Per-artifact description formatter — reads from raw CSV columns for cleaner display
+function fmtDesc(r) {
+  const raw = r.raw || {};
+  switch (r.artifact_type) {
+    case 'evtx': {
+      const md = raw.MapDescription || r.description || '';
+      // EvtxECmd fallback: "EventID | RecordID | Timestamp" when no map exists
+      if (/^\d+\s*\|\s*\d+\s*\|/.test(md)) {
+        const eid = String(raw.EventId || raw.EventID || md.split('|')[0]).trim();
+        const pd = raw.PayloadData1 || '';
+        return pd ? `[EID:${eid}] ${pd}` : `EventID ${eid}`;
+      }
+      return md || raw.PayloadData1 || r.description || '';
+    }
+    case 'appcompat': {
+      const p = raw.Path || r.description || '';
+      // ShimCache sometimes stores binary-encoded paths with hex prefix
+      const cleaned = p.replace(/^([0-9a-f]{6,}\s+)+/i, '').trim();
+      return cleaned || p;
+    }
+    case 'registry':
+      return raw.Description || raw.ValueName || raw.KeyPath || r.description || '';
+    case 'mft':
+      return raw.FileName || r.description || '';
+    case 'amcache':
+      return raw.FileDescription || raw.FullPath || raw.ProgramName || r.description || '';
+    case 'srum':
+      return raw.ExeInfo || raw.AppId || r.description || '';
+    case 'shellbags':
+      return raw.AbsolutePath || r.description || '';
+    case 'sqle':
+      return raw.Title || raw.URL || r.description || '';
+    case 'wxtcmd':
+      return raw.DisplayText || raw.Description || raw.AppId || r.description || '';
+    default:
+      return r.description || '';
+  }
+}
+
+// Per-artifact source formatter — shows the most meaningful "source" field for each type
+function fmtSrc(r) {
+  const raw = r.raw || {};
+  switch (r.artifact_type) {
+    case 'evtx':
+      return raw.Channel || r.source || '';
+    case 'appcompat':
+      // SourceFile = the SYSTEM registry hive, much more meaningful than Path
+      return raw.SourceFile || r.source || '';
+    case 'mft':
+      return raw.ParentPath || r.source || '';
+    case 'prefetch':
+      return raw.SourceFilename || r.source || '';
+    case 'lnk':
+      return raw.SourceFile || r.source || '';
+    case 'registry':
+      return raw.HivePath || r.source || '';
+    case 'amcache':
+      return raw.SourceFile || raw.ProgramName || r.source || '';
+    case 'shellbags':
+      return raw.HivePath || raw.SourceFile || r.source || '';
+    case 'jumplist':
+      return raw.SourceFile || r.source || '';
+    case 'srum':
+      return raw.AppId || raw.UserId || r.source || '';
+    case 'recycle':
+      return raw.SourceName || raw.FileName || r.source || '';
+    case 'bits':
+      return raw.TargetDirectory || raw.Url || r.source || '';
+    case 'sum':
+      return raw.Address || r.source || '';
+    case 'sqle':
+      return raw.SourceFile || r.source || '';
+    case 'wxtcmd':
+      return raw.SourceFile || raw.AppId || r.source || '';
+    default:
+      return r.source || '';
+  }
+}
+
 const COLUMNS_BASE = [
   { key: 'timestamp',        label: 'Timestamp (UTC)', width: 186, mono: true },
   { key: 'artifact_type',    label: 'Type',            width: 96             },
@@ -59,21 +191,21 @@ function TagPicker({ globalIdx, tagData, onChange, onClose, anchorRef }) {
   const isDark = T.mode === 'dark';
   const { t } = useTranslation();
   const confidenceLevels = useMemo(() => [
-    { key: 'critical', label: t('timeline.confidence.malicious'),  color: '#ef4444', bg: '#ef444418', dot: '●' },
-    { key: 'high',     label: t('timeline.confidence.suspect'),    color: '#d97c20', bg: '#d97c2012', dot: '●' },
-    { key: 'medium',   label: t('timeline.confidence.to_analyze'), color: '#c89d1d', bg: '#c89d1d10', dot: '●' },
+    { key: 'critical', label: t('timeline.confidence.malicious'),  color: 'var(--fl-danger)', bg: '#ef444418', dot: '●' },
+    { key: 'high',     label: t('timeline.confidence.suspect'),    color: 'var(--fl-warn)', bg: '#d97c2012', dot: '●' },
+    { key: 'medium',   label: t('timeline.confidence.to_analyze'), color: 'var(--fl-gold)', bg: '#c89d1d10', dot: '●' },
     { key: 'low',      label: t('timeline.confidence.benign'),     color: '#22c55e', bg: '#22c55e08', dot: '●' },
   ], [t]);
   const forensicTags = useMemo(() => [
-    { key: 'exec',            label: t('timeline.tags.exec'),            color: '#d97c20' },
-    { key: 'persist',         label: t('timeline.tags.persist'),         color: '#8b72d6' },
+    { key: 'exec',            label: t('timeline.tags.exec'),            color: 'var(--fl-warn)' },
+    { key: 'persist',         label: t('timeline.tags.persist'),         color: 'var(--fl-purple)' },
     { key: 'lateral',         label: t('timeline.tags.lateral'),         color: '#22c55e' },
-    { key: 'exfil',           label: t('timeline.tags.exfil'),           color: '#ef4444' },
+    { key: 'exfil',           label: t('timeline.tags.exfil'),           color: 'var(--fl-danger)' },
     { key: 'c2',              label: t('timeline.tags.c2'),              color: '#f43f5e' },
     { key: 'recon',           label: t('timeline.tags.recon'),           color: '#06b6d4' },
     { key: 'privesc',         label: t('timeline.tags.privesc'),         color: '#f59e0b' },
     { key: 'defense_evasion', label: t('timeline.tags.defense_evasion'), color: '#64748b' },
-    { key: 'credential',      label: t('timeline.tags.credential'),      color: '#c96898' },
+    { key: 'credential',      label: t('timeline.tags.credential'),      color: 'var(--fl-pink)' },
     { key: 'discovery',       label: t('timeline.tags.discovery'),       color: '#0ea5e9' },
     { key: 'collection',      label: t('timeline.tags.collection'),      color: '#84cc16' },
     { key: 'impact',          label: t('timeline.tags.impact'),          color: '#dc2626' },
@@ -111,37 +243,39 @@ function TagPicker({ globalIdx, tagData, onChange, onClose, anchorRef }) {
 
   return (
     <div ref={ref} style={{
-      position: 'fixed', zIndex: 1000, width: 300,
-      background: isDark ? 'linear-gradient(160deg, #3a6fa0 0%, #2d5880 100%)' : '#ffffff',
-      border: isDark ? '1px solid #5c9fd4' : '1px solid #c8d8ea',
-      borderRadius: 10,
+      position: 'fixed', zIndex: 1000, width: 310,
+      background: isDark ? 'var(--fl-panel)' : '#ffffff',
+      border: `1px solid ${isDark ? 'var(--fl-border)' : '#c8d8ea'}`,
+      borderRadius: 8,
       boxShadow: isDark
-        ? '0 20px 60px rgba(0,0,0,0.85), 0 0 0 1px rgba(92,159,212,0.4)'
-        : '0 8px 32px rgba(0,0,0,0.15), 0 0 0 1px rgba(13,105,218,0.15)',
-      padding: 16,
+        ? '0 8px 32px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.04)'
+        : '0 8px 32px rgba(0,0,0,0.15)',
+      padding: 14,
     }}>
-      
-      <div style={{ marginBottom: 14 }}>
+
+      <div style={{ marginBottom: 12 }}>
         <div style={{ fontFamily: 'monospace', fontSize: 9,
-          color: isDark ? '#ffffff' : '#0969da',
-          textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: 8, fontWeight: 700 }}>
+          color: isDark ? 'var(--fl-muted)' : '#0969da',
+          textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: 7, fontWeight: 700 }}>
           {t('timeline.confidence_label')}
         </div>
-        <div style={{ display: 'flex', gap: 6 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 5 }}>
           {confidenceLevels.map(l => {
             const active = current.level === l.key;
             return (
               <button key={l.key} onClick={() => setLevel(l.key)}
                 style={{
-                  flex: 1, padding: '7px 4px', borderRadius: 6, fontSize: 10,
+                  padding: '6px 4px', borderRadius: 6, fontSize: 10,
                   fontFamily: 'monospace', cursor: 'pointer', fontWeight: 700,
-                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4,
-                  background: active ? l.bg : (isDark ? 'rgba(255,255,255,0.08)' : '#f0f6ff'),
-                  color: active ? l.color : (isDark ? '#ffffff' : '#1f2328'),
-                  border: `1px solid ${active ? l.color + '80' : (isDark ? 'rgba(255,255,255,0.2)' : '#c8d8ea')}`,
+                  display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 3,
+                  background: active ? l.bg : (isDark ? 'rgba(255,255,255,0.05)' : '#f0f6ff'),
+                  color: active ? l.color : (isDark ? 'var(--fl-dim)' : '#1f2328'),
+                  border: `1px solid ${active ? l.color + '80' : (isDark ? 'var(--fl-border)' : '#c8d8ea')}`,
                   transition: 'all 0.12s',
+                  whiteSpace: 'normal', textAlign: 'center', lineHeight: 1.3,
+                  minHeight: 42,
                 }}>
-                <span style={{ fontSize: 7, lineHeight: 1, color: l.color }}>●</span>
+                <span style={{ fontSize: 8, color: l.color }}>●</span>
                 {l.label}
               </button>
             );
@@ -151,21 +285,21 @@ function TagPicker({ globalIdx, tagData, onChange, onClose, anchorRef }) {
 
       <div>
         <div style={{ fontFamily: 'monospace', fontSize: 9,
-          color: isDark ? '#ffffff' : '#0969da',
-          textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: 8, fontWeight: 700 }}>
+          color: isDark ? 'var(--fl-muted)' : '#0969da',
+          textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: 7, fontWeight: 700 }}>
           {t('timeline.category_label')}
         </div>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
           {forensicTags.map(tag => {
             const active = current.tags.includes(tag.key);
             return (
               <button key={tag.key} onClick={() => toggleTag(tag.key)}
                 style={{
-                  padding: '4px 10px', borderRadius: 10, fontSize: 10,
+                  padding: '3px 9px', borderRadius: 10, fontSize: 10,
                   fontFamily: 'monospace', cursor: 'pointer', fontWeight: 600,
-                  background: active ? `${tag.color}35` : (isDark ? 'rgba(255,255,255,0.08)' : '#f0f6ff'),
-                  color: active ? tag.color : (isDark ? '#ffffff' : '#1f2328'),
-                  border: `1px solid ${active ? tag.color + '70' : (isDark ? 'rgba(255,255,255,0.2)' : '#c8d8ea')}`,
+                  background: active ? `${tag.color}25` : (isDark ? 'rgba(255,255,255,0.05)' : '#f0f6ff'),
+                  color: active ? tag.color : (isDark ? 'var(--fl-dim)' : '#1f2328'),
+                  border: `1px solid ${active ? tag.color + '60' : (isDark ? 'var(--fl-border)' : '#c8d8ea')}`,
                   transition: 'all 0.12s',
                 }}>
                 {tag.label}
@@ -176,19 +310,19 @@ function TagPicker({ globalIdx, tagData, onChange, onClose, anchorRef }) {
       </div>
 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-        marginTop: 14, paddingTop: 10,
-        borderTop: `1px solid ${isDark ? 'rgba(255,255,255,0.15)' : '#e0eaf4'}` }}>
+        marginTop: 12, paddingTop: 10,
+        borderTop: `1px solid ${isDark ? 'var(--fl-border)' : '#e0eaf4'}` }}>
         <button onClick={clearAll}
           style={{ fontSize: 10, fontFamily: 'monospace',
-            color: isDark ? 'rgba(255,255,255,0.55)' : '#57606a',
+            color: isDark ? 'var(--fl-muted)' : '#57606a',
             background: 'none', border: 'none', cursor: 'pointer', padding: '2px 0' }}>
           {t('timeline.clear_tags')}
         </button>
         <button onClick={onClose}
           style={{ padding: '5px 14px', borderRadius: 5, fontSize: 10, fontFamily: 'monospace',
-            background: isDark ? 'rgba(255,255,255,0.15)' : '#0969da',
-            border: isDark ? '1px solid rgba(255,255,255,0.3)' : '1px solid #0969da',
-            color: '#ffffff', cursor: 'pointer', fontWeight: 600 }}>
+            background: isDark ? 'rgba(255,255,255,0.08)' : '#0969da',
+            border: `1px solid ${isDark ? 'var(--fl-border)' : '#0969da'}`,
+            color: isDark ? 'var(--fl-text)' : '#ffffff', cursor: 'pointer', fontWeight: 600 }}>
           {t('common.close')}
         </button>
       </div>
@@ -204,21 +338,21 @@ export default function SuperTimelinePage() {
   const [aiTabActive, setAiTabActive] = useState(false);
 
   const CONFIDENCE_LEVELS_T = useMemo(() => [
-    { key: 'critical', label: t('timeline.confidence.malicious'),  color: '#ef4444', bg: '#ef444418', dot: '●' },
-    { key: 'high',     label: t('timeline.confidence.suspect'),    color: '#d97c20', bg: '#d97c2012', dot: '●' },
-    { key: 'medium',   label: t('timeline.confidence.to_analyze'), color: '#c89d1d', bg: '#c89d1d10', dot: '●' },
+    { key: 'critical', label: t('timeline.confidence.malicious'),  color: 'var(--fl-danger)', bg: '#ef444418', dot: '●' },
+    { key: 'high',     label: t('timeline.confidence.suspect'),    color: 'var(--fl-warn)', bg: '#d97c2012', dot: '●' },
+    { key: 'medium',   label: t('timeline.confidence.to_analyze'), color: 'var(--fl-gold)', bg: '#c89d1d10', dot: '●' },
     { key: 'low',      label: t('timeline.confidence.benign'),     color: '#22c55e', bg: '#22c55e08', dot: '●' },
   ], [t]);
   const CONFIDENCE_MAP_T = useMemo(() => Object.fromEntries(CONFIDENCE_LEVELS_T.map(l => [l.key, l])), [CONFIDENCE_LEVELS_T]);
 
   const FORENSIC_TAGS_T = useMemo(() => [
-    { key: 'exec',       label: t('timeline.tags.exec'),            color: '#d97c20' },
-    { key: 'persist',    label: t('timeline.tags.persist'),         color: '#c96898' },
-    { key: 'lateral',    label: t('timeline.tags.lateral'),         color: '#8b72d6' },
+    { key: 'exec',       label: t('timeline.tags.exec'),            color: 'var(--fl-warn)' },
+    { key: 'persist',    label: t('timeline.tags.persist'),         color: 'var(--fl-pink)' },
+    { key: 'lateral',    label: t('timeline.tags.lateral'),         color: 'var(--fl-purple)' },
     { key: 'exfil',      label: t('timeline.tags.exfil'),           color: '#f43f5e' },
-    { key: 'privesc',    label: t('timeline.tags.privesc'),         color: '#c89d1d' },
+    { key: 'privesc',    label: t('timeline.tags.privesc'),         color: 'var(--fl-gold)' },
     { key: 'credential', label: t('timeline.tags.credential'),      color: '#06b6d4' },
-    { key: 'network',    label: t('timeline.tags.network'),         color: '#4d82c0' },
+    { key: 'network',    label: t('timeline.tags.network'),         color: 'var(--fl-accent)' },
     { key: 'file',       label: t('timeline.tags.file'),            color: '#22c55e' },
     { key: 'logon',      label: t('timeline.tags.logon'),           color: '#8b5cf6' },
     { key: 'defense',    label: t('timeline.tags.defense_evasion'), color: '#64748b' },
@@ -324,8 +458,14 @@ export default function SuperTimelinePage() {
   const lastClickedRowRef                   = useRef(null);
   const [copyFeedback, setCopyFeedback]     = useState(false);
 
-  const [colFilters, setColFilters]         = useState({});
-  const [showColFilters, setShowColFilters] = useState(false);
+  const [colFilters, setColFilters]             = useState({});
+  const [showColFilters, setShowColFilters]     = useState(false);
+  const [colFilterCombinator, setColFilterCombinator] = useState('AND');
+  const [cellCtxMenu, setCellCtxMenu]           = useState(null);
+  const [jumpTs, setJumpTs]                     = useState('');
+  const [showPresetMenu, setShowPresetMenu]     = useState(false);
+  const [presetName, setPresetName]             = useState('');
+  const presetMenuRef                           = useRef(null);
 
   const [dateError, setDateError]           = useState(null);
 
@@ -344,10 +484,12 @@ export default function SuperTimelinePage() {
     function h(e) {
       if (colMenuRef.current && !colMenuRef.current.contains(e.target)) setShowColMenu(false);
       if (groupByMenuRef.current && !groupByMenuRef.current.contains(e.target)) setShowGroupByMenu(false);
+      if (presetMenuRef.current && !presetMenuRef.current.contains(e.target)) setShowPresetMenu(false);
+      if (cellCtxMenu) setCellCtxMenu(null);
     }
     document.addEventListener('mousedown', h);
     return () => document.removeEventListener('mousedown', h);
-  }, []);
+  }, [cellCtxMenu]);
 
   useEffect(() => {
     if (!isIsolated || !routeCaseId || (isolatedEvidenceName && isolatedCaseLabel)) return;
@@ -481,7 +623,7 @@ export default function SuperTimelinePage() {
       n.has(key) ? n.delete(key) : n.set(key, r);
       try {
         localStorage.setItem(`heimdall_pins_${caseId}`, JSON.stringify(Object.fromEntries(n)));
-      } catch  }
+      } catch (_e) {}
       return n;
     });
   }
@@ -496,7 +638,7 @@ export default function SuperTimelinePage() {
         if (saved.widths)   setColWidths(new Map(Object.entries(saved.widths)));
         if (saved.order)    setColOrder(saved.order);
       }
-    } catch  }
+    } catch (_e) {}
   }, [caseId]);
 
   useEffect(() => {
@@ -540,6 +682,8 @@ export default function SuperTimelinePage() {
     setConfidenceFilter(null);
     setForensicTagFilter(null);
     setColFilters({});
+    setColFilterCombinator('AND');
+    setJumpTs('');
     setDateError(null);
     setPage(1); loadTimeline(1, '', '', '', '', pageSize, 'desc', 'timestamp', '', '', '', null, []);
   }
@@ -551,7 +695,7 @@ export default function SuperTimelinePage() {
       widths: Object.fromEntries(widths),
       order,
     };
-    try { localStorage.setItem(`heimdall_col_prefs_${caseId}`, JSON.stringify(prefs)); } catch  }
+    try { localStorage.setItem(`heimdall_col_prefs_${caseId}`, JSON.stringify(prefs)); } catch (_e) {}
   }
   function handleColHiddenChange(newSet) {
     setHiddenCols(newSet); saveColPrefs(newSet, colWidths, colOrder);
@@ -652,22 +796,15 @@ export default function SuperTimelinePage() {
   }, [sortedRecords, showBookmarksOnly, bookmarks, confidenceFilter, forensicTagFilter, tagData, page, pageSize]);
 
   const colFilteredRecords = useMemo(() => {
-    const active = Object.entries(colFilters).filter(([, v]) => v?.trim());
-    if (!active.length) return displayedRecords;
-    return displayedRecords.filter(r =>
-      active.every(([key, val]) => {
-        const v = val.toLowerCase();
-        if (key === 'timestamp')     return fmtTs(r.timestamp).toLowerCase().includes(v);
-        if (key === 'artifact_type') return (r.artifact_type || '').toLowerCase().includes(v);
-        if (key === 'description')   return (r.description   || '').toLowerCase().includes(v);
-        if (key === 'source')        return (r.source        || '').toLowerCase().includes(v);
-        if (key === 'host_name')     return (r.host_name     || '').toLowerCase().includes(v);
-        if (key === 'user_name')     return (r.user_name     || '').toLowerCase().includes(v);
-        if (key === 'process_name')  return (r.process_name  || '').toLowerCase().includes(v);
-        return true;
-      })
+    const active = Object.entries(colFilters).filter(([, f]) =>
+      f && (f.op === 'empty' || f.op === 'not_empty' || (f.value ?? '').trim())
     );
-  }, [displayedRecords, colFilters]);
+    if (!active.length) return displayedRecords;
+    const method = colFilterCombinator === 'OR' ? 'some' : 'every';
+    return displayedRecords.filter(r =>
+      active[method](([key, filter]) => applyColFilter(getColFieldValue(r, key), filter))
+    );
+  }, [displayedRecords, colFilters, colFilterCombinator]);
 
   const flatRows = useMemo(() => {
     if (groupByFields.length === 0) {
@@ -685,7 +822,7 @@ export default function SuperTimelinePage() {
 
           for (let deeper = lvl; deeper < groupByFields.length; deeper++) prevValues[deeper] = null;
           prevValues[lvl] = val;
-          const color = field === 'artifact_type' ? artifactColor(val) : '#7d8590';
+          const color = field === 'artifact_type' ? artifactColor(val) : 'var(--fl-dim)';
           result.push({ type: 'group', level: lvl, field, value: val, color });
         }
       }
@@ -805,6 +942,56 @@ export default function SuperTimelinePage() {
     return c;
   }, [tagData]);
 
+  // ── Filter presets (localStorage) ───────────────────────────────────────────
+  const PRESET_KEY = `heimdall_col_filter_presets_${caseId || 'global'}`;
+  function loadPresets() {
+    try { return JSON.parse(localStorage.getItem(PRESET_KEY) || '{}'); } catch { return {}; }
+  }
+  function savePreset(name) {
+    if (!name.trim()) return;
+    const presets = loadPresets();
+    presets[name.trim()] = { filters: colFilters, combinator: colFilterCombinator };
+    try { localStorage.setItem(PRESET_KEY, JSON.stringify(presets)); } catch (_e) {}
+  }
+  function deletePreset(name) {
+    const presets = loadPresets();
+    delete presets[name];
+    try { localStorage.setItem(PRESET_KEY, JSON.stringify(presets)); } catch (_e) {}
+  }
+  function applyPreset(preset) {
+    setColFilters(preset.filters || {});
+    setColFilterCombinator(preset.combinator || 'AND');
+    setShowColFilters(true);
+    setShowPresetMenu(false);
+  }
+
+  // ── Client-side filtered CSV export ─────────────────────────────────────────
+  function exportFilteredCSV() {
+    if (!colFilteredRecords.length) return;
+    const SEP = csvSep;
+    const cols = visibleCols.map(c => c.key);
+    const headers = visibleCols.map(c => c.label);
+    function esc(v) {
+      const s = String(v ?? '');
+      return (s.includes(SEP) || s.includes('"') || s.includes('\n'))
+        ? `"${s.replace(/"/g, '""')}"`
+        : s;
+    }
+    const lines = [
+      headers.map(esc).join(SEP),
+      ...colFilteredRecords.map(r =>
+        cols.map(k => esc(k === 'timestamp' ? fmtTs(r.timestamp) : getColFieldValue(r, k))).join(SEP)
+      ),
+    ];
+    const blob = new Blob([lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href = url;
+    a.download = `timeline-filtered-${caseId}-${Date.now()}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
   async function exportCSV() {
     if (!caseId || csvLoading) return;
     setCsvLoading(true);
@@ -879,7 +1066,46 @@ export default function SuperTimelinePage() {
   const selectedCase = cases.find(c => String(c.id) === String(caseId));
 
   return (
-    <div style={{ height: '100%', background: '#060b14', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+    <div style={{ height: '100%', background: 'var(--fl-bg)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+
+      {cellCtxMenu && (
+        <div
+          onMouseDown={e => e.stopPropagation()}
+          style={{
+            position: 'fixed', top: cellCtxMenu.y, left: cellCtxMenu.x, zIndex: 2000,
+            background: 'var(--fl-bg)', border: '1px solid var(--fl-border)', borderRadius: 8,
+            padding: '4px 0', minWidth: 240, boxShadow: '0 8px 28px rgba(0,0,0,0.7)',
+            fontFamily: 'monospace', fontSize: 11,
+          }}>
+          <div style={{ padding: '3px 12px 5px', fontSize: 9, color: 'var(--fl-subtle)', textTransform: 'uppercase', letterSpacing: '0.08em', borderBottom: '1px solid var(--fl-sep)' }}>
+            {cellCtxMenu.colLabel} — <span style={{ color: 'var(--fl-dim)' }}>{String(cellCtxMenu.value).substring(0, 40)}</span>
+          </div>
+          {[
+            { label: '⊃  Filtrer contient',  op: 'contains',     title: 'Ajouter un filtre "contient" sur cette colonne' },
+            { label: '＝  Filtrer égal',      op: 'equals',       title: 'Ajouter un filtre "égal" sur cette colonne' },
+            { label: '⊄  Exclure valeur',    op: 'not_contains', title: 'Ajouter un filtre "ne contient pas" sur cette colonne' },
+            { label: '≠  Exclure exact',     op: 'not_equals',   title: 'Ajouter un filtre "différent" sur cette colonne' },
+          ].map(item => (
+            <button
+              key={item.op}
+              title={item.title}
+              onClick={() => {
+                setColFilters(prev => ({ ...prev, [cellCtxMenu.colKey]: { op: item.op, value: cellCtxMenu.value } }));
+                setShowColFilters(true);
+                setCellCtxMenu(null);
+              }}
+              style={{
+                display: 'block', width: '100%', textAlign: 'left', padding: '5px 14px',
+                background: 'none', border: 'none', cursor: 'pointer', color: 'var(--fl-on-dark)', fontSize: 11,
+              }}
+              onMouseEnter={e => { e.currentTarget.style.background = 'var(--fl-card)'; }}
+              onMouseLeave={e => { e.currentTarget.style.background = 'none'; }}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+      )}
 
       {tagPickerIdx !== null && (
         <div style={{ position: 'fixed', top: tagPickerPos.top, left: tagPickerPos.left, zIndex: 1000 }}>
@@ -897,24 +1123,24 @@ export default function SuperTimelinePage() {
         <div style={{
           flexShrink: 0, height: 32,
           display: 'flex', alignItems: 'center', gap: 8, padding: '0 12px',
-          background: '#07101f', borderBottom: '1px solid #1a3a5c',
+          background: 'var(--fl-bg)', borderBottom: '1px solid var(--fl-accent)',
         }}>
-          <LayoutTemplate size={12} style={{ color: '#4d82c0', flexShrink: 0 }} />
-          <span style={{ fontFamily: 'monospace', fontSize: 10, fontWeight: 700, color: '#4d82c0', letterSpacing: '0.06em' }}>
+          <LayoutTemplate size={12} style={{ color: 'var(--fl-accent)', flexShrink: 0 }} />
+          <span style={{ fontFamily: 'monospace', fontSize: 10, fontWeight: 700, color: 'var(--fl-accent)', letterSpacing: '0.06em' }}>
             WORKBENCH
           </span>
           {total > 0 && (
-            <span style={{ fontFamily: 'monospace', fontSize: 9, color: '#3d5070', background: '#4d82c010', border: '1px solid #4d82c020', borderRadius: 3, padding: '1px 6px' }}>
+            <span style={{ fontFamily: 'monospace', fontSize: 9, color: 'var(--fl-subtle)', background: '#4d82c010', border: '1px solid #4d82c020', borderRadius: 3, padding: '1px 6px' }}>
               {total.toLocaleString()} events
             </span>
           )}
           {activeArtifactType && (
-            <span style={{ fontFamily: 'monospace', fontSize: 9, color: '#8b72d6', background: '#8b72d610', border: '1px solid #8b72d620', borderRadius: 3, padding: '1px 6px' }}>
+            <span style={{ fontFamily: 'monospace', fontSize: 9, color: 'var(--fl-purple)', background: '#8b72d610', border: '1px solid #8b72d620', borderRadius: 3, padding: '1px 6px' }}>
               {activeArtifactType}
             </span>
           )}
           {hasFilters && (
-            <span style={{ fontFamily: 'monospace', fontSize: 9, color: '#d97c20', background: '#d97c2010', border: '1px solid #d97c2020', borderRadius: 3, padding: '1px 6px' }}>
+            <span style={{ fontFamily: 'monospace', fontSize: 9, color: 'var(--fl-warn)', background: '#d97c2010', border: '1px solid #d97c2020', borderRadius: 3, padding: '1px 6px' }}>
               {activeFilterCount} filtre{activeFilterCount > 1 ? 's' : ''}
             </span>
           )}
@@ -924,8 +1150,8 @@ export default function SuperTimelinePage() {
             style={{
               display: 'flex', alignItems: 'center', gap: 4,
               padding: '2px 8px', borderRadius: 4, fontSize: 9, fontFamily: 'monospace',
-              background: 'rgba(77,130,192,0.08)', border: '1px solid #1a3a5c',
-              color: '#4d82c0', cursor: 'pointer',
+              background: 'rgba(77,130,192,0.08)', border: '1px solid var(--fl-accent)',
+              color: 'var(--fl-accent)', cursor: 'pointer',
             }}
             title="Afficher la barre d'outils"
           >
@@ -934,12 +1160,18 @@ export default function SuperTimelinePage() {
         </div>
       )}
 
-      <div className="fl-header" style={{ padding: '10px 16px 8px', marginBottom: 0, flexShrink: 0, background: '#07101f', borderBottom: '1px solid #1a2035', display: workbench && toolbarCollapsed ? 'none' : undefined }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <Clock size={16} style={{ color: '#4d82c0' }} />
-          <span className="fl-header-title" style={{ marginBottom: 0 }}>Super Timeline</span>
+      <div className="fl-header" style={{
+        padding: '8px 16px 6px', marginBottom: 0, flexShrink: 0,
+        background: 'var(--fl-bg)', borderBottom: '1px solid var(--fl-sep)',
+        flexDirection: 'column', alignItems: 'flex-start', gap: 6,
+        display: workbench && toolbarCollapsed ? 'none' : 'flex',
+      }}>
+        {/* ── Ligne 1 : titre + count ── */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Clock size={15} style={{ color: 'var(--fl-accent)' }} />
+          <span className="fl-header-title" style={{ marginBottom: 0, fontSize: 14 }}>Super Timeline</span>
           {total > 0 && (
-            <span className="fl-badge" style={{ background: '#4d82c012', color: '#4d82c0', border: '1px solid #4d82c025' }}>
+            <span className="fl-badge" style={{ background: '#4d82c012', color: 'var(--fl-accent)', border: '1px solid #4d82c025' }}>
               {total.toLocaleString()} {t('timeline.records_badge')}
             </span>
           )}
@@ -948,30 +1180,31 @@ export default function SuperTimelinePage() {
               className="fl-btn fl-btn-ghost fl-btn-sm"
               style={{
                 background: showBookmarksOnly ? '#f59e0b18' : 'transparent',
-                color: showBookmarksOnly ? '#f59e0b' : '#7d8590',
-                border: `1px solid ${showBookmarksOnly ? '#f59e0b40' : '#30363d'}`,
+                color: showBookmarksOnly ? '#f59e0b' : 'var(--fl-dim)',
+                border: `1px solid ${showBookmarksOnly ? '#f59e0b40' : 'var(--fl-border)'}`,
               }}>
               <Star size={11} fill={showBookmarksOnly ? '#f59e0b' : 'none'} />
               {bookmarks.size} {bookmarks.size > 1 ? t('timeline.bookmarks_count_pl') : t('timeline.bookmarks_count')}
             </button>
           )}
         </div>
-        <div style={{ display: 'flex', gap: 6 }}>
-          
+        {/* ── Ligne 2 : actions groupées ── */}
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+
           {selectedRows.size > 0 && (
             <div style={{
               display: 'flex', alignItems: 'center', gap: 6, padding: '3px 10px',
               background: '#0e1e33', border: '1px solid #4d82c040', borderRadius: 6,
             }}>
-              <span style={{ fontSize: 10, fontFamily: 'monospace', color: '#4d82c0', fontWeight: 700 }}>
+              <span style={{ fontSize: 10, fontFamily: 'monospace', color: 'var(--fl-accent)', fontWeight: 700 }}>
                 {selectedRows.size} sélectionné{selectedRows.size > 1 ? 's' : ''}
               </span>
-              <div style={{ width: 1, height: 12, background: '#30363d' }} />
+              <div style={{ width: 1, height: 12, background: 'var(--fl-border)' }} />
               <button
                 onClick={copySelectedToClipboard}
                 className="fl-btn fl-btn-ghost fl-btn-sm"
                 title="Copier en CSV (Ctrl+C)"
-                style={{ color: copyFeedback ? '#22c55e' : '#c0cce0', gap: 4 }}>
+                style={{ color: copyFeedback ? '#22c55e' : 'var(--fl-on-dark)', gap: 4 }}>
                 <Copy size={11} />
                 {copyFeedback ? 'Copié !' : 'Copier CSV'}
               </button>
@@ -996,27 +1229,180 @@ export default function SuperTimelinePage() {
               <button
                 onClick={() => setSelectedRows(new Set())}
                 className="fl-btn fl-btn-ghost fl-btn-sm"
-                style={{ color: '#484f58' }}>
+                style={{ color: 'var(--fl-muted)' }}>
                 <X size={10} />
               </button>
             </div>
           )}
 
+          {/* ─ Export ──────────────────────────────────── */}
+          <div style={{ width: 1, height: 18, background: 'var(--fl-sep)', flexShrink: 0 }} />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 3, padding: '2px 6px', borderRadius: 6, background: 'var(--fl-card)', border: '1px solid var(--fl-border)' }}>
+            <select
+              value={csvSep}
+              onChange={e => setCsvSep(e.target.value)}
+              disabled={!records.length}
+              title="Délimiteur CSV"
+              style={{ background: 'var(--fl-bg)', border: '1px solid var(--fl-border)', borderRadius: 4, color: records.length ? 'var(--fl-dim)' : 'var(--fl-muted)', fontSize: 11, padding: '2px 4px', height: 26 }}
+            >
+              <option value=",">, (CSV)</option>
+              <option value=";">; (Excel FR)</option>
+              <option value={'\t'}>Tab</option>
+            </select>
+            <button onClick={exportCSV} disabled={!records.length || csvLoading} className="fl-btn fl-btn-ghost fl-btn-sm"
+              style={{ color: records.length ? 'var(--fl-accent)' : 'var(--fl-muted)' }}>
+              {csvLoading ? <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <Download size={12} />} Export CSV
+            </button>
+            {colFilteredRecords.length !== records.length && (
+              <button
+                onClick={exportFilteredCSV}
+                className="fl-btn fl-btn-ghost fl-btn-sm"
+                title={`Exporter uniquement les ${colFilteredRecords.length.toLocaleString('fr-FR')} lignes après filtres colonne`}
+                style={{ color: '#22c55e', border: '1px solid #22c55e30', background: '#22c55e08' }}>
+                <Download size={12} /> Export filtré ({colFilteredRecords.length.toLocaleString('fr-FR')})
+              </button>
+            )}
+          </div>
+
+          {/* ─ Filtres col. / Presets ──────────────── */}
+          <div style={{ width: 1, height: 18, background: 'var(--fl-sep)', flexShrink: 0 }} />
+          {/* groupe visuel filtres */}
+          {records.length > 0 && !workbench && (
+            <button
+              onClick={() => { setShowColFilters(v => !v); if (showColFilters) setColFilters({}); }}
+              className="fl-btn fl-btn-ghost fl-btn-sm"
+              title="Filtres rapides par colonne"
+              style={{
+                color: showColFilters ? '#22c55e' : 'var(--fl-dim)',
+                background: showColFilters ? 'rgba(34,197,94,0.08)' : 'transparent',
+                border: `1px solid ${showColFilters ? '#22c55e30' : 'var(--fl-border)'}`,
+              }}>
+              <Layers size={12} />
+              Filtres col.
+              {Object.values(colFilters).some(f => f && (f.op === 'empty' || f.op === 'not_empty' || (f.value ?? '').trim())) && (
+                <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#22c55e', display: 'inline-block', marginLeft: 2 }} />
+              )}
+            </button>
+          )}
+
+          {records.length > 0 && !workbench && (
+            <div ref={presetMenuRef} style={{ position: 'relative' }}>
+              <button
+                onClick={() => setShowPresetMenu(v => !v)}
+                className="fl-btn fl-btn-ghost fl-btn-sm"
+                title="Sauvegarder / charger un preset de filtres colonne"
+                style={{
+                  color: showPresetMenu ? '#22c55e' : 'var(--fl-dim)',
+                  background: showPresetMenu ? 'rgba(34,197,94,0.08)' : 'transparent',
+                  border: `1px solid ${showPresetMenu ? '#22c55e30' : 'var(--fl-border)'}`,
+                }}>
+                <Star size={12} /> Presets
+                {Object.keys(loadPresets()).length > 0 && (
+                  <span style={{ fontSize: 9, color: '#22c55e', marginLeft: 2 }}>({Object.keys(loadPresets()).length})</span>
+                )}
+              </button>
+              {showPresetMenu && (() => {
+                const presets = loadPresets();
+                const names = Object.keys(presets);
+                return (
+                  <div style={{
+                    position: 'absolute', top: '100%', left: 0, zIndex: 400, marginTop: 4,
+                    background: 'var(--fl-bg)', border: '1px solid var(--fl-border)', borderRadius: 8,
+                    padding: '6px 0', minWidth: 240, boxShadow: '0 8px 24px rgba(0,0,0,0.7)',
+                  }}>
+                    <div style={{ padding: '3px 12px 6px', fontSize: 9, fontFamily: 'monospace', color: 'var(--fl-subtle)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                      Presets de filtres colonne
+                    </div>
+                    {names.length === 0 && (
+                      <div style={{ padding: '4px 14px 6px', fontSize: 10, color: 'var(--fl-muted)', fontFamily: 'monospace' }}>Aucun preset sauvegardé</div>
+                    )}
+                    {names.map(name => (
+                      <div key={name} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '2px 8px 2px 12px' }}>
+                        <button
+                          onClick={() => applyPreset(presets[name])}
+                          style={{
+                            flex: 1, textAlign: 'left', padding: '4px 4px', fontSize: 11,
+                            fontFamily: 'monospace', background: 'none', border: 'none',
+                            cursor: 'pointer', color: 'var(--fl-on-dark)',
+                          }}
+                          onMouseEnter={e => { e.currentTarget.style.color = '#22c55e'; }}
+                          onMouseLeave={e => { e.currentTarget.style.color = 'var(--fl-on-dark)'; }}
+                        >
+                          {name}
+                          <span style={{ marginLeft: 6, fontSize: 9, color: 'var(--fl-subtle)' }}>
+                            ({Object.keys(presets[name].filters || {}).length} col. · {presets[name].combinator || 'AND'})
+                          </span>
+                        </button>
+                        <button
+                          onClick={() => { deletePreset(name); setShowPresetMenu(false); setTimeout(() => setShowPresetMenu(true), 0); }}
+                          title="Supprimer ce preset"
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--fl-muted)', padding: '2px 4px', borderRadius: 3 }}
+                          onMouseEnter={e => { e.currentTarget.style.color = '#f87171'; }}
+                          onMouseLeave={e => { e.currentTarget.style.color = 'var(--fl-muted)'; }}
+                        >
+                          <X size={10} />
+                        </button>
+                      </div>
+                    ))}
+                    {names.length > 0 && <div style={{ height: 1, background: 'var(--fl-sep)', margin: '4px 0' }} />}
+                    <div style={{ display: 'flex', gap: 4, padding: '4px 10px' }}>
+                      <input
+                        value={presetName}
+                        onChange={e => setPresetName(e.target.value)}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter' && presetName.trim()) {
+                            savePreset(presetName);
+                            setPresetName('');
+                            setShowPresetMenu(false);
+                            setTimeout(() => setShowPresetMenu(true), 0);
+                          }
+                        }}
+                        placeholder="Nom du preset…"
+                        style={{
+                          flex: 1, padding: '3px 7px', fontSize: 10, fontFamily: 'monospace',
+                          background: 'var(--fl-card)', border: '1px solid var(--fl-border)',
+                          borderRadius: 4, color: 'var(--fl-text)', outline: 'none',
+                        }}
+                      />
+                      <button
+                        onClick={() => {
+                          if (!presetName.trim()) return;
+                          savePreset(presetName);
+                          setPresetName('');
+                          setShowPresetMenu(false);
+                          setTimeout(() => setShowPresetMenu(true), 0);
+                        }}
+                        style={{
+                          padding: '3px 9px', fontSize: 10, fontFamily: 'monospace',
+                          background: '#22c55e18', border: '1px solid #22c55e40',
+                          borderRadius: 4, color: '#22c55e', cursor: 'pointer',
+                        }}>
+                        Sauvegarder
+                      </button>
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+          )}
+
+          {/* ─ Colonnes ──────────────────────────────── */}
+          <div style={{ width: 1, height: 18, background: 'var(--fl-sep)', flexShrink: 0 }} />
           <div style={{ position: 'relative' }} ref={colMenuRef}>
-            <button onClick={() => setShowColMenu(v => !v)} className="fl-btn fl-btn-ghost fl-btn-sm">
-              <Eye size={12} /> {t('timeline.columns')}
+            <button onClick={() => setShowColMenu(v => !v)} className="fl-btn fl-btn-ghost fl-btn-sm" title={t('timeline.columns')}>
+              <Eye size={12} />
             </button>
             {showColMenu && (
               <div style={{
                 position: 'absolute', right: 0, top: '100%', marginTop: 4, zIndex: 50,
-                background: '#161b22', border: '1px solid #30363d', borderRadius: 8, padding: 8, minWidth: 170,
+                background: 'var(--fl-panel)', border: '1px solid var(--fl-border)', borderRadius: 8, padding: 8, minWidth: 170,
                 boxShadow: '0 8px 24px #00000060',
               }}>
                 {COLUMNS.map(c => (
                   <label key={c.key} style={{
                     display: 'flex', alignItems: 'center', gap: 7, padding: '4px 8px',
                     fontFamily: 'JetBrains Mono, monospace', fontSize: 11, cursor: 'pointer',
-                    color: hiddenCols.has(c.key) ? '#484f58' : '#c0cce0',
+                    color: hiddenCols.has(c.key) ? 'var(--fl-muted)' : 'var(--fl-on-dark)',
                   }}>
                     <input type="checkbox" checked={!hiddenCols.has(c.key)}
                       onChange={() => setHiddenCols(prev => {
@@ -1028,51 +1414,15 @@ export default function SuperTimelinePage() {
               </div>
             )}
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-            <select
-              value={csvSep}
-              onChange={e => setCsvSep(e.target.value)}
-              disabled={!records.length}
-              title="Délimiteur CSV"
-              style={{ background: '#0d1117', border: '1px solid #30363d', borderRadius: 4, color: records.length ? '#c9d1d9' : '#484f58', fontSize: 11, padding: '2px 4px', height: 26 }}
-            >
-              <option value=",">, (CSV)</option>
-              <option value=";">; (Excel FR)</option>
-              <option value={'\t'}>Tab</option>
-            </select>
-            <button onClick={exportCSV} disabled={!records.length || csvLoading} className="fl-btn fl-btn-ghost fl-btn-sm"
-              style={{ color: records.length ? '#4d82c0' : '#484f58' }}>
-              {csvLoading ? <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <Download size={12} />} Export CSV
-            </button>
-          </div>
-          
-          {records.length > 0 && !workbench && (
-            <button
-              onClick={() => { setShowColFilters(v => !v); if (showColFilters) setColFilters({}); }}
-              className="fl-btn fl-btn-ghost fl-btn-sm"
-              title="Filtres rapides par colonne"
-              style={{
-                color: showColFilters ? '#22c55e' : '#7d8590',
-                background: showColFilters ? 'rgba(34,197,94,0.08)' : 'transparent',
-                border: `1px solid ${showColFilters ? '#22c55e30' : '#30363d'}`,
-              }}>
-              <Layers size={12} />
-              Filtres col.
-              {Object.values(colFilters).some(v => v?.trim()) && (
-                <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#22c55e', display: 'inline-block', marginLeft: 2 }} />
-              )}
-            </button>
-          )}
-          
           {records.length > 0 && !workbench && (
             <button
               onClick={() => setShowColumnManager(v => !v)}
               className="fl-btn fl-btn-ghost fl-btn-sm"
               title="Gérer les colonnes (show/hide, order, width)"
               style={{
-                color: showColumnManager ? '#22c55e' : '#7d8590',
+                color: showColumnManager ? '#22c55e' : 'var(--fl-dim)',
                 background: showColumnManager ? 'rgba(34,197,94,0.08)' : 'transparent',
-                border: `1px solid ${showColumnManager ? '#22c55e30' : '#30363d'}`,
+                border: `1px solid ${showColumnManager ? '#22c55e30' : 'var(--fl-border)'}`,
               }}>
               <Columns size={12} />
               Colonnes
@@ -1088,9 +1438,9 @@ export default function SuperTimelinePage() {
               className="fl-btn fl-btn-ghost fl-btn-sm"
               title={`Personnaliser les colonnes pour ${activeArtifactType}`}
               style={{
-                color: showColumnEditor ? '#a371f7' : '#7d8590',
+                color: showColumnEditor ? '#a371f7' : 'var(--fl-dim)',
                 background: showColumnEditor ? 'rgba(163,113,247,0.08)' : 'transparent',
-                border: `1px solid ${showColumnEditor ? '#a371f740' : '#30363d'}`,
+                border: `1px solid ${showColumnEditor ? '#a371f740' : 'var(--fl-border)'}`,
               }}
             >
               <Eye size={12} />
@@ -1101,34 +1451,36 @@ export default function SuperTimelinePage() {
             </button>
           )}
 
+          <div style={{ width: 1, height: 18, background: 'var(--fl-sep)', flexShrink: 0 }} />
           {records.length > 0 && (
             <button
               onClick={() => setShowColorRules(v => !v)}
               className="fl-btn fl-btn-ghost fl-btn-sm"
               title="Moteur de règles couleur — surlignage forensique"
               style={{
-                color: showColorRules ? '#d97c20' : '#7d8590',
+                color: showColorRules ? 'var(--fl-warn)' : 'var(--fl-dim)',
                 background: showColorRules ? 'rgba(217,124,32,0.1)' : 'transparent',
-                border: `1px solid ${showColorRules ? '#d97c2030' : '#30363d'}`,
+                border: `1px solid ${showColorRules ? '#d97c2030' : 'var(--fl-border)'}`,
               }}>
               <Palette size={12} />
               Règles couleur
               {colorRulesRef.current.filter(r => r.is_active).length > 0 && (
                 <span style={{
                   width: 6, height: 6, borderRadius: '50%',
-                  background: '#d97c20', display: 'inline-block', marginLeft: 2,
+                  background: 'var(--fl-warn)', display: 'inline-block', marginLeft: 2,
                 }} />
               )}
             </button>
           )}
+          <div style={{ width: 1, height: 18, background: 'var(--fl-sep)', flexShrink: 0 }} />
           <button
             onClick={() => setWorkbench(v => !v)}
             disabled={!records.length}
             className="fl-btn fl-btn-ghost fl-btn-sm"
             style={{
-              color: workbench ? '#4d82c0' : (records.length ? '#7d8590' : '#484f58'),
+              color: workbench ? 'var(--fl-accent)' : (records.length ? 'var(--fl-dim)' : 'var(--fl-muted)'),
               background: workbench ? 'rgba(77,130,192,0.1)' : 'transparent',
-              border: `1px solid ${workbench ? '#4d82c030' : '#30363d'}`,
+              border: `1px solid ${workbench ? '#4d82c030' : 'var(--fl-border)'}`,
             }}
           >
             <LayoutTemplate size={12} /> Workbench
@@ -1139,7 +1491,7 @@ export default function SuperTimelinePage() {
               onClick={() => setToolbarCollapsed(true)}
               className="fl-btn fl-btn-ghost fl-btn-sm"
               title="Réduire la barre d'outils pour agrandir le Workbench"
-              style={{ color: '#3d5070', border: '1px solid #1a2a3a' }}
+              style={{ color: 'var(--fl-subtle)', border: '1px solid var(--fl-card)' }}
             >
               <ChevronUp size={12} /> Replier
             </button>
@@ -1150,24 +1502,25 @@ export default function SuperTimelinePage() {
       <div style={{ display: workbench && toolbarCollapsed ? 'none' : undefined }}>
 
         {total > 0 && (
-          <div style={{ padding: '6px 16px', background: '#07101f', borderBottom: '1px solid #1a2035',
-            display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center', flexShrink: 0 }}>
+          <div style={{ padding: '5px 16px 6px', background: 'var(--fl-bg)', borderBottom: '1px solid var(--fl-sep)',
+            display: 'flex', flexDirection: 'column', gap: 5, flexShrink: 0 }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, alignItems: 'center', minHeight: 30 }}>
 
             <div style={{ display: 'flex', gap: 3, alignItems: 'center' }}>
               <div style={{ position: 'relative' }}>
-                <Search size={11} style={{ position: 'absolute', left: 7, top: '50%', transform: 'translateY(-50%)', color: '#484f58' }} />
+                <Search size={11} style={{ position: 'absolute', left: 7, top: '50%', transform: 'translateY(-50%)', color: 'var(--fl-muted)' }} />
                 <input value={search} onChange={e => setSearch(e.target.value)}
                   onKeyDown={e => e.key === 'Enter' && applyFilter()}
                   placeholder={t('timeline.search_ph')}
                   style={{ paddingLeft: 22, paddingRight: 8, paddingTop: 4, paddingBottom: 4,
                     borderRadius: 5, fontSize: 11, fontFamily: 'monospace', width: 185,
-                    background: '#0d1117', border: '1px solid #30363d', color: '#e6edf3', outline: 'none' }} />
+                    background: 'var(--fl-bg)', border: '1px solid var(--fl-border)', color: 'var(--fl-text)', outline: 'none' }} />
               </div>
               <select value={searchOp} onChange={e => { setSearchOp(e.target.value); applyFilter(); }}
                 title="Opérateur de recherche"
                 style={{ padding: '3px 5px', borderRadius: 5, fontSize: 10, fontFamily: 'monospace',
-                  background: '#0d1117', border: `1px solid ${searchOp !== 'contains' ? '#8b72d6' : '#30363d'}`,
-                  color: searchOp !== 'contains' ? '#8b72d6' : '#7d8590', outline: 'none', cursor: 'pointer' }}>
+                  background: 'var(--fl-bg)', border: `1px solid ${searchOp !== 'contains' ? 'var(--fl-purple)' : 'var(--fl-border)'}`,
+                  color: searchOp !== 'contains' ? 'var(--fl-purple)' : 'var(--fl-dim)', outline: 'none', cursor: 'pointer' }}>
                 <option value="contains">{t('timeline.op_contains')}</option>
                 <option value="equals">{t('timeline.op_equals')}</option>
                 <option value="starts_with">{t('timeline.op_starts')}</option>
@@ -1175,14 +1528,15 @@ export default function SuperTimelinePage() {
               </select>
             </div>
 
+            <div style={{ width: 1, height: 16, background: 'var(--fl-sep)', flexShrink: 0 }} />
             <div ref={groupByMenuRef} style={{ position: 'relative' }}>
               <button onClick={() => setShowGroupByMenu(v => !v)}
                 title="Grouper les lignes par champ(s)"
                 style={{ padding: '3px 8px', borderRadius: 5, fontSize: 10, fontFamily: 'monospace',
                   cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4,
                   background: groupByFields.length > 0 ? '#8b72d618' : 'transparent',
-                  color: groupByFields.length > 0 ? '#8b72d6' : '#7d8590',
-                  border: `1px solid ${groupByFields.length > 0 ? '#8b72d635' : '#30363d'}` }}>
+                  color: groupByFields.length > 0 ? 'var(--fl-purple)' : 'var(--fl-dim)',
+                  border: `1px solid ${groupByFields.length > 0 ? '#8b72d635' : 'var(--fl-border)'}` }}>
                 <LayoutTemplate size={10} />
                 {groupByFields.length > 0
                   ? `Group: ${groupByFields.join(' › ')}`
@@ -1192,10 +1546,10 @@ export default function SuperTimelinePage() {
               {showGroupByMenu && (
                 <div style={{
                   position: 'absolute', top: '100%', left: 0, zIndex: 300, marginTop: 4,
-                  background: '#0d1117', border: '1px solid #30363d', borderRadius: 8,
+                  background: 'var(--fl-bg)', border: '1px solid var(--fl-border)', borderRadius: 8,
                   padding: '6px 0', minWidth: 190, boxShadow: '0 8px 24px rgba(0,0,0,0.6)',
                 }}>
-                  <div style={{ padding: '3px 12px 6px', fontSize: 9, fontFamily: 'monospace', color: '#3d5070', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                  <div style={{ padding: '3px 12px 6px', fontSize: 9, fontFamily: 'monospace', color: 'var(--fl-subtle)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
                     Grouper par (max 3 niveaux)
                   </div>
                   {[
@@ -1218,21 +1572,21 @@ export default function SuperTimelinePage() {
                           display: 'flex', alignItems: 'center', gap: 8, width: '100%',
                           padding: '5px 12px', fontSize: 11, fontFamily: 'monospace', textAlign: 'left',
                           background: active ? '#8b72d618' : 'none', border: 'none', cursor: 'pointer',
-                          color: active ? '#8b72d6' : '#c0cce0',
+                          color: active ? 'var(--fl-purple)' : 'var(--fl-on-dark)',
                         }}>
-                        <span style={{ width: 12, height: 12, borderRadius: 2, border: `1px solid ${active ? '#8b72d6' : '#3d5070'}`, background: active ? '#8b72d6' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 9, color: '#000', flexShrink: 0 }}>
+                        <span style={{ width: 12, height: 12, borderRadius: 2, border: `1px solid ${active ? 'var(--fl-purple)' : 'var(--fl-subtle)'}`, background: active ? 'var(--fl-purple)' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 9, color: '#000', flexShrink: 0 }}>
                           {active ? '✓' : ''}
                         </span>
-                        {active && <span style={{ fontSize: 9, color: '#8b72d6', marginRight: 2 }}>{idx + 1}</span>}
+                        {active && <span style={{ fontSize: 9, color: 'var(--fl-purple)', marginRight: 2 }}>{idx + 1}</span>}
                         {opt.label}
                       </button>
                     );
                   })}
                   {groupByFields.length > 0 && (
                     <>
-                      <div style={{ height: 1, background: '#1a2035', margin: '4px 0' }} />
+                      <div style={{ height: 1, background: 'var(--fl-sep)', margin: '4px 0' }} />
                       <button onClick={() => { setGroupByFields([]); setShowGroupByMenu(false); }}
-                        style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%', padding: '5px 12px', fontSize: 10, fontFamily: 'monospace', background: 'none', border: 'none', cursor: 'pointer', color: '#7d8590' }}>
+                        style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%', padding: '5px 12px', fontSize: 10, fontFamily: 'monospace', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--fl-dim)' }}>
                         <X size={9} /> Désactiver le groupement
                       </button>
                     </>
@@ -1241,6 +1595,7 @@ export default function SuperTimelinePage() {
               )}
             </div>
 
+            <div style={{ width: 1, height: 16, background: 'var(--fl-sep)', flexShrink: 0 }} />
             <input type="datetime-local" value={startTime}
               onChange={e => {
                 const newStart = e.target.value;
@@ -1249,8 +1604,8 @@ export default function SuperTimelinePage() {
                 setStartTime(newStart);
               }}
               style={{ padding: '3px 6px', borderRadius: 5, fontSize: 11, fontFamily: 'monospace',
-                background: '#0d1117', border: `1px solid ${dateError ? '#f87171' : '#30363d'}`, color: '#8899bb', colorScheme: 'dark', outline: 'none' }} />
-            <span style={{ fontSize: 11, color: dateError ? '#f87171' : '#334155' }}>→</span>
+                background: 'var(--fl-bg)', border: `1px solid ${dateError ? '#f87171' : 'var(--fl-border)'}`, color: '#8899bb', colorScheme: 'dark', outline: 'none' }} />
+            <span style={{ fontSize: 11, color: dateError ? '#f87171' : 'var(--fl-card)' }}>→</span>
             <input type="datetime-local" value={endTime}
               onChange={e => {
                 const newEnd = e.target.value;
@@ -1260,14 +1615,41 @@ export default function SuperTimelinePage() {
               }}
               title={dateError || undefined}
               style={{ padding: '3px 6px', borderRadius: 5, fontSize: 11, fontFamily: 'monospace',
-                background: '#0d1117', border: `1px solid ${dateError ? '#f87171' : '#30363d'}`, color: '#8899bb', colorScheme: 'dark', outline: 'none' }} />
+                background: 'var(--fl-bg)', border: `1px solid ${dateError ? '#f87171' : 'var(--fl-border)'}`, color: '#8899bb', colorScheme: 'dark', outline: 'none' }} />
             {dateError && <span style={{ fontSize: 10, color: '#f87171', whiteSpace: 'nowrap' }}>{dateError}</span>}
+
+            <div style={{ display: 'flex', gap: 3, alignItems: 'center', marginLeft: 2 }}>
+              <span style={{ fontSize: 9, color: 'var(--fl-subtle)', fontFamily: 'monospace', whiteSpace: 'nowrap' }}>⏩</span>
+              <input
+                value={jumpTs}
+                onChange={e => setJumpTs(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key !== 'Enter') return;
+                  const trimmed = jumpTs.trim();
+                  if (!trimmed) return;
+                  const dt = new Date(trimmed);
+                  if (isNaN(dt.getTime())) return;
+                  const iso = dt.toISOString().slice(0, 16);
+                  setStartTime(iso);
+                  setPage(1);
+                  loadTimeline(1, includeParam(excludedTypes, availTypes), search, iso, endTime, pageSize, serverSortDir, serverSortCol, hostFilter, userFilter, resultIdFilter, selectedEvidenceIds.size > 0 ? selectedEvidenceIds : null);
+                  setJumpTs('');
+                }}
+                placeholder="Aller à… (YYYY-MM-DD HH:MM)"
+                title="Saisir un timestamp pour positionner la vue (Entrée pour valider)"
+                style={{
+                  padding: '3px 6px', borderRadius: 5, fontSize: 10, fontFamily: 'monospace', width: 195,
+                  background: 'var(--fl-bg)', border: `1px solid ${jumpTs.trim() ? '#f59e0b60' : 'var(--fl-border)'}`,
+                  color: jumpTs.trim() ? '#f59e0b' : '#8899bb', outline: 'none',
+                }}
+              />
+            </div>
 
             {hostsAvail.length > 0 && (
               <select value={hostFilter} onChange={e => setHostFilter(e.target.value)}
                 style={{ padding: '3px 6px', borderRadius: 5, fontSize: 11, fontFamily: 'monospace',
-                  background: '#0d1117', border: `1px solid ${hostFilter ? '#4d82c0' : '#30363d'}`,
-                  color: hostFilter ? '#4d82c0' : '#8899bb', outline: 'none' }}>
+                  background: 'var(--fl-bg)', border: `1px solid ${hostFilter ? 'var(--fl-accent)' : 'var(--fl-border)'}`,
+                  color: hostFilter ? 'var(--fl-accent)' : '#8899bb', outline: 'none' }}>
                 <option value="">{t('timeline.machine_all')}</option>
                 {hostsAvail.map(h => <option key={h} value={h}>{h}</option>)}
               </select>
@@ -1275,8 +1657,8 @@ export default function SuperTimelinePage() {
             {usersAvail.length > 0 && (
               <select value={userFilter} onChange={e => setUserFilter(e.target.value)}
                 style={{ padding: '3px 6px', borderRadius: 5, fontSize: 11, fontFamily: 'monospace',
-                  background: '#0d1117', border: `1px solid ${userFilter ? '#8b72d6' : '#30363d'}`,
-                  color: userFilter ? '#8b72d6' : '#8899bb', outline: 'none' }}>
+                  background: 'var(--fl-bg)', border: `1px solid ${userFilter ? 'var(--fl-purple)' : 'var(--fl-border)'}`,
+                  color: userFilter ? 'var(--fl-purple)' : '#8899bb', outline: 'none' }}>
                 <option value="">{t('timeline.user_all')}</option>
                 {usersAvail.map(u => <option key={u} value={u}>{u}</option>)}
               </select>
@@ -1290,8 +1672,8 @@ export default function SuperTimelinePage() {
                     padding: '3px 8px', borderRadius: 5, fontSize: 10, fontFamily: 'monospace',
                     cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4,
                     background: selectedEvidenceIds.size > 0 ? '#06b6d418' : 'transparent',
-                    color: selectedEvidenceIds.size > 0 ? '#06b6d4' : '#7d8590',
-                    border: `1px solid ${selectedEvidenceIds.size > 0 ? '#06b6d435' : '#30363d'}`,
+                    color: selectedEvidenceIds.size > 0 ? '#06b6d4' : 'var(--fl-dim)',
+                    border: `1px solid ${selectedEvidenceIds.size > 0 ? '#06b6d435' : 'var(--fl-border)'}`,
                   }}
                   title={t('timeline.filter_by_source')}
                 >
@@ -1301,11 +1683,11 @@ export default function SuperTimelinePage() {
                 {showEvidenceFilter && (
                   <div style={{
                     position: 'absolute', top: '100%', left: 0, zIndex: 200, marginTop: 4,
-                    background: '#0d1117', border: '1px solid #30363d', borderRadius: 8,
+                    background: 'var(--fl-bg)', border: '1px solid var(--fl-border)', borderRadius: 8,
                     padding: '6px 0', minWidth: 240, maxWidth: 340,
                     boxShadow: '0 8px 24px rgba(0,0,0,0.6)',
                   }}>
-                    <div style={{ padding: '3px 10px 6px', fontSize: 9, fontFamily: 'monospace', color: '#3d5070', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                    <div style={{ padding: '3px 10px 6px', fontSize: 9, fontFamily: 'monospace', color: 'var(--fl-subtle)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
                       {t('timeline.filter_by_collection')}
                     </div>
                     
@@ -1320,14 +1702,14 @@ export default function SuperTimelinePage() {
                         display: 'block', width: '100%', textAlign: 'left', padding: '5px 12px',
                         fontSize: 11, fontFamily: 'monospace', background: selectedEvidenceIds.size === 0 ? '#06b6d412' : 'none',
                         border: 'none', cursor: 'pointer',
-                        color: selectedEvidenceIds.size === 0 ? '#06b6d4' : '#7d8590',
+                        color: selectedEvidenceIds.size === 0 ? '#06b6d4' : 'var(--fl-dim)',
                       }}
-                      onMouseEnter={e => { if (selectedEvidenceIds.size !== 0) e.currentTarget.style.background = '#1a2a3a'; }}
+                      onMouseEnter={e => { if (selectedEvidenceIds.size !== 0) e.currentTarget.style.background = 'var(--fl-card)'; }}
                       onMouseLeave={e => { if (selectedEvidenceIds.size !== 0) e.currentTarget.style.background = 'none'; }}
                     >
                       {t('timeline.all_collections')}
                     </button>
-                    <div style={{ height: 1, background: '#1a2035', margin: '3px 0' }} />
+                    <div style={{ height: 1, background: 'var(--fl-sep)', margin: '3px 0' }} />
                     {evidenceList.map(ev => {
                       const sel = selectedEvidenceIds.has(ev.id);
                       return (
@@ -1344,12 +1726,12 @@ export default function SuperTimelinePage() {
                             display: 'flex', alignItems: 'center', gap: 7, width: '100%', textAlign: 'left',
                             padding: '5px 12px', fontSize: 11, fontFamily: 'monospace',
                             background: sel ? '#06b6d412' : 'none', border: 'none', cursor: 'pointer',
-                            color: sel ? '#06b6d4' : '#c0cce0',
+                            color: sel ? '#06b6d4' : 'var(--fl-on-dark)',
                           }}
-                          onMouseEnter={e => { if (!sel) e.currentTarget.style.background = '#1a2a3a'; }}
+                          onMouseEnter={e => { if (!sel) e.currentTarget.style.background = 'var(--fl-card)'; }}
                           onMouseLeave={e => { if (!sel) e.currentTarget.style.background = 'none'; }}
                         >
-                          <span style={{ width: 10, height: 10, borderRadius: 2, border: `1px solid ${sel ? '#06b6d4' : '#3d5070'}`, background: sel ? '#06b6d4' : 'transparent', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 8, color: '#000' }}>
+                          <span style={{ width: 10, height: 10, borderRadius: 2, border: `1px solid ${sel ? '#06b6d4' : 'var(--fl-subtle)'}`, background: sel ? '#06b6d4' : 'transparent', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 8, color: '#000' }}>
                             {sel ? '✓' : ''}
                           </span>
                           <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 200 }}>
@@ -1363,102 +1745,106 @@ export default function SuperTimelinePage() {
               </div>
             )}
 
-            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', alignItems: 'center' }}>
-              
-              <button
-                onClick={() => { setExcludedTypes(new Set()); setPage(1); loadTimeline(1, '', search, startTime, endTime, pageSize, serverSortDir, serverSortCol, hostFilter, userFilter, resultIdFilter, selectedEvidenceIds); }}
-                style={{ padding: '2px 8px', borderRadius: 10, fontSize: 10, fontFamily: 'monospace',
-                  cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4,
-                  background: excludedTypes.size === 0 ? '#4d82c018' : 'transparent',
-                  color: excludedTypes.size === 0 ? '#4d82c0' : '#7d8590',
-                  border: `1px solid ${excludedTypes.size === 0 ? '#4d82c035' : '#30363d'}` }}>
-                {t('common.all')}
-              </button>
-              {availTypes.map(t => {
-                const col      = artifactColor(t);
-                const excluded = excludedTypes.has(t);
-                const count    = typeCounts[t];
-                return (
-                  <button key={t}
-                    title={excluded ? `Afficher ${t}` : `Masquer ${t}`}
-                    onClick={() => {
-                      const ns = new Set(excludedTypes);
-                      excluded ? ns.delete(t) : ns.add(t);
-                      setExcludedTypes(ns);
-                      setPage(1);
-                      loadTimeline(1, includeParam(ns, availTypes), search, startTime, endTime, pageSize, serverSortDir, serverSortCol, hostFilter, userFilter, resultIdFilter, selectedEvidenceIds);
-                    }}
-                    style={{ padding: '2px 8px', borderRadius: 10, fontSize: 10, fontFamily: 'monospace',
-                      cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4,
-                      background: excluded ? `${col}08` : `${col}18`,
-                      color: excluded ? `color-mix(in srgb, ${col} 45%, #484f58)` : col,
-                      border: `1px ${excluded ? 'dashed' : 'solid'} ${excluded ? col + '30' : col + '50'}`,
-                      transition: 'all 0.15s',
-                      textDecoration: excluded ? 'line-through' : 'none' }}>
-                    <span style={{ width: 6, height: 6, borderRadius: '50%', background: excluded ? `color-mix(in srgb, ${col} 40%, #30363d)` : col, display: 'inline-block', flexShrink: 0 }} />
-                    {t}
-                    {count != null && (
-                      <span style={{ fontSize: 9, opacity: excluded ? 0.5 : 0.75 }}>({count.toLocaleString('fr-FR')})</span>
-                    )}
-                    {excluded && <EyeOff size={8} style={{ marginLeft: 1, flexShrink: 0 }} />}
-                  </button>
-                );
-              })}
-            </div>
-
-            <button onClick={applyFilter}
-              style={{ padding: '4px 10px', borderRadius: 5, fontSize: 11, fontFamily: 'monospace', cursor: 'pointer',
-                background: '#4d82c018', border: '1px solid #4d82c030', color: '#4d82c0',
-                display: 'flex', alignItems: 'center', gap: 4 }}>
-              <Filter size={10} /> {t('timeline.apply_filter')}
-            </button>
-            {hasFilters && (
-              <button onClick={clearFilters}
-                style={{ padding: '4px 8px', borderRadius: 5, fontSize: 11, fontFamily: 'monospace', cursor: 'pointer',
-                  background: 'transparent', border: '1px solid #30363d', color: '#7d8590',
+            {/* Filtrer + Reset — right-aligned end of Row A */}
+            <div style={{ marginLeft: 'auto', display: 'flex', gap: 4, alignItems: 'center', flexWrap: 'wrap' }}>
+              {hasResultFilter && (
+                <button
+                  onClick={() => { setResultIdFilter(''); setPage(1); loadTimeline(1, includeParam(excludedTypes, availTypes), search, startTime, endTime, pageSize, serverSortDir, serverSortCol, hostFilter, userFilter, ''); }}
+                  style={{ padding: '3px 8px', borderRadius: 10, fontSize: 11, fontFamily: 'monospace', cursor: 'pointer',
+                    background: '#8b72d618', border: '1px solid #8b72d640', color: 'var(--fl-purple)',
+                    display: 'flex', alignItems: 'center', gap: 5 }}
+                  title={t('timeline.remove_collection_filter')}>
+                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--fl-purple)', display: 'inline-block', flexShrink: 0 }} />
+                  {t('timeline.collection_label')} : {resultIdFilter.slice(0, 8)}…
+                  <X size={9} />
+                </button>
+              )}
+              <button onClick={applyFilter}
+                style={{ padding: '3px 10px', borderRadius: 5, fontSize: 11, fontFamily: 'monospace', cursor: 'pointer',
+                  background: '#4d82c018', border: '1px solid #4d82c030', color: 'var(--fl-accent)',
                   display: 'flex', alignItems: 'center', gap: 4 }}>
-                <X size={10} /> Reset
-                {activeFilterCount > 0 && (
-                  <span style={{
-                    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                    width: 16, height: 16, borderRadius: '50%', fontSize: 9, fontWeight: 700,
-                    background: '#4d82c0', color: '#fff',
-                  }}>{activeFilterCount}</span>
-                )}
+                <Filter size={10} /> {t('timeline.apply_filter')}
               </button>
-            )}
-            {hasResultFilter && (
-              <button
-                onClick={() => { setResultIdFilter(''); setPage(1); loadTimeline(1, includeParam(excludedTypes, availTypes), search, startTime, endTime, pageSize, serverSortDir, serverSortCol, hostFilter, userFilter, ''); }}
-                style={{ padding: '3px 8px', borderRadius: 10, fontSize: 11, fontFamily: 'monospace', cursor: 'pointer',
-                  background: '#8b72d618', border: '1px solid #8b72d640', color: '#8b72d6',
-                  display: 'flex', alignItems: 'center', gap: 5 }}
-                title={t('timeline.remove_collection_filter')}>
-                <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#8b72d6', display: 'inline-block', flexShrink: 0 }} />
-                {t('timeline.collection_label')} : {resultIdFilter.slice(0, 8)}…
-                <X size={9} />
-              </button>
-            )}
+              {hasFilters && (
+                <button onClick={clearFilters}
+                  style={{ padding: '3px 8px', borderRadius: 5, fontSize: 11, fontFamily: 'monospace', cursor: 'pointer',
+                    background: 'transparent', border: '1px solid var(--fl-border)', color: 'var(--fl-dim)',
+                    display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <X size={10} /> Reset
+                  {activeFilterCount > 0 && (
+                    <span style={{
+                      display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                      width: 16, height: 16, borderRadius: '50%', fontSize: 9, fontWeight: 700,
+                      background: 'var(--fl-accent)', color: '#fff',
+                    }}>{activeFilterCount}</span>
+                  )}
+                </button>
+              )}
+            </div>
+          </div>{/* end Row A */}
+
+          {/* Row B — artefacts colorés + lignes */}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3, alignItems: 'center' }}>
+            <button
+              onClick={() => { setExcludedTypes(new Set()); setPage(1); loadTimeline(1, '', search, startTime, endTime, pageSize, serverSortDir, serverSortCol, hostFilter, userFilter, resultIdFilter, selectedEvidenceIds); }}
+              style={{ padding: '2px 8px', borderRadius: 10, fontSize: 10, fontFamily: 'monospace',
+                cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4,
+                background: excludedTypes.size === 0 ? '#4d82c018' : 'transparent',
+                color: excludedTypes.size === 0 ? 'var(--fl-accent)' : 'var(--fl-dim)',
+                border: `1px solid ${excludedTypes.size === 0 ? '#4d82c035' : 'var(--fl-border)'}` }}>
+              {t('common.all')}
+            </button>
+            {availTypes.map(t => {
+              const col      = tabColor(t);
+              const excluded = excludedTypes.has(t);
+              const count    = typeCounts[t];
+              return (
+                <button key={t}
+                  title={excluded ? `Afficher ${t}` : `Masquer ${t}`}
+                  onClick={() => {
+                    const ns = new Set(excludedTypes);
+                    excluded ? ns.delete(t) : ns.add(t);
+                    setExcludedTypes(ns);
+                    setPage(1);
+                    loadTimeline(1, includeParam(ns, availTypes), search, startTime, endTime, pageSize, serverSortDir, serverSortCol, hostFilter, userFilter, resultIdFilter, selectedEvidenceIds);
+                  }}
+                  style={{ padding: '2px 8px', borderRadius: 10, fontSize: 10, fontFamily: 'monospace',
+                    cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4,
+                    background: excluded ? `${col}14` : `${col}22`,
+                    color: excluded ? `${col}80` : col,
+                    border: `1px ${excluded ? 'dashed' : 'solid'} ${excluded ? col + '50' : col + '90'}`,
+                    transition: 'all 0.15s',
+                    textDecoration: excluded ? 'line-through' : 'none' }}>
+                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: excluded ? `${col}55` : col, display: 'inline-block', flexShrink: 0 }} />
+                  {t}
+                  {count != null && (
+                    <span style={{ fontSize: 9, opacity: excluded ? 0.5 : 0.75 }}>({count.toLocaleString('fr-FR')})</span>
+                  )}
+                  {excluded && <EyeOff size={8} style={{ marginLeft: 1, flexShrink: 0 }} />}
+                </button>
+              );
+            })}
 
             <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 4 }}>
-              <span style={{ fontSize: 10, fontFamily: 'monospace', color: '#334155' }}>{t('timeline.rows_per_page')} :</span>
+              <span style={{ fontSize: 10, fontFamily: 'monospace', color: 'var(--fl-muted)' }}>{t('timeline.rows_per_page')} :</span>
               {PAGE_SIZES.map(s => (
                 <button key={s} onClick={() => changePageSize(s)}
                   style={{ padding: '2px 7px', borderRadius: 4, fontSize: 10, fontFamily: 'monospace', cursor: 'pointer',
-                    background: pageSize === s ? '#4d82c018' : 'transparent', color: pageSize === s ? '#4d82c0' : '#334155',
-                    border: `1px solid ${pageSize === s ? '#4d82c030' : '#30363d'}` }}>
+                    background: pageSize === s ? '#4d82c018' : 'transparent', color: pageSize === s ? 'var(--fl-accent)' : 'var(--fl-dim)',
+                    border: `1px solid ${pageSize === s ? '#4d82c030' : 'var(--fl-border)'}` }}>
                   {s}
                 </button>
               ))}
             </div>
           </div>
+          </div>
         )}
 
         {taggedCount > 0 && (
-          <div style={{ padding: '7px 10px', background: '#0d1525', border: '1px solid #30363d',
+          <div style={{ padding: '7px 10px', background: 'var(--fl-bg)', border: '1px solid var(--fl-border)',
             borderRadius: 8, marginBottom: 8, display: 'flex', flexWrap: 'wrap', gap: 5, alignItems: 'center' }}>
-            <Tag size={11} style={{ color: '#3d5070', flexShrink: 0 }} />
-            <span style={{ fontSize: 10, fontFamily: 'monospace', color: '#3d5070', marginRight: 4 }}>
+            <Tag size={11} style={{ color: 'var(--fl-subtle)', flexShrink: 0 }} />
+            <span style={{ fontSize: 10, fontFamily: 'monospace', color: 'var(--fl-subtle)', marginRight: 4 }}>
               {t('timeline.filter_by_tag')}
             </span>
 
@@ -1469,11 +1855,11 @@ export default function SuperTimelinePage() {
                 <button key={l.key} onClick={() => setConfidenceFilter(active ? null : l.key)}
                   style={{ padding: '2px 8px', borderRadius: 10, fontSize: 10, fontFamily: 'monospace',
                     cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4,
-                    background: active ? l.bg : 'transparent', color: active ? l.color : '#334155',
-                    border: `1px solid ${active ? l.color + '40' : '#30363d'}` }}>
-                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: l.color, display: 'inline-block' }} />
+                    background: active ? l.bg : 'transparent', color: active ? l.color : 'var(--fl-dim)',
+                    border: `1px solid ${active ? l.color + '40' : 'var(--fl-border)'}` }}>
+                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: l.color, display: 'inline-block', flexShrink: 0 }} />
                   {l.label}
-                  <span style={{ opacity: 0.6 }}>({confidenceCounts[l.key]})</span>
+                  <span style={{ opacity: 0.55 }}>({confidenceCounts[l.key]})</span>
                 </button>
               );
             })}
@@ -1486,10 +1872,10 @@ export default function SuperTimelinePage() {
                 <button key={t.key} onClick={() => setForensicTagFilter(active ? null : t.key)}
                   style={{ padding: '2px 8px', borderRadius: 10, fontSize: 10, fontFamily: 'monospace',
                     cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4,
-                    background: active ? `${t.color}20` : 'transparent', color: active ? t.color : '#334155',
-                    border: `1px solid ${active ? t.color + '40' : '#30363d'}` }}>
+                    background: active ? `${t.color}20` : 'transparent', color: active ? t.color : 'var(--fl-dim)',
+                    border: `1px solid ${active ? t.color + '40' : 'var(--fl-border)'}` }}>
                   {t.label}
-                  <span style={{ opacity: 0.6 }}>({count})</span>
+                  <span style={{ opacity: 0.55 }}>({count})</span>
                 </button>
               );
             })}
@@ -1497,7 +1883,7 @@ export default function SuperTimelinePage() {
             {(confidenceFilter || forensicTagFilter) && (
               <button onClick={() => { setConfidenceFilter(null); setForensicTagFilter(null); }}
                 style={{ padding: '2px 6px', borderRadius: 4, fontSize: 10, fontFamily: 'monospace',
-                  cursor: 'pointer', background: 'transparent', border: '1px solid #30363d', color: '#334155',
+                  cursor: 'pointer', background: 'transparent', border: '1px solid var(--fl-border)', color: 'var(--fl-muted)',
                   display: 'flex', alignItems: 'center', gap: 3 }}>
                 <X size={9} /> Reset tags
               </button>
@@ -1508,44 +1894,44 @@ export default function SuperTimelinePage() {
 
       {!loading && total === 0 && caseId && (
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 40 }}>
-          <Clock size={44} style={{ color: '#30363d', marginBottom: 12 }} />
+          <Clock size={44} style={{ color: 'var(--fl-border)', marginBottom: 12 }} />
           {isIsolated ? (
             <>
-              <p style={{ fontFamily: 'monospace', fontSize: 14, fontWeight: 600, color: '#e6edf3', marginBottom: 6 }}>
+              <p style={{ fontFamily: 'monospace', fontSize: 14, fontWeight: 600, color: 'var(--fl-text)', marginBottom: 6 }}>
                 {t('timeline.no_isolated_data')}
               </p>
-              <p style={{ fontFamily: 'monospace', fontSize: 11, color: '#7d8590', marginBottom: 6, textAlign: 'center', maxWidth: 400 }}>
+              <p style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--fl-dim)', marginBottom: 6, textAlign: 'center', maxWidth: 400 }}>
                 {t('timeline.reparse_hint')}
               </p>
-              <p style={{ fontFamily: 'monospace', fontSize: 10, color: '#484f58', marginBottom: 20, fontStyle: 'italic' }}>
+              <p style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--fl-muted)', marginBottom: 20, fontStyle: 'italic' }}>
                 {isolatedEvidenceName || routeEvidenceId}
               </p>
               <div style={{ display: 'flex', gap: 10 }}>
                 <button
                   onClick={() => navigate(`/cases/${routeCaseId}`, { state: { tab: 'evidence' } })}
                   style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 18px', borderRadius: 6, fontSize: 11,
-                    fontFamily: 'monospace', fontWeight: 600, background: '#4d82c0', color: '#ffffff', border: 'none', cursor: 'pointer' }}>
+                    fontFamily: 'monospace', fontWeight: 600, background: 'var(--fl-accent)', color: '#ffffff', border: 'none', cursor: 'pointer' }}>
                   <ArrowLeft size={13} /> {t('timeline.go_to_evidence')}
                 </button>
                 <button
                   onClick={() => navigate(`/cases/${routeCaseId}`, { state: { tab: 'timeline' } })}
                   style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 6, fontSize: 11,
-                    fontFamily: 'monospace', fontWeight: 600, background: '#161b22', color: '#7d8590', border: '1px solid #30363d', cursor: 'pointer' }}>
+                    fontFamily: 'monospace', fontWeight: 600, background: 'var(--fl-panel)', color: 'var(--fl-dim)', border: '1px solid var(--fl-border)', cursor: 'pointer' }}>
                   <ChevronLeft size={13} /> {t('timeline.back_to_case')}
                 </button>
               </div>
             </>
           ) : (
             <>
-              <p style={{ fontFamily: 'monospace', fontSize: 14, fontWeight: 600, color: '#e6edf3', marginBottom: 6 }}>
+              <p style={{ fontFamily: 'monospace', fontSize: 14, fontWeight: 600, color: 'var(--fl-text)', marginBottom: 6 }}>
                 {t('timeline.no_parsed_data')}
               </p>
-              <p style={{ fontFamily: 'monospace', fontSize: 11, color: '#7d8590', marginBottom: 20 }}>
+              <p style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--fl-dim)', marginBottom: 20 }}>
                 {selectedCase?.case_number} — {t('timeline.parse_hint')}
               </p>
               <button onClick={() => navigate('/collection')}
                 style={{ padding: '8px 20px', borderRadius: 6, fontSize: 11, fontFamily: 'monospace',
-                  fontWeight: 600, background: '#4d82c0', color: '#ffffff', border: 'none', cursor: 'pointer' }}>
+                  fontWeight: 600, background: 'var(--fl-accent)', color: '#ffffff', border: 'none', cursor: 'pointer' }}>
                 {t('timeline.import_collection')}
               </button>
             </>
@@ -1557,7 +1943,7 @@ export default function SuperTimelinePage() {
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: 0, minHeight: 0 }}>
           {loading ? (
             <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <Loader2 size={20} className="animate-spin" style={{ color: '#4d82c0' }} />
+              <Loader2 size={20} className="animate-spin" style={{ color: 'var(--fl-accent)' }} />
             </div>
           ) : workbench ? (
             <SuperTimelineWorkbench
@@ -1586,13 +1972,13 @@ export default function SuperTimelinePage() {
                   <div
                     onClick={() => setShowPinned(v => !v)}
                     style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 10px', cursor: 'pointer',
-                      background: '#0d1117', borderBottom: showPinned ? '1px solid #d97c2020' : 'none' }}>
-                    <Pin size={10} style={{ color: '#d97c20' }} />
-                    <span style={{ fontFamily: 'monospace', fontSize: 10, fontWeight: 700, color: '#d97c20' }}>
+                      background: 'var(--fl-bg)', borderBottom: showPinned ? '1px solid #d97c2020' : 'none' }}>
+                    <Pin size={10} style={{ color: 'var(--fl-warn)' }} />
+                    <span style={{ fontFamily: 'monospace', fontSize: 10, fontWeight: 700, color: 'var(--fl-warn)' }}>
                       Épinglés ({pinnedRows.size})
                     </span>
                     <button onClick={e => { e.stopPropagation(); setPinnedRows(new Map()); try { localStorage.removeItem(`heimdall_pins_${caseId}`); } catch {} }}
-                      style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: '#484f58', fontSize: 9, fontFamily: 'monospace' }}>
+                      style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--fl-muted)', fontSize: 9, fontFamily: 'monospace' }}>
                       Tout désépingler
                     </button>
                   </div>
@@ -1603,18 +1989,18 @@ export default function SuperTimelinePage() {
                         const pac = artifactColor(pr.artifact_type);
                         return (
                           <div key={key} style={{ display: 'flex', alignItems: 'center', gap: 6,
-                            padding: '3px 10px', borderBottom: '1px solid #0d1525',
+                            padding: '3px 10px', borderBottom: '1px solid var(--fl-bg)',
                             background: 'transparent', fontSize: 10, fontFamily: 'monospace' }}>
                             <button onClick={e => togglePin(e, pr)}
                               style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
-                              <Pin size={9} fill="#d97c20" style={{ color: '#d97c20' }} />
+                              <Pin size={9} fill="var(--fl-warn)" style={{ color: 'var(--fl-warn)' }} />
                             </button>
-                            <span style={{ color: '#7a9abf', flexShrink: 0 }}>{fmtTs(pr.timestamp).substring(0, 19)}</span>
+                            <span style={{ color: 'var(--fl-accent)', flexShrink: 0 }}>{fmtTs(pr.timestamp).substring(0, 19)}</span>
                             <span style={{ padding: '0px 5px', borderRadius: 3, fontSize: 9, fontWeight: 700,
                               background: `${pac}18`, color: pac, border: `1px solid ${pac}30`, flexShrink: 0 }}>
                               {pr.artifact_type}
                             </span>
-                            <span style={{ color: '#c0cce0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            <span style={{ color: 'var(--fl-on-dark)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                               {(pr.description || pr.source || '').substring(0, 100)}
                             </span>
                           </div>
@@ -1627,7 +2013,7 @@ export default function SuperTimelinePage() {
 
               <div
                 ref={tableContainerRef}
-                style={{ overflow: 'auto', border: '1px solid #1a2035', borderRadius: 4, flex: '1 1 auto', position: 'relative', background: '#060b14' }}
+                style={{ overflow: 'auto', border: '1px solid var(--fl-sep)', borderRadius: 4, flex: '1 1 auto', position: 'relative', background: 'var(--fl-bg)' }}
               >
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, tableLayout: 'fixed' }}>
                   <colgroup>
@@ -1638,30 +2024,30 @@ export default function SuperTimelinePage() {
                     {visibleCols.map(c => <col key={c.key} style={{ width: c.flex ? undefined : (colWidths.get(c.key) ?? c.width) }} />)}
                   </colgroup>
 
-                  <thead style={{ position: 'sticky', top: 0, zIndex: 10, background: '#07101f' }}>
+                  <thead style={{ position: 'sticky', top: 0, zIndex: 10, background: 'var(--fl-bg)' }}>
                     
                     <tr>
                       
                       <th style={{ padding: '6px 4px', borderBottom: '2px solid #20293a', textAlign: 'center' }}
                           onClick={selectAllVisible} title="Tout sélectionner / désélectionner">
                         {colFilteredRecords.length > 0 && selectedRows.size === colFilteredRecords.length
-                          ? <CheckSquare size={11} style={{ color: '#4d82c0', cursor: 'pointer' }} />
-                          : <Square size={11} style={{ color: selectedRows.size > 0 ? '#4d82c060' : '#30363d', cursor: 'pointer' }} />
+                          ? <CheckSquare size={11} style={{ color: 'var(--fl-accent)', cursor: 'pointer' }} />
+                          : <Square size={11} style={{ color: selectedRows.size > 0 ? '#4d82c060' : 'var(--fl-border)', cursor: 'pointer' }} />
                         }
                       </th>
                       
                       <th style={{ padding: '6px 4px', borderBottom: '2px solid #20293a', textAlign: 'center' }}
                         title="Signets">
-                        <Star size={9} style={{ color: '#30363d' }} />
+                        <Star size={9} style={{ color: 'var(--fl-border)' }} />
                       </th>
                       
                       <th style={{ padding: '6px 4px', borderBottom: '2px solid #20293a', textAlign: 'center' }}
                         title="Épingles">
-                        <Pin size={9} style={{ color: '#30363d' }} />
+                        <Pin size={9} style={{ color: 'var(--fl-border)' }} />
                       </th>
                       
                       <th style={{ padding: '6px 4px', borderBottom: '2px solid #20293a',
-                        fontFamily: 'monospace', fontSize: 9, color: '#3d5070', textAlign: 'center' }}>
+                        fontFamily: 'monospace', fontSize: 9, color: 'var(--fl-subtle)', textAlign: 'center' }}>
                         <Tag size={9} />
                       </th>
                       {visibleCols.map(col => {
@@ -1681,7 +2067,7 @@ export default function SuperTimelinePage() {
                             style={{ padding: '6px 8px', textAlign: 'left', cursor: 'pointer', userSelect: 'none',
                               fontFamily: 'monospace', fontSize: 10, fontWeight: 700,
                               letterSpacing: '0.07em', textTransform: 'uppercase',
-                              color: isActive ? '#4d82c0' : '#3d5070',
+                              color: isActive ? 'var(--fl-accent)' : 'var(--fl-subtle)',
                               borderBottom: showColFilters ? 'none' : '2px solid #20293a', whiteSpace: 'nowrap' }}>
                             <span style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
                               {col.label}
@@ -1689,7 +2075,7 @@ export default function SuperTimelinePage() {
                                 <span style={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                                   {direction === 'asc' ? <SortAsc size={10} /> : <SortDesc size={10} />}
                                   {rankLabel && (
-                                    <sup style={{ fontSize: 8, lineHeight: 1, color: '#4d82c0', fontWeight: 700 }}>
+                                    <sup style={{ fontSize: 8, lineHeight: 1, color: 'var(--fl-accent)', fontWeight: 700 }}>
                                       {rankLabel}
                                     </sup>
                                   )}
@@ -1702,27 +2088,71 @@ export default function SuperTimelinePage() {
                     </tr>
                     
                     {showColFilters && (
-                      <tr style={{ background: '#060b14' }}>
-                        <th style={{ padding: '2px 4px', borderBottom: '1px solid #1a2035' }} />
-                        <th style={{ padding: '2px 4px', borderBottom: '1px solid #1a2035' }} />
-                        <th style={{ padding: '2px 4px', borderBottom: '1px solid #1a2035' }} />
-                        <th style={{ padding: '2px 4px', borderBottom: '1px solid #1a2035' }} />
-                        {visibleCols.map(col => (
-                          <th key={`cf-${col.key}`} style={{ padding: '2px 4px', borderBottom: '1px solid #1a2035' }}>
-                            <input
-                              value={colFilters[col.key] || ''}
-                              onChange={e => setColFilters(prev => ({ ...prev, [col.key]: e.target.value }))}
-                              placeholder="…"
-                              title={`Filtrer ${col.label}`}
-                              style={{
-                                width: '100%', background: colFilters[col.key] ? '#0e1e10' : '#0d1117',
-                                border: `1px solid ${colFilters[col.key] ? '#22c55e60' : '#30363d'}`,
-                                borderRadius: 3, color: colFilters[col.key] ? '#22c55e' : '#7d8590',
-                                fontSize: 9, padding: '2px 5px', fontFamily: 'monospace', outline: 'none',
-                              }}
-                            />
-                          </th>
-                        ))}
+                      <tr style={{ background: 'var(--fl-card)' }}>
+                        <th style={{ padding: '2px 4px', borderBottom: '1px solid var(--fl-sep)' }} />
+                        <th style={{ padding: '2px 4px', borderBottom: '1px solid var(--fl-sep)' }} />
+                        <th style={{ padding: '2px 4px', borderBottom: '1px solid var(--fl-sep)' }} />
+                        <th style={{ padding: '2px 4px', borderBottom: '1px solid var(--fl-sep)', textAlign: 'center', verticalAlign: 'middle' }}>
+                          <button
+                            onClick={() => setColFilterCombinator(v => v === 'AND' ? 'OR' : 'AND')}
+                            title={colFilterCombinator === 'AND' ? 'Mode: toutes les colonnes doivent correspondre (ET) — cliquer pour passer en OU' : 'Mode: au moins une colonne doit correspondre (OU) — cliquer pour passer en ET'}
+                            style={{
+                              fontSize: 9, fontFamily: 'monospace', fontWeight: 700,
+                              padding: '1px 5px', borderRadius: 3, cursor: 'pointer',
+                              background: colFilterCombinator === 'OR' ? '#f59e0b18' : '#22c55e18',
+                              color: colFilterCombinator === 'OR' ? '#f59e0b' : '#22c55e',
+                              border: `1px solid ${colFilterCombinator === 'OR' ? '#f59e0b40' : '#22c55e40'}`,
+                            }}>
+                            {colFilterCombinator}
+                          </button>
+                        </th>
+                        {visibleCols.map(col => {
+                          const f   = colFilters[col.key] || { op: 'contains', value: '' };
+                          const op  = f.op  ?? 'contains';
+                          const val = f.value ?? '';
+                          const isActive = op === 'empty' || op === 'not_empty' || val.trim();
+                          return (
+                            <th key={`cf-${col.key}`} style={{ padding: '2px 4px', borderBottom: '1px solid var(--fl-sep)' }}>
+                              <div style={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+                                <select
+                                  value={op}
+                                  onChange={e => setColFilters(prev => ({ ...prev, [col.key]: { op: e.target.value, value: prev[col.key]?.value ?? '' } }))}
+                                  title="Opérateur de filtre"
+                                  style={{
+                                    flexShrink: 0, width: 26, fontSize: 10, padding: '1px 1px',
+                                    background: isActive ? '#0e1e10' : 'var(--fl-bg)',
+                                    border: `1px solid ${isActive ? '#22c55e60' : 'var(--fl-border)'}`,
+                                    borderRadius: 3, color: isActive ? '#22c55e' : 'var(--fl-dim)',
+                                    outline: 'none', cursor: 'pointer', appearance: 'none', textAlign: 'center',
+                                  }}>
+                                  <option value="contains"   title="Contient">⊃</option>
+                                  <option value="not_contains" title="Ne contient pas">⊄</option>
+                                  <option value="equals"     title="Égal">＝</option>
+                                  <option value="not_equals" title="Différent">≠</option>
+                                  <option value="starts_with" title="Commence par">▷</option>
+                                  <option value="ends_with"  title="Finit par">◁</option>
+                                  <option value="regex"      title="Regex">~</option>
+                                  <option value="empty"      title="Vide">∅</option>
+                                  <option value="not_empty"  title="Non vide">•</option>
+                                </select>
+                                {op !== 'empty' && op !== 'not_empty' && (
+                                  <input
+                                    value={val}
+                                    onChange={e => setColFilters(prev => ({ ...prev, [col.key]: { op: prev[col.key]?.op ?? 'contains', value: e.target.value } }))}
+                                    placeholder="…"
+                                    title={`Filtrer ${col.label}`}
+                                    style={{
+                                      flex: 1, minWidth: 0, background: val.trim() ? '#0e1e10' : 'var(--fl-bg)',
+                                      border: `1px solid ${val.trim() ? '#22c55e60' : 'var(--fl-border)'}`,
+                                      borderRadius: 3, color: val.trim() ? '#22c55e' : 'var(--fl-dim)',
+                                      fontSize: 9, padding: '2px 4px', fontFamily: 'monospace', outline: 'none',
+                                    }}
+                                  />
+                                )}
+                              </div>
+                            </th>
+                          );
+                        })}
                       </tr>
                     )}
                   </thead>
@@ -1803,8 +2233,8 @@ export default function SuperTimelinePage() {
                           style={{
                             height: virtualItem.size,
                             background: rowBg,
-                            borderLeft: `3px solid ${isChecked ? '#4d82c0' : rowAccent}`,
-                            borderBottom: '1px solid #0d1525',
+                            borderLeft: `3px solid ${isChecked ? 'var(--fl-accent)' : rowAccent}`,
+                            borderBottom: '1px solid var(--fl-bg)',
                             cursor: 'pointer',
                             transition: 'background 0.08s',
                           }}
@@ -1813,15 +2243,15 @@ export default function SuperTimelinePage() {
                           <td onClick={e => toggleRowCheckbox(e, i)}
                             style={{ padding: '2px 0', textAlign: 'center', width: 24 }}>
                             {isChecked
-                              ? <CheckSquare size={10} style={{ color: '#4d82c0' }} />
-                              : <Square size={10} style={{ color: '#30363d' }} />
+                              ? <CheckSquare size={10} style={{ color: 'var(--fl-accent)' }} />
+                              : <Square size={10} style={{ color: 'var(--fl-border)' }} />
                             }
                           </td>
 
                           <td onClick={e => toggleBookmark(e, globalIdx)}
                             style={{ padding: '2px 0', textAlign: 'center', width: 20 }}>
                             <Star size={9} fill={isBkm ? '#f59e0b' : 'none'}
-                              style={{ color: isBkm ? '#f59e0b' : '#30363d' }} />
+                              style={{ color: isBkm ? '#f59e0b' : 'var(--fl-border)' }} />
                           </td>
 
                           {(() => {
@@ -1831,8 +2261,8 @@ export default function SuperTimelinePage() {
                               <td onClick={e => togglePin(e, r)}
                                 title={isPinned ? 'Désépingler cette ligne' : 'Épingler cette ligne en haut'}
                                 style={{ padding: '2px 0', textAlign: 'center', width: 18 }}>
-                                <Pin size={9} fill={isPinned ? '#d97c20' : 'none'}
-                                  style={{ color: isPinned ? '#d97c20' : '#30363d' }} />
+                                <Pin size={9} fill={isPinned ? 'var(--fl-warn)' : 'none'}
+                                  style={{ color: isPinned ? 'var(--fl-warn)' : 'var(--fl-border)' }} />
                               </td>
                             );
                           })()}
@@ -1843,16 +2273,16 @@ export default function SuperTimelinePage() {
                             {lvl ? (
                               <span style={{ fontSize: 12, color: lvl.color }} title={lvl.label}>{lvl.dot}</span>
                             ) : td.tags?.length > 0 ? (
-                              <Tag size={9} style={{ color: '#3d5070' }} />
+                              <Tag size={9} style={{ color: 'var(--fl-subtle)' }} />
                             ) : (
-                              <span style={{ fontSize: 9, color: '#30363d' }}>○</span>
+                              <span style={{ fontSize: 9, color: 'var(--fl-border)' }}>○</span>
                             )}
                           </td>
 
                           {visibleCols.map(col2 => {
                             let content;
                             if (col2.key === 'timestamp') {
-                              content = <span style={{ color: '#7a9abf' }}>{fmtTs(r.timestamp)}</span>;
+                              content = <span style={{ color: 'var(--fl-accent)' }}>{fmtTs(r.timestamp)}</span>;
                             } else if (col2.key === 'artifact_type') {
                               content = (
                                 <span style={{ padding: '1px 6px', borderRadius: 3, fontSize: 10,
@@ -1864,7 +2294,7 @@ export default function SuperTimelinePage() {
                             } else if (col2.key === 'description') {
                               content = (
                                 <span style={{ color: '#d0daf0' }}>
-                                  <Highlight text={r.description || '-'} term={search} />
+                                  <Highlight text={fmtDesc(r) || '-'} term={search} />
                                   {td.tags?.length > 0 && (
                                     <span style={{ marginLeft: 6 }}>
                                       {td.tags.map(key => {
@@ -1882,22 +2312,29 @@ export default function SuperTimelinePage() {
                                 </span>
                               );
                             } else if (col2.key === 'source') {
-                              content = <span style={{ color: '#7d8590' }}><Highlight text={(r.source || '').substring(0, 90)} term={search} /></span>;
+                              content = <span style={{ color: 'var(--fl-dim)' }}><Highlight text={fmtSrc(r).substring(0, 90)} term={search} /></span>;
                             } else if (col2.virtual && col2.key.startsWith('raw.')) {
 
                               const rawKey = col2.key.slice(4);
                               const rawVal = r.raw?.[rawKey];
                               content = rawVal != null
                                 ? <span style={{ color: '#b8c8e8', fontSize: 10 }}>{String(rawVal).substring(0, 80)}</span>
-                                : <span style={{ color: '#30363d' }}>—</span>;
+                                : <span style={{ color: 'var(--fl-border)' }}>—</span>;
                             } else {
-                              content = <span style={{ color: '#7d8590' }}>{r[col2.key] || '-'}</span>;
+                              content = <span style={{ color: 'var(--fl-dim)' }}>{r[col2.key] || '-'}</span>;
                             }
                             return (
-                              <td key={col2.key} style={{ padding: '3px 8px',
-                                fontFamily: col2.mono ? 'monospace' : undefined,
-                                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                                maxWidth: col2.flex ? 0 : undefined }}>
+                              <td key={col2.key}
+                                onContextMenu={e => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  const rawVal = getColFieldValue(r, col2.key);
+                                  setCellCtxMenu({ x: e.clientX, y: e.clientY, colKey: col2.key, colLabel: col2.label, value: rawVal });
+                                }}
+                                style={{ padding: '3px 8px',
+                                  fontFamily: col2.mono ? 'monospace' : undefined,
+                                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                                  maxWidth: col2.flex ? 0 : undefined }}>
                                 {content}
                               </td>
                             );
@@ -1934,8 +2371,9 @@ export default function SuperTimelinePage() {
                     flexShrink: 0,
                     display: 'flex',
                     flexDirection: 'column',
-                    borderLeft: `2px solid ${acol}50`,
-                    background: '#0b101a',
+                    borderLeft: `3px solid ${acol}`,
+                    boxShadow: `-4px 0 20px rgba(0,0,0,0.5)`,
+                    background: '#0a0f1a',
                     overflow: 'hidden',
                   }}>
                     
@@ -1954,7 +2392,7 @@ export default function SuperTimelinePage() {
                         }} />
                         <span style={{
                           fontFamily: 'monospace', fontSize: 11, fontWeight: 700,
-                          color: '#e6edf3', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                          color: 'var(--fl-text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                         }}>
                           {r.artifact_name}
                         </span>
@@ -1962,7 +2400,7 @@ export default function SuperTimelinePage() {
                       <button
                         onClick={() => setSelectedRow(null)}
                         style={{ background: 'none', border: 'none', cursor: 'pointer',
-                          color: '#7d8590', display: 'flex', padding: 3, borderRadius: 4, flexShrink: 0 }}
+                          color: 'var(--fl-dim)', display: 'flex', padding: 3, borderRadius: 4, flexShrink: 0 }}
                       >
                         <X size={13} />
                       </button>
@@ -1971,12 +2409,12 @@ export default function SuperTimelinePage() {
                     <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: '10px 12px' }}>
                       
                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 10 }}>
-                        <span style={{ fontFamily: 'monospace', fontSize: 10, color: '#7a9abf', width: '100%' }}>
+                        <span style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--fl-accent)', width: '100%' }}>
                           {fmtTs(r.timestamp)}
                         </span>
                         {r.timestamp_column && (
                           <span style={{ fontFamily: 'monospace', fontSize: 9, padding: '1px 5px',
-                            borderRadius: 3, background: '#1a2035', color: '#7d8590' }}>
+                            borderRadius: 3, background: 'var(--fl-sep)', color: 'var(--fl-dim)' }}>
                             {r.timestamp_column}
                           </span>
                         )}
@@ -2003,30 +2441,30 @@ export default function SuperTimelinePage() {
                         })}
                       </div>
                       
-                      {r.description && (
+                      {(fmtDesc(r) || r.description) && (
                         <div style={{ padding: '7px 9px', fontFamily: 'monospace', fontSize: 10,
-                          color: '#c9d1d9', background: '#161b22', borderRadius: 5,
-                          border: '1px solid #21262d', marginBottom: 10, lineHeight: 1.6,
+                          color: 'var(--fl-on-dark)', background: `${acol}0c`, borderRadius: 5,
+                          border: `1px solid ${acol}35`, marginBottom: 10, lineHeight: 1.6,
                           wordBreak: 'break-word' }}>
-                          {r.description}
+                          {fmtDesc(r) || r.description}
                         </div>
                       )}
                       
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
                         {Object.entries(r.raw || {})
                           .filter(([, v]) => v !== '' && v !== null && v !== undefined)
                           .map(([k, v]) => (
-                            <div key={k} style={{ borderRadius: 4, overflow: 'hidden', border: '1px solid #1e2535' }}>
+                            <div key={k} style={{ borderRadius: 4, overflow: 'hidden', border: `1px solid ${acol}28` }}>
                               <div style={{
                                 fontFamily: 'monospace', fontSize: 9, color: acol,
-                                padding: '3px 7px', background: `${acol}0d`,
+                                padding: '3px 7px', background: `${acol}18`,
                                 textTransform: 'uppercase', letterSpacing: '0.07em', fontWeight: 600,
                               }}>
                                 {labelMap[k] || k}
                               </div>
-                              <div style={{ fontFamily: 'monospace', fontSize: 10, color: '#b0bfd8',
-                                padding: '4px 7px', wordBreak: 'break-all', lineHeight: 1.5,
-                                background: '#0d1117' }}>
+                              <div style={{ fontFamily: 'monospace', fontSize: 10, color: '#c0cfe0',
+                                padding: '5px 7px', wordBreak: 'break-all', lineHeight: 1.5,
+                                background: '#0b101a', borderTop: `1px solid ${acol}18` }}>
                                 {String(v).substring(0, 500)}
                               </div>
                             </div>
@@ -2066,31 +2504,33 @@ export default function SuperTimelinePage() {
               />
 
               {totalPages > 1 && (
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 8 }}>
-                  <span style={{ fontFamily: 'monospace', fontSize: 10, color: '#334155' }}>
+                <div style={{ display: 'flex', alignItems: 'center', flexShrink: 0, padding: '6px 8px 2px', borderTop: '1px solid var(--fl-sep)', marginTop: 6, position: 'relative' }}>
+                  {/* count — left */}
+                  <span style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--fl-muted)', position: 'absolute', left: 8 }}>
                     {((page - 1) * pageSize + 1).toLocaleString()}–{Math.min(page * pageSize, total).toLocaleString()} / {total.toLocaleString()}
                   </span>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                  {/* navigation — centered */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 4, margin: '0 auto' }}>
                     {[['«', 1], null, [null, page - 1], null, [null, page + 1], null, ['»', totalPages]].map((item, idx) => {
                       if (item === null) {
                         if (idx === 1) return (
                           <button key="prev" disabled={page <= 1} onClick={() => changePage(page - 1)}
                             style={{ padding: '3px 6px', borderRadius: 4, display: 'flex', alignItems: 'center',
-                              background: '#111827', border: '1px solid #30363d',
-                              color: page <= 1 ? '#30363d' : '#7d8590', cursor: page <= 1 ? 'default' : 'pointer' }}>
+                              background: 'var(--fl-bg)', border: '1px solid var(--fl-border)',
+                              color: page <= 1 ? 'var(--fl-border)' : 'var(--fl-dim)', cursor: page <= 1 ? 'default' : 'pointer' }}>
                             <ChevronLeft size={12} />
                           </button>
                         );
                         if (idx === 3) return (
-                          <span key="cur" style={{ fontFamily: 'monospace', fontSize: 11, color: '#7d8590', padding: '0 6px' }}>
+                          <span key="cur" style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--fl-dim)', padding: '0 6px' }}>
                             {page} / {totalPages}
                           </span>
                         );
                         if (idx === 5) return (
                           <button key="next" disabled={page >= totalPages} onClick={() => changePage(page + 1)}
                             style={{ padding: '3px 6px', borderRadius: 4, display: 'flex', alignItems: 'center',
-                              background: '#111827', border: '1px solid #30363d',
-                              color: page >= totalPages ? '#30363d' : '#7d8590', cursor: page >= totalPages ? 'default' : 'pointer' }}>
+                              background: 'var(--fl-bg)', border: '1px solid var(--fl-border)',
+                              color: page >= totalPages ? 'var(--fl-border)' : 'var(--fl-dim)', cursor: page >= totalPages ? 'default' : 'pointer' }}>
                             <ChevronRight size={12} />
                           </button>
                         );
@@ -2101,8 +2541,8 @@ export default function SuperTimelinePage() {
                       return (
                         <button key={label} disabled={disabled} onClick={() => !disabled && changePage(target)}
                           style={{ padding: '3px 8px', borderRadius: 4, fontSize: 11, fontFamily: 'monospace',
-                            background: '#111827', border: '1px solid #30363d',
-                            color: disabled ? '#30363d' : '#7d8590', cursor: disabled ? 'default' : 'pointer' }}>
+                            background: 'var(--fl-bg)', border: '1px solid var(--fl-border)',
+                            color: disabled ? 'var(--fl-border)' : 'var(--fl-dim)', cursor: disabled ? 'default' : 'pointer' }}>
                           {label}
                         </button>
                       );
@@ -2117,11 +2557,17 @@ export default function SuperTimelinePage() {
                       placeholder={t('timeline.goto_page_ph')}
                       style={{ width: 70, padding: '3px 6px', borderRadius: 4, textAlign: 'center',
                         fontFamily: 'monospace', fontSize: 10, outline: 'none',
-                        background: '#0d1117', border: '1px solid #30363d', color: '#7d8590' }} />
+                        background: 'var(--fl-bg)', border: '1px solid var(--fl-border)', color: 'var(--fl-dim)' }} />
                   </div>
-                  <span style={{ fontFamily: 'monospace', fontSize: 10, color: '#334155' }}>
-                    {taggedCount > 0 ? (taggedCount > 1 ? t('timeline.tagged_count_pl', { count: taggedCount }) : t('timeline.tagged_count', { count: taggedCount })) : ''}
-                  </span>
+                  {/* tagged count — right */}
+                  {taggedCount > 0 && (
+                    <span style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--fl-muted)',
+                      display: 'flex', alignItems: 'center', gap: 4, position: 'absolute', right: 8 }}>
+                      <span style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--fl-accent)',
+                        display: 'inline-block', flexShrink: 0 }} />
+                      {taggedCount} {taggedCount > 1 ? t('timeline.tagged_pl') : t('timeline.tagged_s')}
+                    </span>
+                  )}
                 </div>
               )}
             </>
