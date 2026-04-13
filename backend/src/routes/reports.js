@@ -95,11 +95,48 @@ router.post('/:caseId/generate', authenticate, async (req, res) => {
 
     const evidenceResult = await pool.query('SELECT * FROM evidence WHERE case_id = $1 ORDER BY created_at', [caseId]);
 
-    const timelineResult = await pool.query(`
-      SELECT timestamp AS event_time, artifact_type AS source, description AS title, host_name, raw
-      FROM collection_timeline WHERE case_id = $1
-      ORDER BY timestamp LIMIT 500
+    // Analyst-flagged events only (bookmarks + pins + noted rows)
+    const bookmarkFlagResult = await pool.query(`
+      SELECT b.event_timestamp AS event_time,
+             NULL              AS source,
+             b.title,
+             b.description,
+             b.mitre_tactic,
+             b.mitre_technique,
+             b.color,
+             u.full_name AS author,
+             'bookmark' AS flag_type
+      FROM timeline_bookmarks b
+      LEFT JOIN users u ON u.id = b.author_id
+      WHERE b.case_id = $1
+      ORDER BY b.event_timestamp NULLS LAST
     `, [caseId]).catch(() => ({ rows: [] }));
+
+    const pinFlagResult = await pool.query(`
+      SELECT p.event_ts   AS event_time,
+             p.artifact_type AS source,
+             p.description   AS title,
+             p.note          AS description,
+             p.source        AS host_info,
+             u.full_name     AS author,
+             'pin' AS flag_type
+      FROM timeline_pins p
+      LEFT JOIN users u ON u.id = p.author_id
+      WHERE p.case_id = $1
+      ORDER BY p.event_ts NULLS LAST
+    `, [caseId]).catch(() => ({ rows: [] }));
+
+    const notesFlagResult = await pool.query(`
+      SELECT n.artifact_ref,
+             n.note,
+             n.created_at,
+             u.full_name AS author
+      FROM artifact_notes n
+      LEFT JOIN users u ON u.id = n.author_id
+      WHERE n.case_id = $1
+      ORDER BY n.created_at
+    `, [caseId]).catch(() => ({ rows: [] }));
+
     const iocResult = await pool.query('SELECT * FROM iocs WHERE case_id = $1 ORDER BY severity DESC', [caseId]);
     const networkResult = await pool.query('SELECT * FROM network_connections WHERE case_id = $1', [caseId]);
     const mitreResult = await pool.query(
@@ -169,7 +206,7 @@ router.post('/:caseId/generate', authenticate, async (req, res) => {
           opened_at: caseData.opened_at,
           ioc_count: iocResult.rows.length,
           malicious_iocs: iocResult.rows.filter(i => i.is_malicious).map(i => i.value).slice(0, 10),
-          timeline_events: timelineResult.rows.length,
+          timeline_events: bookmarkFlagResult.rows.length + pinFlagResult.rows.length,
           mitre_techniques: mitreResult.rows.map(t => `${t.technique_id} (${t.tactic})`).slice(0, 15),
           critical_yara: yaraResult.rows.map(y => y.rule_name).slice(0, 5),
           triage_top: triageResult.rows.slice(0, 5).map(t => `${t.hostname}: ${t.risk_level} (${t.score}/100)`),
@@ -285,16 +322,65 @@ router.post('/:caseId/generate', authenticate, async (req, res) => {
     }
 
     if (activeSections.has('timeline')) {
-      S('Chronologie');
+      const totalFlagged = bookmarkFlagResult.rows.length + pinFlagResult.rows.length + notesFlagResult.rows.length;
+      S(`Événements Repérés par l'Analyste (${totalFlagged})`);
+
       if (aiNarrative?.timeline_narrative) {
         doc.fontSize(9).fillColor('#4d82c0').text('Analyse narrative (IA)');
         doc.fontSize(9).fillColor('#555').text(aiNarrative.timeline_narrative, { align: 'justify' });
         doc.moveDown(0.6);
       }
-      for (const ev of timelineResult.rows) {
-        if (doc.y > 720) doc.addPage();
-        doc.fontSize(8).fillColor('#999').text(new Date(ev.event_time).toLocaleString('fr-FR'), { continued: true });
-        doc.fillColor('#333').text(` [${ev.source || ''}] ${ev.title}`);
+
+      if (bookmarkFlagResult.rows.length > 0) {
+        doc.fontSize(10).fillColor(accentColor).text(`▸ Bookmarks (${bookmarkFlagResult.rows.length})`);
+        doc.moveDown(0.2);
+        let lastTactic = null;
+        for (const ev of bookmarkFlagResult.rows) {
+          if (doc.y > 710) doc.addPage();
+          if (ev.mitre_tactic && ev.mitre_tactic !== lastTactic) {
+            doc.fontSize(8).fillColor('#888').text(`  ─── ${ev.mitre_tactic} ───`);
+            lastTactic = ev.mitre_tactic;
+          }
+          const ts = ev.event_time ? new Date(ev.event_time).toLocaleString('fr-FR') : '?';
+          doc.fontSize(9).fillColor('#999').text(`  ${ts}`, { continued: true });
+          if (ev.mitre_technique) doc.fillColor('#4d82c0').text(`  [${ev.mitre_technique}]`, { continued: true });
+          doc.fillColor('#111').text(`  ${ev.title || ''}`);
+          if (ev.description) doc.fontSize(8).fillColor('#555').text(`    ${ev.description}`);
+          if (ev.author) doc.fontSize(7).fillColor('#888').text(`    — ${ev.author}`);
+        }
+        doc.moveDown(0.8);
+      }
+
+      if (pinFlagResult.rows.length > 0) {
+        doc.fontSize(10).fillColor(accentColor).text(`▸ Événements Épinglés (${pinFlagResult.rows.length})`);
+        doc.moveDown(0.2);
+        for (const ev of pinFlagResult.rows) {
+          if (doc.y > 710) doc.addPage();
+          const ts = ev.event_time ? new Date(ev.event_time).toLocaleString('fr-FR') : '?';
+          doc.fontSize(9).fillColor('#999').text(`  ${ts}`, { continued: true });
+          if (ev.source) doc.fillColor('#666').text(`  [${ev.source}]`, { continued: true });
+          doc.fillColor('#111').text(`  ${ev.title || ''}`);
+          if (ev.description) doc.fontSize(8).fillColor('#4d82c0').text(`    Note: ${ev.description}`);
+          if (ev.author) doc.fontSize(7).fillColor('#888').text(`    — ${ev.author}`);
+        }
+        doc.moveDown(0.8);
+      }
+
+      if (notesFlagResult.rows.length > 0) {
+        doc.fontSize(10).fillColor(accentColor).text(`▸ Notes d'Analyse (${notesFlagResult.rows.length})`);
+        doc.moveDown(0.2);
+        for (const n of notesFlagResult.rows) {
+          if (doc.y > 710) doc.addPage();
+          doc.fontSize(9).fillColor('#111').text(`  • ${n.note}`);
+          doc.fontSize(7).fillColor('#888').text(
+            `    — ${n.author || 'N/A'} · ${new Date(n.created_at).toLocaleString('fr-FR')}`
+          );
+        }
+        doc.moveDown(0.8);
+      }
+
+      if (totalFlagged === 0) {
+        doc.fontSize(9).fillColor('#999').text("Aucun événement repéré par l'analyste pour ce cas.");
       }
       doc.moveDown(1.5);
     }
@@ -315,34 +401,135 @@ router.post('/:caseId/generate', authenticate, async (req, res) => {
       doc.moveDown(1.5);
     }
 
-    if (activeSections.has('mitre') && mitreResult.rows.length > 0) {
+    const mitreHasData = mitreResult.rows.length > 0 || bookmarkFlagResult.rows.some(b => b.mitre_technique);
+    if (activeSections.has('mitre') && mitreHasData) {
       S('Cartographie MITRE ATT\u0026CK');
       if (aiNarrative?.mitre_analysis) {
         doc.fontSize(9).fillColor('#4d82c0').text('Analyse des TTPs (IA)');
         doc.fontSize(9).fillColor('#555').text(aiNarrative.mitre_analysis, { align: 'justify' });
         doc.moveDown(0.6);
       }
-      const CONF_LABELS = { confirmed: 'Confirmé', high: 'Élevée', medium: 'Moyenne', low: 'Faible' };
-      const CONF_COLORS = { confirmed: '#ef4444', high: '#f97316', medium: '#eab308', low: '#22c55e' };
-      const byTactic = {};
+
+      // ── Build tactic→techniques map ──────────────────────────────────────
+      const TACTIC_ORDER = [
+        'Reconnaissance','Resource Development','Initial Access','Execution',
+        'Persistence','Privilege Escalation','Defense Evasion','Credential Access',
+        'Discovery','Lateral Movement','Collection','Command and Control',
+        'Exfiltration','Impact',
+      ];
+      const CONF_COLORS = { confirmed:'#ef4444', high:'#f97316', medium:'#eab308', low:'#22c55e', bookmark:'#4d82c0' };
+      const CONF_LABELS = { confirmed:'Confirmé', high:'Élevée', medium:'Moyenne', low:'Faible', bookmark:'Repéré' };
+
+      const tacticMap = new Map();
       for (const t of mitreResult.rows) {
-        if (!byTactic[t.tactic]) byTactic[t.tactic] = [];
-        byTactic[t.tactic].push(t);
+        const tac = t.tactic || 'Unknown';
+        if (!tacticMap.has(tac)) tacticMap.set(tac, []);
+        tacticMap.get(tac).push({ id: t.technique_id, name: t.technique_name, confidence: t.confidence, notes: t.notes });
       }
-      for (const [tactic, techs] of Object.entries(byTactic)) {
+      for (const b of bookmarkFlagResult.rows) {
+        if (!b.mitre_tactic || !b.mitre_technique) continue;
+        const tac = b.mitre_tactic;
+        if (!tacticMap.has(tac)) tacticMap.set(tac, []);
+        const existing = tacticMap.get(tac);
+        if (!existing.find(e => e.id === b.mitre_technique)) {
+          existing.push({ id: b.mitre_technique, name: b.title, confidence: 'bookmark', notes: b.description });
+        }
+      }
+
+      const tactics = TACTIC_ORDER.filter(t => tacticMap.has(t));
+      // also add any tactics not in the standard order
+      for (const t of tacticMap.keys()) { if (!tactics.includes(t)) tactics.push(t); }
+
+      // ── Draw visual matrix ───────────────────────────────────────────────
+      const X0 = 50;
+      const PAGE_W = 495;
+      const MAX_COLS = 7;
+      const HEADER_H = 28;
+      const TECH_H   = 17;
+
+      const hexToRgb = (hex) => {
+        const h = hex.replace('#','');
+        return [parseInt(h.slice(0,2),16), parseInt(h.slice(2,4),16), parseInt(h.slice(4,6),16)];
+      };
+
+      if (doc.y > 500) doc.addPage();
+
+      for (let rowStart = 0; rowStart < tactics.length; rowStart += MAX_COLS) {
+        const rowTactics = tactics.slice(rowStart, rowStart + MAX_COLS);
+        const colCount = rowTactics.length;
+        const colW = Math.floor(PAGE_W / colCount);
+        const maxTechs = Math.max(...rowTactics.map(t => (tacticMap.get(t) || []).length), 0);
+        const rowH = HEADER_H + maxTechs * TECH_H + 8;
+
+        if (doc.y + rowH > 770) doc.addPage();
+        const startY = doc.y;
+
+        rowTactics.forEach((tactic, ci) => {
+          const techs = tacticMap.get(tactic) || [];
+          const cx = X0 + ci * colW;
+
+          // Tactic header
+          doc.rect(cx, startY, colW - 2, HEADER_H)
+             .fillColor('#1e3a5f').fill();
+          doc.rect(cx, startY, colW - 2, HEADER_H)
+             .strokeColor('#0d2137').lineWidth(0.5).stroke();
+          doc.fontSize(6).fillColor('#ffffff')
+             .text(tactic.toUpperCase(), cx + 3, startY + 4, {
+               width: colW - 6, height: HEADER_H - 6, lineBreak: true, ellipsis: true,
+             });
+
+          techs.forEach((tech, ti) => {
+            const ty = startY + HEADER_H + ti * TECH_H;
+            const conf = tech.confidence || 'bookmark';
+            const col = CONF_COLORS[conf] || '#888';
+            const [r, g, b] = hexToRgb(col);
+
+            doc.rect(cx, ty, colW - 2, TECH_H - 1)
+               .fillColor([r, g, b], 0.18).fill();
+            doc.rect(cx, ty, colW - 2, TECH_H - 1)
+               .strokeColor(col).lineWidth(0.5).stroke();
+            doc.fontSize(6).fillColor('#111')
+               .text(tech.id || '', cx + 3, ty + 2, { width: colW - 6, lineBreak: false, ellipsis: true });
+            doc.fontSize(5).fillColor('#333')
+               .text((tech.name || '').substring(0, 24), cx + 3, ty + 9, { width: colW - 6, lineBreak: false, ellipsis: true });
+          });
+        });
+
+        // Advance cursor past the drawn block
+        doc.text('', X0, startY + rowH, { lineBreak: false });
+        doc.moveDown(0.4);
+      }
+
+      // ── Legend ───────────────────────────────────────────────────────────
+      doc.moveDown(0.5);
+      doc.fontSize(7.5).fillColor('#333');
+      let legendX = 50;
+      const legendY = doc.y;
+      for (const [conf, col] of Object.entries(CONF_COLORS)) {
+        const [r, g, b] = hexToRgb(col);
+        doc.rect(legendX, legendY - 1, 10, 8).fillColor([r, g, b], 0.9).fill();
+        doc.fillColor('#333').text(`  ${CONF_LABELS[conf]}`, legendX + 12, legendY, { continued: true });
+        legendX += 75;
+      }
+      doc.text('');
+
+      // ── Textual detail list ──────────────────────────────────────────────
+      doc.moveDown(0.8);
+      doc.fontSize(9).fillColor('#555').text(`Détail des ${mitreResult.rows.length + [...tacticMap.values()].filter(ts => ts.some(t => t.confidence === 'bookmark')).length} technique(s) identifiée(s):`);
+      doc.moveDown(0.3);
+      for (const [tactic, techs] of tacticMap.entries()) {
         if (doc.y > 700) doc.addPage();
-        doc.fontSize(11).fillColor(accentColor).text(tactic);
-        doc.moveDown(0.2);
+        doc.fontSize(9).fillColor(accentColor).text(tactic);
         for (const t of techs) {
           if (doc.y > 720) doc.addPage();
           const confLabel = CONF_LABELS[t.confidence] || t.confidence;
           const confColor = CONF_COLORS[t.confidence] || '#999';
-          doc.fontSize(9).fillColor('#333').text(`  ${t.technique_id}`, { continued: true })
-             .fillColor('#555').text(`  ${t.technique_name}`, { continued: true })
+          doc.fontSize(8).fillColor('#333').text(`  ${t.id || '?'}`, { continued: true })
+             .fillColor('#555').text(`  ${t.name || ''}`, { continued: true })
              .fillColor(confColor).text(`  [${confLabel}]`);
-          if (t.notes) doc.fontSize(8).fillColor('#666').text(`    Notes: ${t.notes}`);
+          if (t.notes) doc.fontSize(7).fillColor('#666').text(`    ${t.notes}`);
         }
-        doc.moveDown(0.4);
+        doc.moveDown(0.3);
       }
       doc.moveDown(1);
     }
@@ -467,8 +654,11 @@ router.post('/:caseId/generate', authenticate, async (req, res) => {
           case: caseData,
           evidence_count: evidence.length,
           highlighted_count: highlighted.length,
-          timeline_count: timelineResult.rows.length,
-          ioc_count: iocResult.rows.length
+          analyst_bookmarks: bookmarkFlagResult.rows.length,
+          analyst_pins: pinFlagResult.rows.length,
+          analyst_notes: notesFlagResult.rows.length,
+          ioc_count: iocResult.rows.length,
+          mitre_techniques: mitreResult.rows.length,
         }), req.user.id, filePath]
       );
 
