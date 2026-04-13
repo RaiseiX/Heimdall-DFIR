@@ -1138,5 +1138,4 @@ Use the token as `Authorization: Bearer <token>` on all subsequent requests.
 
 ---
 
-*Heimdall DFIR — Guardian of the Nine Worlds — See the unseen.*  
-*Documentation generated for version 0.9.6*
+*Heimdall DFIR — Guardian of the Nine Worlds — See the unseen.*
