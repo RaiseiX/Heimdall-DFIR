@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Plus, Pencil, Trash2, Bookmark, X, RefreshCw, FileDown, FileText } from 'lucide-react';
 import { bookmarksAPI } from '../../utils/api';
+import { fmtLocal } from '../../utils/formatters';
 
 const MITRE_TACTICS = [
   'Reconnaissance', 'Resource Development', 'Initial Access', 'Execution',
@@ -183,14 +184,14 @@ export default function BookmarkPanel({ caseId }) {
     const cols = [t('bookmark.col_ts'), t('bookmark.col_title'), t('bookmark.col_desc'), t('bookmark.col_tactic'), t('bookmark.col_tech'), t('bookmark.col_color'), t('bookmark.col_author'), t('bookmark.col_created')];
     const header = cols.map(c => `"${c}"`).join(',');
     const rows = bookmarks.map(b => [
-      b.event_timestamp ? `"${new Date(b.event_timestamp).toLocaleString()}"` : '""',
+      b.event_timestamp ? `"${fmtLocal(b.event_timestamp)}"` : '""',
       `"${(b.title || '').replace(/"/g, '""')}"`,
       `"${(b.description || '').replace(/"/g, '""')}"`,
       `"${(b.mitre_tactic || '').replace(/"/g, '""')}"`,
       `"${(b.mitre_technique || '').replace(/"/g, '""')}"`,
       `"${(b.color || '').replace(/"/g, '""')}"`,
       `"${(b.author_name || b.username || '').replace(/"/g, '""')}"`,
-      `"${new Date(b.created_at).toLocaleString()}"`,
+      `"${fmtLocal(b.created_at)}"`,
     ].join(','));
     const csv = '\uFEFF' + header + '\n' + rows.join('\n');
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
@@ -205,24 +206,38 @@ export default function BookmarkPanel({ caseId }) {
   function exportPDF() {
     const printWin = window.open('', '_blank');
     if (!printWin) return;
+    function esc(s) {
+      return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+    }
+    function fmtUtc(ts) {
+      if (!ts) return '—';
+      try {
+        const d = new Date(ts);
+        const p = (n, l = 2) => String(n).padStart(l, '0');
+        return `${d.getUTCFullYear()}-${p(d.getUTCMonth()+1)}-${p(d.getUTCDate())} `
+             + `${p(d.getUTCHours())}:${p(d.getUTCMinutes())}:${p(d.getUTCSeconds())} UTC`;
+      } catch { return String(ts); }
+    }
     const rows = bookmarks.map(b => {
-      const tc = TACTIC_COLOR[b.mitre_tactic] || 'var(--fl-dim)';
+      const tacticKey = String(b.mitre_tactic || '');
+      const tc = TACTIC_COLOR[tacticKey] || '#7d8590';
       return `
         <tr>
-          <td style="color:#7abfff;white-space:nowrap">${b.event_timestamp ? new Date(b.event_timestamp).toLocaleString() : '—'}</td>
-          <td style="font-weight:600">${b.title || ''}</td>
-          <td>${b.description || ''}</td>
-          <td style="color:${tc}">${b.mitre_tactic || ''}</td>
-          <td style="color:#a0b8d0">${b.mitre_technique || ''}</td>
-          <td><span style="display:inline-block;width:12px;height:12px;border-radius:50%;background:${b.color || 'var(--fl-accent)'}"></span></td>
-          <td style="color:#7d8590">${b.author_name || b.username || ''}</td>
+          <td style="color:#7abfff;white-space:nowrap">${esc(fmtUtc(b.event_timestamp))}</td>
+          <td style="font-weight:600">${esc(b.title)}</td>
+          <td>${esc(b.description)}</td>
+          <td style="color:${esc(tc)}">${esc(b.mitre_tactic)}</td>
+          <td style="color:#a0b8d0">${esc(b.mitre_technique)}</td>
+          <td><span style="display:inline-block;width:12px;height:12px;border-radius:50%;background:${esc(b.color || '#4a9eff')}"></span></td>
+          <td style="color:#7d8590">${esc(b.author_name || b.username)}</td>
         </tr>`;
     }).join('');
+    const exportedAt = fmtUtc(new Date().toISOString());
     printWin.document.write(`<!DOCTYPE html>
 <html>
 <head>
   <meta charset="utf-8"/>
-  <title>Bookmarks — Cas ${caseId}</title>
+  <title>Bookmarks — Cas ${esc(String(caseId))}</title>
   <style>
     body { font-family: 'Segoe UI', Arial, sans-serif; background: #fff; color: #1a1a2e; margin: 24px; }
     h1 { font-size: 18px; margin-bottom: 4px; }
@@ -235,13 +250,13 @@ export default function BookmarkPanel({ caseId }) {
   </style>
 </head>
 <body>
-  <h1>${t('bookmark.pdf_title')}</h1>
-  <p class="sub">${t('timeline.export_case_label')} : ${caseId} &nbsp;|&nbsp; ${t('bookmark.pdf_exported')} ${new Date().toLocaleString()} &nbsp;|&nbsp; ${bookmarks.length} bookmark(s)</p>
+  <h1>${esc(t('bookmark.pdf_title'))}</h1>
+  <p class="sub">${esc(t('timeline.export_case_label'))} : ${esc(String(caseId))} &nbsp;|&nbsp; ${esc(t('bookmark.pdf_exported'))} ${esc(exportedAt)} &nbsp;|&nbsp; ${bookmarks.length} bookmark(s)</p>
   <table>
     <thead>
       <tr>
-        <th>${t('bookmark.col_ts')}</th><th>${t('bookmark.col_title')}</th><th>${t('bookmark.col_desc')}</th>
-        <th>${t('bookmark.col_tactic')}</th><th>${t('bookmark.col_tech')}</th><th>${t('bookmark.col_color')}</th><th>${t('bookmark.col_author')}</th>
+        <th>${esc(t('bookmark.col_ts'))}</th><th>${esc(t('bookmark.col_title'))}</th><th>${esc(t('bookmark.col_desc'))}</th>
+        <th>${esc(t('bookmark.col_tactic'))}</th><th>${esc(t('bookmark.col_tech'))}</th><th>${esc(t('bookmark.col_color'))}</th><th>${esc(t('bookmark.col_author'))}</th>
       </tr>
     </thead>
     <tbody>${rows}</tbody>
@@ -400,7 +415,7 @@ export default function BookmarkPanel({ caseId }) {
                   )}
                   {b.event_timestamp && (
                     <span style={{ fontSize: 9, fontFamily: 'monospace', color: 'var(--fl-subtle)' }}>
-                      {new Date(b.event_timestamp).toLocaleString()}
+                      {fmtLocal(b.event_timestamp)}
                     </span>
                   )}
                   <span style={{ fontSize: 9, fontFamily: 'monospace', color: 'var(--fl-muted)', marginLeft: 'auto' }}>

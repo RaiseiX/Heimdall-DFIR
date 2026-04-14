@@ -497,7 +497,7 @@ export default function AiCopilotModal({ caseId, caseName, isOpen, onClose, sock
     : { style: {} };
 
   const fmtDate = (iso) => iso
-    ? new Date(iso).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+    ? new Date(iso).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', timeZone: 'UTC' }) + ' UTC'
     : null;
 
   return (

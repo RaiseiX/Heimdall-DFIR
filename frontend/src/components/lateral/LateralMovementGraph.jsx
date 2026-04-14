@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import * as d3 from 'd3';
 import { Loader2, RefreshCw, ZoomIn, ZoomOut, Maximize2, Filter } from 'lucide-react';
 import { casesAPI } from '../../utils/api';
+import { fmtLocal } from '../../utils/formatters';
 
 const EVENT_META = {
   '4624': { label: 'Logon réseau (4624)',        color: '#4d82c0', desc: 'Connexion réseau réussie' },
@@ -153,8 +154,8 @@ function renderGraph(svgEl, data, triageScores, filterEids) {
         <div>Types : ${eids}</div>
         <div>Comptes : ${users}</div>
         <div style="margin-top:4px;color:#7d8590">
-          ${d.first_seen ? new Date(d.first_seen).toLocaleString('fr-FR') : ''}<br/>
-          ${d.last_seen  ? new Date(d.last_seen).toLocaleString('fr-FR')  : ''}
+          ${d.first_seen ? fmtLocal(d.first_seen) : ''}<br/>
+          ${d.last_seen  ? fmtLocal(d.last_seen)  : ''}
         </div>
       `);
     })

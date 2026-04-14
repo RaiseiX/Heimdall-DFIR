@@ -6,6 +6,7 @@ import { Settings, Plus, Shield, UserCheck, UserX, ScrollText, Trash2, Search, C
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { usersAPI, authAPI, casesAPI, adminAPI, feedbackAPI } from '../utils/api';
 import { Button, Modal, TabGroup, Spinner, EmptyState, Pagination } from '../components/ui';
+import { fmtLocal } from '../utils/formatters';
 
 const ACTION_COLORS = {
   login: '#22c55e', login_failed: 'var(--fl-danger)', login_blocked: 'var(--fl-gold)',
@@ -53,6 +54,7 @@ export default function AdminPage() {
     { id: 'backups',  label: t('admin.tabs_backups'),  icon: Database,      to: '/admin/backups' },
     { id: 'docker',   label: t('admin.tabs_infra'),    icon: Cpu,           to: '/admin/docker' },
     { id: 'ai',       label: 'IA locale',              icon: Bot,           to: '/admin/ai' },
+    { id: 'about',    label: 'À propos',               icon: Shield,        to: '/admin/about' },
   ], [t]);
 
   const [users, setUsers]     = useState([]);
@@ -294,7 +296,7 @@ export default function AdminPage() {
                       </span>
                     </td>
                     <td className="text-xs" style={{ color: 'var(--fl-dim)' }}>
-                      {u.last_login ? new Date(u.last_login).toLocaleString('fr-FR') : t('admin.never')}
+                      {u.last_login ? fmtLocal(u.last_login) : t('admin.never')}
                     </td>
                     <td>
                       {u.username !== 'admin' && (
@@ -408,7 +410,7 @@ export default function AdminPage() {
                       return (
                         <tr key={a.id}>
                           <td className="font-mono text-xs whitespace-nowrap" style={{ color: 'var(--fl-dim)' }}>
-                            {new Date(a.created_at).toLocaleString('fr-FR')}
+                            {fmtLocal(a.created_at)}
                           </td>
                           <td>
                             <span
@@ -735,6 +737,8 @@ export default function AdminPage() {
       {tab === 'docker' && <DockerTab />}
 
       {tab === 'ai' && <AiSettingsTab />}
+
+      {tab === 'about' && <AboutTab />}
     </div>
   );
 }
@@ -905,7 +909,7 @@ function BackupsTab() {
               <tr key={b.name}>
                 <td className="font-mono text-xs" style={{ color: 'var(--fl-text)' }}>{b.name}</td>
                 <td style={{ color: 'var(--fl-dim)' }}>{fmtSize(b.size)}</td>
-                <td className="whitespace-nowrap" style={{ color: 'var(--fl-dim)' }}>{new Date(b.created_at).toLocaleString('fr-FR')}</td>
+                <td className="whitespace-nowrap" style={{ color: 'var(--fl-dim)' }}>{fmtLocal(b.created_at)}</td>
                 <td>
                   <a
                     href={adminAPI.downloadBackup(b.name)}
@@ -1026,7 +1030,7 @@ function JobsTab() {
                       </td>
                       <td className="text-xs" style={{ color: 'var(--fl-dim)' }}>{job.analyst || '—'}</td>
                       <td className="text-xs font-mono" style={{ color: 'var(--fl-dim)' }}>
-                        {job.updated_at ? new Date(job.updated_at).toLocaleString('fr-FR') : '—'}
+                        {job.updated_at ? fmtLocal(job.updated_at) : '—'}
                       </td>
                     </tr>
                     {isExp && (
@@ -1733,6 +1737,107 @@ function AiSettingsTab() {
             </div>
           );
         })}
+      </div>
+    </div>
+  );
+}
+
+const OPEN_SOURCE_CREDITS = [
+  {
+    name: "Eric Zimmerman's Tools (MFTECmd, PECmd, LECmd, EvtxECmd…)",
+    author: 'Eric Zimmerman',
+    license: 'MIT',
+    description: "Outils d'analyse forensique Windows (MFT, Prefetch, LNK, Registre, EVTX)",
+  },
+  {
+    name: 'Hayabusa',
+    author: 'Yamato Security',
+    license: 'GNU GPL 3.0',
+    description: 'Outil de chasse aux menaces et de réponse aux incidents basé sur les règles Sigma',
+  },
+  {
+    name: 'VolWeb',
+    author: 'k1nd0ne',
+    license: 'MIT',
+    description: "Plateforme centralisée d'analyse de mémoire vive (forensics RAM)",
+  },
+  {
+    name: 'Volatility 3',
+    author: 'Volatility Foundation',
+    license: 'Volatility Software License',
+    description: "Framework d'analyse forensique de la mémoire vive",
+  },
+];
+
+function AboutTab() {
+  const [open, setOpen] = React.useState(true);
+  return (
+    <div style={{ maxWidth: 760 }}>
+      <div style={{ marginBottom: 24 }}>
+        <h2 style={{ fontSize: 20, fontWeight: 700, color: 'var(--fl-text)', marginBottom: 4 }}>Heimdall DFIR</h2>
+        <p style={{ fontSize: 13, color: 'var(--fl-muted)', lineHeight: 1.6 }}>
+          Plateforme forensique numérique open-source. Conçue pour les enquêteurs DFIR, les équipes SOC et les analystes en réponse aux incidents.
+        </p>
+      </div>
+
+      <div style={{ background: 'var(--fl-panel)', border: '1px solid var(--fl-border)', borderRadius: 10, overflow: 'hidden', marginBottom: 24 }}>
+        <button
+          onClick={() => setOpen(v => !v)}
+          style={{
+            width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            padding: '14px 18px', background: 'none', border: 'none', cursor: 'pointer',
+            color: 'var(--fl-text)', fontSize: 14, fontWeight: 700,
+          }}
+        >
+          <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Shield size={16} style={{ color: 'var(--fl-accent)' }} />
+            Outils open-source intégrés
+          </span>
+          <span style={{ fontSize: 11, color: 'var(--fl-muted)', fontWeight: 400 }}>{open ? '▲ Réduire' : '▼ Afficher'}</span>
+        </button>
+
+        {open && (
+          <div style={{ padding: '0 18px 18px' }}>
+            <p style={{ fontSize: 12, color: 'var(--fl-muted)', marginBottom: 16, lineHeight: 1.5 }}>
+              Heimdall s'appuie sur les outils DFIR open-source suivants. Leurs auteurs et licences doivent être respectés lors de toute redistribution.
+            </p>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+              <thead>
+                <tr style={{ borderBottom: '1px solid var(--fl-border)' }}>
+                  <th style={{ textAlign: 'left', padding: '6px 10px', color: 'var(--fl-muted)', fontWeight: 600, fontSize: 11 }}>Outil</th>
+                  <th style={{ textAlign: 'left', padding: '6px 10px', color: 'var(--fl-muted)', fontWeight: 600, fontSize: 11 }}>Auteur</th>
+                  <th style={{ textAlign: 'left', padding: '6px 10px', color: 'var(--fl-muted)', fontWeight: 600, fontSize: 11 }}>Licence</th>
+                  <th style={{ textAlign: 'left', padding: '6px 10px', color: 'var(--fl-muted)', fontWeight: 600, fontSize: 11 }}>Description</th>
+                </tr>
+              </thead>
+              <tbody>
+                {OPEN_SOURCE_CREDITS.map((c, i) => (
+                  <tr key={c.name} style={{ borderBottom: i < OPEN_SOURCE_CREDITS.length - 1 ? '1px solid var(--fl-border)' : 'none' }}>
+                    <td style={{ padding: '10px 10px', verticalAlign: 'top' }}>
+                      <span style={{ fontWeight: 600, color: 'var(--fl-accent)', fontSize: 12 }}>{c.name}</span>
+                    </td>
+                    <td style={{ padding: '10px 10px', verticalAlign: 'top', color: 'var(--fl-text)', whiteSpace: 'nowrap' }}>{c.author}</td>
+                    <td style={{ padding: '10px 10px', verticalAlign: 'top', whiteSpace: 'nowrap' }}>
+                      <span style={{
+                        fontSize: 10, fontFamily: 'monospace', padding: '2px 6px', borderRadius: 4,
+                        background: 'color-mix(in srgb, var(--fl-accent) 12%, transparent)',
+                        color: 'var(--fl-accent)', border: '1px solid color-mix(in srgb, var(--fl-accent) 25%, transparent)',
+                      }}>{c.license}</span>
+                    </td>
+                    <td style={{ padding: '10px 10px', verticalAlign: 'top', color: 'var(--fl-muted)', lineHeight: 1.5 }}>{c.description}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      <div style={{ background: 'var(--fl-panel)', border: '1px solid var(--fl-border)', borderRadius: 10, padding: '14px 18px' }}>
+        <p style={{ fontSize: 11, color: 'var(--fl-muted)', lineHeight: 1.6, margin: 0 }}>
+          Heimdall DFIR est distribué sous licence open-source. Pour signaler un bug ou contribuer :{' '}
+          <span style={{ fontFamily: 'monospace', color: 'var(--fl-accent)' }}>github.com/Heimdall-DFIR</span>
+        </p>
       </div>
     </div>
   );

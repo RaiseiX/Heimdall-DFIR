@@ -29,7 +29,7 @@ const ARTIFACT_COLORS = {
 
 function fmtTs(ts) {
   if (!ts) return '—';
-  return new Date(ts).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'medium' });
+  return new Date(ts).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'medium', timeZone: 'UTC' }) + ' UTC';
 }
 
 export default function NetworkGraphD3({

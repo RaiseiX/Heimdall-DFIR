@@ -31,7 +31,7 @@ const TYPE_COLORS = {
 
 function fmt(dt) {
   if (!dt) return '—';
-  return new Date(dt).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' });
+  return new Date(dt).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short', timeZone: 'UTC' }) + ' UTC';
 }
 
 function AlertRow({ alert, onAck, onUnack, fmtDateTime }) {

@@ -24,7 +24,7 @@ import { artifactsAPI, detectionsAPI, pinsAPI, collectionAPI, iocsAPI } from '..
 import { ARTIFACT_PROFILES } from '../../utils/artifactProfiles';
 
 import { artifactColor as ac, HAY_SEVERITY_BG as HAYABUSA_SEV_BG } from '../../constants/artifactColors';
-import { fmtTs } from '../../utils/formatters';
+import { fmtTs, fmtLocal } from '../../utils/formatters';
 
 function computeRef(r) {
   const str = `${r.timestamp || ''}|${r.artifact_type || ''}|${r.source || ''}`;
@@ -1381,7 +1381,7 @@ function ArtifactInspector({ record, allRecords = [], caseId, onNotedRefsChange,
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                       <span style={{ fontSize: 9, color: 'var(--fl-muted)', fontFamily: 'monospace' }}>
-                        {n.author_name || n.author_username} · {new Date(n.created_at).toLocaleString()}
+                        {n.author_name || n.author_username} · {fmtLocal(n.created_at)}
                         {n.updated_at !== n.created_at && t('workbench.note_edited')}
                       </span>
                       <div style={{ display: 'flex', gap: 6 }}>
