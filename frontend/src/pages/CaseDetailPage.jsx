@@ -710,7 +710,7 @@ export default function CaseDetailPage({ user }) {
       caseTL.forEach(function(tlEv) { w.document.write('<tr><td>' + esc(fmtUtc(tlEv.event_time)) + '</td><td>' + esc(tlEv.event_type) + '</td><td>' + esc(tlEv.title) + '</td></tr>'); });
       w.document.write('</table><h2>IOCs (' + caseIOCs.length + ')</h2><table><tr><th>Type</th><th>Valeur</th><th>Sévérité</th><th>Malveillant</th></tr>');
       caseIOCs.forEach(function(i) { w.document.write('<tr><td>' + esc(i.ioc_type) + '</td><td style="font-family:monospace">' + esc(i.value) + '</td><td>' + esc(String(i.severity)) + '/10</td><td>' + (i.is_malicious ? '⚠ OUI' : 'Non') + '</td></tr>'); });
-      w.document.write('</table><hr><p style="color:#999;font-size:12px">Généré par Heimdall DFIR v2.7 — ' + esc(fmtUtc(new Date().toISOString())) + '</p></body></html>');
+      w.document.write('</table><hr><p style="color:#999;font-size:12px">Généré par Heimdall DFIR v0.9.7 — ' + esc(fmtUtc(new Date().toISOString())) + '</p></body></html>');
       w.document.close();
       w.print();
     }
