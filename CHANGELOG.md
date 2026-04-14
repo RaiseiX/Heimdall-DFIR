@@ -5,6 +5,30 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — Semantic Ve
 
 ---
 
+## [0.9.7] — 2026-04-14 — Security & Architecture Audit
+
+### Security
+- **XSS hardening** — `CaseDetailPage` print report and `BookmarkPanel` PDF export: added `esc()` helper escaping all 15+ adversary-controlled interpolations (`title`, `description`, `event_type`, `ioc_type`, `value`, `mitre_tactic`, CSS color attribute); eliminates MFT filename → stored XSS → analyst session hijack vector
+- **Timestamp UTC enforcement** — all 30+ components previously calling `toLocaleString('fr-FR')` without timezone now route through `fmtLocal()` (UTC-forced, labelled); affected views: AdminPage, ThreatHuntPage, ThreatIntelPage, SuperTimelinePage, CaseDetailPage, ParserLogsPage, UsersPage, AttackChain, BookmarkPanel, CaseTimelineExplorer, SuperTimelineWorkbench, PlaybooksTab, LateralMovementGraph, SoarAlertsPanel, LateralMovementD3, AttackPathD3, NetworkGraphD3, AiCopilotModal
+- **Print reports timezone** — case report and bookmark PDF timestamps now render as `YYYY-MM-DD HH:mm:ss UTC` instead of analyst browser local time
+
+### Fixed
+- **`normalizeTimestamp`** — offset-aware timestamps (e.g. `2023-01-15T14:30:00+02:00`) were silently discarded due to double-append of timezone suffix; now correctly converted to UTC ISO string
+- **`useDateFormat` tzLabel** — default (non-UTC mode) was silent empty string; now shows `(local)` to prevent ambiguity between analysts in different timezones
+
+### Performance / Memory
+- **`parserWorker` backup** — replaced `spawnSync` with `spawn` pipeline (`pg_dump | gzip → file`); eliminates 512 MB heap ceiling that caused `ENOBUFS` on large forensic databases
+- **CSV threshold** — `LARGE_CSV_THRESHOLD` lowered from 30 MB to 5 MB, reducing worst-case synchronous heap allocation from ~150 MB to ~25 MB
+
+### Removed
+- **`backend/src/routes/parsers.js`** — dead route never mounted in `server.js`; removed to eliminate accidental re-enable risk (full-file `readFileSync` OOM vector)
+
+### Added
+- **`fmtLocal(ts)`** utility in `utils/formatters.ts` — UTC-aware `toLocaleString` wrapper, shared across all non-super-timeline date displays
+- **Admin → À propos** — new tab with collapsible credits table listing all integrated open-source DFIR tools (EZ Tools / MIT, Hayabusa / GPL 3.0, VolWeb / MIT, Volatility 3 / Volatility Software License)
+
+---
+
 ## [0.9.6] — 2026-04-01 — Initial Public Release
 
 ### Added
