@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { BookOpen, ChevronDown, ChevronRight, CheckSquare, Square, Plus, RefreshCw, FileText } from 'lucide-react';
 import { playbooksAPI } from '../../utils/api';
 import { Spinner } from '../ui';
+import { fmtLocal } from '../../utils/formatters';
 
 const INCIDENT_LABELS = {
   ransomware:   'Ransomware',
@@ -128,7 +129,7 @@ function StepItem({ step, instanceId, caseId, onUpdated }) {
           )}
           {step.completed && step.completed_by_name && (
             <div style={{ fontSize: 9, fontFamily: 'monospace', color: 'var(--fl-subtle)', marginTop: 2 }}>
-              Complété par {step.completed_by_name} · {step.completed_at ? new Date(step.completed_at).toLocaleString('fr-FR') : ''}
+              Complété par {step.completed_by_name} · {step.completed_at ? fmtLocal(step.completed_at) : ''}
             </div>
           )}
         </div>

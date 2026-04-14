@@ -7,6 +7,7 @@ import {
 import { collectionAPI, artifactsAPI } from '../../utils/api';
 import { useTheme } from '../../utils/theme';
 import TimelineHistogram from './TimelineHistogram';
+import { fmtLocal } from '../../utils/formatters';
 
 const ARTIFACT_COLORS = {
   evtx:      'var(--fl-accent)', prefetch:  '#22c55e', mft:       'var(--fl-purple)',
@@ -953,7 +954,7 @@ export default function CaseTimelineExplorer({ caseId, onTotalChange, reloadKey 
                               </div>
                               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                                 <span style={{ fontSize: 9, color: 'var(--fl-subtle)', fontFamily: 'monospace' }}>
-                                  {n.author_name || n.author_username} · {new Date(n.created_at).toLocaleString('fr-FR')}
+                                  {n.author_name || n.author_username} · {fmtLocal(n.created_at)}
                                   {n.updated_at !== n.created_at && ' (modifié)'}
                                 </span>
                                 <div style={{ display: 'flex', gap: 6 }}>

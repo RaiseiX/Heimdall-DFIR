@@ -4,6 +4,7 @@ import { Globe, Plus, Trash2, RefreshCw, Search, AlertTriangle, CheckCircle, Loa
 import { useTheme } from '../utils/theme';
 import { threatIntelAPI, casesAPI } from '../utils/api';
 import TabGroup from '../components/ui/TabGroup';
+import { fmtLocal } from '../utils/formatters';
 
 const IOC_COLORS = {
   ipv4:   '#e05252',
@@ -189,7 +190,7 @@ function FeedsTab({ toast }) {
                     {f.indicator_count || 0}
                   </td>
                   <td style={{ padding: '10px 12px', color: T.muted, fontSize: 12 }}>
-                    {f.last_fetched ? new Date(f.last_fetched).toLocaleString('fr-FR') : 'Jamais'}
+                    {f.last_fetched ? fmtLocal(f.last_fetched) : 'Jamais'}
                   </td>
                   <td style={{ padding: '10px 12px' }}>
                     <div style={{ display: 'flex', gap: 6 }}>
@@ -571,7 +572,7 @@ function CorrelationsTab({ toast }) {
                   </td>
                   <td style={{ padding: '9px 12px', color: T.muted }}>{c.source_name || '—'}</td>
                   <td style={{ padding: '9px 12px', color: T.muted, whiteSpace: 'nowrap' }}>
-                    {new Date(c.matched_at).toLocaleString('fr-FR')}
+                    {fmtLocal(c.matched_at)}
                   </td>
                 </tr>
               ))}

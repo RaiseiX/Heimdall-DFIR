@@ -19,6 +19,6 @@ export function useDateFormat() {
       try { return new Date(ts).toLocaleTimeString(locale, tzOpts); } catch { return String(ts); }
     },
     isUTC: prefs.timezone === 'utc',
-    tzLabel: prefs.timezone === 'utc' ? ' UTC' : '',
+    tzLabel: prefs.timezone === 'utc' ? ' UTC' : ' (local)',
   };
 }

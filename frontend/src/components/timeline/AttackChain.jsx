@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { RefreshCw, ChevronDown, ChevronRight } from 'lucide-react';
 import { bookmarksAPI } from '../../utils/api';
+import { fmtLocal } from '../../utils/formatters';
 
 const PHASES = [
   { id: 'Reconnaissance',       short: 'RECON',    color: 'var(--fl-dim)' },
@@ -33,7 +34,7 @@ function BookmarkCard({ b, color }) {
       )}
       {b.event_timestamp && (
         <span style={{ fontSize: 9, fontFamily: 'monospace', color: 'var(--fl-muted)' }}>
-          {new Date(b.event_timestamp).toLocaleString('fr-FR')}
+          {fmtLocal(b.event_timestamp)}
         </span>
       )}
     </div>

@@ -8,6 +8,7 @@ import AiCopilotModal from '../components/ai/AiCopilotModal';
 import { Button, Modal, Spinner, Pagination } from '../components/ui';
 import { StatusPill, PriorityPill, TimePill, fmtDuration } from '../components/ui/StatusPill';
 import { downloadCSV } from '../utils/csvExport';
+import { fmtLocal } from '../utils/formatters';
 
 import MitreAttackTab from '../components/mitre/MitreAttackTab';
 
@@ -689,15 +690,27 @@ export default function CaseDetailPage({ user }) {
     }
     const w = window.open('', '_blank');
     if (w) {
-      w.document.write('<html><head><title>Rapport ' + c.case_number + '</title><style>body{font-family:sans-serif;padding:40px;color:#333}h1{color:#3a6aaa}table{width:100%;border-collapse:collapse;margin:20px 0}td,th{border:1px solid #ddd;padding:8px;text-align:left}th{background:#f5f5f5}</style></head><body>');
-      w.document.write('<h1>HEIMDALL DFIR — Rapport Forensique</h1><p><strong>' + c.case_number + '</strong> — ' + c.title + '</p><p>Statut: ' + c.status + ' | Priorité: ' + c.priority + ' | Investigateur: ' + (c.investigator_name || '') + '</p><p>' + c.description + '</p><hr>');
+      function esc(s) {
+        return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+      }
+      function fmtUtc(ts) {
+        if (!ts) return '—';
+        try {
+          const d = new Date(ts);
+          const p = (n, l = 2) => String(n).padStart(l, '0');
+          return `${d.getUTCFullYear()}-${p(d.getUTCMonth()+1)}-${p(d.getUTCDate())} `
+               + `${p(d.getUTCHours())}:${p(d.getUTCMinutes())}:${p(d.getUTCSeconds())} UTC`;
+        } catch { return String(ts); }
+      }
+      w.document.write('<html><head><title>Rapport ' + esc(c.case_number) + '</title><style>body{font-family:sans-serif;padding:40px;color:#333}h1{color:#3a6aaa}table{width:100%;border-collapse:collapse;margin:20px 0}td,th{border:1px solid #ddd;padding:8px;text-align:left}th{background:#f5f5f5}</style></head><body>');
+      w.document.write('<h1>HEIMDALL DFIR — Rapport Forensique</h1><p><strong>' + esc(c.case_number) + '</strong> — ' + esc(c.title) + '</p><p>Statut: ' + esc(c.status) + ' | Priorité: ' + esc(c.priority) + ' | Investigateur: ' + esc(c.investigator_name || '') + '</p><p>' + esc(c.description) + '</p><hr>');
       w.document.write('<h2>Preuves (' + evidence.length + ')</h2><table><tr><th>Nom</th><th>Type</th><th>SHA256</th><th>Surligné</th></tr>');
-      evidence.forEach(function(e) { w.document.write('<tr><td>' + e.name + '</td><td>' + e.evidence_type + '</td><td style="font-family:monospace;font-size:10px">' + (e.hash_sha256 || '').substring(0,24) + '...</td><td>' + (e.is_highlighted ? '★' : '') + '</td></tr>'); });
-      w.document.write('</table><h2>Timeline (' + caseTL.length + ' événements)</h2><table><tr><th>Date</th><th>Type</th><th>Événement</th></tr>');
-      caseTL.forEach(function(tlEv) { w.document.write('<tr><td>' + new Date(tlEv.event_time).toLocaleString(i18n.language) + '</td><td>' + tlEv.event_type + '</td><td>' + tlEv.title + '</td></tr>'); });
+      evidence.forEach(function(e) { w.document.write('<tr><td>' + esc(e.name) + '</td><td>' + esc(e.evidence_type) + '</td><td style="font-family:monospace;font-size:10px">' + esc((e.hash_sha256 || '').substring(0,24)) + '...</td><td>' + (e.is_highlighted ? '★' : '') + '</td></tr>'); });
+      w.document.write('</table><h2>Timeline (' + caseTL.length + ' événements)</h2><table><tr><th>Date (UTC)</th><th>Type</th><th>Événement</th></tr>');
+      caseTL.forEach(function(tlEv) { w.document.write('<tr><td>' + esc(fmtUtc(tlEv.event_time)) + '</td><td>' + esc(tlEv.event_type) + '</td><td>' + esc(tlEv.title) + '</td></tr>'); });
       w.document.write('</table><h2>IOCs (' + caseIOCs.length + ')</h2><table><tr><th>Type</th><th>Valeur</th><th>Sévérité</th><th>Malveillant</th></tr>');
-      caseIOCs.forEach(function(i) { w.document.write('<tr><td>' + i.ioc_type + '</td><td style="font-family:monospace">' + i.value + '</td><td>' + i.severity + '/10</td><td>' + (i.is_malicious ? '⚠ OUI' : 'Non') + '</td></tr>'); });
-      w.document.write('</table><hr><p style="color:#999;font-size:12px">Généré par Heimdall DFIR v2.7 — ' + new Date().toLocaleString(i18n.language) + '</p></body></html>');
+      caseIOCs.forEach(function(i) { w.document.write('<tr><td>' + esc(i.ioc_type) + '</td><td style="font-family:monospace">' + esc(i.value) + '</td><td>' + esc(String(i.severity)) + '/10</td><td>' + (i.is_malicious ? '⚠ OUI' : 'Non') + '</td></tr>'); });
+      w.document.write('</table><hr><p style="color:#999;font-size:12px">Généré par Heimdall DFIR v2.7 — ' + esc(fmtUtc(new Date().toISOString())) + '</p></body></html>');
       w.document.close();
       w.print();
     }
@@ -2309,7 +2322,7 @@ export default function CaseDetailPage({ user }) {
                         return (
                           <tr key={a.id} style={{ borderBottom: '1px solid rgba(28,38,64,0.3)' }}>
                             <td className="px-4 py-2.5 font-mono text-xs whitespace-nowrap" style={{ color: 'var(--fl-dim)' }}>
-                              {new Date(a.created_at).toLocaleString(i18n.language)}
+                              {fmtLocal(a.created_at)}
                             </td>
                             <td className="px-4 py-2.5">
                               <span className="px-2 py-0.5 rounded text-xs font-mono font-bold"
@@ -2737,7 +2750,7 @@ export default function CaseDetailPage({ user }) {
 
               {triageData.computed_at && (
                 <div style={{ marginTop: 10, fontSize: 10, fontFamily: 'monospace', color: 'var(--fl-muted)', textAlign: 'right' }}>
-                  Calculé le {new Date(triageData.computed_at).toLocaleString(i18n.language)}
+                  Calculé le {fmtLocal(triageData.computed_at)}
                 </div>
               )}
             </div>

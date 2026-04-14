@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Users, Plus, Shield, UserCheck, UserX, X } from 'lucide-react';
+import { fmtLocal } from '../utils/formatters';
 
 const DEMO_USERS = [
   { id: '1', username: 'admin', email: 'admin@heimdall.local', full_name: 'Administrateur', role: 'admin', is_active: true, last_login: '2026-02-16T08:00:00Z', created_at: '2026-01-01T00:00:00Z' },
@@ -91,7 +92,7 @@ export default function UsersPage() {
                   </span>
                 </td>
                 <td className="fl-td-dim" style={{ fontSize: '0.8125rem' }}>
-                  {u.last_login ? new Date(u.last_login).toLocaleString('fr-FR') : '—'}
+                  {u.last_login ? fmtLocal(u.last_login) : '—'}
                 </td>
                 <td className="fl-td-dim" style={{ fontSize: '0.8125rem' }}>
                   {new Date(u.created_at).toLocaleDateString('fr-FR')}

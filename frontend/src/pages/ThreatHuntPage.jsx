@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { casesAPI, evidenceAPI, threatHuntingAPI } from '../utils/api';
 import { Button, Modal, TabGroup, Badge, Spinner } from '../components/ui';
+import { fmtLocal } from '../utils/formatters';
 
 const C = {
   yara:    'var(--fl-accent)',
@@ -905,7 +906,7 @@ function SigmaHuntTab() {
                       {huntResult.events.map((e, i) => (
                         <tr key={i} style={{ borderBottom: `1px solid ${C.border}` }}>
                           <td style={{ padding: '4px 8px', fontFamily: 'monospace', color: 'var(--fl-dim)', whiteSpace: 'nowrap' }}>
-                            {e.timestamp ? new Date(e.timestamp).toLocaleString('fr-FR') : '—'}
+                            {e.timestamp ? fmtLocal(e.timestamp) : '—'}
                           </td>
                           <td style={{ padding: '4px 8px' }}>
                             {e.artifact_type && <Badge color={ac(e.artifact_type)}>{e.artifact_type}</Badge>}
@@ -958,8 +959,8 @@ function SigmaHuntTab() {
                           {h.matched_events.map((e, i) => (
                             <tr key={i} style={{ borderBottom: `1px solid ${C.border}` }}>
                               <td style={{ padding: '3px 8px', fontFamily: 'monospace', color: 'var(--fl-dim)', whiteSpace: 'nowrap' }}>
-                                {e.timestamp ? new Date(e.timestamp).toLocaleString('fr-FR') : '—'}
-                              </td>
+                                {e.timestamp ? fmtLocal(e.timestamp) : '—'}
+</td>
                               <td style={{ padding: '3px 8px' }}>
                                 {e.artifact_type && <Badge color={ac(e.artifact_type)}>{e.artifact_type}</Badge>}
                               </td>

@@ -5,7 +5,7 @@ import IORedis from 'ioredis';
 import { Emitter } from '@socket.io/redis-emitter';
 import { Pool } from 'pg';
 import type { Server as IOServer } from 'socket.io';
-import { spawnSync } from 'child_process';
+import { spawn } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -53,34 +53,48 @@ const worker = new Worker<ParserJobData>(
       const filename = `forensiclab-backup-${ts}.sql.gz`;
       const outPath = path.join(BACKUP_DIR, filename);
 
-      const dump = spawnSync('pg_dump', [
-        '--host',     process.env.DB_HOST     || 'db',
-        '--port',     process.env.DB_PORT     || '5432',
-        '--username', process.env.DB_USER     || 'forensiclab',
-        '--dbname',   process.env.DB_NAME     || 'forensiclab',
-        '--no-password',
-        '--format=plain',
-      ], {
-        env: { ...process.env, PGPASSWORD: process.env.DB_PASSWORD },
-        encoding: 'buffer',
-        maxBuffer: 512 * 1024 * 1024,
-        timeout: 5 * 60 * 1000,
+      await new Promise<void>((resolve, reject) => {
+        const dumpProc = spawn('pg_dump', [
+          '--host',     process.env.DB_HOST     || 'db',
+          '--port',     process.env.DB_PORT     || '5432',
+          '--username', process.env.DB_USER     || 'forensiclab',
+          '--dbname',   process.env.DB_NAME     || 'forensiclab',
+          '--no-password',
+          '--format=plain',
+        ], {
+          env: { ...process.env, PGPASSWORD: process.env.DB_PASSWORD },
+          stdio: ['ignore', 'pipe', 'pipe'],
+        });
+
+        const gzipProc  = spawn('gzip', [], { stdio: ['pipe', 'pipe', 'pipe'] });
+        const outStream = fs.createWriteStream(outPath);
+
+        dumpProc.stdout.pipe(gzipProc.stdin);
+        gzipProc.stdout.pipe(outStream);
+
+        const dumpStderr: Buffer[] = [];
+        dumpProc.stderr.on('data', (chunk: Buffer) => dumpStderr.push(chunk));
+
+        dumpProc.on('close', (code) => {
+          if (code !== 0) {
+            const errMsg = Buffer.concat(dumpStderr).toString().slice(0, 200);
+            logger.error('[Worker/backup] pg_dump error:', errMsg);
+            gzipProc.kill();
+            reject(new Error(`pg_dump failed: ${errMsg}`));
+          }
+        });
+
+        gzipProc.on('close', (code) => {
+          if (code !== 0) {
+            reject(new Error('gzip failed during scheduled backup'));
+          }
+        });
+
+        outStream.on('finish', resolve);
+        outStream.on('error', reject);
+        dumpProc.on('error', reject);
+        gzipProc.on('error', reject);
       });
-
-      if (dump.status !== 0) {
-        const errMsg = dump.stderr?.toString() || 'pg_dump failed';
-        logger.error('[Worker/backup] pg_dump error:', errMsg);
-        throw new Error(`pg_dump failed: ${errMsg.slice(0, 200)}`);
-      }
-
-      const gzip = spawnSync('gzip', [], {
-        input: dump.stdout,
-        encoding: 'buffer',
-        maxBuffer: 512 * 1024 * 1024,
-      });
-      if (gzip.status !== 0) throw new Error('gzip failed during scheduled backup');
-
-      fs.writeFileSync(outPath, gzip.stdout as Buffer);
       const stat = fs.statSync(outPath);
       logger.info(`[Worker/backup] Backup created: ${filename} (${stat.size} bytes)`);
 

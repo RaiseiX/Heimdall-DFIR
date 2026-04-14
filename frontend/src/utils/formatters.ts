@@ -1,4 +1,11 @@
 
+export function fmtLocal(ts: string | number | null | undefined): string {
+  if (!ts) return '—';
+  try {
+    return new Date(ts as string).toLocaleString('fr-FR', { timeZone: 'UTC' }) + ' UTC';
+  } catch { return String(ts); }
+}
+
 export function fmtTs(ts: string | null | undefined): string {
   if (!ts) return '-';
   try {

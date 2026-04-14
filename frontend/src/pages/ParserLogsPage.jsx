@@ -3,6 +3,7 @@ import { useOutletContext } from 'react-router-dom';
 import { FileText, ChevronDown, ChevronRight, RefreshCw, AlertCircle, CheckCircle2, AlertTriangle } from 'lucide-react';
 import { useTheme } from '../utils/theme';
 import apiClient from '../utils/api';
+import { fmtLocal } from '../utils/formatters';
 
 const STATUS_CONFIG = {
   ok:       { label: 'OK',       color: 'var(--fl-ok)',     icon: CheckCircle2 },
@@ -148,7 +149,7 @@ export default function ParserLogsPage() {
                   {fmtDuration(row.parsed_at, row.updated_at)}
                 </span>
                 <span style={{ fontFamily: 'monospace', fontSize: 10, color: T.muted, flexShrink: 0, whiteSpace: 'nowrap' }}>
-                  {row.updated_at ? new Date(row.updated_at).toLocaleString('fr-FR') : '—'}
+                  {row.updated_at ? fmtLocal(row.updated_at) : '—'}
                 </span>
               </div>
 

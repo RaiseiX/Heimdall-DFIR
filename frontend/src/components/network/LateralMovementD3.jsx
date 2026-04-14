@@ -40,7 +40,7 @@ function edgeColor(eventIds) {
 
 function fmtTs(ts) {
   if (!ts) return '—';
-  return new Date(ts).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' });
+  return new Date(ts).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short', timeZone: 'UTC' }) + ' UTC';
 }
 
 const EVENT_LABELS = {

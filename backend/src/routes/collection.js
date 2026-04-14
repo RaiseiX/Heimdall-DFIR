@@ -52,7 +52,7 @@ const WINDOWS_ONLY_PARSERS = new Set([]);
 
 const PYTHON_FALLBACK_PARSERS = new Set(['prefetch', 'srum', 'sqle', 'wxtcmd']);
 
-const LARGE_CSV_THRESHOLD = 30 * 1024 * 1024;
+const LARGE_CSV_THRESHOLD = 5 * 1024 * 1024;
 
 const UPLOAD_COLLECTION_DIR = '/app/uploads/collections';
 
@@ -362,18 +362,22 @@ function findFiles(dir, patterns) {
 function normalizeTimestamp(value) {
   if (!value || value === '' || value === '(null)') return null;
   try {
-
     let cleaned = value.trim();
 
-    if (cleaned.endsWith('Z')) cleaned = cleaned.slice(0, -1);
-
-    if (cleaned.includes(' ') && !cleaned.includes('T')) {
-      cleaned = cleaned.replace(' ', 'T');
+    // Handle offset-aware strings (e.g. +02:00 or -05:00) — parse as-is, convert to UTC
+    if (/[+-]\d{2}:\d{2}$/.test(cleaned)) {
+      const d = new Date(cleaned.replace(' ', 'T'));
+      if (isNaN(d.getTime())) return null;
+      const year = d.getUTCFullYear();
+      if (year < 1980 || year > 2035) return null;
+      return d.toISOString();
     }
 
+    // No offset: assume UTC (EZ Tools output)
+    if (cleaned.endsWith('Z')) cleaned = cleaned.slice(0, -1);
+    if (cleaned.includes(' ') && !cleaned.includes('T')) cleaned = cleaned.replace(' ', 'T');
     const d = new Date(cleaned + 'Z');
     if (isNaN(d.getTime())) return null;
-
     const year = d.getUTCFullYear();
     if (year < 1980 || year > 2035) return null;
     return d.toISOString();

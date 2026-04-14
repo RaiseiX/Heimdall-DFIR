@@ -20,7 +20,7 @@ import { ARTIFACT_PROFILES, getProfileForArtifact } from '../utils/artifactProfi
 import { getEffectiveVirtual, getColumnPref } from '../utils/columnPreferences';
 import ArtifactColumnEditor from '../components/timeline/ArtifactColumnEditor';
 import { artifactColor, HAY_SEVERITY_BG } from '../constants/artifactColors';
-import { fmtTs as fmtTsUtil } from '../utils/formatters';
+import { fmtTs as fmtTsUtil, fmtLocal } from '../utils/formatters';
 
 function includeParam(excluded, available) {
   if (!(excluded instanceof Set) || excluded.size === 0) return '';
@@ -2577,7 +2577,7 @@ export default function SuperTimelinePage() {
                                 </div>
                                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                                   <span style={{ fontSize: 9, color: 'var(--fl-muted)', fontFamily: 'monospace' }}>
-                                    {n.author_name || n.author_username} · {new Date(n.created_at).toLocaleString()}
+                                    {n.author_name || n.author_username} · {fmtLocal(n.created_at)}
                                     {n.updated_at !== n.created_at && ' (edited)'}
                                   </span>
                                   <div style={{ display: 'flex', gap: 6 }}>
