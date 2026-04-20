@@ -1,6 +1,6 @@
 # Heimdall DFIR — Roadmap V2.0
 
-> *Updated 2026-03-31*
+> *Updated 2026-04-20*
 > *Written from a Principal Staff Engineer / CPO Cybersecurity perspective.*
 >
 > Contributions are welcome — open an issue to discuss an idea.
@@ -37,7 +37,33 @@ The V2.0 ambition is to move from *"good DFIR timeline tool"* to *"collaborative
 
 ---
 
-## ✅ v0.9.0 — Current foundation (completed)
+## ✅ v0.9.9 — Threat Engine & Workbench Foundation (current — Apr 2026)
+
+### 0.9.9 — Automated Threat Engine & Greyware Tagging
+- [x] **Threat Engine v2.26** — YAML rule engine, artifact/event-id bucketed matcher, ≤ 5 µs/record hot-path, mtime hot-reload (`backend/src/services/threatEngine.js`)
+- [x] **5 rule packs / 61 rules** — RMM (8), Anti-Forensics (8), LOLBIN (20), Credential Access (10), Persistence (15) under `backend/config/threat_rules/*.yaml`
+- [x] **DB v2.26** — `collection_timeline.detections JSONB` + GIN `jsonb_path_ops` index + partial hits-only index
+- [x] **Ingest wiring** — engine evaluates each record in the COPY hot path, auto-merges rule tags into `tags[]`, persists `detections[]` to DB
+- [x] **Timeline filters** — `?detections=hits_only`, `?detection_severity=critical|high|medium|greyware`, `?detection_category=…` with safe `jsonb @>` containment
+- [x] **`GET /api/collection/:caseId/detections/summary`** — `{ total, by_severity, by_category, top_rules[10] }`
+- [x] **UI** — `🎯 Detections` column (severity pills + tooltip), 3px left-border row accent (No-Christmas-Tree rule), `🎯 Hits uniquement` toggle + sévérité-min dropdown, Workbench `DetectionsSummaryBanner`
+
+### 0.9.8 — Evidence Bridge & Workbench Foundation
+- [x] **Evidence Bridge** (Zustand + localStorage `heimdall.evidenceBridge.v1`, 500 pins/case)
+- [x] **Workbench tab** — artifact-colored cards, analyst notes, tri-state status, fuzzy search, MD/JSON export
+- [x] **Findings Board kanban** — 3 columns, native HTML5 drag-and-drop, per-case view persistence
+- [x] **Backend sync** — `workbench_evidence_pins` (v2.25), REST + WebSocket `workbench:pin:*` broadcast
+- [x] **Tamper-evident ledger** — `workbench_evidence_audit` SHA-256 hash chain, `GET /audit` endpoint, Ledger UI verification banner
+- [x] **Persistence Sweep analyzer** — 11 MITRE rules, weighted Persistence Score
+- [x] **Logon Session Reconstruction** — groups EID 4624/4625/4634/4647/4648 by `LogonId`
+- [x] **Pin → Rapport** — printable findings document with chain-of-custody table
+- [x] **Super Timeline tabs pruned** — 13 → 6 (Timeline, MITRE, Persistance, IoA, Kill Chain, Export)
+- [x] **Timeline Explorer** — TanStack Table v8 grouped grid, drag-to-group panel, per-column regex/negation filters, column pinning, details drawer (TE web clone)
+- [x] **EVTX per-EID MITRE map** + Hayabusa forensic enrichment + `hydrateTimelineRow` backfill (v2.24)
+
+---
+
+## ✅ v0.9.0 — Foundation (completed)
 
 ### Foundation missions
 - [x] **M1** — Super Timeline Elasticsearch (per-case index, bulkIndex, searchTimeline)

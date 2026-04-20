@@ -21,7 +21,7 @@
 
 [![EN](https://img.shields.io/badge/lang-EN-blue)](README.md)
 [![FR](https://img.shields.io/badge/lang-FR-blueviolet)](README.fr.md)
-![Version](https://img.shields.io/badge/version-0.9.0-blue)
+![Version](https://img.shields.io/badge/version-0.9.9-blue)
 ![Docker](https://img.shields.io/badge/docker-compose-2496ED)
 ![Node](https://img.shields.io/badge/node-18+-339933)
 ![React](https://img.shields.io/badge/react-18-61DAFB)
@@ -55,6 +55,7 @@ captures réseau, dumps RAM — dans une interface unique, collaborative et temp
 - **Threat Intel TAXII/STIX** — connecteur TAXII 2.1, index Elasticsearch `threat_intel`, corrélation automatique post-ingestion
 
 ### 🎯 Détections automatiques
+- **Threat Engine v2.26** *(nouveau en 0.9.9)* — moteur de règles YAML en hot-path (≤ 5 µs/record, hot-reload mtime), 5 packs / 61 règles : **RMM/Greyware** (AnyDesk, TeamViewer, Atera, ScreenConnect, Splashtop, AeroAdmin, ConnectWise, RemotePC — T1219), **Anti-Forensics** (1102/104 log clear, vssadmin/wbadmin delete, wevtutil cl, fsutil USN, cipher /w, bcdedit recovery, timestomp — T1070/T1490), **LOLBIN** (20 règles — certutil, bitsadmin, regsvr32 Squiblydoo, mshta, rundll32 script, wmic, installutil, cmstp, msbuild, msiexec_remote, forfiles, pcalua, odbcconf, ieexec, hh, xwizard, presentationhost, pubprn vbs, mavinject, powershell encoded — T1218), **Credential Access** (mimikatz, lsass EID 10, dcsync, shadow creds, dump SAM/NTDS, secretsdump, lazagne, kerberoasting burst, skeleton key — T1003), **Persistence** (15 règles — Run keys, Startup LNK, schtasks, service 7045, WMI event sub, BITS, logon scripts, IFEO accessibility, COM hijack, Winlogon tamper, Active Setup, DLL search order, Domain Admins add 4732/4728/4756, At legacy, service binpath shell — T1547/T1546/T1053/T1543/T1574/T1098)
 - **Timestomping** — comparaison `$SIA` vs `$FN` (NTFS timestamps) sur artefacts MFT
 - **Double extension** — détection `.pdf.exe`, `.docx.scr`, etc. sur MFT / LNK / Prefetch
 - **Beaconing C2** — coefficient de variation des intervalles de connexion (beacon score 0–100)
@@ -92,6 +93,17 @@ captures réseau, dumps RAM — dans une interface unique, collaborative et temp
 - **Persistance** — historique de conversation stocké en base par cas, rechargé à chaque session
 - **Modèles supportés** — `qwen3:14b` (défaut), `qwen2.5:7b/14b`, `deepseek-r1:8b`, `llama3.2:3b`, `mistral:7b`
 - **Mode no-think** — suppression des balises `<think>…</think>` pour un affichage propre (configurable)
+
+### 🧰 Workbench *(nouveau en 0.9.8 / 0.9.9)*
+- **Evidence Bridge** — épingler des lignes forensiques de la Super Timeline vers un onglet Workbench dédié (Zustand + localStorage, 500 pins/case, dedup, sync auto Postgres `workbench_evidence_pins`)
+- **Findings Board** — vue kanban Triage / Confirmé / Rapporté, drag-and-drop HTML5 natif, persistance par cas
+- **Ledger inviolable** — table append-only `workbench_evidence_audit` avec chaîne de hash SHA-256 (`content_hash = sha256(prev_hash || action || canonical_payload)`), bannière de vérification, export JSON pour défense légale
+- **Sync multi-analyste live** — broadcast WebSocket `workbench:pin:{added,updated,removed,cleared}` sur la room `case:<id>`, sans boucle d'écho
+- **Persistence Sweep analyzer** — 11 règles MITRE sur les pins (T1547/T1543/T1053/T1546/T1197/T1037/T1574…), Persistence Score pondéré
+- **Reconstruction de sessions logon** — groupe les EID 4624/4625/4634/4647/4648 par `LogonId`, décode LogonType, extrait l'IP source, classifie le statut
+- **Intégration Threat Engine** *(0.9.9)* — colonne `🎯 Detections` avec pastilles de sévérité (CRIT/HIGH/MED/GREY), bordure gauche 3px (règle "No-Christmas-Tree"), filtre `🎯 Hits uniquement` + dropdown sévérité-min, bannière de résumé Workbench (chips par sévérité + top-3 règles)
+- **Pin → Rapport** — document de findings forensiques imprimable avec page de garde, compteurs, findings groupés par statut, table chain-of-custody complète
+- **Super Timeline Workbench** — 6 onglets curés (Timeline, MITRE, Persistance, IoA, Kill Chain, Export) — réduit de 13 en 0.9.8 pour matcher les workflows DFIR réels
 
 ### 👥 Collaboration
 - **Chat live par cas** — Socket.io, persistance DB, bulles, suppression, badge non-lus
