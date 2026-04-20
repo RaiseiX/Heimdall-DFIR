@@ -128,7 +128,7 @@ fi
 
 echo ""
 echo "╔══════════════════════════════════════════════╗"
-echo "║   Démarrage ForensicLab API v2.7.0           ║"
+echo "║   Démarrage ForensicLab API v0.9.7           ║"
 echo "╚══════════════════════════════════════════════╝"
 echo ""
 

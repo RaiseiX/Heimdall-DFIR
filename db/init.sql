@@ -250,6 +250,19 @@ CREATE TABLE IF NOT EXISTS collection_timeline (
     mitre_technique_id  VARCHAR(20),
     mitre_technique_name VARCHAR(200),
     mitre_tactic        VARCHAR(64),
+    -- Unified forensic columns (v2.23, inspired by forensic-timeliner)
+    tool                VARCHAR(32),
+    timestamp_kind      VARCHAR(64),
+    details             TEXT,
+    "path"              TEXT,
+    ext                 VARCHAR(16),
+    event_id            INTEGER,
+    file_size           BIGINT,
+    src_ip              INET,
+    dst_ip              INET,
+    sha1                CHAR(40),
+    tags                TEXT[]       NOT NULL DEFAULT '{}',
+    dedupe_hash         CHAR(16),
     created_at          TIMESTAMPTZ  DEFAULT NOW()
 );
 
@@ -281,11 +294,15 @@ CREATE INDEX idx_ct_case_ev_ts ON collection_timeline(case_id, evidence_id, time
 CREATE INDEX IF NOT EXISTS idx_ct_host  ON collection_timeline(case_id, host_name)    WHERE host_name IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_ct_user  ON collection_timeline(case_id, user_name)    WHERE user_name IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_ct_mitre ON collection_timeline(case_id, mitre_tactic) WHERE mitre_tactic IS NOT NULL;
+-- Unified forensic partial indexes (v2.23)
+CREATE INDEX IF NOT EXISTS idx_ct_case_tool     ON collection_timeline(case_id, tool)     WHERE tool     IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_ct_case_event_id ON collection_timeline(case_id, event_id) WHERE event_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_ct_case_ext      ON collection_timeline(case_id, ext)      WHERE ext      IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_ct_case_sha1     ON collection_timeline(case_id, sha1)     WHERE sha1     IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_ct_case_dedupe ON collection_timeline(case_id, dedupe_hash) WHERE dedupe_hash IS NOT NULL;
 
--- ═══ Default Admin User (password: Admin2026!) ═══
-INSERT INTO users (username, email, password_hash, full_name, role) VALUES
-('admin', 'admin@forensiclab.local', crypt('Admin2026!', gen_salt('bf')), 'Administrateur', 'admin'),
-('analyst', 'analyst@forensiclab.local', crypt('Analyst2026!', gen_salt('bf')), 'Analyste Forensique', 'analyst');
+-- ═══ Default users are created by db/zz-init-users.sh (reads ADMIN_DEFAULT_PASSWORD
+--     and ANALYST_DEFAULT_PASSWORD from the environment — see .env.example) ═══
 
 -- ═══ Default Tags ═══
 INSERT INTO tags (name, color) VALUES

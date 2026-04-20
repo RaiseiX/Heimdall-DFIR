@@ -1,6 +1,6 @@
 {
   "name": "forensiclab-api",
-  "version": "0.9.7",
+  "version": "0.9.8",
   "description": "ForensicLab - Digital Forensics Platform API",
   "main": "src/server.js",
   "scripts": {

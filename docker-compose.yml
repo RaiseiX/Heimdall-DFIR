@@ -8,9 +8,12 @@ services:
       POSTGRES_DB: forensiclab
       POSTGRES_USER: forensiclab
       POSTGRES_PASSWORD: ${DB_PASSWORD}
+      ADMIN_DEFAULT_PASSWORD: ${ADMIN_DEFAULT_PASSWORD}
+      ANALYST_DEFAULT_PASSWORD: ${ANALYST_DEFAULT_PASSWORD}
     volumes:
       - pg_data:/var/lib/postgresql/data
       - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - ./db/zz-init-users.sh:/docker-entrypoint-initdb.d/zz-init-users.sh
     networks:
       - aesir-net
     healthcheck:
@@ -80,13 +83,16 @@ services:
       - collections_data:/app/collections
       - temp_data:/app/temp
       - backups_data:/app/backups
-      # Docker socket — read-write (required for Ollama install from admin panel)
+      # Docker socket — read-write required for Ollama model pull from admin panel.
       # DOCKER_GID must match the host docker group: stat -c %g /var/run/docker.sock
+      # Note: grants container access to Docker daemon — restrict host network access accordingly.
       - /var/run/docker.sock:/var/run/docker.sock
     group_add:
       - "${DOCKER_GID:-999}"
-    ports:
-      - "4000:4000"
+    # Port 4000 is NOT exposed on the host — access via Nginx reverse proxy only (port 80/443).
+    # Uncomment only for local debug: - "127.0.0.1:4000:4000"
+    security_opt:
+      - no-new-privileges:false  # gosu requires setuid — privilege drop handled by entrypoint.sh
     depends_on:
       db:
         condition: service_healthy
@@ -141,10 +147,13 @@ services:
 
   # ─── MinIO — Object Storage pour VolWeb ───
   minio:
-    image: minio/minio:latest
+    image: minio/minio:RELEASE.2025-02-07T23-21-09Z
     container_name: njord
     restart: unless-stopped
-    command: server /data --console-address ":9001"
+    # Console disabled — only S3 API (port 9000) is needed by VolWeb
+    command: server /data
+    security_opt:
+      - no-new-privileges:true
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
@@ -173,7 +182,7 @@ services:
     working_dir: /home/app/web
     environment:
       DJANGO_SECRET: ${VOLWEB_DJANGO_SECRET}
-      CSRF_TRUSTED_ORIGINS: http://localhost:8888
+      CSRF_TRUSTED_ORIGINS: ${VOLWEB_PUBLIC_URL:-http://localhost:8888}
       DATABASE_HOST: db
       DATABASE_PORT: 5432
       POSTGRES_DB: volweb
@@ -290,8 +299,12 @@ services:
     image: nginx:alpine
     container_name: hel-proxy
     restart: unless-stopped
+    # Bound to localhost only — VolWeb not directly accessible from external networks.
+    # Access through Heimdall SSO magic link only.
     ports:
-      - "8888:80"
+      - "127.0.0.1:8888:80"
+    security_opt:
+      - no-new-privileges:true
     volumes:
       - ./nginx/volweb.conf:/etc/nginx/nginx.conf:ro
     depends_on:
@@ -308,6 +321,8 @@ services:
       network: host
     container_name: huginn
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
     # Override the default entrypoint (entrypoint.sh) to run the BullMQ worker
     entrypoint: ["node", "src/workers/startWorker.js"]
     environment:
@@ -350,6 +365,8 @@ services:
       network: host
     container_name: asgard
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
     networks:
       - aesir-net
     healthcheck:
@@ -378,7 +395,7 @@ services:
 
   # ── Ollama (IA locale) ──────────────────────────────────────────────────────
   ollama:
-    image: ollama/ollama:latest
+    image: ollama/ollama:0.6.2
     container_name: ollama
     restart: unless-stopped
     networks:
