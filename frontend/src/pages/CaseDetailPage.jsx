@@ -2,7 +2,9 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '../utils/theme';
 import { useParams, useNavigate, useOutletContext } from 'react-router-dom';
-import { FolderOpen, Clock, Crosshair, Network, FileDown, Star, Plus, Search, AlertTriangle, Download, ChevronRight, Loader2, Shield, Trash2, Cpu, ScrollText, Copy, RefreshCw, Link2, CalendarDays, Pencil, Wifi, BookOpen, Lock, Activity, FileJson, Upload, X, CheckCircle, Sparkles, FlaskConical } from 'lucide-react';
+import { FolderOpen, Clock, Crosshair, Network, FileDown, Star, Plus, Search, AlertTriangle, Download, ChevronRight, Loader2, Shield, Trash2, Cpu, ScrollText, Copy, RefreshCw, Link2, CalendarDays, Pencil, Wifi, BookOpen, Lock, Activity, FileJson, Upload, X, CheckCircle, Sparkles, FlaskConical, Pin } from 'lucide-react';
+import WorkbenchEvidenceTab from '../components/workbench/WorkbenchEvidenceTab';
+import { useEvidenceBridge } from '../state/evidenceBridge';
 import api, { casesAPI, evidenceAPI, iocsAPI, timelineAPI, collectionAPI, detectionsAPI, parsersAPI, pcapAPI, legalHoldAPI } from '../utils/api';
 import AiCopilotModal from '../components/ai/AiCopilotModal';
 import { Button, Modal, Spinner, Pagination } from '../components/ui';
@@ -134,10 +136,12 @@ export default function CaseDetailPage({ user }) {
   const id = shellCtx.caseId || params.id;
   const collectionId = params.collectionId;
   const navigate = useNavigate();
+  const pinnedForCase = useEvidenceBridge(s => s.pinned[String(shellCtx.caseId || params.id)] || []);
 
   const TABS = useMemo(() => [
     { id: 'evidence',    label: t('casedetail.tab_evidence'),   icon: FolderOpen },
     { id: 'timeline',   label: 'Super Timeline',                icon: Clock },
+    { id: 'workbench',  label: 'Workbench',                     icon: Pin },
     { id: 'iocs',       label: 'IOCs',                          icon: Crosshair },
     { id: 'detections', label: t('casedetail.tab_detections'),  icon: AlertTriangle },
     { id: 'network',    label: t('casedetail.tab_network'),     icon: Network },
@@ -797,6 +801,7 @@ export default function CaseDetailPage({ user }) {
                       <Icon size={10} />
                       {tb.label}
                       {tb.id === 'iocs'       && caseIOCs.length > 0       && <span style={{ marginLeft: 3, padding: '0 4px', borderRadius: 8, fontSize: 9, fontWeight: 700, background: 'var(--fl-card)', color: caseIOCs.some(i => i.is_malicious) ? 'var(--fl-warn)' : 'var(--fl-dim)', border: '1px solid var(--fl-border)' }}>{caseIOCs.length}</span>}
+                      {tb.id === 'workbench'  && pinnedForCase.length > 0 && <span style={{ marginLeft: 3, padding: '0 4px', borderRadius: 8, fontSize: 9, fontWeight: 700, background: 'var(--fl-card)', color: 'var(--fl-purple, #c96898)', border: '1px solid var(--fl-border)' }}>{pinnedForCase.length}</span>}
                       {hasResult && <span style={{ width: 4, height: 4, borderRadius: '50%', background: '#22c55e', display: 'inline-block', marginLeft: 1 }} />}
                     </button>
                   );
@@ -1522,6 +1527,10 @@ export default function CaseDetailPage({ user }) {
           })()}
 
         </div>
+      )}
+
+      {tab === 'workbench' && (
+        <WorkbenchEvidenceTab caseId={id} />
       )}
 
       {tab === 'timeline' && (

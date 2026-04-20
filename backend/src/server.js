@@ -47,6 +47,7 @@ const threatHuntingRoutes = require('./routes/threatHunting');
 const threatIntelRoutes   = require('./routes/threatIntel');
 const sysmonRoutes        = require('./routes/sysmon');
 const timelinePinsRoutes  = require('./routes/timelinePins');
+const workbenchPinsRoutes = require('./routes/workbenchPins');
 const chatRoutes          = require('./routes/chat');
 const adminRoutes         = require('./routes/admin');
 const playbooksRoutes     = require('./routes/playbooks');
@@ -317,15 +318,15 @@ io.on('connection', (socket) => {
 app.set('etag', false);
 
 app.use(helmet({
-
-  contentSecurityPolicy:          false,
-  strictTransportSecurity:        false,
-  referrerPolicy:                 false,
-  xXssProtection:                 false,
-  xFrameOptions:                  false,
-  xContentTypeOptions:            false,
-
-  crossOriginEmbedderPolicy:      false,
+  // CSP and HSTS are set by Nginx (nginx.conf) — kept false here to avoid duplication.
+  // These are re-enabled for direct-access defence if Nginx is bypassed.
+  contentSecurityPolicy:          false,  // complex — managed by Nginx CSP header
+  strictTransportSecurity:        false,  // managed by Nginx (requires TLS)
+  crossOriginEmbedderPolicy:      false,  // breaks some browser features
+  // Re-enabled — safe to set even when Nginx also sets them (idempotent)
+  xContentTypeOptions:            true,
+  xFrameOptions:                  { action: 'sameorigin' },
+  referrerPolicy:                 { policy: 'strict-origin-when-cross-origin' },
 }));
 app.use(cors({
   origin: process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(',') : ['http://localhost:3000'],
@@ -333,7 +334,8 @@ app.use(cors({
   methods: ['GET', 'POST', 'PUT', 'DELETE'],
   allowedHeaders: ['Content-Type', 'Authorization'],
 }));
-app.use(morgan('combined'));
+// Custom Morgan format — excludes Authorization header and query strings from logs
+app.use(morgan(':remote-addr :method :url :status :res[content-length] - :response-time ms'));
 app.use(requestIdMiddleware);
 
 app.use(express.json({ limit: '10mb' }));
@@ -365,6 +367,7 @@ app.use('/api/threat-hunting', threatHuntingRoutes);
 app.use('/api/threat-intel',   threatIntelRoutes);
 app.use('/api/sysmon',         sysmonRoutes);
 app.use('/api/timeline-pins',  timelinePinsRoutes);
+app.use('/api/workbench-pins', workbenchPinsRoutes);
 app.use('/api/chat',           chatRoutes);
 app.use('/api/admin',                  adminRoutes);
 app.use('/api/playbooks',              playbooksRoutes);
