@@ -1,5 +1,5 @@
 const express = require('express');
-const { execSync, exec, spawnSync, spawn, execFile } = require('child_process');
+const { execSync, execFileSync, exec, spawnSync, spawn, execFile } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
@@ -16,6 +16,9 @@ const { authenticate, auditLog } = require('../middleware/auth');
 const esService = require('../services/elasticsearchService');
 const { getRedis } = require('../config/redis');
 const logger = require('../config/logger').default;
+const { matchTags: matchKeywordTags } = require('../services/timelineKeywords');
+const threatEngine = require('../services/threatEngine');
+const { detectMapping, applyMapping, loadMappings } = require('../services/timelineMappings');
 
 const router = express.Router();
 const ZIMMERMAN_DIR = process.env.ZIMMERMAN_TOOLS_DIR || '/app/zimmerman-tools';
@@ -44,6 +47,26 @@ pool.query(`
   pool.query(`ALTER TABLE collection_timeline ADD COLUMN IF NOT EXISTS evidence_id UUID REFERENCES evidence(id) ON DELETE CASCADE`),
 
   pool.query(`ALTER TABLE collection_timeline ADD COLUMN IF NOT EXISTS source_device VARCHAR(256)`),
+
+  // v2.23 — unified forensic columns (inspired by forensic-timeliner)
+  pool.query(`ALTER TABLE collection_timeline
+                ADD COLUMN IF NOT EXISTS tool           VARCHAR(32),
+                ADD COLUMN IF NOT EXISTS timestamp_kind VARCHAR(64),
+                ADD COLUMN IF NOT EXISTS details        TEXT,
+                ADD COLUMN IF NOT EXISTS "path"         TEXT,
+                ADD COLUMN IF NOT EXISTS ext            VARCHAR(16),
+                ADD COLUMN IF NOT EXISTS event_id       INTEGER,
+                ADD COLUMN IF NOT EXISTS file_size      BIGINT,
+                ADD COLUMN IF NOT EXISTS src_ip         INET,
+                ADD COLUMN IF NOT EXISTS dst_ip         INET,
+                ADD COLUMN IF NOT EXISTS sha1           CHAR(40),
+                ADD COLUMN IF NOT EXISTS tags           TEXT[] NOT NULL DEFAULT '{}',
+                ADD COLUMN IF NOT EXISTS dedupe_hash    CHAR(16)`),
+  pool.query(`CREATE INDEX        IF NOT EXISTS idx_ct_case_tool     ON collection_timeline(case_id, tool)     WHERE tool     IS NOT NULL`),
+  pool.query(`CREATE INDEX        IF NOT EXISTS idx_ct_case_event_id ON collection_timeline(case_id, event_id) WHERE event_id IS NOT NULL`),
+  pool.query(`CREATE INDEX        IF NOT EXISTS idx_ct_case_ext      ON collection_timeline(case_id, ext)      WHERE ext      IS NOT NULL`),
+  pool.query(`CREATE INDEX        IF NOT EXISTS idx_ct_case_sha1     ON collection_timeline(case_id, sha1)     WHERE sha1     IS NOT NULL`),
+  pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS uq_ct_case_dedupe    ON collection_timeline(case_id, dedupe_hash) WHERE dedupe_hash IS NOT NULL`),
 ])).catch(e => logger.warn('[collection] auto-migration warning:', e.message));
 const COLLECTIONS_DIR = '/app/collections';
 const TEMP_DIR = '/app/temp';
@@ -264,26 +287,42 @@ const MITRE_MAP = {
   sum:       { technique_id: 'T1021',     technique_name: 'Remote Services',                               tactic: 'lateral-movement' },
 };
 
+// EVTX per-EventID MITRE override — Windows Security log common events.
+const EVTX_MITRE_BY_EID = {
+  4624: { technique_id: 'T1078',     technique_name: 'Valid Accounts',                                   tactic: 'defense-evasion' },
+  4625: { technique_id: 'T1110',     technique_name: 'Brute Force',                                      tactic: 'credential-access' },
+  4688: { technique_id: 'T1059',     technique_name: 'Command and Scripting Interpreter',                tactic: 'execution' },
+  1102: { technique_id: 'T1070.001', technique_name: 'Indicator Removal: Clear Windows Event Logs',      tactic: 'defense-evasion' },
+  7045: { technique_id: 'T1543.003', technique_name: 'Create or Modify System Process: Windows Service', tactic: 'persistence' },
+  4698: { technique_id: 'T1053.005', technique_name: 'Scheduled Task/Job: Scheduled Task',               tactic: 'persistence' },
+};
+
 const ECS_COLUMNS = {
-  evtx:      { host: ['Computer'], user: ['SubjectUserName', 'TargetUserName', 'RemoteUserName', 'SourceUserName'], process: ['ProcessName', 'NewProcessName', 'Image'] },
-  prefetch:  { host: [], user: [], process: ['ExecutableName'] },
-  mft:       { host: [], user: [], process: ['FileName'] },
-  lnk:       { host: ['MachineID', 'NetBiosMachineName'], user: [], process: ['Name', 'TargetFilenameLastPart'] },
-  jumplist:  { host: ['MachineID', 'NetBiosMachineName'], user: [], process: ['AppId', 'AppIdDescription'] },
-  shellbags: { host: [], user: [], process: ['Value', 'AbsolutePath'] },
-  amcache:   { host: [], user: [], process: ['ProgramName', 'FullPath'] },
-  appcompat: { host: [], user: [], process: ['Path'] },
-  registry:  { host: [], user: ['UserName'], process: ['ValueName'] },
-  srum:      { host: [], user: ['UserSid'], process: ['ExeInfo'] },
-  sqle:      { host: [], user: ['Profile'], process: [] },
-  wxtcmd:    { host: [], user: ['Sid'], process: ['AppId', 'DisplayText'] },
-  recycle:   { host: [], user: [], process: ['FileName', 'SourceName'] },
-  bits:      { host: [], user: [], process: ['JobName'] },
+  evtx:      { host: ['Computer', 'ComputerName'], user: ['SubjectUserName', 'TargetUserName', 'RemoteUserName', 'SourceUserName', 'UserName'], process: ['ProcessName', 'NewProcessName', 'Image'] },
+  prefetch:  { host: ['Computer', 'ComputerName'], user: ['OSUser', 'UserName'], process: ['ExecutableName'] },
+  mft:       { host: ['ComputerName'], user: ['UserName', 'OwnerSid'], process: [] },
+  lnk:       { host: ['MachineID', 'NetBiosMachineName', 'ComputerName'], user: ['UserName', 'LocalUser'], process: ['Name', 'TargetFilenameLastPart'] },
+  jumplist:  { host: ['MachineID', 'NetBiosMachineName'], user: ['UserName'], process: ['AppId', 'AppIdDescription'] },
+  shellbags: { host: ['ComputerName'], user: ['UserName', 'HiveUser'], process: [] },
+  amcache:   { host: ['ComputerName'], user: ['UserName', 'OSUser'], process: ['ProgramName', 'FullPath'] },
+  appcompat: { host: ['ComputerName', 'SourceFile'], user: ['UserName'], process: [] },
+  registry:  { host: ['ComputerName', 'HiveName'], user: ['UserName', 'HiveUser'], process: [] },
+  srum:      { host: ['ComputerName'], user: ['UserSid', 'UserName'], process: ['ExeInfo'] },
+  sqle:      { host: ['ComputerName', 'HostName'], user: ['Profile', 'UserName'], process: [] },
+  wxtcmd:    { host: ['ComputerName', 'DeviceId'], user: ['Sid', 'UserName'], process: ['AppId', 'DisplayText'] },
+  recycle:   { host: ['ComputerName'], user: ['UserName', 'DeletedBy'], process: [] },
+  bits:      { host: ['ComputerName'], user: ['UserName', 'Owner'], process: ['JobName'] },
   sum:       { host: ['ClientName', 'ComputerName'], user: ['UserName', 'AuthenticatedUserName'], process: [] },
+  hayabusa:  { host: ['Computer', 'ComputerName'], user: ['SubjectUserName', 'TargetUserName', 'UserName'], process: ['ProcessName', 'Image'] },
 };
 
 function extractEcsFields(record, artifactType) {
-  const mitre = MITRE_MAP[artifactType] || {};
+  let mitre = MITRE_MAP[artifactType] || {};
+  if (artifactType === 'evtx' || artifactType === 'hayabusa') {
+    const eidRaw = record['EventId'] || record['EventID'] || record['event_id'];
+    const eid = eidRaw != null && /^\d+$/.test(String(eidRaw).trim()) ? parseInt(eidRaw, 10) : null;
+    if (eid !== null && EVTX_MITRE_BY_EID[eid]) mitre = EVTX_MITRE_BY_EID[eid];
+  }
   const cols  = ECS_COLUMNS[artifactType] || { host: [], user: [], process: [] };
   const pick  = (candidates) =>
     candidates.reduce((acc, c) => acc || (record[c] || '').trim() || '', '') || null;
@@ -294,6 +333,102 @@ function extractEcsFields(record, artifactType) {
     host_name:    pick(cols.host),
     user_name:    pick(cols.user),
     process_name: pick(cols.process),
+  };
+}
+
+// v2.23 — unified forensic fields (inspired by forensic-timeliner).
+// Promotes raw JSONB values to first-class columns (tool / timestamp_kind /
+// event_id / ext / path / file_size / sha1 / src_ip / dst_ip / details) and
+// computes a stable dedupe_hash for the unique (case_id, dedupe_hash) index.
+function extractForensicFields(record, artifactType, config, tsColumn, description, source) {
+  const toolRaw = (config && config.tool) || artifactType;
+  const tool = String(toolRaw).replace(/\.[^.]+$/, '').slice(0, 32);
+
+  const eventIdRaw = record['EventId'] || record['EventID'] || record['event_id'] || null;
+  const eventId = eventIdRaw !== null && /^\d+$/.test(String(eventIdRaw).trim())
+    ? parseInt(eventIdRaw, 10) : null;
+
+  const nameForExt = record['FileName'] || record['ExecutableName']
+    || record['TargetFilename'] || record['Path'] || record['FullPath'] || source || '';
+  let extVal = (record['Extension'] || record['FileExtension'] || '').toString().toLowerCase().trim();
+  if (!extVal) {
+    const m = /\.([A-Za-z0-9]{1,10})$/.exec(nameForExt);
+    if (m) extVal = '.' + m[1].toLowerCase();
+  }
+  extVal = extVal ? extVal.slice(0, 16) : null;
+
+  const pathVal = record['FolderPath'] || record['FullPath'] || record['TargetPath']
+    || record['SourceFilename'] || record['Path'] || source || null;
+
+  const sizeRaw = record['FileSize'] || record['Size'] || record['FileSizeBytes'] || null;
+  const fileSize = sizeRaw !== null && /^\d+$/.test(String(sizeRaw).trim())
+    ? Math.min(parseInt(sizeRaw, 10), Number.MAX_SAFE_INTEGER) : null;
+
+  const sha1Raw = (record['SHA1'] || record['Sha1'] || record['SHA-1'] || '').toString().trim().toLowerCase();
+  const sha1 = /^[a-f0-9]{40}$/.test(sha1Raw) ? sha1Raw : null;
+
+  const ipRe = /(\d{1,3}\.){3}\d{1,3}/;
+  const srcIpCand = String(record['SourceIp'] || record['SrcIP'] || record['src_ip'] || '');
+  const dstIpCand = String(record['DestinationIp'] || record['DstIP'] || record['dst_ip'] || '');
+  const srcIp = (srcIpCand.match(ipRe) || [])[0] || null;
+  const dstIp = (dstIpCand.match(ipRe) || [])[0] || null;
+
+  let details = null;
+  if (artifactType === 'evtx') {
+    details = [record['PayloadData1'], record['PayloadData2']].filter(Boolean).join(' | ') || null;
+  } else if (artifactType === 'prefetch') {
+    const rc = record['RunCount'];
+    details = rc ? `run_count=${rc}` : null;
+  } else if (artifactType === 'mft') {
+    const ads = record['HasAds'] === 'True' ? 'ADS' : null;
+    details = [ads, record['ZoneIdContents']].filter(Boolean).join(' | ') || null;
+  }
+  if (details) details = details.slice(0, 500);
+
+  const dedupeHash = crypto
+    .createHash('md5')
+    .update([
+      tsColumn || '', source || '', artifactType || '',
+      (description || '').slice(0, 200), eventId == null ? '' : String(eventId),
+    ].join('|'))
+    .digest('hex')
+    .slice(0, 16);
+
+  // v2.23 — keyword enrichment (matches backend/config/timeline_keywords.yaml)
+  let tags = [];
+  try { tags = matchKeywordTags(record, description); } catch (_e) {}
+
+  // v2.26 — Threat Engine: per-row detection evaluation.
+  // Builds a synthetic record shape the engine expects (artifact_type, event_id,
+  // description, source, path, process_name, ext). Runs bucketed matching.
+  let detections = null;
+  try {
+    const engineRecord = {
+      ...record,
+      artifact_type: artifactType,
+      event_id: eventId,
+      description,
+      source,
+      path: pathVal,
+      ext: extVal,
+    };
+    const hit = threatEngine.evaluate(engineRecord);
+    if (hit) {
+      detections = hit.detections;
+      if (hit.tags && hit.tags.length) {
+        const seen = new Set(tags);
+        for (const t of hit.tags) if (!seen.has(t)) { tags.push(t); seen.add(t); }
+      }
+    }
+  } catch (_e) {}
+
+  return {
+    tool, timestamp_kind: tsColumn || null,
+    event_id: eventId, ext: extVal, path: pathVal, file_size: fileSize,
+    sha1, src_ip: srcIp, dst_ip: dstIp, details,
+    tags,
+    detections,
+    dedupe_hash: dedupeHash,
   };
 }
 
@@ -485,8 +620,20 @@ async function streamNormalizeToDB(csvPath, caseId, resultId, artifactType, conf
     const artNames = [], descriptions = [], sources = [], raws = [];
     const hostNames = [], userNames = [], processNames = [];
     const mitreTechIds = [], mitreTechNames = [], mitreTactics = [], sourceDevices = [];
+    // v2.23 unified forensic columns
+    const tools = [], tsKinds = [], detailsArr = [], paths = [], exts = [];
+    const eventIds = [], fileSizes = [], srcIps = [], dstIps = [], sha1s = [], dedupeHashes = [];
+    const tagsArr = [];
+    const detectionsArr = []; // v2.26 — per-row threat engine hits (jsonb[])
 
+    // De-dup inside the batch so the unique (case_id, dedupe_hash) partial index
+    // doesn't raise on a single INSERT affecting the same target row twice.
+    const seen = new Set();
     for (const rec of rows) {
+      if (rec.dedupe_hash) {
+        if (seen.has(rec.dedupe_hash)) continue;
+        seen.add(rec.dedupe_hash);
+      }
       caseIds.push(caseId);         resultIds.push(resultId);
       evidenceIds.push(evidenceId); timestamps.push(rec.timestamp);
       artTypes.push(rec.artifact_type);   artNames.push(rec.artifact_name);
@@ -499,19 +646,47 @@ async function streamNormalizeToDB(csvPath, caseId, resultId, artifactType, conf
       mitreTechNames.push(rec.mitre_technique_name || null);
       mitreTactics.push(rec.mitre_tactic           || null);
       sourceDevices.push(sourceDevice              || null);
+      tools.push(rec.tool              || null);
+      tsKinds.push(rec.timestamp_kind  || null);
+      detailsArr.push(rec.details      || null);
+      paths.push(rec.path              || null);
+      exts.push(rec.ext                || null);
+      eventIds.push(rec.event_id == null ? null : rec.event_id);
+      fileSizes.push(rec.file_size == null ? null : rec.file_size);
+      srcIps.push(rec.src_ip           || null);
+      dstIps.push(rec.dst_ip           || null);
+      sha1s.push(rec.sha1              || null);
+      dedupeHashes.push(rec.dedupe_hash || null);
+      tagsArr.push(JSON.stringify(Array.isArray(rec.tags) ? rec.tags : []));
+      detectionsArr.push(Array.isArray(rec.detections) && rec.detections.length
+        ? JSON.stringify(rec.detections)
+        : null);
     }
 
     const t0 = Date.now();
     return pool.query(
       `INSERT INTO collection_timeline
          (case_id, result_id, evidence_id, timestamp, artifact_type, artifact_name, description, source, raw,
-          host_name, user_name, process_name, mitre_technique_id, mitre_technique_name, mitre_tactic, source_device)
-       SELECT * FROM UNNEST(
-         $1::uuid[], $2::uuid[], $3::uuid[], $4::timestamptz[], $5::text[], $6::text[], $7::text[], $8::text[], $9::jsonb[],
-         $10::text[], $11::text[], $12::text[], $13::text[], $14::text[], $15::text[], $16::text[]
-       )`,
+          host_name, user_name, process_name, mitre_technique_id, mitre_technique_name, mitre_tactic, source_device,
+          tool, timestamp_kind, details, "path", ext, event_id, file_size, src_ip, dst_ip, sha1, dedupe_hash, tags, detections)
+       SELECT u.case_id, u.result_id, u.evidence_id, u.ts, u.art_type, u.art_name, u.descr, u.src, u.rw,
+              u.hn, u.un, u.pn, u.mti, u.mtn, u.mt, u.sd,
+              u.tl, u.tk, u.dt, u.pth, u.ex, u.eid, u.fs, u.sip, u.dip, u.s1, u.dh,
+              COALESCE(ARRAY(SELECT jsonb_array_elements_text(u.tg_json)), '{}')::text[],
+              u.det
+         FROM UNNEST(
+           $1::uuid[], $2::uuid[], $3::uuid[], $4::timestamptz[], $5::text[], $6::text[], $7::text[], $8::text[], $9::jsonb[],
+           $10::text[], $11::text[], $12::text[], $13::text[], $14::text[], $15::text[], $16::text[],
+           $17::text[], $18::text[], $19::text[], $20::text[], $21::text[], $22::int[], $23::bigint[], $24::inet[], $25::inet[], $26::text[], $27::text[],
+           $28::jsonb[], $29::jsonb[]
+         ) AS u(case_id, result_id, evidence_id, ts, art_type, art_name, descr, src, rw,
+                hn, un, pn, mti, mtn, mt, sd,
+                tl, tk, dt, pth, ex, eid, fs, sip, dip, s1, dh, tg_json, det)
+       ON CONFLICT DO NOTHING`,
       [caseIds, resultIds, evidenceIds, timestamps, artTypes, artNames, descriptions, sources, raws,
-       hostNames, userNames, processNames, mitreTechIds, mitreTechNames, mitreTactics, sourceDevices],
+       hostNames, userNames, processNames, mitreTechIds, mitreTechNames, mitreTactics, sourceDevices,
+       tools, tsKinds, detailsArr, paths, exts, eventIds, fileSizes, srcIps, dstIps, sha1s, dedupeHashes, tagsArr,
+       detectionsArr],
     ).then(r => { pgMs += Date.now() - t0; return r; });
   };
 
@@ -561,14 +736,17 @@ async function streamNormalizeToDB(csvPath, caseId, resultId, artifactType, conf
 
       const ecs = extractEcsFields(clean, artifactType);
       const baseDesc = extractDescription(clean, config.descriptionColumns);
+      const baseSource = clean[config.sourceColumn] || '';
+      const forensic = extractForensicFields(clean, artifactType, config, tsResult.column, baseDesc, baseSource);
       batch.push({
         timestamp:     tsResult.timestamp,
         artifact_type: artifactType,
         artifact_name: config.name,
         description:   baseDesc,
-        source:        clean[config.sourceColumn] || '',
+        source:        baseSource,
         raw:           slimRaw,
         ...ecs,
+        ...forensic,
       });
 
       if (artifactType === 'prefetch') {
@@ -578,14 +756,17 @@ async function streamNormalizeToDB(csvPath, caseId, resultId, artifactType, conf
           if (!prevVal || !prevVal.trim()) continue;
           const prevTs = normalizeTimestamp(prevVal.trim());
           if (!prevTs) continue;
+          const prevDesc = `${execName} [previous run]`;
+          const prevForensic = extractForensicFields(clean, 'prefetch', config, `PreviousRun${pi}`, prevDesc, baseSource);
           batch.push({
             timestamp:     prevTs,
             artifact_type: 'prefetch',
             artifact_name: config.name,
-            description:   `${execName} [previous run]`,
-            source:        clean[config.sourceColumn] || '',
+            description:   prevDesc,
+            source:        baseSource,
             raw:           slimRaw,
             ...ecs,
+            ...prevForensic,
           });
         }
       }
@@ -653,7 +834,7 @@ const _binaryAvailable = (() => {
   const cache = {};
   return (name) => {
     if (name in cache) return cache[name];
-    try { execSync(`which ${name}`, { stdio: 'ignore' }); cache[name] = true; }
+    try { execFileSync('which', [name], { stdio: 'ignore' }); cache[name] = true; }
     catch { cache[name] = false; }
     return cache[name];
   };
@@ -1501,13 +1682,83 @@ router.post('/:caseId/parse', authenticate, async (req, res) => {
     })();
 });
 
+// v2.24 — hydrate forensic columns from raw JSON when ES/PG docs predate v2.23.
+// Pure in-memory; doesn't mutate storage. Keeps ES-first path fast while the
+// timeline grid gets populated tool / event_id / ext / path / host / user cells.
+const _TOOL_BY_ARTIFACT = {
+  evtx: 'EvtxECmd', mft: 'MFTECmd', prefetch: 'PECmd', lnk: 'LECmd',
+  jumplist: 'JLECmd', shellbags: 'SBECmd', amcache: 'AmcacheParser',
+  appcompat: 'AppCompatCacheParser', registry: 'RECmd', srum: 'SrumECmd',
+  sqle: 'SQLECmd', wxtcmd: 'WxTCmd', recycle: 'RBCmd', bits: 'BitsParser',
+  sum: 'SumECmd', hayabusa: 'Hayabusa',
+};
+function _pickStr(raw, keys) {
+  if (!raw) return null;
+  for (const k of keys) {
+    const v = raw[k];
+    if (v !== null && v !== undefined && String(v).trim() !== '') return String(v).trim();
+  }
+  return null;
+}
+function hydrateTimelineRow(r) {
+  if (!r) return r;
+  const raw = r.raw || {};
+  const at = r.artifact_type;
+  if (!r.tool)        r.tool = _TOOL_BY_ARTIFACT[at] || at;
+  if (r.event_id == null) {
+    const eidRaw = _pickStr(raw, ['EventId', 'EventID', 'event_id']);
+    if (eidRaw && /^\d+$/.test(eidRaw)) r.event_id = parseInt(eidRaw, 10);
+  }
+  if (!r.host_name)
+    r.host_name = _pickStr(raw, (ECS_COLUMNS[at] && ECS_COLUMNS[at].host) || ['Computer', 'ComputerName']);
+  if (!r.user_name)
+    r.user_name = _pickStr(raw, (ECS_COLUMNS[at] && ECS_COLUMNS[at].user) || ['UserName']);
+  // process_name: for AppCompat we explicitly want NO process (path-only), skip if empty
+  if (!r.process_name && at !== 'appcompat' && at !== 'mft') {
+    r.process_name = _pickStr(raw, (ECS_COLUMNS[at] && ECS_COLUMNS[at].process) || []);
+  }
+  if (!r.path)
+    r.path = _pickStr(raw, ['FolderPath', 'FullPath', 'TargetPath', 'SourceFilename', 'Path']);
+  if (!r.ext) {
+    const nameForExt = _pickStr(raw, ['FileName', 'ExecutableName', 'TargetFilename', 'Path', 'FullPath']) || r.source || '';
+    const m = /\.([A-Za-z0-9]{1,10})$/.exec(nameForExt);
+    if (m) r.ext = '.' + m[1].toLowerCase();
+  }
+  if (!r.timestamp_kind) r.timestamp_kind = _pickStr(raw, ['TimeCreated', 'LastModified', 'Created0x10', 'Created0x30']);
+  // EVTX / Hayabusa per-EventID MITRE override when empty
+  if (!r.mitre_technique_id && (at === 'evtx' || at === 'hayabusa') && r.event_id != null) {
+    const m = EVTX_MITRE_BY_EID[r.event_id];
+    if (m) {
+      r.mitre_technique_id = m.technique_id;
+      r.mitre_technique_name = m.technique_name;
+      r.mitre_tactic = m.tactic;
+    }
+  }
+  return r;
+}
+
 router.get('/:caseId/timeline', authenticate, async (req, res) => {
   try {
     const { caseId } = req.params;
     const { artifact_types, search, search_op = 'contains', start_time, end_time, host_name, user_name, result_id, evidence_id,
             evidence_ids,
+            tool, event_id, ext, tag, tags: tagsParam, dedupe,
+            detections: detectionsParam, detection_severity, detection_category,
             page = 1, limit = 200, sort_dir = 'asc', sort_col = 'timestamp',
             sort_multi } = req.query;
+
+    const toolList    = tool    ? String(tool).split(',').map(s => s.trim()).filter(Boolean)    : null;
+    const extList     = ext     ? String(ext).split(',').map(s => s.trim().toLowerCase()).filter(Boolean) : null;
+    const eventIdList = event_id
+      ? String(event_id).split(',').map(s => parseInt(s, 10)).filter(Number.isFinite)
+      : null;
+    const rawTags = tagsParam || tag;
+    const tagList = rawTags
+      ? String(rawTags).split(',').map(s => s.trim()).filter(t => t && /^[\w:.\-]{1,64}$/.test(t))
+      : null;
+    const collapseDupes = dedupe === 'collapse' || dedupe === '1' || dedupe === 'true';
+    const hasDetectionFilter = Boolean(detectionsParam || detection_severity || detection_category);
+    const hasAdvancedFilters = Boolean(toolList || extList || eventIdList || tagList || collapseDupes || hasDetectionFilter);
 
     const safeSortMulti = typeof sort_multi === 'string' && /^[\w,:]+$/.test(sort_multi)
       ? sort_multi : undefined;
@@ -1554,7 +1805,7 @@ router.get('/:caseId/timeline', authenticate, async (req, res) => {
       }
     }
 
-    if (!host_name && !user_name) {
+    if (!host_name && !user_name && !hasAdvancedFilters) {
       try {
         const hasIndex = await esService.indexExists(caseId);
         if (hasIndex) {
@@ -1566,6 +1817,7 @@ router.get('/:caseId/timeline', authenticate, async (req, res) => {
           });
           if (esResult.total > 0) {
             logger.info(`[timeline] ES hit: ${esResult.total} records (caseId=${caseId})`);
+            if (Array.isArray(esResult.records)) esResult.records.forEach(hydrateTimelineRow);
             return res.json(esResult);
           }
         }
@@ -1609,6 +1861,33 @@ router.get('/:caseId/timeline', authenticate, async (req, res) => {
     if (result_id)   { conditions.push(`result_id = $${pi++}`);      params.push(result_id);  }
     if (evidence_id) { conditions.push(`evidence_id = $${pi++}`);    params.push(evidence_id); }
     if (validatedEvidenceIds) { conditions.push(`evidence_id = ANY($${pi++}::uuid[])`); params.push(validatedEvidenceIds); }
+    if (toolList && toolList.length)       { conditions.push(`tool = ANY($${pi++}::text[])`);    params.push(toolList); }
+    if (extList && extList.length)         { conditions.push(`lower(ext) = ANY($${pi++}::text[])`); params.push(extList); }
+    if (eventIdList && eventIdList.length) { conditions.push(`event_id = ANY($${pi++}::int[])`);  params.push(eventIdList); }
+    if (tagList && tagList.length)         { conditions.push(`tags && $${pi++}::text[]`);         params.push(tagList); }
+
+    // v2.26 — Threat Engine quick filters
+    const hitsOnly = detectionsParam === 'hits_only' || detectionsParam === 'hits' || detectionsParam === '1' || detectionsParam === 'true';
+    if (hitsOnly) {
+      conditions.push(`detections IS NOT NULL AND jsonb_array_length(detections) > 0`);
+    }
+    if (detection_severity && /^(greyware|low|medium|high|critical)(,(greyware|low|medium|high|critical))*$/.test(String(detection_severity))) {
+      const sevList = String(detection_severity).split(',');
+      conditions.push(`detections @? ('$[*] ? (@.severity == "' || ANY($${pi}::text[]) || '")')::jsonpath IS NOT NULL`);
+      // Simpler + safer form using containment:
+      conditions.pop();
+      const orParts = sevList.map((_, i) => `detections @> $${pi + i}::jsonb`);
+      conditions.push('(' + orParts.join(' OR ') + ')');
+      for (const s of sevList) params.push(JSON.stringify([{ severity: s }]));
+      pi += sevList.length;
+    }
+    if (detection_category && /^[\w_]{1,32}(,[\w_]{1,32})*$/.test(String(detection_category))) {
+      const catList = String(detection_category).split(',');
+      const orParts = catList.map((_, i) => `detections @> $${pi + i}::jsonb`);
+      conditions.push('(' + orParts.join(' OR ') + ')');
+      for (const c of catList) params.push(JSON.stringify([{ category: c }]));
+      pi += catList.length;
+    }
 
     const where = conditions.join(' AND ');
 
@@ -1622,17 +1901,38 @@ router.get('/:caseId/timeline', authenticate, async (req, res) => {
       }
     } catch (_e) {}
 
-    const baseQueries = [
-      pool.query(`SELECT COUNT(*)::int AS total FROM collection_timeline WHERE ${where}`, params),
-      pool.query(
-        `SELECT timestamp, artifact_type, artifact_name, description, source, raw,
-                host_name, user_name, process_name, mitre_technique_id, mitre_technique_name, mitre_tactic
+    const countSql = collapseDupes
+      ? `SELECT COUNT(*)::int AS total FROM (
+           SELECT DISTINCT COALESCE(dedupe_hash, id::text) AS k
+             FROM collection_timeline WHERE ${where}
+         ) d`
+      : `SELECT COUNT(*)::int AS total FROM collection_timeline WHERE ${where}`;
+
+    const rowsSql = collapseDupes
+      ? `SELECT DISTINCT ON (COALESCE(dedupe_hash, id::text))
+                id, timestamp, artifact_type, artifact_name, description, source, raw,
+                host_name, user_name, process_name, mitre_technique_id, mitre_technique_name, mitre_tactic,
+                tool, timestamp_kind, details, "path", ext, event_id, file_size,
+                src_ip::text AS src_ip, dst_ip::text AS dst_ip, sha1, tags, detections
+           FROM collection_timeline
+          WHERE ${where}
+          ORDER BY COALESCE(dedupe_hash, id::text),
+                   array_length(tags, 1) DESC NULLS LAST,
+                   length(COALESCE(description, '')) DESC,
+                   ${safeCol} ${direction}
+          LIMIT $${pi} OFFSET $${pi + 1}`
+      : `SELECT id, timestamp, artifact_type, artifact_name, description, source, raw,
+                host_name, user_name, process_name, mitre_technique_id, mitre_technique_name, mitre_tactic,
+                tool, timestamp_kind, details, "path", ext, event_id, file_size,
+                src_ip::text AS src_ip, dst_ip::text AS dst_ip, sha1, tags, detections
            FROM collection_timeline
           WHERE ${where}
           ORDER BY ${safeCol} ${direction}, id ${direction}
-          LIMIT $${pi} OFFSET $${pi + 1}`,
-        [...params, lim, offset]
-      ),
+          LIMIT $${pi} OFFSET $${pi + 1}`;
+
+    const baseQueries = [
+      pool.query(countSql, params),
+      pool.query(rowsSql, [...params, lim, offset]),
     ];
 
     let typesRes, hostsRes, usersRes;
@@ -1707,6 +2007,7 @@ router.get('/:caseId/timeline', authenticate, async (req, res) => {
       });
     }
 
+    rowsRes.rows.forEach(hydrateTimelineRow);
     res.json({
       records:                  rowsRes.rows,
       total,
@@ -1786,6 +2087,452 @@ router.get('/:caseId/record/:index', authenticate, async (req, res) => {
     res.json(records[idx]);
   } catch (err) {
     res.status(500).json({ error: 'Erreur serveur' });
+  }
+});
+
+/* ──────────────────────────────────────────────────────────────────────────
+ * v2.23 — Tool-agnostic CSV meta-import, persistent tags, mapping registry.
+ * ────────────────────────────────────────────────────────────────────────── */
+
+// List available CSV mappings so the UI can show what tools are supported.
+router.get('/:caseId/timeline/mappings', authenticate, async (_req, res) => {
+  try {
+    const out = loadMappings().map(m => ({
+      id: m.id, tool: m.tool, artifact_type: m.artifact_type, artifact_name: m.artifact_name,
+      filename_patterns: m.filename_patterns.map(r => r.source),
+      folder_patterns: m.folder_patterns.map(r => r.source),
+      header_signatures: m.header_signatures,
+    }));
+    res.json({ mappings: out });
+  } catch (e) {
+    logger.error('[mappings] list error:', e.message);
+    res.status(500).json({ error: 'mapping registry error' });
+  }
+});
+
+// Server-side grouping aggregator for the Timeline Explorer grid.
+// `by` is a comma-separated list of whitelisted columns (max depth 3).
+// v2.26 — Threat Engine summary for the Workbench dashboard tile.
+router.get('/:caseId/detections/summary', authenticate, async (req, res) => {
+  try {
+    const { caseId } = req.params;
+    const sql = `
+      WITH hits AS (
+        SELECT jsonb_array_elements(detections) AS d
+          FROM collection_timeline
+         WHERE case_id = $1
+           AND detections IS NOT NULL
+           AND jsonb_array_length(detections) > 0
+      )
+      SELECT
+        COUNT(*)::int                                                                       AS total,
+        COALESCE(jsonb_object_agg(sev, sev_count) FILTER (WHERE sev IS NOT NULL), '{}')     AS by_severity,
+        COALESCE(jsonb_object_agg(cat, cat_count) FILTER (WHERE cat IS NOT NULL), '{}')     AS by_category
+      FROM (
+        SELECT
+          d->>'severity' AS sev,
+          COUNT(*) OVER (PARTITION BY d->>'severity') AS sev_count,
+          d->>'category' AS cat,
+          COUNT(*) OVER (PARTITION BY d->>'category') AS cat_count
+        FROM hits
+      ) x`;
+    const topSql = `
+      SELECT d->>'id' AS id, d->>'name' AS name, d->>'severity' AS severity,
+             COUNT(*)::int AS count
+        FROM collection_timeline, jsonb_array_elements(detections) AS d
+       WHERE case_id = $1
+         AND detections IS NOT NULL
+         AND jsonb_array_length(detections) > 0
+       GROUP BY d->>'id', d->>'name', d->>'severity'
+       ORDER BY count DESC
+       LIMIT 10`;
+    const [sumRes, topRes] = await Promise.all([
+      pool.query(sql, [caseId]),
+      pool.query(topSql, [caseId]),
+    ]);
+    const row = sumRes.rows[0] || {};
+    res.json({
+      total: row.total || 0,
+      by_severity: row.by_severity || {},
+      by_category: row.by_category || {},
+      top_rules: topRes.rows || [],
+    });
+  } catch (err) {
+    logger.error(`[detections/summary] ${err.message}`);
+    res.status(500).json({ error: 'Erreur détections summary' });
+  }
+});
+
+// Returns a flat list of rolled-up buckets — the client tree-builds it.
+router.get('/:caseId/timeline/groups', authenticate, async (req, res) => {
+  try {
+    const { caseId } = req.params;
+    const {
+      by,
+      artifact_types, search, search_op = 'contains',
+      start_time, end_time,
+      host_name, user_name, result_id, evidence_id, evidence_ids,
+      tool, event_id, ext, tag, tags: tagsParam, dedupe,
+    } = req.query;
+
+    const ALLOWED = new Set([
+      'tool', 'event_id', 'artifact_type', 'host_name', 'user_name',
+      'ext', 'mitre_technique_id', 'source', 'process_name',
+    ]);
+    const groupCols = String(by || '').split(',').map(s => s.trim()).filter(Boolean).slice(0, 3);
+    if (groupCols.length === 0) {
+      return res.status(400).json({ error: 'parameter "by" required (comma list, max 3)' });
+    }
+    const invalidCol = groupCols.find(c => !ALLOWED.has(c));
+    if (invalidCol) {
+      return res.status(400).json({ error: `column not groupable: ${invalidCol}` });
+    }
+    const groupSelect = groupCols.map((c, i) => `${c} AS k${i}`).join(', ');
+    const groupBy     = groupCols.join(', ');
+
+    // Build WHERE clause — same shape as GET /timeline.
+    const conditions = ['case_id = $1'];
+    const params     = [caseId];
+    let pi = 2;
+
+    if (artifact_types) {
+      conditions.push(`artifact_type = ANY($${pi++})`);
+      params.push(String(artifact_types).split(','));
+    }
+    if (search) {
+      const safe = String(search).replace(/[%_]/g, '\\$&');
+      if (search_op === 'regex')        { conditions.push(`(description ~* $${pi} OR source ~* $${pi} OR artifact_type ~* $${pi})`); params.push(search); }
+      else if (search_op === 'equals')  { conditions.push(`(description ILIKE $${pi} OR source ILIKE $${pi} OR artifact_type ILIKE $${pi})`); params.push(safe); }
+      else if (search_op === 'starts_with') { conditions.push(`(description ILIKE $${pi} OR source ILIKE $${pi} OR artifact_type ILIKE $${pi})`); params.push(safe + '%'); }
+      else                              { conditions.push(`(description ILIKE $${pi} OR source ILIKE $${pi} OR artifact_type ILIKE $${pi})`); params.push('%' + safe + '%'); }
+      pi++;
+    }
+    if (start_time) { conditions.push(`timestamp >= $${pi++}`); params.push(start_time); }
+    if (end_time)   { conditions.push(`timestamp <= $${pi++}`); params.push(end_time); }
+    if (host_name)  { conditions.push(`host_name ILIKE $${pi++}`); params.push(host_name); }
+    if (user_name)  { conditions.push(`user_name ILIKE $${pi++}`); params.push(user_name); }
+    if (result_id)  { conditions.push(`result_id = $${pi++}`);    params.push(result_id); }
+
+    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (evidence_id) {
+      if (!UUID_RE.test(evidence_id)) return res.status(400).json({ error: 'evidence_id invalide' });
+      conditions.push(`evidence_id = $${pi++}`);
+      params.push(evidence_id);
+    } else if (evidence_ids) {
+      const ids = String(evidence_ids).split(',').map(s => s.trim()).filter(Boolean);
+      if (ids.some(id => !UUID_RE.test(id))) return res.status(400).json({ error: 'evidence_ids invalides' });
+      if (ids.length) { conditions.push(`evidence_id = ANY($${pi++}::uuid[])`); params.push(ids); }
+    }
+
+    if (tool) {
+      const list = String(tool).split(',').map(s => s.trim()).filter(Boolean);
+      if (list.length) { conditions.push(`tool = ANY($${pi++}::text[])`); params.push(list); }
+    }
+    if (ext) {
+      const list = String(ext).split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+      if (list.length) { conditions.push(`lower(ext) = ANY($${pi++}::text[])`); params.push(list); }
+    }
+    if (event_id) {
+      const list = String(event_id).split(',').map(s => parseInt(s, 10)).filter(Number.isFinite);
+      if (list.length) { conditions.push(`event_id = ANY($${pi++}::int[])`); params.push(list); }
+    }
+    const rawTags = tagsParam || tag;
+    if (rawTags) {
+      const list = String(rawTags).split(',').map(s => s.trim()).filter(t => t && /^[\w:.\-]{1,64}$/.test(t));
+      if (list.length) { conditions.push(`tags && $${pi++}::text[]`); params.push(list); }
+    }
+
+    const where = conditions.join(' AND ');
+    const fromExpr = (dedupe === 'collapse' || dedupe === '1' || dedupe === 'true')
+      ? `(SELECT DISTINCT ON (COALESCE(dedupe_hash, id::text))
+              id, timestamp, tool, event_id, artifact_type, host_name, user_name,
+              ext, mitre_technique_id, source, process_name
+           FROM collection_timeline WHERE ${where}
+           ORDER BY COALESCE(dedupe_hash, id::text)) ct`
+      : `collection_timeline WHERE ${where}`;
+    const fromClause = (dedupe === 'collapse' || dedupe === '1' || dedupe === 'true')
+      ? `FROM ${fromExpr}`
+      : `FROM ${fromExpr}`;
+
+    const sql = `
+      SELECT ${groupSelect},
+             COUNT(*)::bigint     AS cnt,
+             MIN(timestamp)        AS first_ts,
+             MAX(timestamp)        AS last_ts,
+             (ARRAY_AGG(id ORDER BY timestamp))[1:3] AS sample_ids
+      ${fromClause}
+      GROUP BY ${groupBy}
+      ORDER BY cnt DESC
+      LIMIT 10000
+    `;
+    const t0 = Date.now();
+    const r = await pool.query(sql, params);
+    const elapsed = Date.now() - t0;
+
+    const groups = r.rows.map(row => {
+      const key = groupCols.map((_, i) => row[`k${i}`]);
+      return {
+        key,
+        count: Number(row.cnt),
+        first_ts: row.first_ts,
+        last_ts: row.last_ts,
+        sample_ids: row.sample_ids || [],
+      };
+    });
+    res.json({ by: groupCols, total_groups: groups.length, elapsed_ms: elapsed, groups });
+  } catch (e) {
+    logger.error('[timeline/groups] error:', e.message);
+    res.status(500).json({ error: 'group aggregation failed' });
+  }
+});
+
+// Per-row tag PATCH — replaces the `tags` array for a single timeline row.
+router.patch('/:caseId/timeline/:id/tags', authenticate, async (req, res) => {
+  try {
+    const { caseId, id } = req.params;
+    const tags = Array.isArray(req.body?.tags)
+      ? req.body.tags.map(t => String(t).trim()).filter(Boolean).slice(0, 32)
+      : [];
+    const rowId = parseInt(id, 10);
+    if (!Number.isFinite(rowId)) return res.status(400).json({ error: 'id invalide' });
+    const r = await pool.query(
+      `UPDATE collection_timeline SET tags = $1::text[]
+        WHERE id = $2 AND case_id = $3
+      RETURNING id, tags`,
+      [tags, rowId, caseId]
+    );
+    if (r.rowCount === 0) return res.status(404).json({ error: 'row introuvable' });
+    res.json({ id: r.rows[0].id, tags: r.rows[0].tags });
+  } catch (e) {
+    logger.error('[tags] patch error:', e.message);
+    res.status(500).json({ error: 'tag update error' });
+  }
+});
+
+// Bulk tag update — accepts { updates: [{id, tags}, ...] } for many rows.
+router.post('/:caseId/timeline/tags/bulk', authenticate, async (req, res) => {
+  try {
+    const { caseId } = req.params;
+    const updates = Array.isArray(req.body?.updates) ? req.body.updates : [];
+    if (updates.length === 0) return res.json({ updated: 0 });
+    if (updates.length > 2000) return res.status(400).json({ error: 'trop de rows (max 2000)' });
+    const ids = [], tagsArr = [];
+    for (const u of updates) {
+      const rowId = parseInt(u?.id, 10);
+      if (!Number.isFinite(rowId)) continue;
+      ids.push(rowId);
+      tagsArr.push((u.tags || []).map(t => String(t).trim()).filter(Boolean).slice(0, 32));
+    }
+    if (ids.length === 0) return res.json({ updated: 0 });
+    const r = await pool.query(
+      `UPDATE collection_timeline ct
+          SET tags = u.new_tags
+         FROM UNNEST($1::bigint[], $2::jsonb[]) AS u(id, tags_json),
+              LATERAL (SELECT COALESCE(ARRAY(SELECT jsonb_array_elements_text(u.tags_json)), '{}')::text[] AS new_tags) x
+        WHERE ct.id = u.id AND ct.case_id = $3`,
+      [ids, tagsArr.map(a => JSON.stringify(a)), caseId]
+    );
+    res.json({ updated: r.rowCount });
+  } catch (e) {
+    logger.error('[tags] bulk error:', e.message);
+    res.status(500).json({ error: 'bulk tag error' });
+  }
+});
+
+// CSV meta-import — accepts 1..N CSV files, detects tool via filename/folder/
+// headers, applies the matched YAML mapping, runs the shared forensic field
+// extractor + keyword enrichment, and bulk-inserts into collection_timeline.
+const csvUpload = multer({
+  storage: multer.diskStorage({
+    destination: (_req, _file, cb) => {
+      try { fs.mkdirSync(UPLOAD_COLLECTION_DIR, { recursive: true }); cb(null, UPLOAD_COLLECTION_DIR); }
+      catch (err) { cb(err); }
+    },
+    filename: (_req, file, cb) => cb(null, `csv-${Date.now()}-${file.originalname.replace(/[^A-Za-z0-9._-]/g, '_')}`),
+  }),
+  limits: { fileSize: 2 * 1024 * 1024 * 1024 }, // 2 GB
+});
+
+router.post('/:caseId/import-csv', authenticate, csvUpload.array('files', 20), async (req, res) => {
+  const { caseId } = req.params;
+  const files = req.files || [];
+  if (files.length === 0) return res.status(400).json({ error: 'aucun fichier CSV' });
+
+  try {
+    const caseCheck = await pool.query('SELECT id FROM cases WHERE id = $1', [caseId]);
+    if (caseCheck.rows.length === 0) {
+      for (const f of files) { try { fs.unlinkSync(f.path); } catch (_e) {} }
+      return res.status(404).json({ error: 'Cas introuvable' });
+    }
+
+    // Create a parser_results row to group this import.
+    const prRes = await pool.query(
+      `INSERT INTO parser_results (case_id, parser_name, output_data, record_count, created_by)
+       VALUES ($1, 'CsvMetaImport', '{}'::jsonb, 0, $2) RETURNING id`,
+      [caseId, req.user.id]
+    );
+    const resultId = prRes.rows[0].id;
+
+    const perFile = [];
+    let grandTotal = 0;
+
+    for (const f of files) {
+      const filename = f.originalname || path.basename(f.path);
+      const folderPath = path.dirname(filename);
+
+      // Read header row to detect mapping.
+      let headers = [];
+      try {
+        const firstChunk = fs.readFileSync(f.path, { encoding: 'utf-8', flag: 'r' }).slice(0, 8192);
+        const firstLine = firstChunk.split(/\r?\n/)[0].replace(/^\uFEFF/, '');
+        headers = parse(firstLine + '\n', { columns: false, skip_empty_lines: true, relax_column_count: true })[0] || [];
+      } catch (e) {
+        perFile.push({ file: filename, status: 'error', error: 'header read failed: ' + e.message });
+        try { fs.unlinkSync(f.path); } catch (_e) {}
+        continue;
+      }
+
+      const detected = detectMapping({ filename, folderPath, headers });
+      if (!detected) {
+        perFile.push({ file: filename, status: 'skipped', error: 'no mapping matched' });
+        try { fs.unlinkSync(f.path); } catch (_e) {}
+        continue;
+      }
+      const mapping = detected.mapping;
+
+      // Stream-parse + bulk insert.
+      let inserted = 0, skipped = 0;
+      const BATCH = 2000;
+      let batch = [];
+
+      const flush = async () => {
+        if (batch.length === 0) return;
+        const rows = batch; batch = [];
+        const cases = [], results = [], evs = [], tss = [], types = [], names = [], descs = [], srcs = [], raws = [];
+        const hns = [], uns = [], pns = [], mtis = [], mtns = [], mts = [], sds = [];
+        const tools = [], tks = [], dts = [], pths = [], exs = [], eids = [], fss = [], sips = [], dips = [], s1s = [], dhs = [], tgs = [];
+        const seen = new Set();
+        for (const rec of rows) {
+          if (rec.dedupe_hash && seen.has(rec.dedupe_hash)) { skipped++; continue; }
+          if (rec.dedupe_hash) seen.add(rec.dedupe_hash);
+          cases.push(caseId); results.push(resultId); evs.push(null);
+          tss.push(rec.timestamp); types.push(rec.artifact_type); names.push(rec.artifact_name);
+          descs.push(rec.description); srcs.push(rec.source); raws.push(JSON.stringify(rec.raw));
+          hns.push(rec.host_name); uns.push(rec.user_name); pns.push(rec.process_name || null);
+          mtis.push(null); mtns.push(null); mts.push(null); sds.push(null);
+          tools.push(rec.tool); tks.push(rec.timestamp_kind); dts.push(rec.details);
+          pths.push(rec.path); exs.push(rec.ext);
+          eids.push(rec.event_id == null ? null : rec.event_id);
+          fss.push(rec.file_size == null ? null : rec.file_size);
+          sips.push(rec.src_ip); dips.push(rec.dst_ip); s1s.push(rec.sha1); dhs.push(rec.dedupe_hash);
+          tgs.push(JSON.stringify(Array.isArray(rec.tags) ? rec.tags : []));
+        }
+        if (cases.length === 0) return;
+        const r = await pool.query(
+          `INSERT INTO collection_timeline
+             (case_id, result_id, evidence_id, timestamp, artifact_type, artifact_name, description, source, raw,
+              host_name, user_name, process_name, mitre_technique_id, mitre_technique_name, mitre_tactic, source_device,
+              tool, timestamp_kind, details, "path", ext, event_id, file_size, src_ip, dst_ip, sha1, dedupe_hash, tags)
+           SELECT u.case_id, u.result_id, u.evidence_id, u.ts, u.art_type, u.art_name, u.descr, u.src, u.rw,
+                  u.hn, u.un, u.pn, u.mti, u.mtn, u.mt, u.sd,
+                  u.tl, u.tk, u.dt, u.pth, u.ex, u.eid, u.fs, u.sip, u.dip, u.s1, u.dh,
+                  COALESCE(ARRAY(SELECT jsonb_array_elements_text(u.tg_json)), '{}')::text[]
+             FROM UNNEST(
+               $1::uuid[], $2::uuid[], $3::uuid[], $4::timestamptz[], $5::text[], $6::text[], $7::text[], $8::text[], $9::jsonb[],
+               $10::text[], $11::text[], $12::text[], $13::text[], $14::text[], $15::text[], $16::text[],
+               $17::text[], $18::text[], $19::text[], $20::text[], $21::text[], $22::int[], $23::bigint[], $24::inet[], $25::inet[], $26::text[], $27::text[],
+               $28::jsonb[]
+             ) AS u(case_id, result_id, evidence_id, ts, art_type, art_name, descr, src, rw,
+                    hn, un, pn, mti, mtn, mt, sd,
+                    tl, tk, dt, pth, ex, eid, fs, sip, dip, s1, dh, tg_json)
+           ON CONFLICT DO NOTHING`,
+          [cases, results, evs, tss, types, names, descs, srcs, raws,
+           hns, uns, pns, mtis, mtns, mts, sds,
+           tools, tks, dts, pths, exs, eids, fss, sips, dips, s1s, dhs, tgs]
+        );
+        inserted += r.rowCount;
+        skipped  += (cases.length - r.rowCount);
+      };
+
+      await new Promise((resolve, reject) => {
+        const parser = parseStream({ columns: true, skip_empty_lines: true, relax_column_count: true, encoding: 'utf8' });
+        parser.on('data', async (rec) => {
+          parser.pause();
+          try {
+            const mapped = applyMapping(mapping, stripNullBytes(rec));
+            const ts = mapped.raw_timestamp ? normalizeTimestamp(String(mapped.raw_timestamp)) : null;
+            if (!ts) { skipped++; parser.resume(); return; }
+            const description = String(mapped.description || '').slice(0, 2000);
+            const source = String(mapped.source || '').slice(0, 500);
+            const forensic = extractForensicFields(rec, mapped.artifact_type, { tool: mapping.tool }, mapping.timestamp_columns[0] || null, description, source);
+            // Override forensic fields with explicit mapping values when present
+            const rowToInsert = {
+              timestamp: ts,
+              artifact_type: mapped.artifact_type,
+              artifact_name: mapped.artifact_name,
+              description, source,
+              raw: Object.fromEntries(Object.entries(rec).slice(0, 20)),
+              host_name: mapped.host_name || null,
+              user_name: mapped.user_name || null,
+              process_name: mapped.process_name || null,
+              ...forensic,
+              tool: mapping.tool,
+              event_id: mapped.event_id != null && /^\d+$/.test(String(mapped.event_id).trim()) ? parseInt(mapped.event_id, 10) : forensic.event_id,
+              ext: mapped.ext ? String(mapped.ext).toLowerCase().slice(0, 16) : forensic.ext,
+              path: mapped.path || forensic.path,
+              file_size: mapped.file_size != null && /^\d+$/.test(String(mapped.file_size).trim()) ? parseInt(mapped.file_size, 10) : forensic.file_size,
+              src_ip: mapped.src_ip || forensic.src_ip,
+              dst_ip: mapped.dst_ip || forensic.dst_ip,
+              sha1:   /^[a-f0-9]{40}$/i.test(String(mapped.sha1 || '').trim()) ? String(mapped.sha1).toLowerCase() : forensic.sha1,
+              details: mapped.details != null ? String(mapped.details).slice(0, 500) : forensic.details,
+            };
+            batch.push(rowToInsert);
+            if (batch.length >= BATCH) { await flush(); }
+          } catch (e) { skipped++; }
+          finally { parser.resume(); }
+        });
+        parser.on('end',   async () => { try { await flush(); resolve(); } catch (e) { reject(e); } });
+        parser.on('error', reject);
+
+        const src = fs.createReadStream(f.path);
+        let bomChecked = false;
+        src.on('data', (chunk) => {
+          if (!bomChecked) {
+            bomChecked = true;
+            if (chunk[0] === 0xEF && chunk[1] === 0xBB && chunk[2] === 0xBF) chunk = chunk.slice(3);
+          }
+          if (!parser.write(chunk)) { src.pause(); parser.once('drain', () => src.resume()); }
+        });
+        src.on('end',   () => parser.end());
+        src.on('error', reject);
+      });
+
+      grandTotal += inserted;
+      perFile.push({ file: filename, status: 'ok', tool: mapping.tool, detected_via: detected.via, inserted, skipped });
+      try { fs.unlinkSync(f.path); } catch (_e) {}
+    }
+
+    await pool.query(
+      `UPDATE parser_results SET record_count = $1, output_data = $2, updated_at = NOW() WHERE id = $3`,
+      [grandTotal, JSON.stringify({ files: perFile }), resultId]
+    );
+
+    await auditLog(req.user.id, 'csv_meta_import', 'collection', resultId, { files: perFile.length, inserted: grandTotal }, req.ip);
+
+    // Invalidate cached aggs so the UI sees new rows immediately.
+    try {
+      const redis = getRedis();
+      if (redis) {
+        const keys = await redis.keys(`timeline:aggs:${caseId}:*`);
+        if (keys.length) await redis.del(...keys);
+      }
+    } catch (_e) {}
+
+    res.json({ result_id: resultId, inserted: grandTotal, files: perFile });
+  } catch (err) {
+    logger.error('[csv-import] error:', err);
+    for (const f of files) { try { fs.unlinkSync(f.path); } catch (_e) {} }
+    res.status(500).json({ error: 'Erreur import CSV: ' + err.message });
   }
 });
 
@@ -2000,7 +2747,37 @@ router.post('/:caseId/hayabusa', authenticate, async (req, res) => {
             ? ((r.tactic || '').split(',')[0].trim().toLowerCase() || null)
             : (mitreRaw.split(',')[0].trim().toLowerCase() || null);
 
-          vals.push(`($${pi++},$${pi++},$${pi++},$${pi++},$${pi++},$${pi++},$${pi++},$${pi++},$${pi++},$${pi++},$${pi++},$${pi++},$${pi++},$${pi++},$${pi++})`);
+          // v2.23 — forensic fields + keyword tags for Hayabusa rows
+          const hayEvId = /^\d+$/.test(String(r.event_id || '').trim()) ? parseInt(r.event_id, 10) : null;
+          const hayDesc = (r.description || '').slice(0, 200);
+          const haySource = r.source || r.channel || '';
+          const hayDedupe = crypto.createHash('md5')
+            .update(['Timestamp', haySource, 'hayabusa', hayDesc, hayEvId == null ? '' : String(hayEvId)].join('|'))
+            .digest('hex').slice(0, 16);
+          let hayTags = [];
+          try { hayTags = matchKeywordTags(r, r.description); } catch (_e) {}
+          // Critical/high Hayabusa level also populates a severity tag
+          if (r.level === 'critical') hayTags = Array.from(new Set([...hayTags, 'critical']));
+          else if (r.level === 'high') hayTags = Array.from(new Set([...hayTags, 'high']));
+
+          // v2.23 — enrich ext / path / ips / details from Hayabusa description
+          const hayIpRe = /\b(?:\d{1,3}\.){3}\d{1,3}\b/g;
+          const hayIps = (r.description || '').match(hayIpRe) || [];
+          const haySrcIp = hayIps[0] || null;
+          const hayDstIp = hayIps[1] || null;
+          const hayExtM  = /\.([A-Za-z0-9]{1,10})(?=[\s"'\\\/)]|$)/.exec(r.description || '');
+          const hayExt   = hayExtM ? ('.' + hayExtM[1].toLowerCase()).slice(0, 16) : null;
+          const hayPathM = /([A-Z]:\\[^\s"']+|\/[^\s"']+)/.exec(r.description || '');
+          const hayPath  = hayPathM ? hayPathM[1].slice(0, 500) : null;
+          const hayDetails = r.description ? r.description.slice(0, 500) : null;
+          // Hayabusa per-EventID MITRE override when rule didn't set one
+          let hMitreId = mitreId, hMitreName = mitreName, hMitreTactic = mitreTactic;
+          if (!hMitreId && hayEvId !== null && EVTX_MITRE_BY_EID[hayEvId]) {
+            const m = EVTX_MITRE_BY_EID[hayEvId];
+            hMitreId = m.technique_id; hMitreName = m.technique_name; hMitreTactic = m.tactic;
+          }
+
+          vals.push(`($${pi++},$${pi++},$${pi++},$${pi++},$${pi++},$${pi++},$${pi++},$${pi++},$${pi++},$${pi++},$${pi++},$${pi++},$${pi++},$${pi++},$${pi++},$${pi++},$${pi++},$${pi++},$${pi++},$${pi++}::text[],$${pi++},$${pi++},$${pi++},$${pi++},$${pi++})`);
           prms.push(
             caseId,
             storeResult.rows[0].id,
@@ -2009,21 +2786,35 @@ router.post('/:caseId/hayabusa', authenticate, async (req, res) => {
             'hayabusa',
             r.rule_title || 'Hayabusa',
             r.description || '',
-            r.source || r.channel || '',
+            haySource,
             JSON.stringify({ level: r.level, event_id: r.event_id, channel: r.channel, rule_file: r.rule_file }),
             r.computer || null,
             null,
             null,
-            mitreId,
-            mitreName,
-            mitreTactic,
+            hMitreId,
+            hMitreName,
+            hMitreTactic,
+            // forensic columns
+            'Hayabusa',
+            'Timestamp',
+            hayEvId,
+            hayDedupe,
+            hayTags,
+            hayExt,
+            hayPath,
+            haySrcIp,
+            hayDstIp,
+            hayDetails,
           );
         }
         await pool.query(
           `INSERT INTO collection_timeline
              (case_id, result_id, evidence_id, timestamp, artifact_type, artifact_name, description, source, raw,
-              host_name, user_name, process_name, mitre_technique_id, mitre_technique_name, mitre_tactic)
-           VALUES ${vals.join(',')}`,
+              host_name, user_name, process_name, mitre_technique_id, mitre_technique_name, mitre_tactic,
+              tool, timestamp_kind, event_id, dedupe_hash, tags,
+              ext, path, src_ip, dst_ip, details)
+           VALUES ${vals.join(',')}
+           ON CONFLICT DO NOTHING`,
           prms
         );
       }

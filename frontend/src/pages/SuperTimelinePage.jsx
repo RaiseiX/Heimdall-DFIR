@@ -19,8 +19,11 @@ import ColumnManager from '../components/timeline/ColumnManager';
 import { ARTIFACT_PROFILES, getProfileForArtifact } from '../utils/artifactProfiles';
 import { getEffectiveVirtual, getColumnPref } from '../utils/columnPreferences';
 import ArtifactColumnEditor from '../components/timeline/ArtifactColumnEditor';
+import TimelineExplorer from '../components/timeline/TimelineExplorer';
 import { artifactColor, HAY_SEVERITY_BG } from '../constants/artifactColors';
 import { fmtTs as fmtTsUtil, fmtLocal } from '../utils/formatters';
+import { useEvidenceBridge } from '../state/evidenceBridge';
+import { useToast } from '../components/ui/Toast';
 
 function includeParam(excluded, available) {
   if (!(excluded instanceof Set) || excluded.size === 0) return '';
@@ -166,12 +169,38 @@ function fmtSrc(r) {
 }
 
 const COLUMNS_BASE = [
-  { key: 'timestamp',        label: 'Timestamp (UTC)', width: 186, mono: true },
-  { key: 'artifact_type',    label: 'Type',            width: 96             },
-  { key: 'description',      label: 'Description',     flex: true            },
-  { key: 'source',           label: 'Source',          width: 170, mono: true },
-  { key: 'timestamp_column', label: 'TS Field',        width: 100, mono: true },
+  { key: 'timestamp',           label: 'Timestamp (UTC)', width: 186, mono: true },
+  { key: 'artifact_type',       label: 'Type',            width: 96              },
+  { key: 'description',         label: 'Description',     flex: true             },
+  { key: 'source',              label: 'Source',          width: 170, mono: true },
+  { key: 'timestamp_column',    label: 'TS Field',        width: 100, mono: true },
+  { key: 'tool',                label: 'Tool',            width: 100, mono: true },
+  { key: 'event_id',            label: 'Event ID',        width: 80,  mono: true, hiddenByDefault: true },
+  { key: 'ext',                 label: 'Ext',             width: 64,  mono: true, hiddenByDefault: true },
+  { key: 'host_name',           label: 'Host',            width: 130, mono: true },
+  { key: 'user_name',           label: 'User',            width: 110, mono: true },
+  { key: 'process_name',        label: 'Process',         width: 140, mono: true, hiddenByDefault: true },
+  { key: 'mitre_technique_id',  label: 'MITRE T-ID',      width: 90,  mono: true, hiddenByDefault: true },
+  { key: 'detections',          label: '🎯 Detections',   width: 130, mono: true },
 ];
+
+const DETECTION_SEV_RANK = { greyware: 1, low: 1, medium: 2, high: 3, critical: 4 };
+const DETECTION_SEV_COLOR = {
+  critical: 'var(--fl-danger)',
+  high:     'var(--fl-danger)',
+  medium:   'var(--fl-warn)',
+  low:      'var(--fl-gold)',
+  greyware: 'var(--fl-gold)',
+};
+function topDetectionSeverity(dets) {
+  if (!Array.isArray(dets) || dets.length === 0) return null;
+  let topRank = 0, topLabel = null;
+  for (const d of dets) {
+    const r = DETECTION_SEV_RANK[d?.severity] || 0;
+    if (r > topRank) { topRank = r; topLabel = d.severity; }
+  }
+  return topLabel;
+}
 const PAGE_SIZES = [200, 500, 1000];
 
 const fmtTs = fmtTsUtil;
@@ -375,6 +404,9 @@ export default function SuperTimelinePage() {
 
   const { id: routeId, caseId: routeCaseId_, collectionId: routeEvidenceId } = useParams();
   const shellCtx = useOutletContext() || {};
+  const { toast } = useToast();
+  const pinEvidence = useEvidenceBridge(s => s.pin);
+  const pinnedCount = useEvidenceBridge(s => s.count);
 
   const routeCaseId = shellCtx.caseId || routeId || routeCaseId_;
   const location = useLocation();
@@ -450,14 +482,36 @@ export default function SuperTimelinePage() {
   const [serverSortDir, setServerSortDir] = useState('desc');
 
   const [multiSort, setMultiSort]         = useState([]);
-  const [hiddenCols, setHiddenCols]     = useState(new Set());
+  const [hiddenCols, setHiddenCols]     = useState(() => new Set(COLUMNS_BASE.filter(c => c.hiddenByDefault).map(c => c.key)));
   const [showColMenu, setShowColMenu]   = useState(false);
   const [jumpPage, setJumpPage]         = useState('');
   const [workbench, setWorkbench]       = useState(false);
   const [workbenchEnteredAt, setWorkbenchEnteredAt] = useState(null);
-  const [toolbarCollapsed, setToolbarCollapsed] = useState(false);
+  const [toolbarCollapsed, setToolbarCollapsed] = useState(() => {
+    try { return localStorage.getItem('tl.toolbarCollapsed') === '1'; } catch { return false; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem('tl.toolbarCollapsed', toolbarCollapsed ? '1' : '0'); } catch {}
+  }, [toolbarCollapsed]);
   const [csvSep, setCsvSep]             = useState(',');
   const [csvLoading, setCsvLoading]     = useState(false);
+
+  const [showFilterDrawer, setShowFilterDrawer] = useState(false);
+  const [explorerMode, setExplorerMode] = useState(false);
+  const [tlTools,   setTlTools]   = useState('');
+  const [tlEventIds, setTlEventIds] = useState('');
+  const [tlExts,    setTlExts]    = useState('');
+  const [tlTagsFilter, setTlTagsFilter] = useState('');
+  const [tlDedupe,  setTlDedupe]  = useState(false);
+  const [tlHitsOnly, setTlHitsOnly] = useState(false);
+  const [tlDetSeverity, setTlDetSeverity] = useState('');
+
+  const [csvImportBusy, setCsvImportBusy] = useState(false);
+  const [csvImportProgress, setCsvImportProgress] = useState(0);
+  const [csvImportReport, setCsvImportReport] = useState(null);
+  const [dragOverlay, setDragOverlay] = useState(false);
+  const csvFileInputRef = useRef(null);
+  const dragCounterRef = useRef(0);
 
   const [tagData, setTagData]           = useState(new Map());
   const [tagPickerIdx, setTagPickerIdx] = useState(null);
@@ -557,11 +611,31 @@ export default function SuperTimelinePage() {
 
         params.evidence_ids = [...evIds].join(',');
       }
+      if (tlTools.trim())     params.tool     = tlTools.trim();
+      if (tlEventIds.trim())  params.event_id = tlEventIds.trim();
+      if (tlExts.trim())      params.ext      = tlExts.trim();
+      if (tlTagsFilter.trim()) params.tag     = tlTagsFilter.trim();
+      if (tlDedupe)           params.dedupe   = 'collapse';
+      if (tlHitsOnly)         params.detections = 'hits_only';
+      if (tlDetSeverity)      params.detection_severity = tlDetSeverity;
       const res = await collectionAPI.timeline(caseId, params);
       if (res.data) {
-        setRecords(res.data.records || []);
+        const recs = res.data.records || [];
+        setRecords(recs);
         setTotal(res.data.total || 0);
         setTotalPages(res.data.total_pages || 0);
+
+        const baseGlobal = (pg - 1) * ps;
+        setTagData(prev => {
+          const n = new Map(prev);
+          recs.forEach((r, i) => {
+            const gi = baseGlobal + i;
+            const existing = n.get(gi) || { level: null, tags: [] };
+            const dbTags = Array.isArray(r.tags) ? r.tags : [];
+            n.set(gi, { ...existing, tags: dbTags });
+          });
+          return n;
+        });
 
         if (!tf) {
           setAvailTypes(res.data.artifact_types_available || []);
@@ -575,7 +649,7 @@ export default function SuperTimelinePage() {
       }
     } catch { setRecords([]); setTotal(0); }
     setLoading(false);
-  }, [caseId, routeEvidenceId, searchOp]);
+  }, [caseId, routeEvidenceId, searchOp, tlTools, tlEventIds, tlExts, tlTagsFilter, tlDedupe, tlHitsOnly, tlDetSeverity]);
 
   useEffect(() => {
     if (!caseId || isIsolated) return;
@@ -818,30 +892,77 @@ export default function SuperTimelinePage() {
     );
   }, [displayedRecords, colFilters, colFilterCombinator]);
 
+  const [expandedGroups, setExpandedGroups] = useState({});
+  useEffect(() => { setExpandedGroups({}); }, [groupByFields.join('|')]);
+  const toggleGroup = useCallback((id) => {
+    setExpandedGroups(prev => ({ ...prev, [id]: !prev[id] }));
+  }, []);
+
   const flatRows = useMemo(() => {
     if (groupByFields.length === 0) {
       return colFilteredRecords.map((record, localIndex) => ({ type: 'row', record, localIndex }));
     }
+
+    // Sort by groupByFields so same-group rows coalesce, then preserve timestamp order within.
+    const sorted = [...colFilteredRecords].map((r, localIndex) => ({ r, localIndex }));
+    sorted.sort((a, b) => {
+      for (const f of groupByFields) {
+        const va = (a.r[f] ?? '—'); const vb = (b.r[f] ?? '—');
+        if (va < vb) return -1;
+        if (va > vb) return 1;
+      }
+      return 0;
+    });
+
+    // Count per group key (root-level + all deeper levels).
+    const counts = new Map();
+    for (const { r } of sorted) {
+      let path = '';
+      for (let lvl = 0; lvl < groupByFields.length; lvl++) {
+        const val = r[groupByFields[lvl]] ?? '—';
+        path = path + '\u241f' + String(val);
+        counts.set(path, (counts.get(path) || 0) + 1);
+      }
+    }
+
     const result = [];
     const prevValues = new Array(groupByFields.length).fill(null);
+    const groupStack = new Array(groupByFields.length).fill(null);
+    const visibleStack = new Array(groupByFields.length).fill(true);
 
-    colFilteredRecords.forEach((r, localIndex) => {
-
+    for (const { r, localIndex } of sorted) {
+      let changedAt = -1;
       for (let lvl = 0; lvl < groupByFields.length; lvl++) {
-        const field = groupByFields[lvl];
-        const val   = r[field] ?? '—';
-        if (val !== prevValues[lvl]) {
-
-          for (let deeper = lvl; deeper < groupByFields.length; deeper++) prevValues[deeper] = null;
+        const val = r[groupByFields[lvl]] ?? '—';
+        if (val !== prevValues[lvl]) { changedAt = lvl; break; }
+      }
+      if (changedAt !== -1) {
+        for (let lvl = changedAt; lvl < groupByFields.length; lvl++) {
+          const field = groupByFields[lvl];
+          const val   = r[field] ?? '—';
           prevValues[lvl] = val;
+          const parentId = lvl === 0 ? '' : groupStack[lvl - 1];
+          const id = parentId + '\u241f' + String(val);
+          groupStack[lvl] = id;
           const color = field === 'artifact_type' ? artifactColor(val) : 'var(--fl-dim)';
-          result.push({ type: 'group', level: lvl, field, value: val, color });
+          const cnt   = counts.get(id) || 0;
+          const parentVisible = lvl === 0 ? true : visibleStack[lvl - 1] && !!expandedGroups[groupStack[lvl - 1]];
+          visibleStack[lvl] = parentVisible;
+          if (parentVisible) {
+            result.push({ type: 'group', level: lvl, field, value: val, color, id, count: cnt });
+          }
+          for (let d = lvl + 1; d < groupByFields.length; d++) prevValues[d] = null;
         }
       }
-      result.push({ type: 'row', record: r, localIndex });
-    });
+      // Emit the leaf row only if every ancestor group is expanded.
+      let allExpanded = true;
+      for (let lvl = 0; lvl < groupByFields.length; lvl++) {
+        if (!expandedGroups[groupStack[lvl]]) { allExpanded = false; break; }
+      }
+      if (allExpanded) result.push({ type: 'row', record: r, localIndex });
+    }
     return result;
-  }, [colFilteredRecords, groupByFields]);
+  }, [colFilteredRecords, groupByFields, expandedGroups]);
 
   const rowVirtualizer = useVirtualizer({
     count:           flatRows.length,
@@ -980,10 +1101,60 @@ export default function SuperTimelinePage() {
         e.preventDefault();
         copySelectedToClipboard();
       }
+      const tag = (e.target?.tagName || '').toLowerCase();
+      const isTyping = tag === 'input' || tag === 'textarea' || e.target?.isContentEditable;
+      if (!isTyping && e.key === 'Escape' && selectedRow !== null) {
+        setSelectedRow(null);
+      }
+      if (!isTyping && (e.key === 'v' || e.key === 'V') && selectedRow !== null) {
+        e.preventDefault();
+        setSelectedRow(null);
+      }
+      if (!isTyping && (e.key === 'p' || e.key === 'P') && selectedRow !== null && caseId) {
+        const r = displayedRecords[selectedRow];
+        if (r) {
+          e.preventDefault();
+          const res = pinEvidence(caseId, r, null);
+          if (res?.ok) toast.success(`📌 Épinglé · ${pinnedCount(caseId)} dans le Workbench`);
+          else if (res?.reason === 'already_pinned') toast.info('Déjà épinglé');
+          else if (res?.reason === 'max_pins') toast.warn('Limite de 500 épingles atteinte');
+        }
+      }
     }
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
-  }, [selectedRows, colFilteredRecords, csvSep, workbench]);
+  }, [selectedRows, colFilteredRecords, csvSep, workbench, selectedRow, caseId, displayedRecords, pinEvidence, pinnedCount, toast]);
+
+  const focusConsumedRef = useRef(null);
+  useEffect(() => {
+    const focusId = searchParams.get('focus');
+    if (!focusId || focusConsumedRef.current === focusId) return;
+    if (!colFilteredRecords.length || !flatRows.length) return;
+    const numericId = Number(focusId);
+    const localIdx = colFilteredRecords.findIndex(r => r && (r.id === numericId || String(r.id) === focusId));
+    if (localIdx < 0) return;
+    let flatIdx = flatRows.findIndex(fr => fr.type === 'row' && fr.localIndex === localIdx);
+    if (flatIdx < 0 && groupByFields.length > 0) {
+      const target = colFilteredRecords[localIdx];
+      const toExpand = {};
+      let path = '';
+      for (const field of groupByFields) {
+        const val = target[field] ?? '—';
+        path = path + '\u241f' + String(val);
+        toExpand[path] = true;
+      }
+      setExpandedGroups(prev => ({ ...prev, ...toExpand }));
+      return; // re-run next render with expanded groups
+    }
+    if (flatIdx < 0) return;
+    focusConsumedRef.current = focusId;
+    setSelectedRow(localIdx);
+    setDetailTab('details');
+    requestAnimationFrame(() => {
+      try { rowVirtualizer.scrollToIndex(flatIdx, { align: 'center' }); } catch (_e) {}
+      try { toast.info('🎯 Ligne épinglée localisée'); } catch (_e) {}
+    });
+  }, [searchParams, colFilteredRecords, flatRows, rowVirtualizer, toast, groupByFields]);
 
   useEffect(() => { setSelectedRows(new Set()); }, [records, page]);
 
@@ -1003,7 +1174,27 @@ export default function SuperTimelinePage() {
   }
 
   function handleTagChange(globalIdx, data) {
+    const localIdx = globalIdx - (page - 1) * pageSize;
+    const rec = records[localIdx];
+    const prevEntry = tagData.get(globalIdx) || { level: null, tags: [] };
     setTagData(prev => { const n = new Map(prev); n.set(globalIdx, data); return n; });
+    if (rec?.id != null && caseId) {
+      collectionAPI.updateTimelineTags(caseId, rec.id, Array.isArray(data.tags) ? data.tags : [])
+        .then(resp => {
+          const persisted = resp?.data?.tags;
+          if (Array.isArray(persisted)) {
+            setRecords(prev => {
+              const n = [...prev];
+              if (n[localIdx]) n[localIdx] = { ...n[localIdx], tags: persisted };
+              return n;
+            });
+          }
+        })
+        .catch(() => {
+          setTagData(prev => { const n = new Map(prev); n.set(globalIdx, prevEntry); return n; });
+          setCsvImportReport({ error: 'Échec de la persistance du tag — modification locale annulée' });
+        });
+    }
   }
 
   const taggedCount     = useMemo(() => [...tagData.values()].filter(d => d.level || d.tags?.length).length, [tagData]);
@@ -1090,6 +1281,65 @@ export default function SuperTimelinePage() {
     }
   }
 
+  const handleCsvImportFiles = useCallback(async (fileList) => {
+    if (!caseId || csvImportBusy) return;
+    const files = Array.from(fileList || []).filter(f => /\.csv$/i.test(f.name));
+    if (!files.length) return;
+    const fd = new FormData();
+    for (const f of files) fd.append('files', f, f.name);
+    setCsvImportBusy(true);
+    setCsvImportProgress(0);
+    setCsvImportReport(null);
+    try {
+      const resp = await collectionAPI.importCsv(caseId, fd, e => {
+        if (e?.total) setCsvImportProgress(Math.round((e.loaded / e.total) * 100));
+      });
+      setCsvImportReport(resp.data || { ok: true });
+      loadTimeline(1, includeParam(excludedTypes, availTypes), search, startTime, endTime, pageSize, serverSortDir, serverSortCol, hostFilter, userFilter, resultIdFilter, selectedEvidenceIds);
+    } catch (err) {
+      setCsvImportReport({ error: err?.response?.data?.error || err?.message || 'Import failed' });
+    } finally {
+      setCsvImportBusy(false);
+    }
+  }, [caseId, csvImportBusy, loadTimeline, excludedTypes, availTypes, search, startTime, endTime, pageSize, serverSortDir, serverSortCol, hostFilter, userFilter, resultIdFilter, selectedEvidenceIds]);
+
+  useEffect(() => {
+    function onDragEnter(e) {
+      if (!e.dataTransfer || !Array.from(e.dataTransfer.types || []).includes('Files')) return;
+      dragCounterRef.current += 1;
+      setDragOverlay(true);
+    }
+    function onDragLeave() {
+      dragCounterRef.current = Math.max(0, dragCounterRef.current - 1);
+      if (dragCounterRef.current === 0) setDragOverlay(false);
+    }
+    function onDragOver(e) {
+      if (e.dataTransfer && Array.from(e.dataTransfer.types || []).includes('Files')) {
+        e.preventDefault();
+      }
+    }
+    function onDrop(e) {
+      if (!e.dataTransfer) return;
+      const files = e.dataTransfer.files;
+      const hasCsv = Array.from(files || []).some(f => /\.csv$/i.test(f.name));
+      if (!hasCsv) { dragCounterRef.current = 0; setDragOverlay(false); return; }
+      e.preventDefault();
+      dragCounterRef.current = 0;
+      setDragOverlay(false);
+      handleCsvImportFiles(files);
+    }
+    window.addEventListener('dragenter', onDragEnter);
+    window.addEventListener('dragleave', onDragLeave);
+    window.addEventListener('dragover', onDragOver);
+    window.addEventListener('drop', onDrop);
+    return () => {
+      window.removeEventListener('dragenter', onDragEnter);
+      window.removeEventListener('dragleave', onDragLeave);
+      window.removeEventListener('dragover', onDragOver);
+      window.removeEventListener('drop', onDrop);
+    };
+  }, [handleCsvImportFiles]);
+
   const activeArtifactType = useMemo(() => {
     if (!availTypes.length) return null;
     const visible = availTypes.filter(t => !excludedTypes.has(t));
@@ -1111,6 +1361,17 @@ export default function SuperTimelinePage() {
 
   }, [activeArtifactType, columnPrefVersion]);
 
+  const [pinnedCols, setPinnedCols] = useState(() => {
+    try { const raw = localStorage.getItem(`te.pinned.${caseId}`); if (raw) return JSON.parse(raw); } catch (_e) {}
+    return [];
+  });
+  useEffect(() => {
+    try { localStorage.setItem(`te.pinned.${caseId}`, JSON.stringify(pinnedCols)); } catch (_e) {}
+  }, [caseId, pinnedCols]);
+  const toggleColPin = useCallback((colKey) => {
+    setPinnedCols(prev => prev.includes(colKey) ? prev.filter(k => k !== colKey) : [...prev, colKey]);
+  }, []);
+
   const visibleCols = useMemo(() => {
 
     let base = [...COLUMNS];
@@ -1127,8 +1388,32 @@ export default function SuperTimelinePage() {
 
     base = base.map(c => colWidths.has(c.key) ? { ...c, width: colWidths.get(c.key) } : c);
 
+    // Pinned cols float to the front in their pin-order.
+    if (pinnedCols.length > 0) {
+      const pinSet = new Set(pinnedCols);
+      const pinRank = Object.fromEntries(pinnedCols.map((k, i) => [k, i]));
+      const pinned   = base.filter(c => pinSet.has(c.key)).sort((a, b) => pinRank[a.key] - pinRank[b.key]);
+      const rest     = base.filter(c => !pinSet.has(c.key));
+      base = [...pinned, ...rest];
+    }
+
     return [...base, ...virtualCols];
-  }, [COLUMNS, hiddenCols, colOrder, colWidths, virtualCols]);
+  }, [COLUMNS, hiddenCols, colOrder, colWidths, virtualCols, pinnedCols]);
+
+  // Cumulative sticky-left offsets for pinned cols.
+  // The table has 4 fixed prefix columns before visibleCols: 18 + 32 + ~28 + ~28 = ~106 px.
+  const PREFIX_WIDTH = 106;
+  const pinnedOffsets = useMemo(() => {
+    const map = new Map();
+    let acc = PREFIX_WIDTH;
+    for (const c of visibleCols) {
+      if (!pinnedCols.includes(c.key)) break;
+      map.set(c.key, acc);
+      acc += (c.width ?? 120);
+    }
+    return map;
+  }, [visibleCols, pinnedCols]);
+  const isPinned = useCallback(k => pinnedOffsets.has(k), [pinnedOffsets]);
   const hasFilters      = search || excludedTypes.size > 0 || startTime || endTime || hostFilter || userFilter || selectedEvidenceIds.size > 0;
   const activeFilterCount = [search, startTime, endTime, hostFilter, userFilter].filter(Boolean).length
     + (excludedTypes.size > 0 ? 1 : 0)
@@ -1138,6 +1423,144 @@ export default function SuperTimelinePage() {
 
   return (
     <div style={{ height: '100%', background: 'var(--fl-bg)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+
+      {dragOverlay && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 3000, pointerEvents: 'none',
+          background: 'rgba(13,17,23,0.78)', backdropFilter: 'blur(4px)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>
+          <div style={{
+            border: '2px dashed var(--fl-accent)', borderRadius: 14, padding: '40px 64px',
+            background: 'rgba(77,130,192,0.08)', textAlign: 'center', fontFamily: 'monospace',
+          }}>
+            <FolderOpen size={42} style={{ color: 'var(--fl-accent)', marginBottom: 12 }} />
+            <div style={{ color: 'var(--fl-on-dark)', fontSize: 16, fontWeight: 600 }}>Déposez vos CSV ici</div>
+            <div style={{ color: 'var(--fl-dim)', fontSize: 11, marginTop: 6 }}>
+              EvtxECmd · MFTECmd · Chainsaw · Axiom · Nirsoft (auto-mapping)
+            </div>
+          </div>
+        </div>
+      )}
+
+      {csvImportReport && (
+        <div style={{
+          position: 'fixed', bottom: 16, right: 16, zIndex: 2500, maxWidth: 480,
+          padding: '12px 14px', borderRadius: 10, fontFamily: 'monospace', fontSize: 11,
+          background: 'var(--fl-card)',
+          border: `1px solid ${csvImportReport.error ? 'var(--fl-danger)' : 'var(--fl-accent)'}`,
+          color: 'var(--fl-on-dark)', boxShadow: '0 8px 28px rgba(0,0,0,0.6)',
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+            <strong style={{ color: csvImportReport.error ? 'var(--fl-danger)' : 'var(--fl-accent)' }}>
+              {csvImportReport.error ? 'Import CSV — erreur' : 'Import CSV terminé'}
+            </strong>
+            <button
+              onClick={() => setCsvImportReport(null)}
+              style={{ background: 'none', border: 'none', color: 'var(--fl-dim)', cursor: 'pointer', padding: 0 }}>
+              <X size={14} />
+            </button>
+          </div>
+          {csvImportReport.error
+            ? <div style={{ color: 'var(--fl-dim)' }}>{csvImportReport.error}</div>
+            : (
+              <div style={{ color: 'var(--fl-dim)', lineHeight: 1.5 }}>
+                {Number.isFinite(csvImportReport.inserted) && <div>Lignes insérées : <strong style={{ color: 'var(--fl-on-dark)' }}>{csvImportReport.inserted.toLocaleString('fr-FR')}</strong></div>}
+                {Number.isFinite(csvImportReport.skipped)  && <div>Doublons ignorés : {csvImportReport.skipped.toLocaleString('fr-FR')}</div>}
+                {Array.isArray(csvImportReport.files) && csvImportReport.files.map((f, i) => (
+                  <div key={i} style={{ marginTop: 4, paddingTop: 4, borderTop: '1px solid var(--fl-sep)' }}>
+                    <span style={{ color: 'var(--fl-accent)' }}>{f.tool || '?'}</span>{' '}
+                    <span>{f.filename}</span>{' '}
+                    <span style={{ color: 'var(--fl-muted)' }}>({(f.inserted ?? 0).toLocaleString('fr-FR')})</span>
+                    {f.error && <span style={{ color: 'var(--fl-danger)' }}> — {f.error}</span>}
+                  </div>
+                ))}
+              </div>
+            )}
+        </div>
+      )}
+
+      {showFilterDrawer && (
+        <div style={{
+          position: 'fixed', top: 0, right: 0, height: '100vh', width: 340, zIndex: 1500,
+          background: 'var(--fl-card)', borderLeft: '1px solid var(--fl-border)',
+          boxShadow: '-8px 0 28px rgba(0,0,0,0.5)',
+          fontFamily: 'monospace', fontSize: 11, color: 'var(--fl-on-dark)',
+          display: 'flex', flexDirection: 'column',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 14px', borderBottom: '1px solid var(--fl-sep)' }}>
+            <strong style={{ color: 'var(--fl-purple)', fontSize: 12, letterSpacing: '0.04em', textTransform: 'uppercase' }}>
+              <Filter size={12} style={{ verticalAlign: 'middle', marginRight: 6 }} />
+              Filtres avancés
+            </strong>
+            <button onClick={() => setShowFilterDrawer(false)}
+              style={{ background: 'none', border: 'none', color: 'var(--fl-dim)', cursor: 'pointer', padding: 0 }}>
+              <X size={14} />
+            </button>
+          </div>
+          <div style={{ padding: '14px 16px', overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: 14 }}>
+            {[
+              { label: 'Tool',       hint: 'EvtxECmd,Hayabusa,MFTECmd…',  value: tlTools,      set: setTlTools },
+              { label: 'Event ID',   hint: '4624,4625,4688',                value: tlEventIds,  set: setTlEventIds },
+              { label: 'Extension',  hint: 'exe,dll,ps1',                   value: tlExts,      set: setTlExts },
+              { label: 'Tag',        hint: 'mimikatz_markers,T1059…',       value: tlTagsFilter, set: setTlTagsFilter },
+            ].map(f => (
+              <label key={f.label} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <span style={{ color: 'var(--fl-dim)', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.06em' }}>{f.label}</span>
+                <input
+                  type="text"
+                  value={f.value}
+                  onChange={e => f.set(e.target.value)}
+                  placeholder={f.hint}
+                  style={{
+                    background: 'var(--fl-bg)', color: 'var(--fl-on-dark)',
+                    border: '1px solid var(--fl-border)', borderRadius: 6,
+                    padding: '6px 8px', fontFamily: 'monospace', fontSize: 11,
+                  }}
+                />
+                <span style={{ color: 'var(--fl-muted)', fontSize: 9 }}>Séparateur : virgule</span>
+              </label>
+            ))}
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderRadius: 6, border: '1px solid var(--fl-border)', background: 'var(--fl-bg)' }}>
+              <input type="checkbox" checked={tlDedupe} onChange={e => setTlDedupe(e.target.checked)} />
+              <span>
+                Dédoublonner (collapse) — garde la ligne la plus riche par <code style={{ color: 'var(--fl-accent)' }}>dedupe_hash</code>
+              </span>
+            </label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderRadius: 6, border: '1px solid var(--fl-warn)', background: 'rgba(217,124,32,0.08)' }}>
+              <input type="checkbox" checked={tlHitsOnly} onChange={e => setTlHitsOnly(e.target.checked)} />
+              <span>
+                🎯 Hits uniquement — n'affiche que les lignes avec une détection du Threat Engine
+              </span>
+            </label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderRadius: 6, border: '1px solid var(--fl-border)', background: 'var(--fl-bg)' }}>
+              <span style={{ minWidth: 120, color: 'var(--fl-dim)' }}>Sévérité min.</span>
+              <select value={tlDetSeverity} onChange={e => setTlDetSeverity(e.target.value)}
+                style={{ background: 'var(--fl-bg)', color: 'var(--fl-on-dark)', border: '1px solid var(--fl-border)', borderRadius: 6, padding: '4px 8px', fontFamily: 'monospace', fontSize: 11 }}>
+                <option value="">Toutes</option>
+                <option value="greyware">Greyware+</option>
+                <option value="medium">Medium+</option>
+                <option value="high">High+</option>
+                <option value="critical">Critical uniquement</option>
+              </select>
+            </label>
+          </div>
+          <div style={{ padding: '10px 14px', borderTop: '1px solid var(--fl-sep)', display: 'flex', gap: 8, justifyContent: 'space-between' }}>
+            <button
+              onClick={() => { setTlTools(''); setTlEventIds(''); setTlExts(''); setTlTagsFilter(''); setTlDedupe(false); setTlHitsOnly(false); setTlDetSeverity(''); setPage(1); loadTimeline(1, includeParam(excludedTypes, availTypes), search, startTime, endTime, pageSize, serverSortDir, serverSortCol, hostFilter, userFilter, resultIdFilter, selectedEvidenceIds); }}
+              className="fl-btn fl-btn-ghost fl-btn-sm"
+              style={{ color: 'var(--fl-dim)' }}>
+              <X size={12} /> Reset
+            </button>
+            <button
+              onClick={() => { setPage(1); loadTimeline(1, includeParam(excludedTypes, availTypes), search, startTime, endTime, pageSize, serverSortDir, serverSortCol, hostFilter, userFilter, resultIdFilter, selectedEvidenceIds); }}
+              className="fl-btn fl-btn-ghost fl-btn-sm"
+              style={{ color: 'var(--fl-purple)', border: '1px solid var(--fl-purple)', background: 'rgba(201,104,152,0.08)' }}>
+              <CheckSquare size={12} /> Appliquer
+            </button>
+          </div>
+        </div>
+      )}
 
       {cellCtxMenu && (
         <div
@@ -1151,6 +1574,31 @@ export default function SuperTimelinePage() {
           <div style={{ padding: '3px 12px 5px', fontSize: 9, color: 'var(--fl-subtle)', textTransform: 'uppercase', letterSpacing: '0.08em', borderBottom: '1px solid var(--fl-sep)' }}>
             {cellCtxMenu.colLabel} — <span style={{ color: 'var(--fl-dim)' }}>{String(cellCtxMenu.value).substring(0, 40)}</span>
           </div>
+          {cellCtxMenu.row && caseId && (
+            <button
+              title="Épingler cette ligne dans le Workbench (chain-of-custody)"
+              onClick={() => {
+                const res = pinEvidence(caseId, cellCtxMenu.row, null);
+                if (res?.ok) {
+                  toast.success(`📌 Épinglé · ${pinnedCount(caseId)} événement(s) dans le Workbench`);
+                } else if (res?.reason === 'already_pinned') {
+                  toast.info('Déjà épinglé dans le Workbench');
+                } else if (res?.reason === 'max_pins') {
+                  toast.warn('Limite de 500 épingles atteinte pour ce cas');
+                }
+                setCellCtxMenu(null);
+              }}
+              style={{
+                display: 'block', width: '100%', textAlign: 'left', padding: '6px 14px',
+                background: 'none', border: 'none', borderBottom: '1px solid var(--fl-sep)',
+                cursor: 'pointer', color: 'var(--fl-purple, #c96898)', fontSize: 11, fontWeight: 600,
+              }}
+              onMouseEnter={e => { e.currentTarget.style.background = 'var(--fl-card)'; }}
+              onMouseLeave={e => { e.currentTarget.style.background = 'none'; }}
+            >
+              📌  Épingler dans le Workbench
+            </button>
+          )}
           {[
             { label: '⊃  Filtrer contient',  op: 'contains',     title: 'Ajouter un filtre "contient" sur cette colonne' },
             { label: '＝  Filtrer égal',      op: 'equals',       title: 'Ajouter un filtre "égal" sur cette colonne' },
@@ -1190,15 +1638,17 @@ export default function SuperTimelinePage() {
         </div>
       )}
 
-      {workbench && toolbarCollapsed && (
+      {toolbarCollapsed && (
         <div style={{
-          flexShrink: 0, height: 32,
+          flexShrink: 0, height: 28,
           display: 'flex', alignItems: 'center', gap: 8, padding: '0 12px',
-          background: 'var(--fl-bg)', borderBottom: '1px solid var(--fl-accent)',
+          background: 'var(--fl-bg)', borderBottom: `1px solid ${workbench ? 'var(--fl-accent)' : 'var(--fl-sep)'}`,
         }}>
-          <LayoutTemplate size={12} style={{ color: 'var(--fl-accent)', flexShrink: 0 }} />
+          {workbench
+            ? <LayoutTemplate size={12} style={{ color: 'var(--fl-accent)', flexShrink: 0 }} />
+            : <Clock size={12} style={{ color: 'var(--fl-accent)', flexShrink: 0 }} />}
           <span style={{ fontFamily: 'monospace', fontSize: 10, fontWeight: 700, color: 'var(--fl-accent)', letterSpacing: '0.06em' }}>
-            WORKBENCH
+            {workbench ? 'WORKBENCH' : 'SUPER TIMELINE'}
           </span>
           {total > 0 && (
             <span style={{ fontFamily: 'monospace', fontSize: 9, color: 'var(--fl-subtle)', background: '#4d82c010', border: '1px solid #4d82c020', borderRadius: 3, padding: '1px 6px' }}>
@@ -1235,7 +1685,7 @@ export default function SuperTimelinePage() {
         padding: '8px 16px 6px', marginBottom: 0, flexShrink: 0,
         background: 'var(--fl-bg)', borderBottom: '1px solid var(--fl-sep)',
         flexDirection: 'column', alignItems: 'flex-start', gap: 6,
-        display: workbench && toolbarCollapsed ? 'none' : 'flex',
+        display: toolbarCollapsed ? 'none' : 'flex',
       }}>
         {/* ── Ligne 1 : titre + count ── */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -1324,6 +1774,25 @@ export default function SuperTimelinePage() {
               style={{ color: records.length ? 'var(--fl-accent)' : 'var(--fl-muted)' }}>
               {csvLoading ? <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <Download size={12} />} Export CSV
             </button>
+            <input
+              ref={csvFileInputRef}
+              type="file"
+              accept=".csv,text/csv"
+              multiple
+              style={{ display: 'none' }}
+              onChange={e => { handleCsvImportFiles(e.target.files); e.target.value = ''; }}
+            />
+            <button
+              onClick={() => csvFileInputRef.current?.click()}
+              disabled={csvImportBusy}
+              className="fl-btn fl-btn-ghost fl-btn-sm"
+              title="Importer un CSV (EZ Tools, Chainsaw, Axiom, Nirsoft… mapping auto)"
+              style={{ color: csvImportBusy ? 'var(--fl-muted)' : 'var(--fl-accent)' }}>
+              {csvImportBusy
+                ? <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} />
+                : <FolderOpen size={12} />}
+              {csvImportBusy ? `Import ${csvImportProgress}%` : 'Importer CSV'}
+            </button>
             {colFilteredRecords.length !== records.length && (
               <button
                 onClick={exportFilteredCSV}
@@ -1338,6 +1807,39 @@ export default function SuperTimelinePage() {
           {/* ─ Filtres col. / Presets ──────────────── */}
           <div style={{ width: 1, height: 18, background: 'var(--fl-sep)', flexShrink: 0 }} />
           {/* groupe visuel filtres */}
+          {!workbench && (
+            <button
+              onClick={() => setExplorerMode(v => !v)}
+              className="fl-btn fl-btn-ghost fl-btn-sm"
+              title="Timeline Explorer (group-by mode)"
+              style={{
+                color: explorerMode ? 'var(--fl-purple)' : 'var(--fl-dim)',
+                background: explorerMode ? 'rgba(201,104,152,0.10)' : 'transparent',
+                border: `1px solid ${explorerMode ? 'var(--fl-purple)' : 'var(--fl-border)'}`,
+              }}>
+              <Layers size={12} />
+              Explorer
+            </button>
+          )}
+
+          {!workbench && (
+            <button
+              onClick={() => setShowFilterDrawer(v => !v)}
+              className="fl-btn fl-btn-ghost fl-btn-sm"
+              title="Filtres avancés (tool / event id / extension / tag / dédoublonnage)"
+              style={{
+                color: showFilterDrawer ? 'var(--fl-purple)' : 'var(--fl-dim)',
+                background: showFilterDrawer ? 'rgba(201,104,152,0.10)' : 'transparent',
+                border: `1px solid ${showFilterDrawer ? 'var(--fl-purple)' : 'var(--fl-border)'}`,
+              }}>
+              <Filter size={12} />
+              Filtres
+              {(tlTools || tlEventIds || tlExts || tlTagsFilter || tlDedupe) && (
+                <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--fl-purple)', display: 'inline-block', marginLeft: 2 }} />
+              )}
+            </button>
+          )}
+
           {records.length > 0 && !workbench && (
             <button
               onClick={() => { setShowColFilters(v => !v); if (showColFilters) setColFilters({}); }}
@@ -1557,20 +2059,18 @@ export default function SuperTimelinePage() {
             <LayoutTemplate size={12} /> Workbench
           </button>
           
-          {workbench && (
-            <button
-              onClick={() => setToolbarCollapsed(true)}
-              className="fl-btn fl-btn-ghost fl-btn-sm"
-              title="Réduire la barre d'outils pour agrandir le Workbench"
-              style={{ color: 'var(--fl-subtle)', border: '1px solid var(--fl-card)' }}
-            >
-              <ChevronUp size={12} /> Replier
-            </button>
-          )}
+          <button
+            onClick={() => setToolbarCollapsed(true)}
+            className="fl-btn fl-btn-ghost fl-btn-sm"
+            title="Réduire la barre d'outils pour agrandir la table"
+            style={{ color: 'var(--fl-subtle)', border: '1px solid var(--fl-card)' }}
+          >
+            <ChevronUp size={12} /> Replier
+          </button>
         </div>
       </div>
 
-      <div style={{ display: workbench && toolbarCollapsed ? 'none' : undefined }}>
+      <div style={{ display: toolbarCollapsed ? 'none' : undefined }}>
 
         {total > 0 && (
           <div style={{ padding: '5px 16px 6px', background: 'var(--fl-bg)', borderBottom: '1px solid var(--fl-sep)',
@@ -1624,9 +2124,15 @@ export default function SuperTimelinePage() {
                     Grouper par (max 3 niveaux)
                   </div>
                   {[
-                    { key: 'artifact_type', label: 'Type d\'artefact' },
-                    { key: 'host_name',     label: 'Machine' },
-                    { key: 'user_name',     label: 'Utilisateur' },
+                    { key: 'artifact_type',      label: 'Type d\'artefact' },
+                    { key: 'tool',               label: 'Tool' },
+                    { key: 'event_id',           label: 'Event ID' },
+                    { key: 'host_name',          label: 'Machine' },
+                    { key: 'user_name',          label: 'Utilisateur' },
+                    { key: 'process_name',       label: 'Processus' },
+                    { key: 'ext',                label: 'Extension' },
+                    { key: 'mitre_technique_id', label: 'MITRE T-ID' },
+                    { key: 'source',             label: 'Source' },
                   ].map(opt => {
                     const idx = groupByFields.indexOf(opt.key);
                     const active = idx !== -1;
@@ -2082,6 +2588,82 @@ export default function SuperTimelinePage() {
                 </div>
               )}
 
+              {(() => {
+                const GROUPABLE = [
+                  { key: 'artifact_type',      label: 'Type' },
+                  { key: 'tool',               label: 'Tool' },
+                  { key: 'event_id',           label: 'Event ID' },
+                  { key: 'host_name',          label: 'Host' },
+                  { key: 'user_name',          label: 'User' },
+                  { key: 'process_name',       label: 'Process' },
+                  { key: 'ext',                label: 'Ext' },
+                  { key: 'mitre_technique_id', label: 'MITRE T-ID' },
+                  { key: 'source',             label: 'Source' },
+                ];
+                const GROUPABLE_KEYS = new Set(GROUPABLE.map(g => g.key));
+                const labelOf = k => GROUPABLE.find(g => g.key === k)?.label || k;
+                return (
+                  <div
+                    onDragOver={e => { if (Array.from(e.dataTransfer.types || []).includes('application/x-tl-column')) e.preventDefault(); }}
+                    onDrop={e => {
+                      e.preventDefault();
+                      const colKey = e.dataTransfer.getData('application/x-tl-column');
+                      if (!colKey || !GROUPABLE_KEYS.has(colKey)) return;
+                      setGroupByFields(prev => {
+                        if (prev.includes(colKey)) return prev;
+                        if (prev.length >= 3) return prev;
+                        return [...prev, colKey];
+                      });
+                    }}
+                    style={{
+                      padding: '8px 12px', borderRadius: 6,
+                      border: '1px dashed var(--fl-purple)',
+                      background: 'rgba(139,114,214,0.06)',
+                      display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap',
+                      marginBottom: 6, flexShrink: 0,
+                    }}>
+                    <Layers size={12} style={{ color: 'var(--fl-purple)' }} />
+                    <strong style={{ color: 'var(--fl-purple)', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.08em' }}>Group by</strong>
+                    {groupByFields.length === 0 && (
+                      <span style={{ color: 'var(--fl-muted)', fontSize: 10, fontStyle: 'italic' }}>
+                        Drag a column here — or click a chip
+                      </span>
+                    )}
+                    {groupByFields.map((k, i) => (
+                      <span key={k}
+                        style={{
+                          display: 'inline-flex', alignItems: 'center', gap: 5,
+                          padding: '3px 7px', borderRadius: 5, fontSize: 10, fontFamily: 'monospace',
+                          background: 'rgba(139,114,214,0.12)', border: '1px solid var(--fl-purple)', color: 'var(--fl-on-dark)',
+                        }}>
+                        <span style={{ color: 'var(--fl-muted)', fontSize: 9 }}>{i + 1}.</span>
+                        {labelOf(k)}
+                        <button onClick={() => setGroupByFields(prev => prev.filter(x => x !== k))}
+                          style={{ background: 'none', border: 'none', color: 'var(--fl-dim)', cursor: 'pointer', padding: 0, display: 'flex' }}>
+                          <X size={10} />
+                        </button>
+                      </span>
+                    ))}
+                    {groupByFields.length === 0 && (
+                      <>
+                        <span style={{ color: 'var(--fl-muted)', fontSize: 10, marginLeft: 8 }}>Quick:</span>
+                        {GROUPABLE.map(g => (
+                          <button key={g.key}
+                            draggable
+                            onDragStart={e => { e.dataTransfer.setData('application/x-tl-column', g.key); e.dataTransfer.effectAllowed = 'copy'; }}
+                            onClick={() => setGroupByFields([g.key])}
+                            style={{
+                              padding: '2px 7px', borderRadius: 4, fontSize: 10, fontFamily: 'monospace',
+                              background: 'transparent', border: '1px solid var(--fl-border)', color: 'var(--fl-accent)', cursor: 'pointer',
+                            }}>
+                            {g.label}
+                          </button>
+                        ))}
+                      </>
+                    )}
+                  </div>
+                );
+              })()}
               <div
                 ref={tableContainerRef}
                 style={{ overflow: 'auto', border: '1px solid var(--fl-sep)', borderRadius: 4, flex: '1 1 auto', position: 'relative', background: 'var(--fl-bg)' }}
@@ -2132,15 +2714,25 @@ export default function SuperTimelinePage() {
                         const direction = isMulti ? sortEntry.dir : sortDir;
 
                         const rankLabel = isMulti && multiSort.length > 1 ? String(sortIdx + 1) : '';
+                        const pinOffset = pinnedOffsets.get(col.key);
+                        const pinned    = pinOffset !== undefined;
                         return (
                           <th key={col.key} onClick={e => handleSort(col.key, e)}
-                            title={SERVER_SORTABLE.has(col.key) ? 'Clic — tri / Shift+Clic — tri secondaire' : undefined}
+                            draggable
+                            onDragStart={e => { e.dataTransfer.setData('application/x-tl-column', col.key); e.dataTransfer.effectAllowed = 'copy'; }}
+                            onContextMenu={e => { e.preventDefault(); toggleColPin(col.key); }}
+                            title={`${SERVER_SORTABLE.has(col.key) ? 'Clic — tri / Shift+Clic — tri secondaire · ' : ''}Clic droit — ${pinned ? 'dépingler' : 'épingler à gauche'}`}
                             style={{ padding: '6px 8px', textAlign: 'left', cursor: 'pointer', userSelect: 'none',
                               fontFamily: 'monospace', fontSize: 10, fontWeight: 700,
                               letterSpacing: '0.07em', textTransform: 'uppercase',
                               color: isActive ? 'var(--fl-accent)' : 'var(--fl-subtle)',
-                              borderBottom: showColFilters ? 'none' : '2px solid #20293a', whiteSpace: 'nowrap' }}>
+                              borderBottom: showColFilters ? 'none' : '2px solid #20293a', whiteSpace: 'nowrap',
+                              ...(pinned ? {
+                                position: 'sticky', left: pinOffset, zIndex: 11,
+                                background: 'var(--fl-bg)', boxShadow: '2px 0 0 0 var(--fl-purple)',
+                              } : null) }}>
                             <span style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+                              {pinned && <Pin size={8} style={{ color: 'var(--fl-purple)' }} />}
                               {col.label}
                               {isActive && (
                                 <span style={{ display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -2182,8 +2774,11 @@ export default function SuperTimelinePage() {
                           const op  = f.op  ?? 'contains';
                           const val = f.value ?? '';
                           const isActive = op === 'empty' || op === 'not_empty' || val.trim();
+                          const pinOffsetF = pinnedOffsets.get(col.key);
+                          const pinnedF    = pinOffsetF !== undefined;
                           return (
-                            <th key={`cf-${col.key}`} style={{ padding: '2px 4px', borderBottom: '1px solid var(--fl-sep)' }}>
+                            <th key={`cf-${col.key}`} style={{ padding: '2px 4px', borderBottom: '1px solid var(--fl-sep)',
+                              ...(pinnedF ? { position: 'sticky', left: pinOffsetF, zIndex: 11, background: 'var(--fl-card)' } : null) }}>
                               <div style={{ display: 'flex', gap: 2, alignItems: 'center' }}>
                                 <select
                                   value={op}
@@ -2209,7 +2804,15 @@ export default function SuperTimelinePage() {
                                 {op !== 'empty' && op !== 'not_empty' && (
                                   <input
                                     value={val}
-                                    onChange={e => setColFilters(prev => ({ ...prev, [col.key]: { op: prev[col.key]?.op ?? 'contains', value: e.target.value } }))}
+                                    onChange={e => {
+                                      const raw = e.target.value;
+                                      // TE-style "-foo" shorthand → auto-switch to not_contains
+                                      if (raw.startsWith('-') && raw.length > 1 && (prev => prev?.op ?? 'contains')(colFilters[col.key]) === 'contains') {
+                                        setColFilters(prev => ({ ...prev, [col.key]: { op: 'not_contains', value: raw.slice(1) } }));
+                                        return;
+                                      }
+                                      setColFilters(prev => ({ ...prev, [col.key]: { op: prev[col.key]?.op ?? 'contains', value: raw } }));
+                                    }}
                                     placeholder="…"
                                     title={`Filtrer ${col.label}`}
                                     style={{
@@ -2245,9 +2848,12 @@ export default function SuperTimelinePage() {
                         const fontSize = lvl === 0 ? 10 : 9;
                         const fontWeight = lvl === 0 ? 700 : 600;
 
-                        const countVal = item.field === 'artifact_type' ? typeCounts[item.value] : null;
+                        const countVal = item.count ?? (item.field === 'artifact_type' ? typeCounts[item.value] : null);
+                        const isOpen = !!expandedGroups[item.id];
                         return (
-                          <tr key={virtualItem.key} style={{ height: virtualItem.size, background: `${gc}${lvl === 0 ? '12' : '08'}`, userSelect: 'none' }}>
+                          <tr key={virtualItem.key}
+                            onClick={() => toggleGroup(item.id)}
+                            style={{ height: virtualItem.size, background: `${gc}${lvl === 0 ? '12' : '08'}`, userSelect: 'none', cursor: 'pointer' }}>
                             <td colSpan={visibleCols.length + 4} style={{
                               paddingLeft: 8 + indent, paddingRight: 8, paddingTop: 2, paddingBottom: 2,
                               fontFamily: 'monospace', fontSize, fontWeight,
@@ -2255,16 +2861,15 @@ export default function SuperTimelinePage() {
                               borderLeft: `${lvl === 0 ? 3 : 2}px solid ${gc}`,
                             }}>
                               <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                {lvl === 0
-                                  ? <span style={{ width: 7, height: 7, borderRadius: '50%', background: gc, display: 'inline-block' }} />
-                                  : <span style={{ fontSize: 8, opacity: 0.7 }}>└</span>
-                                }
+                                <span style={{ width: 10, display: 'inline-flex', justifyContent: 'center' }}>
+                                  {isOpen ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
+                                </span>
                                 <span style={{ opacity: 0.6, marginRight: 2, textTransform: 'uppercase', fontSize: fontSize - 1 }}>
                                   {item.field}:
                                 </span>
-                                {item.value}
+                                <strong>{item.value}</strong>
                                 {countVal != null && (
-                                  <span style={{ opacity: 0.5 }}>({countVal.toLocaleString('fr-FR')})</span>
+                                  <span style={{ opacity: 0.6 }}>(Count: {countVal.toLocaleString('fr-FR')})</span>
                                 )}
                               </span>
                             </td>
@@ -2295,7 +2900,9 @@ export default function SuperTimelinePage() {
                               ? `${colorMatch.color}1a`
                               : (HAY_SEVERITY_BG[hayLevel] ?? (i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.02)'));
 
-                      const rowAccent  = colorMatch ? colorMatch.color : (lvl ? lvl.color : (isSel ? acol : `${acol}60`));
+                      const detSev     = topDetectionSeverity(r.detections);
+                      const detColor   = detSev ? DETECTION_SEV_COLOR[detSev] : null;
+                      const rowAccent  = detColor || (colorMatch ? colorMatch.color : (lvl ? lvl.color : (isSel ? acol : `${acol}60`)));
 
                       return (
                         <tr
@@ -2382,6 +2989,33 @@ export default function SuperTimelinePage() {
                                   )}
                                 </span>
                               );
+                            } else if (col2.key === 'detections') {
+                              const dets = Array.isArray(r.detections) ? r.detections : [];
+                              if (dets.length === 0) {
+                                content = <span style={{ color: 'var(--fl-border)' }}>—</span>;
+                              } else {
+                                const bySev = {};
+                                for (const d of dets) {
+                                  const s = d?.severity || 'low';
+                                  bySev[s] = (bySev[s] || 0) + 1;
+                                }
+                                const order = ['critical', 'high', 'medium', 'greyware', 'low'];
+                                const tooltip = dets.map(d => `${d.severity?.toUpperCase() || '?'} — ${d.name}${d.mitre?.length ? ' [' + d.mitre.join(',') + ']' : ''}`).join('\n');
+                                content = (
+                                  <span title={tooltip} style={{ display: 'inline-flex', gap: 3 }}>
+                                    {order.filter(s => bySev[s]).map(s => (
+                                      <span key={s} style={{
+                                        padding: '1px 5px', borderRadius: 3, fontSize: 9, fontWeight: 700,
+                                        background: `${DETECTION_SEV_COLOR[s]}22`,
+                                        color: DETECTION_SEV_COLOR[s],
+                                        border: `1px solid ${DETECTION_SEV_COLOR[s]}50`,
+                                      }}>
+                                        {s === 'greyware' ? 'GREY' : s.slice(0, 4).toUpperCase()}·{bySev[s]}
+                                      </span>
+                                    ))}
+                                  </span>
+                                );
+                              }
                             } else if (col2.key === 'source') {
                               content = <span style={{ color: 'var(--fl-dim)' }}><Highlight text={fmtSrc(r).substring(0, 90)} term={search} /></span>;
                             } else if (col2.virtual && col2.key.startsWith('raw.')) {
@@ -2394,18 +3028,24 @@ export default function SuperTimelinePage() {
                             } else {
                               content = <span style={{ color: 'var(--fl-dim)' }}>{r[col2.key] || '-'}</span>;
                             }
+                            const pinOffset2 = pinnedOffsets.get(col2.key);
+                            const pinned2    = pinOffset2 !== undefined;
                             return (
                               <td key={col2.key}
                                 onContextMenu={e => {
                                   e.preventDefault();
                                   e.stopPropagation();
                                   const rawVal = getColFieldValue(r, col2.key);
-                                  setCellCtxMenu({ x: e.clientX, y: e.clientY, colKey: col2.key, colLabel: col2.label, value: rawVal });
+                                  setCellCtxMenu({ x: e.clientX, y: e.clientY, colKey: col2.key, colLabel: col2.label, value: rawVal, row: r });
                                 }}
                                 style={{ padding: '3px 8px',
                                   fontFamily: col2.mono ? 'monospace' : undefined,
                                   overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                                  maxWidth: col2.flex ? 0 : undefined }}>
+                                  maxWidth: col2.flex ? 0 : undefined,
+                                  ...(pinned2 ? {
+                                    position: 'sticky', left: pinOffset2, zIndex: 1,
+                                    background: 'var(--fl-bg)', boxShadow: '2px 0 0 0 var(--fl-purple)',
+                                  } : null) }}>
                                 {content}
                               </td>
                             );
@@ -2472,6 +3112,8 @@ export default function SuperTimelinePage() {
                     <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center', borderBottom: `1px solid ${acol}20`, background: '#07090f' }}>
                       {[
                         { id: 'details', label: 'Details', icon: null },
+                        { id: 'raw',     label: 'Raw',     icon: null },
+                        { id: 'mitre',   label: 'MITRE',   icon: null, badge: r.mitre_technique_id ? 1 : 0 },
                         { id: 'notes',   label: 'Notes',   icon: MessageSquare, badge: rowNotes.length },
                       ].map(tb => (
                         <button key={tb.id} onClick={() => setDetailTab(tb.id)}
@@ -2542,6 +3184,74 @@ export default function SuperTimelinePage() {
                             </div>
                           ))}
                       </div>
+                    </div>
+                    )}
+
+                    {/* ── Raw JSON tab ── */}
+                    {detailTab === 'raw' && (
+                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+                      <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '6px 10px', borderBottom: `1px solid ${acol}20` }}>
+                        <button
+                          onClick={() => {
+                            try { navigator.clipboard.writeText(JSON.stringify(r.raw || {}, null, 2)); } catch {}
+                          }}
+                          style={{ background: `${acol}18`, border: `1px solid ${acol}50`, color: acol, padding: '3px 10px', fontSize: 9, fontFamily: 'monospace', borderRadius: 4, cursor: 'pointer' }}>
+                          Copy JSON
+                        </button>
+                      </div>
+                      <pre style={{
+                        flex: 1, overflow: 'auto', margin: 0, padding: '10px 12px',
+                        fontFamily: 'monospace', fontSize: 10, lineHeight: 1.55,
+                        color: '#c0cfe0', background: '#07090f', whiteSpace: 'pre-wrap', wordBreak: 'break-all',
+                      }}>
+                        {JSON.stringify(r.raw || {}, null, 2)}
+                      </pre>
+                    </div>
+                    )}
+
+                    {/* ── MITRE tab ── */}
+                    {detailTab === 'mitre' && (
+                    <div style={{ flex: 1, overflowY: 'auto', padding: '10px 12px' }}>
+                      {(r.mitre_technique_id || r.mitre_technique_name || r.mitre_tactic) ? (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                          {r.mitre_technique_id && (
+                            <div style={{ borderRadius: 4, border: '1px solid #a855f740', overflow: 'hidden' }}>
+                              <div style={{ fontFamily: 'monospace', fontSize: 9, color: '#a855f7', padding: '3px 7px', background: '#a855f718', textTransform: 'uppercase', letterSpacing: '0.07em', fontWeight: 600 }}>
+                                Technique ID
+                              </div>
+                              <div style={{ fontFamily: 'monospace', fontSize: 11, color: '#e6d5ff', padding: '6px 7px', background: '#0b101a' }}>
+                                <a href={`https://attack.mitre.org/techniques/${String(r.mitre_technique_id).replace('.', '/')}`} target="_blank" rel="noopener noreferrer" style={{ color: '#c48bff', textDecoration: 'none' }}>
+                                  {r.mitre_technique_id} ↗
+                                </a>
+                              </div>
+                            </div>
+                          )}
+                          {r.mitre_technique_name && (
+                            <div style={{ borderRadius: 4, border: '1px solid #a855f740', overflow: 'hidden' }}>
+                              <div style={{ fontFamily: 'monospace', fontSize: 9, color: '#a855f7', padding: '3px 7px', background: '#a855f718', textTransform: 'uppercase', letterSpacing: '0.07em', fontWeight: 600 }}>
+                                Technique
+                              </div>
+                              <div style={{ fontFamily: 'monospace', fontSize: 10, color: '#c0cfe0', padding: '5px 7px', background: '#0b101a' }}>
+                                {r.mitre_technique_name}
+                              </div>
+                            </div>
+                          )}
+                          {r.mitre_tactic && (
+                            <div style={{ borderRadius: 4, border: '1px solid #a855f740', overflow: 'hidden' }}>
+                              <div style={{ fontFamily: 'monospace', fontSize: 9, color: '#a855f7', padding: '3px 7px', background: '#a855f718', textTransform: 'uppercase', letterSpacing: '0.07em', fontWeight: 600 }}>
+                                Tactic
+                              </div>
+                              <div style={{ fontFamily: 'monospace', fontSize: 10, color: '#c0cfe0', padding: '5px 7px', background: '#0b101a' }}>
+                                {r.mitre_tactic}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <div style={{ color: 'var(--fl-muted)', fontFamily: 'monospace', fontSize: 11, textAlign: 'center', marginTop: 24 }}>
+                          No MITRE ATT&CK mapping on this row.
+                        </div>
+                      )}
                     </div>
                     )}
 

@@ -1,0 +1,30 @@
+# MFTECmd (EZ Tools) CSV mapping — produced by `MFTECmd.dll -f $MFT --csv ...`
+tool:           MFTECmd
+artifact_type:  mft
+artifact_name:  $MFT
+
+filename_patterns:
+  - "mftecmd_.+\\.csv$"
+  - "mft_results\\.csv$"
+  - "mft\\.csv$"
+
+folder_patterns:
+  - "mftecmd"
+  - "mft_out"
+
+header_signatures:
+  - [Created0x10, FileName, FolderPath, Extension]
+  - [ParentPath, FileName, Extension, FileSize]
+
+timestamp_columns: [Created0x10, Created0x30, LastModified0x10, LastAccess0x10]
+description_columns: [FileName]
+source_column: FolderPath
+
+columns:
+  timestamp:    [Created0x10, LastModified0x10, Created0x30, LastAccess0x10]
+  source:       [FolderPath, ParentPath]
+  description:  [FileName]
+  ext:          [Extension, FileExtension]
+  file_size:    [FileSize, Size]
+  path:         [FolderPath, ParentPath, FullPath]
+  sha1:         [SHA1]

@@ -1,0 +1,94 @@
+# Anti-Forensics pack — T1070 / T1490 / T1562
+# Rare, loud, almost always malicious. Severity = high by default.
+rules:
+  - id: af_security_log_cleared
+    name: "Security event log cleared"
+    severity: critical
+    category: anti_forensics
+    target_artifact: [evtx, hayabusa]
+    mitre: [T1070.001]
+    tags: [AntiForensics, LogCleared]
+    match:
+      all:
+        - { field: event_id, op: in, value: [1102, 104] }
+
+  - id: af_vssadmin_delete_shadows
+    name: "vssadmin delete shadows — shadow copy destruction"
+    severity: critical
+    category: anti_forensics
+    target_artifact: ['*']
+    mitre: [T1490]
+    tags: [AntiForensics, ShadowCopy, RansomwarePrecursor]
+    match:
+      any:
+        - { field: description, op: iregex, value: 'vssadmin(\.exe)?\s+delete\s+shadows' }
+        - { field: description, op: iregex, value: 'wmic(\.exe)?\s+shadowcopy\s+delete' }
+
+  - id: af_wbadmin_delete_catalog
+    name: "wbadmin delete catalog — backup destruction"
+    severity: critical
+    category: anti_forensics
+    target_artifact: ['*']
+    mitre: [T1490]
+    tags: [AntiForensics, BackupDeletion, RansomwarePrecursor]
+    match:
+      any:
+        - { field: description, op: iregex, value: 'wbadmin(\.exe)?\s+delete\s+(catalog|systemstatebackup|backup)' }
+
+  - id: af_wevtutil_clear
+    name: "wevtutil cl — event log wipe"
+    severity: high
+    category: anti_forensics
+    target_artifact: ['*']
+    mitre: [T1070.001]
+    tags: [AntiForensics, LogCleared]
+    match:
+      any:
+        - { field: description, op: iregex, value: 'wevtutil(\.exe)?\s+cl\s+' }
+        - { field: description, op: iregex, value: 'Clear-EventLog\s' }
+
+  - id: af_fsutil_usn_delete
+    name: "fsutil usn deletejournal — NTFS USN wipe"
+    severity: high
+    category: anti_forensics
+    target_artifact: ['*']
+    mitre: [T1070]
+    tags: [AntiForensics, USNWipe]
+    match:
+      any:
+        - { field: description, op: iregex, value: 'fsutil(\.exe)?\s+usn\s+deletejournal' }
+
+  - id: af_cipher_wipe
+    name: "cipher /w — free-space wiping"
+    severity: high
+    category: anti_forensics
+    target_artifact: ['*']
+    mitre: [T1070.004]
+    tags: [AntiForensics, DataWipe]
+    match:
+      any:
+        - { field: description, op: iregex, value: 'cipher(\.exe)?\s+/w(:|\s)' }
+
+  - id: af_bcdedit_recovery_disable
+    name: "bcdedit recovery disabled — ransomware precursor"
+    severity: critical
+    category: anti_forensics
+    target_artifact: ['*']
+    mitre: [T1490]
+    tags: [AntiForensics, RansomwarePrecursor, RecoveryDisabled]
+    match:
+      any:
+        - { field: description, op: iregex, value: 'bcdedit.*recoveryenabled\s+no' }
+        - { field: description, op: iregex, value: 'bcdedit.*bootstatuspolicy\s+ignoreallfailures' }
+
+  - id: af_timestomp_indicators
+    name: "Timestomp — SetLastWriteTime / timestomp.exe / kape touch"
+    severity: high
+    category: anti_forensics
+    target_artifact: ['*']
+    mitre: [T1070.006]
+    tags: [AntiForensics, Timestomp]
+    match:
+      any:
+        - { field: description, op: iregex, value: '(timestomp\.exe|SetLastWriteTime|SetCreationTime)' }
+        - { field: process_name, op: iregex, value: '^timestomp(\.exe)?$' }

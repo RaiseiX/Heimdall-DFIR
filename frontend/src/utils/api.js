@@ -83,6 +83,15 @@ export const casesAPI = {
   timeStats: (id) => api.get(`/cases/${id}/time`),
 };
 
+export const workbenchPinsAPI = {
+  list:   (caseId)                => api.get(`/workbench-pins/${caseId}`),
+  create: (caseId, pin)           => api.post(`/workbench-pins/${caseId}`, pin),
+  update: (caseId, pinId, patch)  => api.patch(`/workbench-pins/${caseId}/${pinId}`, patch),
+  remove: (caseId, pinId)         => api.delete(`/workbench-pins/${caseId}/${pinId}`),
+  clear:  (caseId)                => api.delete(`/workbench-pins/${caseId}`),
+  audit:  (caseId)                => api.get(`/workbench-pins/${caseId}/audit`),
+};
+
 export const attributionAPI = {
   getCaseAttribution: (caseId) => api.get(`/attribution/${caseId}`),
 };
@@ -179,6 +188,7 @@ export const collectionAPI = {
   import: (caseId, formData, onUploadProgress) => api.post(`/collection/${caseId}/import`, formData, { headers: { 'Content-Type': 'multipart/form-data' }, onUploadProgress }),
   parse: (caseId, data) => api.post(`/collection/${caseId}/parse`, data),
   timeline: (caseId, params) => api.get(`/collection/${caseId}/timeline`, { params }),
+  detectionsSummary: (caseId) => api.get(`/collection/${caseId}/detections/summary`),
   record: (caseId, index) => api.get(`/collection/${caseId}/record/${index}`),
   runHayabusa: (caseId) => api.post(`/collection/${caseId}/hayabusa`),
   getHayabusa: (caseId) => api.get(`/collection/${caseId}/hayabusa`),
@@ -200,6 +210,13 @@ export const collectionAPI = {
   verdicts:       (caseId)                     => api.get(`/collection/${caseId}/verdicts`),
   setVerdict:     (caseId, data)               => api.post(`/collection/${caseId}/verdicts`, data),
   deleteVerdict:  (caseId, eventRef)           => api.delete(`/collection/${caseId}/verdicts/${encodeURIComponent(eventRef)}`),
+
+  timelineMappings: (caseId)                   => api.get(`/collection/${caseId}/timeline/mappings`),
+  timelineGroups: (caseId, by, params = {})    => api.get(`/collection/${caseId}/timeline/groups`, { params: { by: Array.isArray(by) ? by.join(',') : by, ...params } }),
+  updateTimelineTags: (caseId, id, tags)       => api.patch(`/collection/${caseId}/timeline/${id}/tags`, { tags }),
+  bulkUpdateTimelineTags: (caseId, updates)    => api.post(`/collection/${caseId}/timeline/tags/bulk`, { updates }),
+  importCsv: (caseId, formData, onUploadProgress) =>
+    api.post(`/collection/${caseId}/import-csv`, formData, { headers: { 'Content-Type': 'multipart/form-data' }, onUploadProgress }),
 };
 
 export const columnPrefsAPI = {

@@ -1,0 +1,103 @@
+# RMM / Greyware detection pack — T1219 Remote Access Software
+# Evidence: prefetch filenames, process execution, service installation.
+rules:
+  - id: rmm_anydesk
+    name: "RMM — AnyDesk"
+    severity: greyware
+    category: rmm
+    target_artifact: ['*']
+    mitre: [T1219]
+    references: ['https://attack.mitre.org/techniques/T1219/']
+    tags: [Greyware, RMM, AnyDesk]
+    match:
+      any:
+        - { field: source,       op: iregex, value: 'anydesk(\.exe)?(-[A-F0-9]{8}\.pf)?' }
+        - { field: description,  op: icontains, value: 'AnyDesk' }
+        - { field: process_name, op: iregex, value: '^anydesk(\.exe)?$' }
+        - { field: path,         op: icontains, value: 'AnyDesk.exe' }
+
+  - id: rmm_teamviewer
+    name: "RMM — TeamViewer"
+    severity: greyware
+    category: rmm
+    target_artifact: ['*']
+    mitre: [T1219]
+    tags: [Greyware, RMM, TeamViewer]
+    match:
+      any:
+        - { field: source,       op: iregex, value: 'teamviewer(_service|_host)?\.exe' }
+        - { field: process_name, op: iregex, value: '^teamviewer.*\.exe$' }
+        - { field: description,  op: icontains, value: 'TeamViewer' }
+
+  - id: rmm_atera
+    name: "RMM — Atera Agent"
+    severity: greyware
+    category: rmm
+    target_artifact: ['*']
+    mitre: [T1219]
+    tags: [Greyware, RMM, Atera]
+    match:
+      any:
+        - { field: source,       op: iregex, value: '(ateraagent|agentpackage)' }
+        - { field: description,  op: iregex, value: '(AteraAgent|atera\.com)' }
+
+  - id: rmm_screenconnect
+    name: "RMM — ScreenConnect / ConnectWise Control"
+    severity: greyware
+    category: rmm
+    target_artifact: ['*']
+    mitre: [T1219]
+    tags: [Greyware, RMM, ScreenConnect]
+    match:
+      any:
+        - { field: source,       op: iregex, value: 'screenconnect\.clientservice' }
+        - { field: description,  op: iregex, value: '(ScreenConnect|connectwisecontrol)' }
+        - { field: path,         op: icontains, value: 'ScreenConnect' }
+
+  - id: rmm_splashtop
+    name: "RMM — Splashtop"
+    severity: greyware
+    category: rmm
+    target_artifact: ['*']
+    mitre: [T1219]
+    tags: [Greyware, RMM, Splashtop]
+    match:
+      any:
+        - { field: source,       op: iregex, value: 'sr(service|manager|agent|app)\.exe' }
+        - { field: description,  op: icontains, value: 'Splashtop' }
+
+  - id: rmm_aeroadmin
+    name: "RMM — AeroAdmin"
+    severity: greyware
+    category: rmm
+    target_artifact: ['*']
+    mitre: [T1219]
+    tags: [Greyware, RMM, AeroAdmin]
+    match:
+      any:
+        - { field: source,      op: icontains, value: 'aeroadmin' }
+        - { field: description, op: icontains, value: 'AeroAdmin' }
+
+  - id: rmm_connectwise
+    name: "RMM — ConnectWise Automate (LabTech)"
+    severity: greyware
+    category: rmm
+    target_artifact: ['*']
+    mitre: [T1219]
+    tags: [Greyware, RMM, ConnectWise]
+    match:
+      any:
+        - { field: source,      op: iregex, value: '(ltsvc|ltsvcmon|labtechservice)\.exe' }
+        - { field: description, op: iregex, value: '(ConnectWise|LabTech)' }
+
+  - id: rmm_remotepc
+    name: "RMM — RemotePC"
+    severity: greyware
+    category: rmm
+    target_artifact: ['*']
+    mitre: [T1219]
+    tags: [Greyware, RMM, RemotePC]
+    match:
+      any:
+        - { field: source,      op: iregex, value: 'remotepc(service|helper|desktop)?\.exe' }
+        - { field: description, op: icontains, value: 'RemotePC' }
