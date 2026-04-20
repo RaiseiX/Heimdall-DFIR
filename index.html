@@ -429,7 +429,7 @@ footer{ border-top:1px solid var(--border); background:var(--bg1); padding:4rem 
 
 <div id="quake-term">
   <div id="quake-output">
-    <div class="quake-row"><span class="t-cyan">Heimdall OS v0.9.4</span></div>
+    <div class="quake-row"><span class="t-cyan">Heimdall OS v0.9.9</span></div>
     <div class="quake-row"><span style="color:#6c7086;">Type 'help' for available commands.</span></div>
   </div>
   <div id="quake-input-wrap">
@@ -1114,7 +1114,7 @@ footer{ border-top:1px solid var(--border); background:var(--bg1); padding:4rem 
     <p class="section-sub fade-in">— planned releases and milestones</p>
     
     <div class="roadmap-line">
-      <div class="rm-item fade-in"><div class="rm-dot current"></div><div class="rm-version">v0.9 <span class="rm-badge beta">CURRENT BETA</span></div><div class="rm-desc">Core platform — disk analysis, YARA, Sigma, TAXII, SOAR playbooks, Ollama AI, Legal Hold, collaboration</div></div>
+      <div class="rm-item fade-in"><div class="rm-dot current"></div><div class="rm-version">v0.9.9 <span class="rm-badge beta">CURRENT BETA</span></div><div class="rm-desc">Core platform + Threat Engine v2.26 (5 YAML packs, 61 rules, RMM/Anti-Forensics/LOLBIN/CredAccess/Persistence) + Workbench Foundation (Evidence Bridge, Findings Board kanban, tamper-evident SHA-256 ledger, Persistence Sweep, Logon Sessions) + Timeline Explorer web clone</div></div>
       <div class="rm-item fade-in"><div class="rm-dot"></div><div class="rm-version future">v1.0 <span class="rm-badge" style="background:var(--bg2);color:var(--text2);border-color:var(--border2);">PLANNED</span></div><div class="rm-desc">Full RAM forensics integration — VolWeb + Volatility 3 plugin execution and result display</div></div>
       <div class="rm-item fade-in"><div class="rm-dot"></div><div class="rm-version future">v1.1 <span class="rm-badge" style="background:var(--bg2);color:var(--text2);border-color:var(--border2);">PLANNED</span></div><div class="rm-desc">Disk image mounting — .E01, .dd, .vmdk support · WebCache · $UsnJrnl · WMI artifacts</div></div>
       <div class="rm-item fade-in"><div class="rm-dot"></div><div class="rm-version future">v1.2 <span class="rm-badge" style="background:var(--bg2);color:var(--text2);border-color:var(--border2);">PLANNED</span></div><div class="rm-desc">Extended artifact support — Thumbcache · ESE databases · $I30 · Windows Search index</div></div>
@@ -1132,6 +1132,22 @@ footer{ border-top:1px solid var(--border); background:var(--bg1); padding:4rem 
     <div class="cl-block fade-in">
       <div class="cl-header"><div style="display:flex;gap:0.4rem;"><span class="dot dr"></span><span class="dot dy"></span><span class="dot dg"></span></div>CHANGELOG.md — last entries</div>
       <div class="cl-body">
+<span class="cl-version">v0.9.9</span><span class="cl-date">— 2026-04-20</span><br/>
+<span class="cl-add">+</span> Threat Engine v2.26 — YAML rule engine in ingest hot-path (≤ 5 µs/record)<br/>
+<span class="cl-add">+</span> 5 rule packs / 61 rules — RMM, Anti-Forensics, LOLBIN, Credential Access, Persistence<br/>
+<span class="cl-add">+</span> Detections JSONB column + GIN index + hits_only / severity / category filters<br/>
+<span class="cl-add">+</span> Super Timeline 🎯 Detections column + 3px severity left-border (No-Christmas-Tree rule)<br/>
+<span class="cl-add">+</span> Workbench DetectionsSummaryBanner — per-severity chips + top-3 rules<br/><br/>
+
+<span class="cl-version">v0.9.8</span><span class="cl-date">— 2026-04-18</span><br/>
+<span class="cl-add">+</span> Evidence Bridge — pin forensic rows from Super Timeline to Workbench<br/>
+<span class="cl-add">+</span> Findings Board kanban (Triage / Confirmé / Rapporté) with HTML5 drag-and-drop<br/>
+<span class="cl-add">+</span> Tamper-evident SHA-256 hash chain ledger for chain-of-custody<br/>
+<span class="cl-add">+</span> Persistence Sweep analyzer (11 MITRE rules) + Logon Session reconstruction<br/>
+<span class="cl-add">+</span> Pin → Rapport — printable findings document with chain-of-custody table<br/>
+<span class="cl-add">+</span> Super Timeline Workbench tabs pruned 13 → 6 (real DFIR workflows)<br/>
+<span class="cl-add">+</span> Timeline Explorer web clone — TanStack v8 grouping + drag-to-group + column pinning<br/><br/>
+
 <span class="cl-version">v0.9.0</span><span class="cl-date">— 2026</span><br/>
 <span class="cl-add">+</span> Ollama Case Copilot with automatic context injection<br/>
 <span class="cl-add">+</span> TAXII 2.1 / STIX 2.1 Threat Intel with post-ingestion correlation<br/>
@@ -1473,7 +1489,7 @@ function playSound(type) {
 // --- BOOT PRELOADER ---
 const preloader = document.getElementById('boot-loader');
 const bootSequence = [
-  "[ OK ] Initializing Heimdall Kernel v0.9.4...",
+  "[ OK ] Initializing Heimdall Kernel v0.9.9...",
   "[ OK ] Mounting YGGDRASIL file systems...",
   "[ OK ] Starting Bifrost Secure Proxy...",
   "[ OK ] Establishing link to Nine Realms...",

@@ -21,7 +21,7 @@
 
 [![EN](https://img.shields.io/badge/lang-EN-blue)](README.md)
 [![FR](https://img.shields.io/badge/lang-FR-blueviolet)](README.fr.md)
-![Version](https://img.shields.io/badge/version-0.9.0-blue)
+![Version](https://img.shields.io/badge/version-0.9.9-blue)
 ![Docker](https://img.shields.io/badge/docker-compose-2496ED)
 ![Node](https://img.shields.io/badge/node-18+-339933)
 ![React](https://img.shields.io/badge/react-18-61DAFB)
@@ -55,6 +55,7 @@ network captures, RAM dumps — in a single, collaborative, real-time interface.
 - **TAXII/STIX Threat Intel** — TAXII 2.1 connector, Elasticsearch `threat_intel` index, automatic post-ingestion correlation
 
 ### 🎯 Automatic Detections
+- **Threat Engine v2.26** *(new in 0.9.9)* — YAML-driven hot-path rule engine (≤ 5 µs/record, mtime hot-reload), 5 rule packs / 61 rules: **RMM/Greyware** (AnyDesk, TeamViewer, Atera, ScreenConnect, Splashtop, AeroAdmin, ConnectWise, RemotePC — T1219), **Anti-Forensics** (1102/104 log clear, vssadmin/wbadmin delete, wevtutil cl, fsutil USN, cipher /w, bcdedit recovery, timestomp — T1070/T1490), **LOLBIN** (20 rules — certutil, bitsadmin, regsvr32 Squiblydoo, mshta, rundll32 script, wmic, installutil, cmstp, msbuild, msiexec_remote, forfiles, pcalua, odbcconf, ieexec, hh, xwizard, presentationhost, pubprn vbs, mavinject, powershell encoded — T1218), **Credential Access** (mimikatz, lsass EID 10, dcsync, shadow creds, SAM/NTDS dump, secretsdump, lazagne, kerberoasting burst, skeleton key — T1003), **Persistence** (15 rules — Run keys, Startup LNK, schtasks, service 7045, WMI event sub, BITS, logon scripts, IFEO accessibility, COM hijack, Winlogon tamper, Active Setup, DLL search order, Domain Admins add 4732/4728/4756, At legacy, service binpath shell — T1547/T1546/T1053/T1543/T1574/T1098)
 - **Timestomping** — `$SIA` vs `$FN` comparison (NTFS timestamps) on MFT artifacts
 - **Double extension** — detects `.pdf.exe`, `.docx.scr`, etc. on MFT / LNK / Prefetch
 - **C2 Beaconing** — coefficient of variation of connection intervals (beacon score 0–100)
@@ -92,6 +93,17 @@ network captures, RAM dumps — in a single, collaborative, real-time interface.
 - **Persistence** — conversation history stored in DB per case, reloaded each session
 - **Supported models** — `qwen3:14b` (default), `qwen2.5:7b/14b`, `deepseek-r1:8b`, `llama3.2:3b`, `mistral:7b`
 - **No-think mode** — strips `<think>…</think>` tags for clean output (configurable)
+
+### 🧰 Workbench *(new in 0.9.8 / 0.9.9)*
+- **Evidence Bridge** — pin forensic rows from Super Timeline into a dedicated Workbench tab (Zustand + localStorage, 500 pins/case, dedup, auto-sync to Postgres `workbench_evidence_pins`)
+- **Findings Board** — kanban view with Triage / Confirmé / Rapporté columns, native HTML5 drag-and-drop status update, per-case view persistence
+- **Tamper-evident Ledger** — append-only `workbench_evidence_audit` table with SHA-256 hash chain (`content_hash = sha256(prev_hash || action || canonical_payload)`), verification banner, JSON export for legal defensibility
+- **Live multi-analyst sync** — WebSocket `workbench:pin:{added,updated,removed,cleared}` broadcast on `case:<id>` room, no echo loop
+- **Persistence Sweep analyzer** — 11 MITRE rules against pinned rows (T1547/T1543/T1053/T1546/T1197/T1037/T1574…), weighted Persistence Score
+- **Logon Session Reconstruction** — groups EID 4624/4625/4634/4647/4648 by `LogonId`, decodes LogonType, extracts source IP, classifies status
+- **Detection Engine integration** *(0.9.9)* — `🎯 Detections` column with severity pills (CRIT/HIGH/MED/GREY), 3px left-border row accent (No-Christmas-Tree rule), `🎯 Hits uniquement` filter + sévérité-min dropdown, Workbench summary banner with per-severity chips and top-3 rules
+- **Pin → Rapport** — printable forensic findings document with cover page, summary counters, status-grouped findings, full chain-of-custody table per finding
+- **Super Timeline Workbench** — 6 curated tabs (Timeline, MITRE, Persistance, IoA, Kill Chain, Export) — pruned from 13 in 0.9.8 to match real DFIR workflows
 
 ### 👥 Collaboration
 - **Live case chat** — Socket.io, DB persistence, message bubbles, deletion, unread badge
