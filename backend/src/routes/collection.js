@@ -2999,36 +2999,80 @@ router.get('/:caseId/export/csv', authenticate, async (req, res) => {
     if (user_name)   { conditions.push(`user_name ILIKE $${pi++}`);       params.push('%' + user_name + '%'); }
     if (evidence_id) { conditions.push(`evidence_id = $${pi++}`);         params.push(evidence_id); }
 
+    const requestedTypes = artifact_types ? artifact_types.split(',').filter(Boolean) : [];
+    const singleArtifact = requestedTypes.length === 1 ? requestedTypes[0] : null;
+
+    let rawKeys = [];
+    if (singleArtifact) {
+      try {
+        const keysQ = await pool.query(
+          `SELECT DISTINCT k
+             FROM collection_timeline ct,
+                  LATERAL jsonb_object_keys(ct.raw) AS k
+            WHERE ${conditions.join(' AND ')}
+              AND ct.raw IS NOT NULL
+            LIMIT 200`,
+          params
+        );
+        rawKeys = keysQ.rows.map(r => r.k).sort();
+      } catch (_e) { rawKeys = []; }
+    }
+
+    const baseCols = ['timestamp', 'artifact_type', 'artifact_name', 'source', 'description',
+                      'host_name', 'user_name', 'process_name',
+                      'mitre_tactic', 'mitre_technique_id', 'mitre_technique_name'];
+    const extraCols = singleArtifact
+      ? ['tool', 'event_id', 'ext', 'file_size', 'ip_address', 'sha1', 'evidence_path', 'dedupe_hash', 'tags', 'detections']
+      : [];
+
+    const selectCols = singleArtifact
+      ? `timestamp, artifact_type, artifact_name, source, description,
+         host_name, user_name, process_name,
+         mitre_tactic, mitre_technique_id, mitre_technique_name,
+         tool, event_id, ext, file_size, ip_address, sha1, evidence_path, dedupe_hash,
+         tags, detections, raw`
+      : `timestamp, artifact_type, artifact_name, source, description,
+         host_name, user_name, process_name,
+         mitre_tactic, mitre_technique_id, mitre_technique_name`;
+
     const result = await pool.query(
-      `SELECT timestamp, artifact_type, artifact_name, source, description,
-              host_name, user_name, process_name,
-              mitre_tactic, mitre_technique_id, mitre_technique_name
+      `SELECT ${selectCols}
        FROM collection_timeline
        WHERE ${conditions.join(' AND ')}
        ORDER BY timestamp ASC`,
       params
     );
 
-    const COLS = ['timestamp', 'artifact_type', 'artifact_name', 'source', 'description',
-                  'host_name', 'user_name', 'process_name',
-                  'mitre_tactic', 'mitre_technique_id', 'mitre_technique_name'];
+    const COLS = [...baseCols, ...extraCols, ...rawKeys.map(k => `raw_${k}`)];
 
     function csvCell(v) {
-      const s = v == null ? '' : String(v);
+      if (v == null) return '';
+      let s;
+      if (Array.isArray(v) || typeof v === 'object') s = JSON.stringify(v);
+      else s = String(v);
       if (s.includes(sep) || s.includes('"') || s.includes('\n') || s.includes('\r')) {
         return '"' + s.replace(/"/g, '""') + '"';
       }
       return s;
     }
 
-    const filename = `timeline-${caseId}-${Date.now()}.csv`;
+    const filename = singleArtifact
+      ? `timeline-${singleArtifact}-${caseId}-${Date.now()}.csv`
+      : `timeline-${caseId}-${Date.now()}.csv`;
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
 
-    res.write('\uFEFF'); // UTF-8 BOM (Excel compatibility)
+    res.write('\uFEFF');
     res.write(COLS.join(sep) + '\r\n');
     for (const row of result.rows) {
-      res.write(COLS.map(c => csvCell(row[c])).join(sep) + '\r\n');
+      const line = COLS.map(c => {
+        if (c.startsWith('raw_')) {
+          const k = c.slice(4);
+          return csvCell(row.raw?.[k]);
+        }
+        return csvCell(row[c]);
+      }).join(sep);
+      res.write(line + '\r\n');
     }
     res.end();
   } catch (err) {

@@ -2377,10 +2377,21 @@ export default function SuperTimelinePage() {
               const count    = typeCounts[t];
               return (
                 <button key={t}
-                  title={excluded ? `Afficher ${t}` : `Masquer ${t}`}
-                  onClick={() => {
-                    const ns = new Set(excludedTypes);
-                    excluded ? ns.delete(t) : ns.add(t);
+                  title={`Clic — isoler ${t} · Clic à nouveau — tout réafficher · Ctrl/Shift+Clic — basculer ce chip`}
+                  onClick={(e) => {
+                    let ns;
+                    if (e.ctrlKey || e.metaKey || e.shiftKey) {
+                      ns = new Set(excludedTypes);
+                      excluded ? ns.delete(t) : ns.add(t);
+                    } else {
+                      const visible = availTypes.filter(x => !excludedTypes.has(x));
+                      const isolated = visible.length === 1 && visible[0] === t;
+                      if (isolated) {
+                        ns = new Set();
+                      } else {
+                        ns = new Set(availTypes.filter(x => x !== t));
+                      }
+                    }
                     setExcludedTypes(ns);
                     setPage(1);
                     loadTimeline(1, includeParam(ns, availTypes), search, startTime, endTime, pageSize, serverSortDir, serverSortCol, hostFilter, userFilter, resultIdFilter, selectedEvidenceIds);
