@@ -2494,7 +2494,13 @@ export default function SuperTimelinePage() {
               <p style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--fl-muted)', marginBottom: 20, fontStyle: 'italic' }}>
                 {isolatedEvidenceName || routeEvidenceId}
               </p>
-              <div style={{ display: 'flex', gap: 10 }}>
+              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', justifyContent: 'center' }}>
+                <button
+                  onClick={() => navigate(`/super-timeline?caseId=${routeCaseId}`)}
+                  style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 18px', borderRadius: 6, fontSize: 11,
+                    fontFamily: 'monospace', fontWeight: 600, background: 'var(--fl-purple)', color: '#ffffff', border: 'none', cursor: 'pointer' }}>
+                  <Clock size={13} /> Voir la timeline globale du cas
+                </button>
                 <button
                   onClick={() => navigate(`/cases/${routeCaseId}`, { state: { tab: 'evidence' } })}
                   style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 18px', borderRadius: 6, fontSize: 11,
