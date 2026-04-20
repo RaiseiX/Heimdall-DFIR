@@ -1,0 +1,31 @@
+# Generic fallback CSV mapping — matches when no other tool-specific mapping
+# fires. Accepts any CSV that has a parseable timestamp column. Used as the
+# last-resort option so analysts can ingest ad-hoc CSVs without writing YAML.
+tool:           Generic
+artifact_type:  csv
+artifact_name:  Generic CSV
+
+filename_patterns:
+  - ".+\\.csv$"
+
+folder_patterns: []
+
+header_signatures: []
+
+timestamp_columns: [timestamp, Timestamp, TimeCreated, DateTime, Date, Time, time, date, "@timestamp"]
+description_columns: [description, Description, message, Message, event, Event, summary]
+source_column: source
+
+columns:
+  timestamp:    [timestamp, Timestamp, TimeCreated, DateTime, Date, "@timestamp"]
+  source:       [source, Source, channel, Channel, host, Host]
+  description:  [description, Description, message, Message, event, Event]
+  event_id:     [event_id, EventId, EventID]
+  host_name:    [host, Host, Computer, host_name, Hostname]
+  user_name:    [user, User, UserName, user_name]
+  src_ip:       [src_ip, source_ip, SrcIP, SourceIp]
+  dst_ip:       [dst_ip, dest_ip, DstIP, DestinationIp]
+  sha1:         [sha1, SHA1, Sha1]
+  path:         [path, Path, file_path, FilePath]
+  ext:          [ext, extension, Extension]
+  file_size:    [size, Size, file_size, FileSize]

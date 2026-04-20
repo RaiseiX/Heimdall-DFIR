@@ -13,13 +13,10 @@ import {
 } from '@tanstack/react-table';
 import { SortAsc, SortDesc, Copy, CheckCheck, Clock, FileText, HardDrive, Tag, MessageSquare, Send, Trash2, Pencil, ShieldAlert, Eye, AlertTriangle, ChevronDown, ChevronRight, Share2, Pin, PinOff, Globe2, X, Bot, Star, CheckSquare, Square, Cpu, GitBranch, Layers, Network, Target, Download, Users, TrendingUp, Search, Zap, Activity } from 'lucide-react';
 import TimelinePlayback from './TimelinePlayback';
-import TimelineHeatmap from './TimelineHeatmap';
-import GanttView from './GanttView';
 import MitreMatrixLive from './MitreMatrixLive';
 import VerdictBadge from './VerdictBadge';
 import CommandPalette from './CommandPalette';
 import ContextMenu from './ContextMenu';
-import AiAnalystPanel from './AiAnalystPanel';
 import { artifactsAPI, detectionsAPI, pinsAPI, collectionAPI, iocsAPI } from '../../utils/api';
 import { ARTIFACT_PROFILES } from '../../utils/artifactProfiles';
 
@@ -332,6 +329,135 @@ const GRID_COLUMNS = [
     size: 110,
     meta: { mono: true },
     cell: info => info.getValue() || '-',
+  }),
+  // ─── Unified forensic columns (v2.23, inspired by forensic-timeliner) ───
+  // All optional, toggleable via ColumnManager. Nordic-dark styling preserved.
+  ch.accessor(row => row.tool ?? null, {
+    id: 'tool',
+    header: 'Tool',
+    size: 110,
+    meta: { mono: true },
+    cell: info => {
+      const v = info.getValue();
+      if (!v) return <span style={{ color: 'var(--fl-muted)' }}>—</span>;
+      return (
+        <span style={{
+          padding: '1px 5px', borderRadius: 3, fontSize: 10, fontWeight: 600,
+          background: 'rgba(255,255,255,0.04)', color: 'var(--fl-dim)',
+          border: '1px solid rgba(255,255,255,0.08)', whiteSpace: 'nowrap',
+        }}>{v}</span>
+      );
+    },
+  }),
+  ch.accessor(row => row.timestamp_kind ?? null, {
+    id: 'timestamp_kind',
+    header: 'TS Kind',
+    size: 110,
+    meta: { mono: true },
+    cell: info => info.getValue() || <span style={{ color: 'var(--fl-muted)' }}>—</span>,
+  }),
+  ch.accessor(row => row.event_id ?? null, {
+    id: 'event_id',
+    header: 'Event ID',
+    size: 80,
+    meta: { mono: true },
+    cell: info => {
+      const v = info.getValue();
+      return v == null ? <span style={{ color: 'var(--fl-muted)' }}>—</span>
+        : <span style={{ color: 'var(--fl-accent)' }}>{v}</span>;
+    },
+  }),
+  ch.accessor(row => row.ext ?? null, {
+    id: 'ext',
+    header: 'Ext',
+    size: 70,
+    meta: { mono: true },
+    cell: info => info.getValue() || <span style={{ color: 'var(--fl-muted)' }}>—</span>,
+  }),
+  ch.accessor(row => row.file_size ?? null, {
+    id: 'file_size',
+    header: 'Size',
+    size: 90,
+    meta: { mono: true },
+    cell: info => {
+      const v = info.getValue();
+      if (v == null) return <span style={{ color: 'var(--fl-muted)' }}>—</span>;
+      const n = Number(v);
+      if (!Number.isFinite(n)) return '—';
+      if (n < 1024) return `${n} B`;
+      if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+      if (n < 1024 * 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} MB`;
+      return `${(n / 1024 / 1024 / 1024).toFixed(2)} GB`;
+    },
+  }),
+  ch.accessor(row => row.src_ip ?? null, {
+    id: 'src_ip',
+    header: 'Src IP',
+    size: 120,
+    meta: { mono: true },
+    cell: info => info.getValue() || <span style={{ color: 'var(--fl-muted)' }}>—</span>,
+  }),
+  ch.accessor(row => row.dst_ip ?? null, {
+    id: 'dst_ip',
+    header: 'Dst IP',
+    size: 120,
+    meta: { mono: true },
+    cell: info => info.getValue() || <span style={{ color: 'var(--fl-muted)' }}>—</span>,
+  }),
+  ch.accessor(row => row.sha1 ?? null, {
+    id: 'sha1',
+    header: 'SHA1',
+    size: 160,
+    meta: { mono: true },
+    cell: info => {
+      const v = info.getValue();
+      if (!v) return <span style={{ color: 'var(--fl-muted)' }}>—</span>;
+      return <span title={v} style={{ color: 'var(--fl-dim)' }}>{String(v).slice(0, 10)}…</span>;
+    },
+  }),
+  ch.accessor(row => row.path ?? null, {
+    id: 'path',
+    header: 'Path',
+    size: 220,
+    meta: { mono: true },
+    cell: info => {
+      const v = info.getValue();
+      if (!v) return <span style={{ color: 'var(--fl-muted)' }}>—</span>;
+      const s = String(v);
+      return <span title={s} style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s}</span>;
+    },
+  }),
+  ch.accessor(row => row.details ?? null, {
+    id: 'details',
+    header: 'Details',
+    size: 240,
+    cell: info => {
+      const v = info.getValue();
+      if (!v) return <span style={{ color: 'var(--fl-muted)' }}>—</span>;
+      const s = String(v);
+      return <span title={s} style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--fl-dim)' }}>{s}</span>;
+    },
+  }),
+  ch.accessor(row => Array.isArray(row.tags) ? row.tags : [], {
+    id: 'tags',
+    header: 'Tags',
+    size: 160,
+    cell: info => {
+      const arr = info.getValue() || [];
+      if (!arr.length) return <span style={{ color: 'var(--fl-muted)' }}>—</span>;
+      return (
+        <span style={{ display: 'inline-flex', gap: 3, flexWrap: 'nowrap', overflow: 'hidden' }}>
+          {arr.slice(0, 3).map((t, i) => (
+            <span key={i} style={{
+              padding: '0 5px', borderRadius: 8, fontSize: 9, fontWeight: 600,
+              background: 'rgba(167,139,250,0.12)', color: 'var(--fl-purple)',
+              border: '1px solid rgba(167,139,250,0.25)', whiteSpace: 'nowrap',
+            }}>{t}</span>
+          ))}
+          {arr.length > 3 && <span style={{ color: 'var(--fl-muted)', fontSize: 9 }}>+{arr.length - 3}</span>}
+        </span>
+      );
+    },
   }),
 ];
 
@@ -2399,15 +2525,13 @@ export default function SuperTimelineWorkbench({ records, availTypes, caseId, on
     if (id.startsWith('view:')) {
       const v = id.slice(5);
       if (v === 'playback') { setShowPlayback(p => !p); setActiveTab('timeline'); onAITabChange?.(false); }
-      else if (v === 'gantt')    { setActiveTab('gantt');    onAITabChange?.(false); }
-      else if (v === 'heatmap')  { setActiveTab('heatmap');  onAITabChange?.(false); }
       else if (v === 'mitre')    { setActiveTab('mitre');    onAITabChange?.(false); }
       else if (v === 'timeline') { setActiveTab('timeline'); onAITabChange?.(false); }
       return;
     }
 
     if (id.startsWith('tab:')) {
-      const m = { timeline: 'timeline', persistence: 'persistence', dissim: 'dissimulation' };
+      const m = { timeline: 'timeline', persistence: 'persistence' };
       const newTab = m[id.slice(4)] || 'timeline';
       setActiveTab(newTab);
       onAITabChange?.(false);
@@ -2445,18 +2569,11 @@ export default function SuperTimelineWorkbench({ records, availTypes, caseId, on
 
   const workbenchTabs = useMemo(() => [
     { id: 'timeline',      label: t('workbench.tab_timeline'),    icon: Clock },
-    { id: 'gantt',         label: 'Gantt',                        icon: Tag },
-    { id: 'heatmap',       label: 'Heatmap',                      icon: AlertTriangle },
     { id: 'mitre',         label: 'MITRE',                        icon: ShieldAlert },
     { id: 'persistence',   label: t('workbench.tab_persistence'), icon: HardDrive },
-    { id: 'dissimulation', label: t('workbench.tab_evasion'),     icon: Eye },
-    { id: 'process-tree',  label: 'Processus',                    icon: GitBranch },
     { id: 'patterns',      label: 'IoA',                          icon: Zap },
-    { id: 'cluster',       label: 'Cluster',                      icon: Layers },
-    { id: 'multi-host',    label: 'Multi-hôte',                   icon: Network },
     { id: 'attack-chain',  label: 'Kill Chain',                   icon: Activity },
     { id: 'export',        label: 'Export',                       icon: Download },
-    { id: 'ai',            label: 'IA',                           icon: Bot },
   ], [t]);
 
   const gapThresholds = useMemo(() => [
@@ -2658,12 +2775,9 @@ export default function SuperTimelineWorkbench({ records, availTypes, caseId, on
                 <ActionMenuSection title="Vues" icon="🖥">
                   {[
                     { id: 'view:timeline',  label: 'Timeline',    icon: '⏱' },
-                    { id: 'view:gantt',     label: 'Gantt',       icon: '📊' },
-                    { id: 'view:heatmap',   label: 'Heatmap',     icon: '🔥' },
                     { id: 'view:mitre',     label: 'MITRE Live',  icon: '🎯' },
                     { id: 'view:playback',  label: 'Lecture auto',icon: '▶'  },
                     { id: 'tab:persistence',label: 'Persistance', icon: '🛡' },
-                    { id: 'tab:dissim',     label: 'Dissimulation',icon:'👁' },
                   ].map(c => (
                     <ActionMenuItem key={c.id} icon={c.icon} label={c.label}
                       onClick={() => { handlePaletteCommand(c.id); setShowActionsMenu(false); }} />
@@ -2813,6 +2927,10 @@ export default function SuperTimelineWorkbench({ records, availTypes, caseId, on
 
       
       {activeTab === 'timeline' && (
+        <DetectionsSummaryBanner caseId={caseId} />
+      )}
+
+      {activeTab === 'timeline' && (
         <QuickFilterBar
           records={records}
           availTypes={availTypes}
@@ -2837,65 +2955,21 @@ export default function SuperTimelineWorkbench({ records, availTypes, caseId, on
         />
       )}
 
-      
-      {activeTab === 'heatmap' && (
-        <div style={{ flex: 1, overflow: 'auto', background: 'var(--fl-bg)' }}>
-          <TimelineHeatmap caseId={caseId} availTypes={availTypes} />
-        </div>
-      )}
-
-      
-      {activeTab === 'gantt' && (
-        <div style={{ flex: 1, overflow: 'hidden', background: 'var(--fl-bg)' }}>
-          <GanttView records={filteredRecords} onSelectRecord={r => handleSelect(r)} />
-        </div>
-      )}
-
-      
       {activeTab === 'mitre' && (
         <div style={{ flex: 1, overflow: 'auto', background: 'var(--fl-bg)' }}>
           <MitreMatrixLive records={filteredRecords} />
         </div>
       )}
 
-      
-      <div style={{ flex: 1, overflow: 'hidden', flexDirection: 'column', display: activeTab === 'ai' ? 'flex' : 'none' }}>
-        <AiAnalystPanel records={filteredRecords} caseId={caseId} totalEvents={total} />
-      </div>
-
-      
       {activeTab === 'persistence' && (
         <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column', background: '#05080f' }}>
           <PersistancePanel caseId={caseId} />
-        </div>
-      )}
-      {activeTab === 'dissimulation' && (
-        <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column', background: '#05080f' }}>
-          <DissimulationPanel caseId={caseId} records={records} />
-        </div>
-      )}
-
-      {activeTab === 'process-tree' && (
-        <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-          <ProcessTreeView records={filteredRecords} />
         </div>
       )}
 
       {activeTab === 'patterns' && (
         <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
           <PatternMatcherView records={filteredRecords} />
-        </div>
-      )}
-
-      {activeTab === 'cluster' && (
-        <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-          <ClusterView records={filteredRecords} />
-        </div>
-      )}
-
-      {activeTab === 'multi-host' && (
-        <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-          <MultiHostTrackView records={filteredRecords} />
         </div>
       )}
 
@@ -3298,6 +3372,69 @@ function ActionMenuItem({ icon, label, onClick, danger }) {
       <span style={{ fontFamily: 'monospace', fontSize: 10, color: danger ? 'var(--fl-danger)' : (hov ? 'var(--fl-on-dark)' : '#7abfff'), overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
         {label}
       </span>
+    </div>
+  );
+}
+
+const DET_SEV_COLOR = {
+  critical: 'var(--fl-danger)',
+  high:     'var(--fl-danger)',
+  medium:   'var(--fl-warn)',
+  low:      'var(--fl-gold)',
+  greyware: 'var(--fl-gold)',
+};
+
+function DetectionsSummaryBanner({ caseId }) {
+  const [summary, setSummary] = useState(null);
+  useEffect(() => {
+    if (!caseId) return;
+    let cancelled = false;
+    collectionAPI.detectionsSummary(caseId)
+      .then(r => { if (!cancelled) setSummary(r.data || null); })
+      .catch(() => { if (!cancelled) setSummary(null); });
+    return () => { cancelled = true; };
+  }, [caseId]);
+
+  if (!summary || !summary.total) return null;
+
+  const sevOrder = ['critical', 'high', 'medium', 'greyware', 'low'];
+  const sevEntries = sevOrder
+    .map(s => [s, summary.by_severity?.[s] || 0])
+    .filter(([, n]) => n > 0);
+  const catEntries = Object.entries(summary.by_category || {})
+    .sort((a, b) => b[1] - a[1]);
+
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 10,
+      padding: '6px 14px',
+      background: 'linear-gradient(90deg, rgba(239,68,68,0.06), rgba(217,124,32,0.04) 40%, transparent)',
+      borderBottom: '1px solid var(--fl-sep)',
+      fontFamily: 'monospace', fontSize: 11,
+    }}>
+      <span style={{ color: 'var(--fl-warn)', fontWeight: 700 }}>
+        🎯 {summary.total.toLocaleString('fr-FR')} détection{summary.total > 1 ? 's' : ''}
+      </span>
+      {sevEntries.map(([s, n]) => (
+        <span key={s} style={{
+          padding: '1px 7px', borderRadius: 3, fontWeight: 700,
+          background: `${DET_SEV_COLOR[s]}22`,
+          color: DET_SEV_COLOR[s],
+          border: `1px solid ${DET_SEV_COLOR[s]}50`,
+        }}>
+          {s.toUpperCase()} · {n}
+        </span>
+      ))}
+      {catEntries.length > 0 && (
+        <span style={{ color: 'var(--fl-dim)' }}>
+          {catEntries.map(([c, n]) => `${n} ${c}`).join(' · ')}
+        </span>
+      )}
+      {Array.isArray(summary.top_rules) && summary.top_rules.length > 0 && (
+        <span style={{ color: 'var(--fl-subtle)', marginLeft: 'auto', fontSize: 10 }}>
+          Top: {summary.top_rules.slice(0, 3).map(r => `${r.name} (${r.count})`).join(' · ')}
+        </span>
+      )}
     </div>
   );
 }

@@ -1,0 +1,29 @@
+# EvtxECmd (EZ Tools) CSV mapping — produced by `EvtxECmd.dll --csv ...`
+tool:           EvtxECmd
+artifact_type:  evtx
+artifact_name:  Event Logs
+
+filename_patterns:
+  - "evtxecmd_output\\.csv$"
+  - "evtx_results\\.csv$"
+  - "_evtxecmd_\\.csv$"
+
+folder_patterns:
+  - "evtxecmd"
+  - "evtx_out"
+
+header_signatures:
+  - [TimeCreated, Channel, EventId, MapDescription]
+
+timestamp_columns: [TimeCreated, SystemTime]
+description_columns: [MapDescription, PayloadData1]
+source_column: Channel
+
+columns:
+  timestamp:    [TimeCreated, SystemTime]
+  source:       [Channel]
+  description:  [MapDescription, PayloadData1]
+  event_id:     [EventId, EventID]
+  host_name:    [Computer]
+  user_name:    [UserName]
+  details:      [PayloadData1, PayloadData2]

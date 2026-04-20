@@ -1,0 +1,140 @@
+# Timeline keyword enrichment rules (v2.23, Heimdall DFIR).
+# Each rule attaches one or more tags when its regex matches either a specific
+# list of fields or (if `fields` is omitted) the concatenation of every value
+# in the record + description. Tags match the frontend WB_TAGS palette so the
+# SuperTimeline grid colours them consistently.
+#
+# Fields available on a CSV record depend on the artifact:
+#   - evtx (EvtxECmd): EventId, Channel, MapDescription, PayloadData1..6, Computer
+#   - mft   (MFTECmd):  FileName, Extension, FullPath
+#   - prefetch (PECmd): ExecutableName, SourceFilename
+#   - hayabusa:         RuleTitle, Level, Channel, Details
+#   - chainsaw:         detection.name, document.data.Event.EventData.*
+#
+# The matcher is case-insensitive by default (flags: "i"). Regexes follow
+# JavaScript syntax. Keep patterns tight — they run on every ingested row.
+
+rules:
+  # ─── Execution / LOLBins ──────────────────────────────────────────────────
+  - name: powershell_download_cradle
+    pattern: "(invoke-webrequest|downloadstring|iex\\s*\\(|invoke-expression|net\\.webclient)"
+    tags: [exec, suspicious, t1059.001]
+
+  - name: lolbin_usage
+    pattern: "\\b(mshta|rundll32|regsvr32|certutil|bitsadmin|wmic|cscript|wscript|installutil|msxsl|msbuild)\\b"
+    tags: [exec, defense_evasion, t1218]
+
+  - name: psexec_artifact
+    pattern: "(psexesvc|psexec\\.exe|paexec)"
+    tags: [lateral, exec, t1569.002]
+
+  - name: encoded_powershell
+    pattern: "(-enc(odedcommand)?\\s+[A-Za-z0-9+/=]{20,}|FromBase64String)"
+    tags: [exec, defense_evasion, t1027]
+
+  # ─── Credential access ────────────────────────────────────────────────────
+  - name: mimikatz_markers
+    pattern: "(mimikatz|sekurlsa|logonpasswords|kerberos::list|lsadump|gentilkiwi)"
+    tags: [credential, critical, t1003.001]
+
+  - name: dcsync
+    pattern: "(dcsync|lsadump::dcsync|DRSUAPI)"
+    tags: [credential, t1003.006]
+
+  - name: kerberoasting
+    pattern: "(klist|getspn|AS-REP\\sroasting|kerberoast)"
+    tags: [credential, t1558.003]
+
+  - name: ntds_dump
+    pattern: "(ntds\\.dit|ntdsutil|vssadmin\\s+create\\s+shadow)"
+    tags: [credential, t1003.003]
+
+  # ─── Persistence ──────────────────────────────────────────────────────────
+  - name: scheduled_task
+    pattern: "(schtasks\\s+/create|at\\.exe|Register-ScheduledTask|taskeng\\.exe)"
+    tags: [persist, t1053.005]
+
+  - name: service_install
+    pattern: "(sc\\s+create|New-Service|Install-Service|service\\s+installed)"
+    fields: [MapDescription, PayloadData1, PayloadData2, description]
+    tags: [persist, t1543.003]
+
+  - name: registry_run_key
+    pattern: "(\\\\Run\\\\|\\\\RunOnce\\\\|\\\\Winlogon\\\\|\\\\Userinit|\\\\AppInit_DLLs)"
+    tags: [persist, t1547.001]
+
+  - name: wmi_persistence
+    pattern: "(__EventFilter|CommandLineEventConsumer|ActiveScriptEventConsumer)"
+    tags: [persist, t1546.003]
+
+  # ─── Defense evasion ──────────────────────────────────────────────────────
+  - name: event_log_clear
+    pattern: "(wevtutil\\s+cl|Clear-EventLog|Remove-EventLog)"
+    tags: [defense_evasion, critical, t1070.001]
+
+  - name: shadow_copy_delete
+    pattern: "(vssadmin\\s+delete\\s+shadows|wmic\\s+shadowcopy\\s+delete|Remove-WmiObject.*Shadow)"
+    tags: [defense_evasion, impact, t1490]
+
+  - name: defender_tamper
+    pattern: "(Set-MpPreference|Add-MpPreference.*Exclusion|DisableRealtimeMonitoring|MpCmdRun)"
+    tags: [defense_evasion, t1562.001]
+
+  # ─── Discovery / Recon ────────────────────────────────────────────────────
+  - name: host_recon
+    pattern: "\\b(whoami|net\\s+user|net\\s+group|net\\s+localgroup|systeminfo|ipconfig\\s+/all)\\b"
+    tags: [recon, discovery, t1082]
+
+  - name: network_recon
+    pattern: "\\b(arp\\s+-a|netstat\\s+-an|route\\s+print|nltest\\s+/dclist|nbtstat)\\b"
+    tags: [recon, discovery, t1018]
+
+  # ─── Lateral movement ─────────────────────────────────────────────────────
+  - name: smb_admin_share
+    pattern: "\\\\\\\\[^\\\\]+\\\\(ADMIN\\$|C\\$|IPC\\$)"
+    tags: [lateral, t1021.002]
+
+  - name: rdp_session
+    pattern: "(TerminalServices-RemoteConnectionManager|RemoteDesktopServices|mstsc)"
+    fields: [Channel, MapDescription, description]
+    tags: [lateral, t1021.001]
+
+  # ─── Exfiltration / C2 ────────────────────────────────────────────────────
+  - name: cloud_exfil
+    pattern: "(rclone|megaupload|mega\\.nz|anonfiles|transfer\\.sh|pastebin\\.com|ghostbin)"
+    tags: [exfil, c2, t1567]
+
+  - name: dns_tunneling_tools
+    pattern: "(dnscat|iodine|sliver|heyserial)"
+    tags: [exfil, c2, t1071.004]
+
+  - name: beaconing_frameworks
+    pattern: "\\b(cobaltstrike|metasploit|beacon|havoc|brute\\s*ratel|mythic)\\b"
+    tags: [c2, critical, t1071.001]
+
+  # ─── Impact ───────────────────────────────────────────────────────────────
+  - name: ransomware_markers
+    pattern: "(\\.lockbit|\\.conti|\\.ryk|\\.wncry|\\.locked|README_FOR_DECRYPT|HOW_TO_DECRYPT|HELP_DECRYPT)"
+    tags: [impact, critical, t1486]
+
+  - name: bcdedit_tamper
+    pattern: "(bcdedit.*recoveryenabled\\s+no|bcdedit.*bootstatuspolicy\\s+ignoreallfailures)"
+    tags: [impact, defense_evasion, t1490]
+
+  # ─── Collection / staging ─────────────────────────────────────────────────
+  - name: archive_staging
+    pattern: "\\b(7za?\\.exe|winrar\\.exe|rar\\.exe|Compress-Archive).*(\\.zip|\\.rar|\\.7z|\\.cab)\\b"
+    tags: [collection, exfil, t1560.001]
+
+  # ─── Suspicious paths / file extensions ───────────────────────────────────
+  - name: temp_exec_path
+    pattern: "(\\\\\\\\Users\\\\\\\\[^\\\\]+\\\\\\\\AppData\\\\\\\\Local\\\\\\\\Temp\\\\\\\\[^\\\\]+\\\\.(exe|dll|ps1|bat|vbs|js))"
+    tags: [exec, suspicious]
+
+  - name: recycle_bin_exec
+    pattern: "(\\$Recycle\\.Bin\\\\\\\\.*\\\\.(exe|dll|ps1|bat))"
+    tags: [suspicious, defense_evasion]
+
+  - name: double_extension
+    pattern: "\\.(pdf|doc|docx|xls|xlsx|jpg|png)\\.(exe|scr|vbs|js|bat|cmd|lnk)\\b"
+    tags: [suspicious, phishing]

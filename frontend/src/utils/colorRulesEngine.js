@@ -59,21 +59,37 @@ function evalConditions(record, conditions) {
 export function evaluateColorRules(record, rules) {
   for (const rule of rules) {
     if (!rule.is_active) continue;
+    if (rule.scope === 'cell') continue;
 
     if (rule.name === 'Off-Hours Activity') {
       if (record.timestamp) {
         const h = new Date(record.timestamp).getUTCHours();
         if (h < 7 || h >= 22) {
-          return { color: rule.color, icon: rule.icon ?? null, ruleName: rule.name, ruleId: rule.id };
+          return { color: rule.color, icon: rule.icon ?? null, ruleName: rule.name, ruleId: rule.id, scope: 'row' };
         }
       }
       continue;
     }
     if (evalConditions(record, rule.conditions)) {
-      return { color: rule.color, icon: rule.icon ?? null, ruleName: rule.name, ruleId: rule.id };
+      return { color: rule.color, icon: rule.icon ?? null, ruleName: rule.name, ruleId: rule.id, scope: 'row' };
     }
   }
   return null;
+}
+
+// Cell-scope matches — returns a map { columnKey: {color, ruleName, ruleId} }.
+// Rules with scope === 'cell' and a `column` field get applied per-cell instead of row-wide.
+export function evaluateCellColorRules(record, rules) {
+  const out = {};
+  for (const rule of rules) {
+    if (!rule.is_active) continue;
+    if (rule.scope !== 'cell' || !rule.column) continue;
+    if (out[rule.column]) continue; // priority: first wins per column
+    if (evalConditions(record, rule.conditions)) {
+      out[rule.column] = { color: rule.color, icon: rule.icon ?? null, ruleName: rule.name, ruleId: rule.id, scope: 'cell', columnKey: rule.column };
+    }
+  }
+  return out;
 }
 
 export function sortRules(rules) {

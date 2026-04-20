@@ -1,0 +1,192 @@
+# Persistence pack — T1547 / T1546 / T1053 / T1543 / T1574 / T1098 / T1197 / T1037
+rules:
+  - id: pers_run_key_write
+    name: "Registry Run/RunOnce write"
+    severity: medium
+    category: persistence
+    target_artifact: [evtx, hayabusa, registry]
+    mitre: [T1547.001]
+    tags: [Persistence, RunKey]
+    match:
+      any:
+        - { field: description, op: iregex, value: '\\CurrentVersion\\Run(Once)?(Ex)?\\' }
+        - { field: path,        op: iregex, value: '\\CurrentVersion\\Run(Once)?(Ex)?\\' }
+
+  - id: pers_startup_lnk
+    name: "LNK dropped in Startup folder"
+    severity: medium
+    category: persistence
+    target_artifact: [mft, prefetch, evtx, hayabusa]
+    mitre: [T1547.009]
+    tags: [Persistence, StartupFolder]
+    match:
+      any:
+        - { field: path,        op: iregex, value: '\\Start Menu\\Programs\\Startup\\[^\\]+\.lnk$' }
+        - { field: description, op: iregex, value: '\\Start Menu\\Programs\\Startup\\[^\\]+\.lnk' }
+
+  - id: pers_scheduled_task_create
+    name: "Scheduled Task created with suspicious action"
+    severity: high
+    category: persistence
+    target_artifact: [evtx, hayabusa]
+    mitre: [T1053.005]
+    tags: [Persistence, ScheduledTask]
+    match:
+      all:
+        - any:
+            - { field: event_id, op: in, value: [4698, 106, 140, 141] }
+            - { field: description, op: iregex, value: 'schtasks(\.exe)?\s+/create' }
+        - any:
+            - { field: description, op: iregex, value: '(cmd|powershell|pwsh|wscript|cscript|mshta|rundll32)\.exe' }
+            - { field: description, op: iregex, value: '(\\Temp\\|\\AppData\\|\\ProgramData\\|\\Users\\Public\\)' }
+
+  - id: pers_service_install_7045
+    name: "Service install with suspicious image path"
+    severity: high
+    category: persistence
+    target_artifact: [evtx, hayabusa]
+    mitre: [T1543.003]
+    tags: [Persistence, Service]
+    match:
+      all:
+        - { field: event_id, op: eq, value: 7045 }
+        - any:
+            - { field: description, op: iregex, value: '(\\Temp\\|\\AppData\\|\\ProgramData\\|\\Users\\Public\\)' }
+            - { field: description, op: iregex, value: '(cmd|powershell|pwsh|rundll32)\.exe' }
+
+  - id: pers_wmi_event_sub
+    name: "WMI Event Subscription persistence"
+    severity: high
+    category: persistence
+    target_artifact: [evtx, hayabusa]
+    mitre: [T1546.003]
+    tags: [Persistence, WMI]
+    match:
+      any:
+        - { field: event_id, op: in, value: [5861, 19, 20, 21] }
+        - { field: description, op: iregex, value: '(ActiveScriptEventConsumer|CommandLineEventConsumer|__EventFilter|FilterToConsumerBinding)' }
+
+  - id: pers_bits_persistence
+    name: "BITS job persistence (setnotifycmdline)"
+    severity: high
+    category: persistence
+    target_artifact: ['*']
+    mitre: [T1197]
+    tags: [Persistence, BITS]
+    match:
+      any:
+        - { field: description, op: iregex, value: 'bitsadmin(\.exe)?\s+.*setnotifycmdline' }
+
+  - id: pers_logon_script
+    name: "Logon Script (UserInitMprLogonScript)"
+    severity: medium
+    category: persistence
+    target_artifact: [evtx, hayabusa, registry]
+    mitre: [T1037.001]
+    tags: [Persistence, LogonScript]
+    match:
+      any:
+        - { field: description, op: icontains, value: 'UserInitMprLogonScript' }
+        - { field: path,        op: icontains, value: 'UserInitMprLogonScript' }
+
+  - id: pers_ifeo_accessibility
+    name: "IFEO debugger on accessibility binary (sethc/utilman/osk)"
+    severity: critical
+    category: persistence
+    target_artifact: [evtx, hayabusa, registry]
+    mitre: [T1546.008]
+    tags: [Persistence, IFEO, Accessibility]
+    match:
+      any:
+        - { field: description, op: iregex, value: 'Image File Execution Options\\(sethc|utilman|osk|magnify|narrator|displayswitch|atbroker)\.exe\\Debugger' }
+        - { field: path,        op: iregex, value: 'Image File Execution Options\\(sethc|utilman|osk|magnify|narrator|displayswitch|atbroker)\.exe\\Debugger' }
+
+  - id: pers_com_hijack
+    name: "COM hijack — InprocServer32 write in user hive"
+    severity: high
+    category: persistence
+    target_artifact: [evtx, hayabusa, registry]
+    mitre: [T1546.015]
+    tags: [Persistence, COMHijack]
+    match:
+      any:
+        - { field: description, op: iregex, value: 'HKCU\\.*\\CLSID\\\{[0-9A-Fa-f-]+\}\\InprocServer32' }
+        - { field: path,        op: iregex, value: 'HKCU\\.*\\CLSID\\\{[0-9A-Fa-f-]+\}\\InprocServer32' }
+
+  - id: pers_winlogon_tamper
+    name: "Winlogon helper DLL / Shell / Userinit tampering"
+    severity: critical
+    category: persistence
+    target_artifact: [evtx, hayabusa, registry]
+    mitre: [T1547.004]
+    tags: [Persistence, Winlogon]
+    match:
+      any:
+        - { field: description, op: iregex, value: '\\Winlogon\\(Shell|Userinit|Notify|AppSetup|Taskman)\b' }
+        - { field: path,        op: iregex, value: '\\Winlogon\\(Shell|Userinit|Notify|AppSetup|Taskman)\b' }
+
+  - id: pers_active_setup
+    name: "Active Setup StubPath hijack"
+    severity: high
+    category: persistence
+    target_artifact: [evtx, hayabusa, registry]
+    mitre: [T1547.014]
+    tags: [Persistence, ActiveSetup]
+    match:
+      any:
+        - { field: description, op: iregex, value: '\\Active Setup\\Installed Components\\\{[0-9A-Fa-f-]+\}\\StubPath' }
+        - { field: path,        op: iregex, value: '\\Active Setup\\Installed Components\\\{[0-9A-Fa-f-]+\}\\StubPath' }
+
+  - id: pers_dll_search_order
+    name: "DLL search-order hijack — DLL in AppData/Temp next to signed EXE"
+    severity: high
+    category: persistence
+    target_artifact: [mft, prefetch]
+    mitre: [T1574.001]
+    tags: [Persistence, DLLHijack]
+    match:
+      all:
+        - { field: ext,  op: in, value: [dll, DLL] }
+        - { field: path, op: iregex, value: '(\\Users\\[^\\]+\\AppData\\|\\Temp\\|\\ProgramData\\|\\Users\\Public\\)' }
+
+  - id: pers_domain_admins_add
+    name: "User added to Domain Admins / Enterprise Admins / local Administrators"
+    severity: critical
+    category: persistence
+    target_artifact: [evtx, hayabusa]
+    mitre: [T1098]
+    tags: [Persistence, PrivilegeEscalation, AdminAdded]
+    match:
+      all:
+        - { field: event_id, op: in, value: [4732, 4728, 4756] }
+        - any:
+            - { field: description, op: icontains, value: 'Domain Admins' }
+            - { field: description, op: icontains, value: 'Enterprise Admins' }
+            - { field: description, op: icontains, value: 'Administrators' }
+            - { field: description, op: icontains, value: 'Schema Admins' }
+
+  - id: pers_at_legacy
+    name: "at.exe legacy task scheduler (deprecated)"
+    severity: high
+    category: persistence
+    target_artifact: ['*']
+    mitre: [T1053.002]
+    tags: [Persistence, AtLegacy]
+    match:
+      any:
+        - { field: process_name, op: iregex, value: '^at(\.exe)?$' }
+        - { field: description,  op: iregex, value: '\bat(\.exe)?\s+\\\\' }
+
+  - id: pers_service_binpath_shell
+    name: "Service binPath is cmd/powershell/rundll32"
+    severity: high
+    category: persistence
+    target_artifact: [evtx, hayabusa]
+    mitre: [T1543.003]
+    tags: [Persistence, Service, ShellAsService]
+    match:
+      all:
+        - any:
+            - { field: event_id, op: in, value: [7045, 4697] }
+            - { field: description, op: iregex, value: 'sc(\.exe)?\s+(create|config)' }
+        - { field: description, op: iregex, value: 'binPath=.*?(cmd|powershell|pwsh|rundll32|wscript|cscript|mshta)\.exe' }
