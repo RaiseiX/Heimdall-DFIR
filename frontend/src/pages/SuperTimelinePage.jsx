@@ -2726,16 +2726,17 @@ export default function SuperTimelinePage() {
                               fontFamily: 'monospace', fontSize: 10, fontWeight: 700,
                               letterSpacing: '0.07em', textTransform: 'uppercase',
                               color: isActive ? 'var(--fl-accent)' : 'var(--fl-subtle)',
-                              borderBottom: showColFilters ? 'none' : '2px solid #20293a', whiteSpace: 'nowrap',
+                              borderBottom: showColFilters ? 'none' : '2px solid #20293a',
+                              whiteSpace: 'nowrap', overflow: 'hidden',
                               ...(pinned ? {
                                 position: 'sticky', left: pinOffset, zIndex: 11,
                                 background: 'var(--fl-bg)', boxShadow: '2px 0 0 0 var(--fl-purple)',
                               } : null) }}>
-                            <span style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
-                              {pinned && <Pin size={8} style={{ color: 'var(--fl-purple)' }} />}
-                              {col.label}
+                            <span style={{ display: 'flex', alignItems: 'center', gap: 3, minWidth: 0, overflow: 'hidden' }}>
+                              {pinned && <Pin size={8} style={{ color: 'var(--fl-purple)', flexShrink: 0 }} />}
+                              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>{col.label}</span>
                               {isActive && (
-                                <span style={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                <span style={{ display: 'flex', alignItems: 'center', gap: 1, flexShrink: 0 }}>
                                   {direction === 'asc' ? <SortAsc size={10} /> : <SortDesc size={10} />}
                                   {rankLabel && (
                                     <sup style={{ fontSize: 8, lineHeight: 1, color: 'var(--fl-accent)', fontWeight: 700 }}>
