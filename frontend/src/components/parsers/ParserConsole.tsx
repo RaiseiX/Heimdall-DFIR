@@ -127,21 +127,24 @@ const ParserConsole: React.FC<ParserConsoleProps> = ({ caseId, defaultEvidenceId
 
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const logIdRef = useRef(0);
+  const runControllerRef = useRef<AbortController | null>(null);
   const [filter, setFilter] = useState('');
   const [autoScroll, setAutoScroll] = useState(true);
   const listRef = useRef<VirtualList>(null);
   const listOuterRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    const controller = new AbortController();
+    const { signal } = controller;
     const token = localStorage.getItem('heimdall_token');
-    const headers = { Authorization: `Bearer ${token}` };
+    const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
 
-    fetch('/api/parsers/available', { headers })
+    fetch('/api/parsers/available', { headers, signal })
       .then((r) => r.ok ? r.json() : Promise.reject(r.status))
       .then((data) => { if (data && typeof data === 'object' && !Array.isArray(data)) setAvailableTools(data); })
-      .catch(console.error);
+      .catch((e) => { if (e.name !== 'AbortError') console.error(e); });
 
-    fetch(`/api/evidence/${caseId}`, { headers })
+    fetch(`/api/evidence/${caseId}`, { headers, signal })
       .then((r) => r.ok ? r.json() : Promise.reject(r.status))
       .then((data: unknown) => {
         if (!Array.isArray(data)) return;
@@ -150,8 +153,12 @@ const ParserConsole: React.FC<ParserConsoleProps> = ({ caseId, defaultEvidenceId
           setSelectedEvidence((data as Evidence[])[0].id);
         }
       })
-      .catch(console.error);
+      .catch((e) => { if (e.name !== 'AbortError') console.error(e); });
+
+    return () => controller.abort();
   }, [caseId, defaultEvidenceId]);
+
+  useEffect(() => () => { runControllerRef.current?.abort(); }, []);
 
   const appendLog = useCallback((stream: 'stdout' | 'stderr', line: string) => {
     setLogs((prev) => {
@@ -175,7 +182,7 @@ const ParserConsole: React.FC<ParserConsoleProps> = ({ caseId, defaultEvidenceId
       }
     }
     if (data.message) appendLog('stdout', `[STATUS] ${data.message}`);
-  }, [appendLog]));
+  }, [appendLog, onSuccess]));
 
   useSocketEvent<ParserLogEvent>(socket, 'parser:log', useCallback((data) => {
     appendLog(data.stream, data.line);
@@ -220,13 +227,18 @@ const ParserConsole: React.FC<ParserConsoleProps> = ({ caseId, defaultEvidenceId
     setRecordCount(null);
     setIsRunning(true);
 
+    runControllerRef.current?.abort();
+    const controller = new AbortController();
+    runControllerRef.current = controller;
+
     try {
       const token = localStorage.getItem('heimdall_token');
       const res = await fetch('/api/parsers/run', {
         method: 'POST',
+        signal: controller.signal,
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
         body: JSON.stringify({
           parser: selectedParser,
@@ -243,6 +255,7 @@ const ParserConsole: React.FC<ParserConsoleProps> = ({ caseId, defaultEvidenceId
         setStatus('FAILED');
       }
     } catch (err) {
+      if (err instanceof Error && err.name === 'AbortError') return;
       const msg = err instanceof Error ? err.message : String(err);
       appendLog('stderr', `[NETWORK ERROR] ${msg}`);
       setIsRunning(false);
@@ -394,6 +407,7 @@ const ParserConsole: React.FC<ParserConsoleProps> = ({ caseId, defaultEvidenceId
             ref={listRef}
             outerRef={listOuterRef}
             height={600}
+            width="100%"
             itemCount={displayedLogs.length}
             itemSize={LOG_ITEM_HEIGHT}
             itemData={displayedLogs}

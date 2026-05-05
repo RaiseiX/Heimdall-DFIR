@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { X, ExternalLink, AlertTriangle, Clock, Globe, Network, Tag, Link2 } from 'lucide-react';
+import { X, ExternalLink, AlertTriangle, Clock, Globe, Network, Tag, Link2, Radio, Calendar } from 'lucide-react';
 import * as d3 from 'd3';
 import { networkAPI } from '../../utils/api';
 
@@ -40,6 +40,12 @@ export default function NetworkGraphD3({
   evidenceSources,
   activeEvidenceIds,
   onEvidenceFilter,
+  beacons       = [],
+  truncated     = false,
+  truncatedLimit = 500,
+  fromTs        = '',
+  toTs          = '',
+  onTimeFilter,
   theme,
 }) {
   const bgColor   = theme?.bg    || '#0d1117';
@@ -64,6 +70,17 @@ export default function NetworkGraphD3({
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
+
+  // Pre-build beacon lookup for O(1) edge/node checks
+  const beaconEdgeKeys = new Set(
+    beacons.map(b => `${b.src}||${b.dst}`)
+  );
+  const beaconNodeIds = new Set(
+    beacons.flatMap(b => [b.src, b.dst])
+  );
+  const beaconByDst = Object.fromEntries(
+    beacons.map(b => [b.dst, b])
+  );
 
   const [selectedNode, setSelectedNode] = useState(null);
   const [nodeEvents, setNodeEvents] = useState([]);
@@ -159,18 +176,35 @@ export default function NetworkGraphD3({
     const zoom = d3.zoom().scaleExtent([0.15, 5]).on('zoom', event => g.attr('transform', event.transform));
     svg.call(zoom);
 
+    const edgeIsBeacon = (d) => {
+      const src = typeof d.source === 'object' ? d.source.id : d.source;
+      const dst = typeof d.target === 'object' ? d.target.id : d.target;
+      return beaconEdgeKeys.has(`${src}||${dst}`);
+    };
+    const edgeColor = (d) => {
+      if (edgeIsBeacon(d)) return '#f97316aa';   // orange — beacon
+      if (d.has_suspicious) return '#da363360';  // red — flagged
+      return '#4d82c050';                         // blue — normal
+    };
+    const edgeDash = (d) => {
+      if (edgeIsBeacon(d)) return '12,4';
+      if (d.has_suspicious) return '8,4';
+      return 'none';
+    };
+
     const link = g.append('g').selectAll('line').data(linksCopy).join('line')
-      .attr('stroke', d => d.has_suspicious ? '#da363360' : '#4d82c050')
+      .attr('stroke', edgeColor)
       .attr('stroke-width', d => Math.max(1, Math.min(10, Math.log2((d.connection_count || 1) + 1) * 2)))
-      .attr('stroke-dasharray', d => d.has_suspicious ? '8,4' : 'none')
+      .attr('stroke-dasharray', edgeDash)
       .style('cursor', 'pointer')
       .on('mouseenter', function(event, d) {
-        d3.select(this).attr('stroke', d.has_suspicious ? '#da3633cc' : '#4d82c0cc')
+        d3.select(this)
+          .attr('stroke', edgeIsBeacon(d) ? '#f97316ee' : d.has_suspicious ? '#da3633cc' : '#4d82c0cc')
           .attr('stroke-width', Math.max(2, Math.min(12, Math.log2((d.connection_count || 1) + 1) * 2 + 2)));
       })
       .on('mouseleave', function(event, d) {
         d3.select(this)
-          .attr('stroke', d.has_suspicious ? '#da363360' : '#4d82c050')
+          .attr('stroke', edgeColor(d))
           .attr('stroke-width', Math.max(1, Math.min(10, Math.log2((d.connection_count || 1) + 1) * 2)));
       });
 
@@ -192,6 +226,28 @@ export default function NetworkGraphD3({
         if (d.type === 'url') return 'url(#ngPurpleN)';
         return d.type === 'internal' ? 'url(#ngBlueN)' : 'url(#ngOrangeN)';
       });
+
+    // Beacon pulsing ring — drawn around nodes that appear in a beacon pair
+    g.append('g').selectAll('circle.beacon-ring')
+      .data(nodesCopy.filter(n => beaconNodeIds.has(n.id)))
+      .join('circle')
+      .attr('class', 'beacon-ring')
+      .attr('r', d => 12 + Math.sqrt(d.connection_count || 1) * 2.5 + 6)
+      .attr('fill', 'none')
+      .attr('stroke', '#f9731680')
+      .attr('stroke-width', 1.5)
+      .attr('stroke-dasharray', '6,3');
+
+    // DGA score ring — extra red ring on high-score domains
+    g.append('g').selectAll('circle.dga-ring')
+      .data(nodesCopy.filter(n => n.type === 'domain' && (n.dga_score || 0) >= 60))
+      .join('circle')
+      .attr('class', 'dga-ring')
+      .attr('r', d => 12 + Math.sqrt(d.connection_count || 1) * 2.5 + 12)
+      .attr('fill', 'none')
+      .attr('stroke', '#da363340')
+      .attr('stroke-width', 1)
+      .attr('stroke-dasharray', '3,3');
 
     const linkedNodeIds = new Set(linksCopy.flatMap(e => [
       typeof e.source === 'object' ? e.source.id : e.source,
@@ -240,8 +296,11 @@ export default function NetworkGraphD3({
       g.selectAll('text').attr('x', d => d.x).attr('y', d => d.y);
     });
 
+    // Keep beacon/DGA ring positions in sync (they are in the same 'g', so
+    // the selectAll('circle') above already covers them — no extra work needed).
+
     return () => simulation.stop();
-  }, [filteredNodes, filteredEdges, dims]);
+  }, [filteredNodes, filteredEdges, dims, beacons]);
 
   return (
     <div ref={containerRef} style={{ display: 'flex', flex: 1, width: '100%', height: '100%', position: 'relative' }}>
@@ -369,11 +428,77 @@ export default function NetworkGraphD3({
           </>
         )}
 
+        {/* Time-range filter */}
+        {onTimeFilter && (
+          <>
+            <div style={{ width: 1, height: 14, background: borderColor, flexShrink: 0 }} />
+            <Calendar size={9} style={{ color: dimColor, flexShrink: 0 }} />
+            <input
+              type="datetime-local"
+              value={fromTs}
+              onChange={e => onTimeFilter(e.target.value, toTs)}
+              title="Début de la fenêtre temporelle"
+              style={{
+                background: bgColor, border: `1px solid ${borderColor}`, borderRadius: 3,
+                color: fromTs ? textColor : dimColor, fontSize: 9, fontFamily: 'monospace',
+                padding: '1px 4px', maxWidth: 148,
+              }}
+            />
+            <span style={{ fontSize: 9, color: dimColor }}>→</span>
+            <input
+              type="datetime-local"
+              value={toTs}
+              onChange={e => onTimeFilter(fromTs, e.target.value)}
+              title="Fin de la fenêtre temporelle"
+              style={{
+                background: bgColor, border: `1px solid ${borderColor}`, borderRadius: 3,
+                color: toTs ? textColor : dimColor, fontSize: 9, fontFamily: 'monospace',
+                padding: '1px 4px', maxWidth: 148,
+              }}
+            />
+            {(fromTs || toTs) && (
+              <button
+                onClick={() => onTimeFilter('', '')}
+                title="Effacer le filtre temporel"
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: dimColor, fontSize: 9, padding: '0 2px' }}
+              >✕</button>
+            )}
+          </>
+        )}
+
+        {/* Beacon count chip */}
+        {beacons.length > 0 && (
+          <>
+            <div style={{ width: 1, height: 14, background: borderColor, flexShrink: 0 }} />
+            <span style={{
+              display: 'flex', alignItems: 'center', gap: 3, fontSize: 9,
+              fontFamily: 'monospace', padding: '1px 7px', borderRadius: 3,
+              background: '#f9731618', color: '#f97316',
+              border: '1px solid #f9731630',
+            }}>
+              <Radio size={8} /> {beacons.length} beacon{beacons.length > 1 ? 's' : ''} détecté{beacons.length > 1 ? 's' : ''}
+            </span>
+          </>
+        )}
+
         <span style={{ marginLeft: 'auto', fontSize: 9, fontFamily: 'monospace', color: dimColor, flexShrink: 0 }}>
           {filteredNodes.length}/{nodes.length} nœuds · {filteredEdges.length} arêtes
           {susCount > 0 && <span style={{ color: '#da3633' }}> · {susCount} suspectes</span>}
         </span>
       </div>
+
+      {/* Truncation warning — shown when the LIMIT was hit */}
+      {truncated && (
+        <div style={{
+          flexShrink: 0, padding: '4px 12px', background: '#f0883e10',
+          borderBottom: `1px solid #f0883e30`,
+          display: 'flex', alignItems: 'center', gap: 6,
+          fontSize: 10, fontFamily: 'monospace', color: '#f0883e',
+        }}>
+          <AlertTriangle size={11} />
+          Affichage limité à {truncatedLimit} connexions — utilisez le filtre temporel ou le filtre par collecte pour isoler une fenêtre.
+        </div>
+      )}
 
       <svg
         ref={svgRef}
@@ -406,18 +531,40 @@ export default function NetworkGraphD3({
         >
           <div style={{
             padding: '10px 14px', borderBottom: `1px solid ${borderColor}`,
-            display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0,
+            display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexShrink: 0,
           }}>
-            <div>
-              {selectedNode.is_suspicious && <AlertTriangle size={13} style={{ color: '#da3633', marginRight: 5, display: 'inline' }} />}
-              <span style={{ fontSize: 12, fontWeight: 700, color: textColor, fontFamily: 'monospace' }}>
-                {selectedNode.id}
-              </span>
-              <div style={{ fontSize: 10, color: dimColor, marginTop: 2 }}>
-                {selectedNode.type} · {selectedNode.connection_count} connexions · {fmtBytes(selectedNode.total_bytes)}
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap', marginBottom: 3 }}>
+                {selectedNode.is_suspicious && <AlertTriangle size={12} style={{ color: '#da3633', flexShrink: 0 }} />}
+                {beaconNodeIds.has(selectedNode.id) && <Radio size={12} style={{ color: '#f97316', flexShrink: 0 }} />}
+                <span style={{ fontSize: 11, fontWeight: 700, color: textColor, fontFamily: 'monospace', wordBreak: 'break-all' }}>
+                  {selectedNode.id}
+                </span>
+              </div>
+              <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                <span style={{
+                  fontSize: 9, fontFamily: 'monospace', padding: '1px 5px', borderRadius: 3,
+                  background: '#4d82c018', color: '#4d82c0', border: '1px solid #4d82c030',
+                }}>{selectedNode.type}</span>
+                {beaconNodeIds.has(selectedNode.id) && (() => {
+                  const b = beaconByDst[selectedNode.id];
+                  return b ? (
+                    <span style={{ fontSize: 9, fontFamily: 'monospace', padding: '1px 5px', borderRadius: 3, background: '#f9731618', color: '#f97316', border: '1px solid #f9731630' }}>
+                      📡 beacon {b.beacon_score}% · ∅{b.interval_avg_sec}s
+                    </span>
+                  ) : null;
+                })()}
+                {selectedNode.dga_score >= 60 && (
+                  <span style={{ fontSize: 9, fontFamily: 'monospace', padding: '1px 5px', borderRadius: 3, background: '#da363318', color: '#da3633', border: '1px solid #da363330' }}>
+                    DGA {selectedNode.dga_score}%
+                  </span>
+                )}
+              </div>
+              <div style={{ fontSize: 10, color: dimColor, marginTop: 4 }}>
+                {selectedNode.connection_count} connexions · {fmtBytes(selectedNode.total_bytes)}
               </div>
             </div>
-            <button onClick={() => setSelectedNode(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: dimColor }}>
+            <button onClick={() => setSelectedNode(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: dimColor, flexShrink: 0, marginLeft: 6 }}>
               <X size={14} />
             </button>
           </div>
@@ -449,19 +596,35 @@ export default function NetworkGraphD3({
                   marginBottom: 8, padding: '8px 10px', borderRadius: 4,
                   background: bgColor, border: `1px solid ${borderColor}`, fontSize: 11,
                 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 3 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 3, flexWrap: 'wrap' }}>
                     <span style={{
                       padding: '1px 6px', borderRadius: 3, fontSize: 9, fontFamily: 'monospace',
                       background: `${ARTIFACT_COLORS[ev.artifact_type] || '#7d8590'}20`,
                       color: ARTIFACT_COLORS[ev.artifact_type] || '#7d8590',
                       border: `1px solid ${ARTIFACT_COLORS[ev.artifact_type] || '#7d8590'}30`,
                     }}>{ev.artifact_type || 'other'}</span>
+                    {ev.dst_port && (
+                      <span style={{ fontSize: 9, color: dimColor, fontFamily: 'monospace' }}>
+                        :{ev.dst_port}{ev.protocol ? `/${ev.protocol}` : ''}
+                      </span>
+                    )}
                     {ev.evidence_name && (
                       <span style={{ fontSize: 9, color: dimColor, fontFamily: 'monospace' }}>
-                        {(ev.evidence_name).split('_')[0] || ev.evidence_name}
+                        {ev.evidence_name.split('_')[0] || ev.evidence_name}
                       </span>
                     )}
                   </div>
+                  {/* Process name — the "who made this connection" field from Sysmon Image */}
+                  {ev.process_name && (
+                    <div style={{
+                      fontFamily: 'monospace', fontSize: 9, color: '#a371f7',
+                      marginBottom: 4, wordBreak: 'break-all',
+                      padding: '2px 6px', borderRadius: 3,
+                      background: '#a371f710', border: '1px solid #a371f720',
+                    }}>
+                      ⚙ {ev.process_name.split('\\').pop()}
+                    </div>
+                  )}
                   <div style={{ color: textColor, marginBottom: 3, lineHeight: 1.4 }}>
                     {ev.description ? ev.description.slice(0, 120) + (ev.description.length > 120 ? '...' : '') : '—'}
                   </div>

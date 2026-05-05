@@ -1400,22 +1400,27 @@ function DockerTab() {
 const COMPOSE_NETWORK = 'forensic-lab_aesir-net';
 
 const MODEL_CATALOG = [
-  { id: 'qwen2.5:7b',      label: 'Qwen 2.5 7B',       size: '4.7 Go',  desc: 'Recommandé — bon équilibre vitesse/qualité',  tag: 'recommandé' },
-  { id: 'qwen2.5:14b',     label: 'Qwen 2.5 14B',      size: '9 Go',    desc: 'Meilleure qualité, nécessite 16 Go RAM',       tag: 'qualité' },
-  { id: 'deepseek-r1:8b',  label: 'DeepSeek R1 8B',    size: '4.9 Go',  desc: 'Raisonnement avancé, idéal pour l\'analyse',   tag: 'raisonnement' },
-  { id: 'llama3.2:3b',     label: 'Llama 3.2 3B',      size: '2 Go',    desc: 'Très léger, réponses rapides',                 tag: 'léger' },
-  { id: 'mistral:7b',      label: 'Mistral 7B',         size: '4.1 Go',  desc: 'Polyvalent, bonnes performances générales',    tag: '' },
-  { id: 'phi3:mini',       label: 'Phi-3 Mini',         size: '2.3 Go',  desc: 'Ultra léger (3.8B), idéal machine limitée',   tag: 'léger' },
-  { id: 'gemma2:9b',       label: 'Gemma 2 9B',         size: '5.4 Go',  desc: 'Modèle Google, excellente compréhension',      tag: '' },
-  { id: 'llama3.1:8b',     label: 'Llama 3.1 8B',      size: '4.7 Go',  desc: 'Meta, performant pour l\'analyse de texte',    tag: '' },
+  { id: 'qwen3.5:4b',      label: 'Qwen 3.5 4B',       size: '2.6 Go',  desc: 'Défaut Heimdall — rapide, 3 Go VRAM, CPU-friendly', tag: 'recommandé' },
+  { id: 'qwen3.5:7b',      label: 'Qwen 3.5 7B',       size: '4.7 Go',  desc: 'Meilleur équilibre qualité/vitesse, 6 Go VRAM',     tag: 'qualité' },
+  { id: 'qwen3.5:14b',     label: 'Qwen 3.5 14B',      size: '9 Go',    desc: 'Analyse approfondie, thinking mode, 10 Go VRAM',    tag: 'deep' },
+  { id: 'qwen2.5:7b',      label: 'Qwen 2.5 7B',       size: '4.7 Go',  desc: 'Génération précédente — stable et éprouvé',         tag: '' },
+  { id: 'deepseek-r1:8b',  label: 'DeepSeek R1 8B',    size: '4.9 Go',  desc: 'Raisonnement avancé, idéal pour l\'analyse',        tag: 'raisonnement' },
+  { id: 'llama3.2:3b',     label: 'Llama 3.2 3B',      size: '2 Go',    desc: 'Très léger, réponses rapides',                      tag: 'léger' },
+  { id: 'mistral:7b',      label: 'Mistral 7B',         size: '4.1 Go',  desc: 'Polyvalent, bonnes performances générales',         tag: '' },
+  { id: 'phi3:mini',       label: 'Phi-3 Mini',         size: '2.3 Go',  desc: 'Ultra léger (3.8B), idéal machine limitée',        tag: 'léger' },
+  { id: 'gemma2:9b',       label: 'Gemma 2 9B',         size: '5.4 Go',  desc: 'Modèle Google, excellente compréhension',           tag: '' },
+  { id: 'llama3.1:8b',     label: 'Llama 3.1 8B',      size: '4.7 Go',  desc: 'Meta, performant pour l\'analyse de texte',         tag: '' },
 ];
 
 const TAG_COLOR = {
   'recommandé':   '#22c55e',
   'qualité':      '#a855f7',
+  'deep':         '#e879f9',
   'raisonnement': 'var(--fl-accent)',
   'léger':        '#f97316',
 };
+
+const ACTIVE_MODEL_KEY = 'heimdall.ai.activeModel';
 
 function AiSettingsTab() {
   const [status, setStatus]           = useState(null);
@@ -1425,6 +1430,8 @@ function AiSettingsTab() {
   const [testing, setTesting]         = useState(false);
   const [pullState, setPullState]     = useState({});
   const [deleting, setDeleting]       = useState({});
+  const [activeModel, setActiveModel] = useState(() => localStorage.getItem(ACTIVE_MODEL_KEY) || '');
+  const [activeSaved, setActiveSaved] = useState(false);
   const [ollamaStatus, setOllamaStatus] = useState(null);
   const [ollamaInstall, setOllamaInstall] = useState(null);
   const [ollamaStopping, setOllamaStopping] = useState(false);
@@ -1658,6 +1665,39 @@ function AiSettingsTab() {
           <p style={{ fontSize: 12, color: 'var(--fl-muted)', marginBottom: 8 }}>2. Ajouter dans le <code style={{ color: 'var(--fl-accent)' }}>.env</code> du backend :</p>
           <pre style={{ background: 'var(--fl-bg)', borderRadius: 6, padding: '7px 12px', fontFamily: 'monospace', fontSize: 11, color: 'var(--fl-accent)', border: '1px solid var(--fl-border)', margin: 0 }}>OLLAMA_URL=http://ollama:11434</pre>
           <p style={{ fontSize: 11, color: 'var(--fl-muted)', marginTop: 10 }}>Une fois Ollama connecté, installez un modèle depuis le catalogue ci-dessous en un seul clic.</p>
+        </div>
+      )}
+
+      {ok && installed.size > 0 && (
+        <div style={{ background: 'var(--fl-panel)', border: '1px solid color-mix(in srgb, var(--fl-accent) 35%, var(--fl-border))', borderRadius: 10, padding: '14px 18px', marginBottom: 16 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <Bot size={14} style={{ color: 'var(--fl-accent)', flexShrink: 0 }} />
+            <span style={{ fontSize: 12, color: 'var(--fl-text)', fontWeight: 700 }}>Modèle actif</span>
+            <select
+              value={activeModel || [...installed][0] || ''}
+              onChange={e => { setActiveModel(e.target.value); setActiveSaved(false); }}
+              className="fl-select"
+              style={{ flex: 1, maxWidth: 280 }}
+            >
+              {[...installed].map(m => <option key={m} value={m}>{m}</option>)}
+            </select>
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={() => {
+                const chosen = activeModel || [...installed][0] || '';
+                localStorage.setItem(ACTIVE_MODEL_KEY, chosen);
+                setActiveModel(chosen);
+                setActiveSaved(true);
+                setTimeout(() => setActiveSaved(false), 2500);
+              }}
+            >
+              {activeSaved ? '✓ Enregistré' : 'Définir'}
+            </Button>
+          </div>
+          <p style={{ fontSize: 11, color: 'var(--fl-muted)', margin: '8px 0 0' }}>
+            Ce modèle sera utilisé par défaut dans le Copilote IA pour tous les analystes. Chaque analyste peut le surcharger depuis le panneau de chat.
+          </p>
         </div>
       )}
 

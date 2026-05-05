@@ -45,13 +45,13 @@ router.post('/cases/:caseId/ai/chat', authenticate, async (req: AuthRequest, res
   const caseId = parseInt(req.params.caseId, 10);
   if (isNaN(caseId)) return res.status(400).json({ error: 'caseId invalide' });
 
-  const { message, model } = req.body;
+  const { message, model, thinkingMode, agentType } = req.body;
   if (!message?.trim()) return res.status(400).json({ error: 'message requis' });
   if (!aiService.isAvailable()) return res.status(503).json({ error: 'OLLAMA_URL non configuré' });
 
   try {
     const response = await aiService.chat(
-      pool(res), caseId, parseInt(req.user.id, 10), message.trim(), model
+      pool(res), caseId, parseInt(req.user.id, 10), message.trim(), model, thinkingMode, agentType
     );
     res.json({ response });
   } catch (err: any) {
@@ -63,16 +63,38 @@ router.post('/cases/:caseId/ai/stream', authenticate, async (req: AuthRequest, r
   const caseId = parseInt(req.params.caseId, 10);
   if (isNaN(caseId)) return res.status(400).json({ error: 'caseId invalide' });
 
-  const { message, model } = req.body;
+  const { message, model, thinkingMode, agentType } = req.body;
   if (!message?.trim()) return res.status(400).json({ error: 'message requis' });
   if (!aiService.isAvailable()) return res.status(503).json({ error: 'OLLAMA_URL non configuré' });
 
   try {
     await aiService.chatStream(
-      pool(res), caseId, parseInt(req.user.id, 10), message.trim(), res, model
+      pool(res), caseId, parseInt(req.user.id, 10), message.trim(), res, model, thinkingMode, agentType
     );
   } catch (err: any) {
     if (!res.headersSent) res.status(502).json({ error: err.message });
+  }
+});
+
+// Analyst feedback — thumbs up (+1) / thumbs down (-1) on a specific AI response.
+// Stored in ai_feedback for future RLHF-style prompt improvement analysis.
+router.post('/cases/:caseId/ai/feedback', authenticate, async (req: AuthRequest, res: Response) => {
+  const caseId = req.params.caseId;
+
+  const { rating, agentType, model, msgRef } = req.body;
+  if (rating !== 1 && rating !== -1) {
+    return res.status(400).json({ error: 'rating doit être 1 (positif) ou -1 (négatif)' });
+  }
+
+  try {
+    await pool(res).query(
+      `INSERT INTO ai_feedback (case_id, user_id, rating, agent_type, model, msg_ref)
+       VALUES ($1, $2, $3, $4, $5, $6)`,
+      [caseId, req.user.id, rating, agentType ?? null, model ?? null, msgRef ?? null]
+    );
+    res.json({ ok: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
   }
 });
 

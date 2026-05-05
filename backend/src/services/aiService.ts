@@ -1,11 +1,15 @@
 
 import { Pool } from 'pg';
-import * as http from 'http';
+import * as aiRouter from './aiRouter';
+import type { ThinkingMode } from './aiRouter';
 
 const OLLAMA_URL  = process.env.OLLAMA_URL;
-const AI_MODEL    = process.env.AI_MODEL            || 'qwen3:14b';
+const AI_MODEL    = process.env.AI_MODEL            || 'qwen3.5:4b';
 const MAX_HISTORY = parseInt(process.env.AI_MAX_HISTORY_MESSAGES || '30', 10);
 const TEMPERATURE = parseFloat(process.env.AI_TEMPERATURE || '0.1');
+// Max conversation turns included in the messages array sent to Ollama.
+// Keeps context window usage predictable across model sizes.
+const HISTORY_FOR_CONTEXT = 10;
 
 export interface ChatMessage {
   id: number;
@@ -240,56 +244,84 @@ ${fmt(ctx.notes, n => `  [${n.author}] ${n.content?.slice(0, 200) || ''}`)}
 - Ne mentionne jamais d'autres cas`;
 }
 
+// ── Forensics Agent Definitions ───────────────────────────────────────────────
+// Inspired by domain-specific agent temperature tuning (My_AI / gonicolas12).
+// Each agent appends a focused directive to the shared system prompt and runs
+// at its own temperature — low for precise triage, higher for prose generation.
+
+export type AgentType = 'triage' | 'analysis' | 'narrative';
+
+const AGENT_CONFIG: Record<AgentType, { temperature: number; directive: string }> = {
+  triage: {
+    temperature: 0.1,
+    directive: `
+=== MODE AGENT : TRIAGE RAPIDE ===
+Objectif : Classification et décision d'escalade en moins de 5 lignes.
+Format de réponse OBLIGATOIRE :
+  VERDICT    : CRITIQUE | ÉLEVÉ | MOYEN | FAIBLE | BÉNIN
+  CONFIANCE  : X %
+  TECHNIQUE  : T<XXXX.XXX> ou N/A
+  ACTION     : une seule phrase d'action immédiate
+Ne développe pas — le triage est pour la rapidité, pas l'exhaustivité.`,
+  },
+  analysis: {
+    temperature: 0.3,
+    directive: `
+=== MODE AGENT : ANALYSE APPROFONDIE ===
+Structure ta réponse en 4 sections :
+  1. OBSERVATION — ce que les artifacts montrent factuellement
+  2. HYPOTHÈSE — scénario d'attaque le plus probable
+  3. MITRE ATT&CK — techniques identifiées avec IDs précis
+  4. RECOMMANDATIONS — prochaines étapes d'investigation`,
+  },
+  narrative: {
+    temperature: 0.5,
+    directive: `
+=== MODE AGENT : RÉDACTION RAPPORT ===
+Rédige en prose professionnelle destinée à la direction ou au juridique.
+Structure : Résumé exécutif (2 phrases) → Chronologie narrative → Impact → Recommandations.
+Évite le jargon technique — chaque terme technique doit être explicité.
+Chaque affirmation doit être ancrée sur un artifact ou IOC du cas.`,
+  },
+};
+
+function applyAgentConfig(
+  system: string,
+  agentType: AgentType = 'analysis'
+): { system: string; temperature: number } {
+  const cfg = AGENT_CONFIG[agentType] ?? AGENT_CONFIG.analysis;
+  return {
+    system:      system + cfg.directive,
+    temperature: cfg.temperature,
+  };
+}
+
 export async function chat(
   pool: Pool,
   caseId: number,
   userId: number,
   message: string,
-  model = AI_MODEL
+  model         = AI_MODEL,
+  thinkingMode: ThinkingMode = 'no_think',
+  agentType:    AgentType    = 'analysis'
 ): Promise<string> {
   if (!OLLAMA_URL) throw new Error('OLLAMA_URL not configured');
 
   const ctx    = await buildCaseContext(pool, caseId);
-  const system = buildSystemPrompt(ctx);
+  const { system, temperature } = applyAgentConfig(buildSystemPrompt(ctx), agentType);
+
+  // Fetch history BEFORE saving the new user message to avoid duplicating it.
+  const history = await getConversationHistory(pool, caseId, HISTORY_FOR_CONTEXT);
 
   await saveMessage(pool, caseId, userId, 'user', message, model);
 
-  const body = JSON.stringify({
-    model,
-    system,
-    prompt: message,
-    stream: false,
-    options: { temperature: TEMPERATURE },
-  });
+  const messages: aiRouter.OllamaMessage[] = [
+    { role: 'system',    content: system },
+    ...history.map((m) => ({ role: m.role, content: m.content })),
+    { role: 'user',      content: message },
+  ];
 
-  const response = await new Promise<string>((resolve, reject) => {
-    const url = new URL('/api/generate', OLLAMA_URL);
-    const req = http.request(
-      {
-        hostname: url.hostname,
-        port: parseInt(url.port) || 11434,
-        path: url.pathname,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
-      },
-      (res) => {
-        let data = '';
-        res.on('data', (c: string) => { data += c; });
-        res.on('end', () => {
-          try {
-            const j = JSON.parse(data);
-            resolve(j.response || '');
-          } catch {
-            reject(new Error('Invalid JSON from Ollama'));
-          }
-        });
-        res.on('error', reject);
-      }
-    );
-    req.on('error', reject);
-    req.write(body);
-    req.end();
-  });
+  const response = await aiRouter.chat({ model, messages, thinkingMode, temperature });
 
   await saveMessage(pool, caseId, userId, 'assistant', response, model);
   return response;
@@ -301,7 +333,9 @@ export async function chatStream(
   userId: number,
   message: string,
   res: import('express').Response,
-  model = AI_MODEL
+  model         = AI_MODEL,
+  thinkingMode: ThinkingMode = 'no_think',
+  agentType:    AgentType    = 'analysis'
 ): Promise<void> {
   if (!OLLAMA_URL) {
     res.status(503).json({ error: 'OLLAMA_URL not configured' });
@@ -444,69 +478,52 @@ export async function chatStream(
     timelineArtifacts: artifactsRes.rows,
   };
 
-  const system = buildSystemPrompt(ctx);
+  const { system, temperature } = applyAgentConfig(buildSystemPrompt(ctx), agentType);
 
   think('🤖', "Génération de l'analyse", 'generating');
 
+  // Fetch history BEFORE saving the new user message to avoid duplicating it.
+  const history = await getConversationHistory(pool, caseId, HISTORY_FOR_CONTEXT);
+
   await saveMessage(pool, caseId, userId, 'user', message, model);
 
-  const body = JSON.stringify({
-    model,
-    system,
-    prompt: message,
-    stream: true,
-    options: { temperature: TEMPERATURE },
-  });
+  const messages: aiRouter.OllamaMessage[] = [
+    { role: 'system', content: system },
+    ...history.map((m) => ({ role: m.role, content: m.content })),
+    { role: 'user',   content: message },
+  ];
 
-  return new Promise((resolve, reject) => {
-    const url = new URL('/api/generate', OLLAMA_URL);
-    const req = http.request(
-      {
-        hostname: url.hostname,
-        port: parseInt(url.port) || 11434,
-        path: url.pathname,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
+  // SSE keepalive — prevents Traefik/nginx from closing the connection during
+  // slow inference (models can take > 30 s before the first token).
+  const keepAlive = setInterval(() => {
+    try { res.write(': ping\n\n'); } catch (_e) {}
+  }, 5_000);
+
+  try {
+    await aiRouter.streamChat({
+      model,
+      messages,
+      thinkingMode,
+      temperature,
+      onToken: (t) => emit({ response: t }),
+      onReasoningToken: (t) => emit({ reasoningToken: t }),
+      onDone: async (full) => {
+        emit({ done: true, hasContext: Boolean(ctx.investigatorContext) });
+        res.write('data: [DONE]\n\n');
+        if (full) {
+          await saveMessage(pool, caseId, userId, 'assistant', full, model).catch(() => {});
+        }
       },
-      (ollamaRes) => {
-        let fullResponse = '';
-
-        ollamaRes.on('data', (chunk: Buffer) => {
-          const lines = chunk.toString().split('\n').filter(Boolean);
-          for (const line of lines) {
-            try {
-              const j = JSON.parse(line);
-              if (j.response) {
-                fullResponse += j.response;
-                emit({ response: j.response });
-              }
-              if (j.done) {
-                emit({ done: true, hasContext: Boolean(ctx.investigatorContext) });
-                res.write('data: [DONE]\n\n');
-              }
-            } catch (_e) {}
-          }
-        });
-
-        ollamaRes.on('end', async () => {
-          if (fullResponse) {
-            await saveMessage(pool, caseId, userId, 'assistant', fullResponse, model).catch(() => {});
-          }
-          res.end();
-          resolve();
-        });
-
-        ollamaRes.on('error', reject);
-      }
-    );
-
-    req.on('error', (err) => {
-      if (!res.headersSent) res.status(502).json({ error: `Ollama unreachable: ${err.message}` });
-      reject(err);
+      onError: (err) => {
+        if (!res.headersSent) {
+          res.status(502).json({ error: `Ollama unreachable: ${err.message}` });
+        }
+      },
     });
-    req.write(body);
-    req.end();
-  });
+  } finally {
+    clearInterval(keepAlive);
+    res.end();
+  }
 }
 
 export function isAvailable(): boolean {

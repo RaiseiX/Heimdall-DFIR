@@ -3031,7 +3031,7 @@ export default function SuperTimelineWorkbench({ records, availTypes, caseId, on
                 <button
                   onClick={() => handlePromoteConfirm(promoteDialog)}
                   style={{
-                    padding: '5px 14px', borderRadius: 5, border: 'none', cursor: 'pointer', fontFamily: 'monospace', fontSize: 11, fontWeight: 700,
+                    padding: '5px 14px', borderRadius: 5, cursor: 'pointer', fontFamily: 'monospace', fontSize: 11, fontWeight: 700,
                     background: promoteDialog.is_global ? 'color-mix(in srgb, var(--fl-danger) 20%, var(--fl-bg))' : 'color-mix(in srgb, #f0b040 20%, var(--fl-bg))',
                     color: promoteDialog.is_global ? 'var(--fl-danger)' : '#f0b040',
                     border: `1px solid ${promoteDialog.is_global ? 'color-mix(in srgb, var(--fl-danger) 40%, transparent)' : 'color-mix(in srgb, #f0b040 40%, transparent)'}`,

@@ -15,12 +15,58 @@ services:
       - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql
       - ./db/zz-init-users.sh:/docker-entrypoint-initdb.d/zz-init-users.sh
     networks:
-      - aesir-net
+      - heimdall-net
+      - volweb-net
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U forensiclab"]
       interval: 10s
       timeout: 5s
       retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 4g
+        reservations:
+          cpus: "0.5"
+          memory: 2g
+
+  # ─── PgBouncer — Connection Pool Multiplexer ───
+  # Routes backend + worker connections through a single pool of 25 real PG
+  # connections, supporting up to 200 virtual clients. Prevents saturation of
+  # PostgreSQL max_connections under concurrent parsing + VolWeb + AI analysis.
+  pgbouncer:
+    image: bitnami/pgbouncer:1.23.1
+    container_name: muninn
+    restart: unless-stopped
+    environment:
+      POSTGRESQL_HOST: db
+      POSTGRESQL_PORT: 5432
+      PGBOUNCER_DATABASE: forensiclab
+      PGBOUNCER_POOL_MODE: transaction
+      PGBOUNCER_MAX_CLIENT_CONN: 200
+      PGBOUNCER_DEFAULT_POOL_SIZE: 25
+      POSTGRESQL_USERNAME: forensiclab
+      POSTGRESQL_PASSWORD: ${DB_PASSWORD}
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - heimdall-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -p 5432 -U forensiclab || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256m
+        reservations:
+          cpus: "0.1"
+          memory: 64m
 
   # ─── Redis Cache & Sessions ───
   redis:
@@ -33,12 +79,21 @@ services:
     volumes:
       - redis_data:/data
     networks:
-      - aesir-net
+      - heimdall-net
+      - volweb-net
     healthcheck:
       test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" ping"]
       interval: 10s
       timeout: 5s
       retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512m
+        reservations:
+          cpus: "0.1"
+          memory: 256m
 
   # ─── Node.js Backend API ───
   backend:
@@ -51,7 +106,8 @@ services:
     environment:
       NODE_ENV: production
       PORT: 4000
-      DB_HOST: db
+      # Route through PgBouncer for connection multiplexing
+      DB_HOST: pgbouncer
       DB_PORT: 5432
       DB_NAME: forensiclab
       DB_USER: forensiclab
@@ -85,25 +141,68 @@ services:
       - backups_data:/app/backups
       # Docker socket — read-write required for Ollama model pull from admin panel.
       # DOCKER_GID must match the host docker group: stat -c %g /var/run/docker.sock
-      # Note: grants container access to Docker daemon — restrict host network access accordingly.
       - /var/run/docker.sock:/var/run/docker.sock
     group_add:
       - "${DOCKER_GID:-999}"
-    # Port 4000 is NOT exposed on the host — access via Nginx reverse proxy only (port 80/443).
-    # Uncomment only for local debug: - "127.0.0.1:4000:4000"
+    # Port 4000 NOT exposed on host — access via Traefik reverse proxy only.
     security_opt:
-      - no-new-privileges:false  # gosu requires setuid — privilege drop handled by entrypoint.sh
+      - no-new-privileges:false  # gosu requires setuid; privilege drop in entrypoint.sh
+    labels:
+      - "traefik.enable=true"
+      # Tell Traefik which network to use for routing to this container
+      - "traefik.docker.network=heimdall-net"
+      # ── Service: heavy transport for 10 GB+ forensic uploads (7200 s timeout) ──
+      - "traefik.http.services.backend-svc.loadbalancer.server.port=4000"
+      - "traefik.http.services.backend-svc.loadbalancer.passHostHeader=true"
+      - "traefik.http.services.backend-svc.loadbalancer.serverstransport=heavy@file"
+      # ── Router: auth — 5 req/min brute-force protection (priority 30) ──
+      - "traefik.http.routers.heimdall-auth.rule=Host(`${DOMAIN}`) && PathPrefix(`/api/auth`)"
+      - "traefik.http.routers.heimdall-auth.entrypoints=websecure"
+      - "traefik.http.routers.heimdall-auth.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.heimdall-auth.middlewares=security-headers@file,auth-ratelimit@file"
+      - "traefik.http.routers.heimdall-auth.service=backend-svc"
+      - "traefik.http.routers.heimdall-auth.priority=30"
+      # ── Router: socket.io WebSocket (priority 20) ──
+      - "traefik.http.routers.heimdall-socket.rule=Host(`${DOMAIN}`) && PathPrefix(`/socket.io`)"
+      - "traefik.http.routers.heimdall-socket.entrypoints=websecure"
+      - "traefik.http.routers.heimdall-socket.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.heimdall-socket.middlewares=security-headers@file"
+      - "traefik.http.routers.heimdall-socket.service=backend-svc"
+      - "traefik.http.routers.heimdall-socket.priority=20"
+      # ── Router: general API — 30 req/s, burst 50 (priority 10) ──
+      - "traefik.http.routers.heimdall-api.rule=Host(`${DOMAIN}`) && PathPrefix(`/api`)"
+      - "traefik.http.routers.heimdall-api.entrypoints=websecure"
+      - "traefik.http.routers.heimdall-api.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.heimdall-api.middlewares=security-headers@file,api-ratelimit@file"
+      - "traefik.http.routers.heimdall-api.service=backend-svc"
+      - "traefik.http.routers.heimdall-api.priority=10"
     depends_on:
       db:
+        condition: service_healthy
+      pgbouncer:
         condition: service_healthy
       redis:
         condition: service_healthy
       elasticsearch:
         condition: service_healthy
     networks:
-      - aesir-net
+      - heimdall-net
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:4000/api/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 4g
+        reservations:
+          cpus: "0.5"
+          memory: 1g
 
-  # ─── Elasticsearch — Super Timeline full-text search (M1) ───
+  # ─── Elasticsearch — Super Timeline full-text search ───
   elasticsearch:
     image: docker.elastic.co/elasticsearch/elasticsearch:8.13.0
     container_name: mimir
@@ -116,13 +215,21 @@ services:
     volumes:
       - es_data:/usr/share/elasticsearch/data
     networks:
-      - aesir-net
+      - heimdall-net
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:9200/_cluster/health?wait_for_status=yellow&timeout=5s || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 10
       start_period: 60s
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 2g
+        reservations:
+          cpus: "0.5"
+          memory: 1g
 
   # ─── ClamAV Antivirus Scanner ───
   clamav:
@@ -130,27 +237,32 @@ services:
     container_name: tyr
     restart: unless-stopped
     environment:
-      # Keep freshclam enabled so signatures stay up to date
       CLAMAV_NO_FRESHCLAM: "false"
     volumes:
       - clamav_data:/var/lib/clamav
     networks:
-      - aesir-net
+      - heimdall-net
     # NOTE: start_period is long because ClamAV downloads ~300 MB of signatures on first boot.
-    # The backend will mark uploads as scan_status='error' while ClamAV is initializing.
     healthcheck:
       test: ["CMD", "clamdscan", "--ping", "3"]
       interval: 60s
       timeout: 30s
       retries: 3
       start_period: 300s
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 2g
+        reservations:
+          cpus: "0.25"
+          memory: 512m
 
-  # ─── MinIO — Object Storage pour VolWeb ───
+  # ─── MinIO — Object Storage for VolWeb ───
   minio:
     image: minio/minio:RELEASE.2025-02-07T23-21-09Z
     container_name: njord
     restart: unless-stopped
-    # Console disabled — only S3 API (port 9000) is needed by VolWeb
     command: server /data
     security_opt:
       - no-new-privileges:true
@@ -160,24 +272,28 @@ services:
     volumes:
       - minio_data:/data
     networks:
-      - aesir-net
+      - heimdall-net
+      - volweb-net
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost:9000/minio/health/live"]
       interval: 30s
       timeout: 10s
       retries: 5
       start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 1g
+        reservations:
+          cpus: "0.25"
+          memory: 256m
 
-  # ─── VolWeb Backend (Django/Daphne) — v3.16.0 ───
-  # IMPORTANT: volweb_media MUST be mounted at /home/app/web/media (Django MEDIA_ROOT).
-  # The old /app/media mount was wrong — files went to ephemeral container storage,
-  # invisible to hel-worker, causing "No such file or directory" in Volatility tasks.
+  # ─── VolWeb Backend (Django/Daphne) ───
   volweb-backend:
     image: forensicxlab/volweb-backend:3.16.0
     container_name: hel-api
     restart: unless-stopped
-    # volweb-init.sh syncs the superuser from VOLWEB_USER/VOLWEB_PASSWORD,
-    # then starts daphne — no manual createsuperuser needed.
     command: ["/init/volweb-init.sh"]
     working_dir: /home/app/web
     environment:
@@ -193,14 +309,12 @@ services:
       REDIS_PASSWORD: ${REDIS_PASSWORD}
       CELERY_BROKER_URL: redis://:${REDIS_PASSWORD}@redis:6379/1
       CELERY_RESULT_BACKEND: redis://:${REDIS_PASSWORD}@redis:6379/1
-      # Override Django settings module to patch CHANNEL_LAYERS with Redis auth
       DJANGO_SETTINGS_MODULE: backend.local_settings
       AWS_ENDPOINT_URL: http://minio:9000
       AWS_ENDPOINT_HOST: minio:9000
       AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER}
       AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
       AWS_REGION: us-east-1
-      # Superuser auto-provisioning — synced from .env at every restart
       DJANGO_SUPERUSER_USERNAME: ${VOLWEB_USER:-admin}
       DJANGO_SUPERUSER_PASSWORD: ${VOLWEB_PASSWORD}
       DJANGO_SUPERUSER_EMAIL: admin@forensiclab.local
@@ -216,7 +330,21 @@ services:
       minio:
         condition: service_healthy
     networks:
-      - aesir-net
+      - volweb-net
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8000/ || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 2g
+        reservations:
+          cpus: "0.25"
+          memory: 512m
 
   # ─── VolWeb Worker (Celery + Volatility 3) ───
   volweb-worker:
@@ -247,11 +375,20 @@ services:
       - volweb_media:/home/app/web/media
       - ./docker/volweb_local_settings.py:/home/app/web/backend/local_settings.py:ro
     depends_on:
-      - volweb-backend
+      volweb-backend:
+        condition: service_healthy
     networks:
-      - aesir-net
+      - volweb-net
+    deploy:
+      resources:
+        limits:
+          cpus: "4.0"
+          memory: 12g
+        reservations:
+          cpus: "1.0"
+          memory: 4g
 
-  # ─── VolWeb YARA Scan Worker (v3.16.0) ───
+  # ─── VolWeb YARA Scan Worker ───
   volweb-worker-yarascan:
     image: forensicxlab/volweb-backend:3.16.0
     container_name: hel-worker-yara
@@ -282,9 +419,18 @@ services:
       - volweb_media:/home/app/web/media
       - ./docker/volweb_local_settings.py:/home/app/web/backend/local_settings.py:ro
     depends_on:
-      - volweb-backend
+      volweb-backend:
+        condition: service_healthy
     networks:
-      - aesir-net
+      - volweb-net
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 6g
+        reservations:
+          cpus: "0.5"
+          memory: 2g
 
   # ─── VolWeb Frontend (React SPA) ───
   volweb-frontend:
@@ -292,15 +438,22 @@ services:
     container_name: hel-ui
     restart: unless-stopped
     networks:
-      - aesir-net
+      - volweb-net
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 256m
+        reservations:
+          cpus: "0.05"
+          memory: 64m
 
-  # ─── VolWeb Nginx (port 8888) ───
+  # ─── VolWeb Nginx (port 8888 — localhost only) ───
   volweb-nginx:
     image: nginx:alpine
     container_name: hel-proxy
     restart: unless-stopped
     # Bound to localhost only — VolWeb not directly accessible from external networks.
-    # Access through Heimdall SSO magic link only.
     ports:
       - "127.0.0.1:8888:80"
     security_opt:
@@ -311,7 +464,15 @@ services:
       - volweb-backend
       - volweb-frontend
     networks:
-      - aesir-net
+      - volweb-net
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 128m
+        reservations:
+          cpus: "0.05"
+          memory: 32m
 
   # ─── BullMQ Parser Worker ───
   worker:
@@ -323,11 +484,11 @@ services:
     restart: unless-stopped
     security_opt:
       - no-new-privileges:true
-    # Override the default entrypoint (entrypoint.sh) to run the BullMQ worker
     entrypoint: ["node", "src/workers/startWorker.js"]
     environment:
       NODE_ENV: production
-      DB_HOST: db
+      # Route through PgBouncer for connection multiplexing
+      DB_HOST: pgbouncer
       DB_PORT: 5432
       DB_NAME: forensiclab
       DB_USER: forensiclab
@@ -350,12 +511,28 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      pgbouncer:
+        condition: service_healthy
       redis:
         condition: service_healthy
       elasticsearch:
         condition: service_healthy
     networks:
-      - aesir-net
+      - heimdall-net
+    healthcheck:
+      test: ["CMD-SHELL", "ps -ef | grep -v grep | grep -q 'startWorker' || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: "4.0"
+          memory: 8g
+        reservations:
+          cpus: "1.0"
+          memory: 2g
 
   # ─── React Frontend ───
   frontend:
@@ -367,45 +544,113 @@ services:
     restart: unless-stopped
     security_opt:
       - no-new-privileges:true
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=frontend-net"
+      # ── Service ──
+      - "traefik.http.services.frontend-svc.loadbalancer.server.port=3000"
+      # ── Router: catch-all SPA (priority 1 — lowest, backend routers win) ──
+      - "traefik.http.routers.heimdall-frontend.rule=Host(`${DOMAIN}`)"
+      - "traefik.http.routers.heimdall-frontend.entrypoints=websecure"
+      - "traefik.http.routers.heimdall-frontend.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.heimdall-frontend.middlewares=security-headers@file"
+      - "traefik.http.routers.heimdall-frontend.service=frontend-svc"
+      - "traefik.http.routers.heimdall-frontend.priority=1"
     networks:
-      - aesir-net
+      - frontend-net
     healthcheck:
       test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:3000"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 256m
+        reservations:
+          cpus: "0.05"
+          memory: 64m
 
-  # ─── Nginx Reverse Proxy ───
-  nginx:
-    image: nginx:alpine
+  # ─── Traefik v3 — Reverse Proxy + Automatic TLS ───
+  # Replaces the static nginx setup with container-label-driven routing
+  # and Let's Encrypt certificate management (zero manual SSL steps).
+  #
+  # DOMAIN and ACME_EMAIL must be set in .env:
+  #   DOMAIN=heimdall.example.com   (or "localhost" for self-signed dev cert)
+  #   ACME_EMAIL=admin@example.com  (Let's Encrypt registration email)
+  #
+  # On first start with a real public domain, Traefik issues a cert automatically.
+  # For localhost or private networks it falls back to an internal self-signed cert.
+  traefik:
+    image: traefik:v3.0
     container_name: bifrost
     restart: unless-stopped
+    command:
+      # Load the static config file; the ACME email must be passed at runtime
+      # because environment variables are not expanded inside traefik.yml.
+      - "--configfile=/etc/traefik/traefik.yml"
+      - "--certificatesresolvers.letsencrypt.acme.email=${ACME_EMAIL:-admin@heimdall.local}"
     ports:
       - "80:80"
       - "443:443"
     volumes:
-      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./nginx/ssl:/etc/nginx/ssl:ro
+      # Docker socket — read-only is sufficient for label discovery
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./docker/traefik/traefik.yml:/etc/traefik/traefik.yml:ro
+      - ./docker/traefik/dynamic:/etc/traefik/dynamic:ro
+      - letsencrypt_data:/letsencrypt
     depends_on:
-      - backend
-      - frontend
+      backend:
+        condition: service_healthy
+      frontend:
+        condition: service_healthy
     networks:
-      - aesir-net
+      - frontend-net   # Discovers and proxies to: frontend (asgard)
+      - heimdall-net   # Discovers and proxies to: backend (odin)
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O- http://localhost:8080/ping || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256m
+        reservations:
+          cpus: "0.1"
+          memory: 64m
 
-  # ── Ollama (IA locale) ──────────────────────────────────────────────────────
+  # ─── Ollama (Local AI / LLM inference) ───
   ollama:
     image: ollama/ollama:0.6.2
     container_name: ollama
     restart: unless-stopped
     networks:
-      - aesir-net
+      - heimdall-net
     volumes:
       - ollama_data:/root/.ollama
     environment:
       OLLAMA_HOST: "0.0.0.0"
-    # Expose port uniquement pour debug — le backend accède via le réseau interne
-    # Pour GPU : ajouter deploy.resources.reservations.devices (voir docs Ollama)
+    # GPU passthrough (uncomment for NVIDIA GPU acceleration):
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+    deploy:
+      resources:
+        limits:
+          cpus: "8.0"
+          memory: 16g
+        reservations:
+          cpus: "1.0"
+          memory: 4g
 
 volumes:
   pg_data:
@@ -421,7 +666,20 @@ volumes:
   minio_data:
   backups_data:
   ollama_data:
+  letsencrypt_data:    # Let's Encrypt ACME certificates — persisted across restarts
 
 networks:
-  aesir-net:
+  # External-facing bridge: Traefik (bifrost) ↔ frontend (asgard) only.
+  # Frontend cannot reach db, redis, or backend directly.
+  frontend-net:
+    driver: bridge
+
+  # Internal Heimdall services: Traefik, backend, worker, db, redis, ES, ClamAV, MinIO, Ollama.
+  # Not reachable from frontend-net. Traefik bridges both networks intentionally.
+  heimdall-net:
+    driver: bridge
+
+  # Isolated VolWeb stack. Shares db, redis, minio with heimdall-net via
+  # multi-network assignments on those shared services.
+  volweb-net:
     driver: bridge

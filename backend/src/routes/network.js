@@ -348,15 +348,34 @@ router.post('/:caseId/import-csv', authenticate, upload.single('file'), async (r
   }
 });
 
-async function buildNetworkGraph(caseId, evidenceIdList, pool) {
+// ── Network graph builder ──────────────────────────────────────────────────
+// fromTs / toTs are optional ISO strings to scope the timeline window.
+async function buildNetworkGraph(caseId, evidenceIdList, pool, fromTs, toTs) {
   const hasFilter = evidenceIdList.length > 0;
+
+  // Build evidence filter fragment
   const ctEvidenceFilter = hasFilter
     ? `AND result_id IN (SELECT id FROM parser_results WHERE evidence_id = ANY($2::uuid[]))`
     : '';
-  const ctParams = hasFilter ? [caseId, evidenceIdList] : [caseId];
+
+  // Build base params, then append optional time range at the end so param
+  // numbers stay predictable regardless of which combination is active.
+  const ctBase = hasFilter ? [caseId, evidenceIdList] : [caseId];
+  const ctParams = [...ctBase];
+  let timeFilter = '';
+  if (fromTs) { ctParams.push(fromTs); timeFilter += ` AND timestamp >= $${ctParams.length}::timestamptz`; }
+  if (toTs)   { ctParams.push(toTs);   timeFilter += ` AND timestamp <= $${ctParams.length}::timestamptz`; }
+
+  const ncParams = [caseId];
+  let ncTimeFilter = '';
+  if (fromTs) { ncParams.push(fromTs); ncTimeFilter += ` AND first_seen >= $${ncParams.length}::timestamptz`; }
+  if (toTs)   { ncParams.push(toTs);   ncTimeFilter += ` AND last_seen  <= $${ncParams.length}::timestamptz`; }
+
+  const LIMIT = 500; // raised from 300
 
   const [r1, r2, r3, r4, r5] = await Promise.all([
 
+    // ── Source 1: network_connections table (manual / CSV imports) ──
     hasFilter
       ? Promise.resolve({ rows: [] })
       : pool.query(`
@@ -367,26 +386,44 @@ async function buildNetworkGraph(caseId, evidenceIdList, pool) {
         FROM network_connections
         WHERE case_id = $1 AND src_ip IS NOT NULL AND dst_ip IS NOT NULL
           AND src_ip <> '' AND dst_ip <> ''
+          ${ncTimeFilter}
         GROUP BY src_ip, dst_ip, dst_port, protocol
-        ORDER BY connection_count DESC LIMIT 300
-      `, [caseId]),
+        ORDER BY connection_count DESC LIMIT ${LIMIT}
+      `, ncParams),
 
+    // ── Source 2: collection_timeline raw JSON ──
+    // Priority field order is intentional:
+    //   src: SourceIp (Sysmon EID 3) > src_ip column > SourceAddress (WFP 5156) > Computer hostname
+    //   dst: DestinationHostname (resolved name, best for display) > DestinationIp > legacy aliases
+    //   process: Image field from Sysmon — which process made this connection
     pool.query(`
-      SELECT src_ip, dst_ip, dst_port, protocol,
+      SELECT src_ip, dst_ip, dst_port, protocol, process_name,
              COUNT(*) AS connection_count, 0::bigint AS total_bytes, false AS is_suspicious
       FROM (
         SELECT
-          COALESCE(NULLIF(TRIM(raw->>'Computer'), ''), 'local') AS src_ip,
           COALESCE(
-            NULLIF(TRIM(raw->>'RemoteHost'),      ''),
-            NULLIF(TRIM(raw->>'RemoteAddress'),   ''),
-            NULLIF(TRIM(raw->>'DstIP'),           ''),
-            NULLIF(TRIM(raw->>'dst_ip'),          ''),
-            NULLIF(TRIM(raw->>'DestinationIp'),   ''),
-            NULLIF(TRIM(raw->>'id.resp_h'),       ''),
-            NULLIF(TRIM(raw->>'dst_host'),        '')
+            NULLIF(TRIM(raw->>'SourceIp'),       ''),
+            NULLIF(TRIM(raw->>'src_ip'),         ''),
+            NULLIF(TRIM(src_ip::text),           ''),
+            NULLIF(TRIM(raw->>'SourceAddress'),  ''),
+            NULLIF(TRIM(host_name),              ''),
+            NULLIF(TRIM(raw->>'Computer'),       ''),
+            'local'
+          ) AS src_ip,
+          COALESCE(
+            NULLIF(TRIM(raw->>'DestinationHostname'), ''),
+            NULLIF(TRIM(raw->>'DestinationIp'),       ''),
+            NULLIF(TRIM(dst_ip::text),                ''),
+            NULLIF(TRIM(raw->>'RemoteHost'),          ''),
+            NULLIF(TRIM(raw->>'RemoteAddress'),       ''),
+            NULLIF(TRIM(raw->>'DstIP'),               ''),
+            NULLIF(TRIM(raw->>'dst_ip'),              ''),
+            NULLIF(TRIM(raw->>'DestAddress'),         ''),
+            NULLIF(TRIM(raw->>'id.resp_h'),           ''),
+            NULLIF(TRIM(raw->>'dst_host'),            '')
           ) AS dst_ip,
           COALESCE(
+            NULLIF(TRIM(raw->>'DestinationPort'), ''),
             NULLIF(TRIM(raw->>'RemotePort'),      ''),
             NULLIF(TRIM(raw->>'DstPort'),         ''),
             NULLIF(TRIM(raw->>'dst_port'),        ''),
@@ -396,26 +433,34 @@ async function buildNetworkGraph(caseId, evidenceIdList, pool) {
             NULLIF(TRIM(raw->>'Protocol'),  ''),
             NULLIF(TRIM(raw->>'proto'),     ''),
             NULLIF(TRIM(raw->>'Transport'), '')
-          ) AS protocol
+          ) AS protocol,
+          -- Extract the initiating process (Sysmon EID 3 "Image" field)
+          NULLIF(TRIM(raw->>'Image'), '') AS process_name
         FROM collection_timeline
         WHERE case_id = $1
           ${ctEvidenceFilter}
+          ${timeFilter}
           AND (
-            raw->>'RemoteHost'    IS NOT NULL OR
-            raw->>'RemoteAddress' IS NOT NULL OR
-            raw->>'DstIP'         IS NOT NULL OR
-            raw->>'dst_ip'        IS NOT NULL OR
-            raw->>'DestinationIp' IS NOT NULL OR
-            raw->>'id.resp_h'     IS NOT NULL OR
-            raw->>'dst_host'      IS NOT NULL
+            raw->>'SourceIp'          IS NOT NULL OR
+            raw->>'DestinationIp'     IS NOT NULL OR
+            raw->>'DestinationHostname' IS NOT NULL OR
+            raw->>'RemoteHost'        IS NOT NULL OR
+            raw->>'RemoteAddress'     IS NOT NULL OR
+            raw->>'DstIP'             IS NOT NULL OR
+            raw->>'dst_ip'            IS NOT NULL OR
+            raw->>'id.resp_h'         IS NOT NULL OR
+            raw->>'dst_host'          IS NOT NULL OR
+            dst_ip                    IS NOT NULL
           )
       ) AS t
       WHERE dst_ip IS NOT NULL AND dst_ip <> '' AND dst_ip <> '-'
-        AND dst_ip NOT IN ('0.0.0.0', '::', '255.255.255.255')
-      GROUP BY src_ip, dst_ip, dst_port, protocol
-      ORDER BY connection_count DESC LIMIT 300
+        AND dst_ip NOT IN ('0.0.0.0', '::', '255.255.255.255', 'localhost')
+        AND src_ip <> dst_ip
+      GROUP BY src_ip, dst_ip, dst_port, protocol, process_name
+      ORDER BY connection_count DESC LIMIT ${LIMIT}
     `, ctParams),
 
+    // ── Source 3: IOCs ──
     pool.query(`
       SELECT value, ioc_type::text AS ioc_type, is_malicious, severity
       FROM iocs
@@ -424,6 +469,7 @@ async function buildNetworkGraph(caseId, evidenceIdList, pool) {
       LIMIT 200
     `, [caseId]),
 
+    // ── Source 4: evidence sources that have network data ──
     pool.query(`
       SELECT DISTINCT e.id, e.name, e.original_filename
       FROM evidence e
@@ -431,14 +477,15 @@ async function buildNetworkGraph(caseId, evidenceIdList, pool) {
       JOIN collection_timeline ct ON ct.result_id = pr.id
       WHERE ct.case_id = $1
         AND (
-          ct.raw->>'RemoteHost' IS NOT NULL OR ct.raw->>'RemoteAddress' IS NOT NULL OR
-          ct.raw->>'DstIP' IS NOT NULL OR ct.raw->>'dst_ip' IS NOT NULL OR
-          ct.raw->>'DestinationIp' IS NOT NULL OR ct.raw->>'id.resp_h' IS NOT NULL OR
-          ct.raw->>'dst_host' IS NOT NULL
+          ct.raw->>'SourceIp'      IS NOT NULL OR
+          ct.raw->>'DestinationIp' IS NOT NULL OR
+          ct.raw->>'RemoteAddress' IS NOT NULL OR
+          ct.dst_ip                IS NOT NULL
         )
       LIMIT 50
     `, [caseId]),
 
+    // ── Source 5: browser history (SQLite via sqle parser) ──
     pool.query(`
       SELECT
         COALESCE(NULLIF(TRIM(host_name), ''), 'local') AS src_host,
@@ -447,6 +494,7 @@ async function buildNetworkGraph(caseId, evidenceIdList, pool) {
       FROM collection_timeline
       WHERE case_id = $1
         ${ctEvidenceFilter}
+        ${timeFilter}
         AND artifact_type = 'sqle'
         AND raw->>'URL' IS NOT NULL AND raw->>'URL' <> ''
         AND raw->>'URL' LIKE 'http%'
@@ -456,38 +504,45 @@ async function buildNetworkGraph(caseId, evidenceIdList, pool) {
     `, ctParams),
   ]);
 
+  // ── Merge edges from all sources ──
   const edgeMap = new Map();
-  const mergeEdge = (src, dst, port, proto, count, bytes, suspicious) => {
+  const mergeEdge = (src, dst, port, proto, count, bytes, suspicious, processName) => {
     if (!src || !dst || src === dst) return;
     const key = `${src}||${dst}||${port || ''}||${proto || ''}`;
     if (edgeMap.has(key)) {
       const e = edgeMap.get(key);
       e.connection_count += parseInt(count) || 1;
-      e.total_bytes += parseInt(bytes) || 0;
+      e.total_bytes      += parseInt(bytes)  || 0;
       if (suspicious) e.has_suspicious = true;
+      // Accumulate unique process names (max 5 to keep payload small)
+      if (processName && e.processes.length < 5 && !e.processes.includes(processName)) {
+        e.processes.push(processName);
+      }
     } else {
       edgeMap.set(key, {
         source: src, target: dst,
         connection_count: parseInt(count) || 1,
-        total_bytes: parseInt(bytes) || 0,
-        ports: port ? [String(port)] : [],
-        protocols: proto ? [String(proto)] : [],
+        total_bytes:      parseInt(bytes)  || 0,
+        ports:     port        ? [String(port)]  : [],
+        protocols: proto       ? [String(proto)] : [],
+        processes: processName ? [processName]   : [],
         has_suspicious: Boolean(suspicious),
       });
     }
   };
 
-  for (const r of r1.rows) mergeEdge(r.src_ip, r.dst_ip, r.dst_port, r.protocol, r.connection_count, r.total_bytes, r.is_suspicious);
-  for (const r of r2.rows) mergeEdge(r.src_ip, r.dst_ip, r.dst_port, r.protocol, r.connection_count, r.total_bytes, false);
+  for (const r of r1.rows) mergeEdge(r.src_ip, r.dst_ip, r.dst_port, r.protocol, r.connection_count, r.total_bytes, r.is_suspicious, null);
+  for (const r of r2.rows) mergeEdge(r.src_ip, r.dst_ip, r.dst_port, r.protocol, r.connection_count, r.total_bytes, false, r.process_name);
   for (const r of r5.rows) {
     if (r.dst_url && r.src_host) {
       const proto = r.dst_url.startsWith('https') ? 'HTTPS' : 'HTTP';
-      mergeEdge(r.src_host, r.dst_url, null, proto, r.visit_count, 0, false);
+      mergeEdge(r.src_host, r.dst_url, null, proto, r.visit_count, 0, false, null);
     }
   }
 
   const edges = Array.from(edgeMap.values());
 
+  // ── Build nodes ──
   const classifyType = (id) => {
     if (/^https?:\/\//.test(id)) return 'url';
     if (id === 'local') return 'internal';
@@ -500,7 +555,15 @@ async function buildNetworkGraph(caseId, evidenceIdList, pool) {
   const nodeMap = new Map();
   const upsertNode = (id, type, suspicious, bytes) => {
     if (!nodeMap.has(id)) {
-      nodeMap.set(id, { id, type, is_suspicious: Boolean(suspicious), connection_count: 0, total_bytes: 0 });
+      const node = { id, type, is_suspicious: Boolean(suspicious), connection_count: 0, total_bytes: 0 };
+      // Compute DGA score inline for domain nodes
+      if (type === 'domain') {
+        const name = id.split('.').slice(0, -1).join('.') || id;
+        node.dga_score = computeDgaScore(name);
+        // Auto-flag high-confidence DGA domains
+        if (node.dga_score >= 70) node.is_suspicious = true;
+      }
+      nodeMap.set(id, node);
     }
     const n = nodeMap.get(id);
     n.connection_count++;
@@ -524,10 +587,15 @@ async function buildNetworkGraph(caseId, evidenceIdList, pool) {
     }
   }
 
+  // Warn the caller when the LIMIT was hit (data may be incomplete)
+  const truncated = r2.rows.length >= LIMIT || r1.rows.length >= LIMIT;
+
   return {
-    nodes: Array.from(nodeMap.values()),
+    nodes:            Array.from(nodeMap.values()),
     edges,
     evidence_sources: r4.rows.map(r => ({ id: r.id, name: r.name || r.original_filename || r.id })),
+    truncated,
+    limit:            LIMIT,
   };
 }
 
@@ -648,12 +716,12 @@ async function buildAttackPath(caseId, pool) {
 router.get('/:caseId/graph-data', authenticate, requireRole('admin', 'analyst'), async (req, res) => {
   try {
     const { caseId } = req.params;
-    const { view = 'all', evidence_ids } = req.query;
+    const { view = 'all', evidence_ids, from_ts, to_ts } = req.query;
     const evidenceIdList = evidence_ids ? evidence_ids.split(',').filter(Boolean) : [];
 
     const result = {};
     if (view === 'network' || view === 'all') {
-      result.network = await buildNetworkGraph(caseId, evidenceIdList, pool);
+      result.network = await buildNetworkGraph(caseId, evidenceIdList, pool, from_ts || null, to_ts || null);
     }
     if (view === 'attack' || view === 'all') {
       result.attack = await buildAttackPath(caseId, pool);
@@ -673,15 +741,27 @@ router.get('/:caseId/graph-data/events', authenticate, async (req, res) => {
 
     const result = await pool.query(`
       SELECT ct.timestamp, ct.artifact_type, ct.description, ct.source,
-             ct.evidence_id, e.name as evidence_name
+             ct.evidence_id, e.name AS evidence_name,
+             -- Process that made this connection (Sysmon EID 3 Image field)
+             NULLIF(TRIM(ct.raw->>'Image'), '') AS process_name,
+             ct.raw->>'DestinationPort'         AS dst_port,
+             ct.raw->>'Protocol'                AS protocol
       FROM collection_timeline ct
       LEFT JOIN evidence e ON ct.evidence_id = e.id
       WHERE ct.case_id = $1
         AND (
-          ct.raw->>'RemoteHost' = $2 OR ct.raw->>'RemoteAddress' = $2 OR
-          ct.raw->>'DstIP' = $2 OR ct.raw->>'dst_ip' = $2 OR
-          ct.raw->>'DestinationIp' = $2 OR ct.raw->>'id.resp_h' = $2 OR
-          ct.raw->>'Computer' = $2 OR ct.host_name = $2
+          ct.raw->>'SourceIp'          = $2 OR
+          ct.raw->>'DestinationIp'     = $2 OR
+          ct.raw->>'DestinationHostname' = $2 OR
+          ct.raw->>'RemoteHost'        = $2 OR
+          ct.raw->>'RemoteAddress'     = $2 OR
+          ct.raw->>'DstIP'             = $2 OR
+          ct.raw->>'dst_ip'            = $2 OR
+          ct.raw->>'id.resp_h'         = $2 OR
+          ct.raw->>'Computer'          = $2 OR
+          ct.host_name                 = $2 OR
+          ct.src_ip::text              = $2 OR
+          ct.dst_ip::text              = $2
         )
       ORDER BY ct.timestamp DESC LIMIT $3
     `, [caseId, node_id, parseInt(limit) || 50]);
@@ -743,6 +823,108 @@ function computeDgaScore(name) {
 
   return Math.min(score, 100);
 }
+
+// ── Beaconing detection ────────────────────────────────────────────────────
+// Groups network events by (src, dst, port), computes the coefficient of
+// variation (CV = stddev / avg) of inter-connection intervals.
+// CV < 0.35 with ≥ 5 events signals suspiciously regular behaviour (C2 beacon).
+// beacon_score = (1 - CV) * 100  →  100 = perfectly regular, 65 = CV=0.35 threshold.
+router.get('/:caseId/beacons', authenticate, async (req, res) => {
+  try {
+    const { caseId } = req.params;
+    const { from_ts, to_ts } = req.query;
+
+    const params = [caseId];
+    let timeFilter = '';
+    if (from_ts) { params.push(from_ts); timeFilter += ` AND timestamp >= $${params.length}::timestamptz`; }
+    if (to_ts)   { params.push(to_ts);   timeFilter += ` AND timestamp <= $${params.length}::timestamptz`; }
+
+    const result = await pool.query(`
+      WITH raw_events AS (
+        SELECT
+          COALESCE(
+            NULLIF(TRIM(raw->>'SourceIp'),      ''),
+            NULLIF(TRIM(src_ip::text),          ''),
+            NULLIF(TRIM(host_name),             ''),
+            'unknown'
+          ) AS src,
+          COALESCE(
+            NULLIF(TRIM(raw->>'DestinationHostname'), ''),
+            NULLIF(TRIM(raw->>'DestinationIp'),       ''),
+            NULLIF(TRIM(dst_ip::text),                ''),
+            NULLIF(TRIM(raw->>'RemoteAddress'),       ''),
+            NULLIF(TRIM(raw->>'RemoteHost'),          '')
+          ) AS dst,
+          COALESCE(
+            NULLIF(raw->>'DestinationPort', ''),
+            NULLIF(raw->>'RemotePort',      ''),
+            NULLIF(raw->>'dst_port',        '')
+          ) AS port,
+          timestamp,
+          NULLIF(TRIM(raw->>'Image'), '') AS process_name
+        FROM collection_timeline
+        WHERE case_id = $1
+          ${timeFilter}
+          AND timestamp IS NOT NULL
+          AND (
+            raw->>'DestinationIp'      IS NOT NULL OR
+            raw->>'DestinationHostname' IS NOT NULL OR
+            raw->>'RemoteAddress'      IS NOT NULL OR
+            dst_ip                     IS NOT NULL
+          )
+      ),
+      with_gaps AS (
+        SELECT src, dst, port, timestamp, process_name,
+          EXTRACT(EPOCH FROM (
+            timestamp - LAG(timestamp) OVER (
+              PARTITION BY src, dst, port ORDER BY timestamp
+            )
+          )) AS gap_sec
+        FROM raw_events
+        WHERE src IS NOT NULL AND dst IS NOT NULL
+          AND src != dst AND src != 'unknown'
+      )
+      SELECT
+        src, dst, port,
+        COUNT(*)                                                    AS event_count,
+        MIN(timestamp)                                              AS first_seen,
+        MAX(timestamp)                                              AS last_seen,
+        array_agg(DISTINCT process_name)
+          FILTER (WHERE process_name IS NOT NULL)                   AS processes,
+        ROUND(AVG(gap_sec)::numeric, 1)                            AS interval_avg_sec,
+        ROUND(STDDEV(gap_sec)::numeric, 1)                         AS interval_stddev_sec,
+        ROUND(
+          CASE WHEN AVG(gap_sec) > 0
+            THEN (STDDEV(gap_sec) / AVG(gap_sec))
+            ELSE 1
+          END::numeric, 3
+        )                                                           AS cv,
+        ROUND(
+          GREATEST(0,
+            (1 - CASE WHEN AVG(gap_sec) > 0
+              THEN LEAST(STDDEV(gap_sec) / AVG(gap_sec), 1)
+              ELSE 1
+            END)
+          ) * 100
+        )::int                                                      AS beacon_score
+      FROM with_gaps
+      GROUP BY src, dst, port
+      HAVING COUNT(*) >= 5
+        AND AVG(gap_sec) > 0
+        AND STDDEV(gap_sec) / NULLIF(AVG(gap_sec), 0) < 0.35
+      ORDER BY beacon_score DESC, event_count DESC
+      LIMIT 50
+    `, params);
+
+    res.json({
+      beacons:  result.rows,
+      total:    result.rows.length,
+    });
+  } catch (err) {
+    logger.error('[network/beacons]', err);
+    res.status(500).json({ error: 'Erreur serveur' });
+  }
+});
 
 router.get('/:caseId/dga-analysis', authenticate, async (req, res) => {
   try {

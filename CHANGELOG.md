@@ -5,6 +5,113 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — Semantic Ve
 
 ---
 
+## [1.1.0] — 2026-05-05 — AI Engine Overhaul, Forensics Agents & Network Map Rebuild
+
+### Added (AI Engine — Architecture)
+
+- **`aiRouter.ts` — new Ollama orchestration layer** (`backend/src/services/aiRouter.ts`) — replaces the naive `isAvailable()` env-var check with a real HTTP probe against `/api/tags`; 60 s cached `OllamaStatus` with model tier detection (`fast` < 7 B / `standard` 7–13 B / `deep` ≥ 14 B); `selectModel(tier)` picks the best installed model for the requested tier with graceful fallback; `invalidateCache()` for admin-panel model pulls
+- **`/api/chat` migration** — replaced `/api/generate` (single-turn completion) with Ollama's `/api/chat` (messages array); conversation history (last 10 turns) is now included in every request, enabling genuine multi-turn forensics dialogue; history is fetched **before** saving the new user message to avoid duplication
+- **Qwen 3.5 thinking mode** — `/think` or `/no_think` prefix injected into the system message; the stream parser separates `<think>…</think>` tokens and emits them as `{ reasoningToken }` SSE events so the frontend can render the model's chain-of-thought in a collapsible panel
+- **SSE keepalive during inference** — a `setInterval` ping every 5 s prevents Traefik's `responseHeaderTimeout` from closing the connection before the first token on slow 14 B models
+- **`GET /llm/status`** — new endpoint returning `{ reachable, models[], tier, preferred: { fast, standard, deep } }`; admin panel now shows which model tier is active and which specific model will handle the next request
+- **Model tier detection** (`aiRouter.ts`) — parameter count parsed from model name (`qwen3.5:14b` → 14 B); `probe()` returns `preferred` map with the best available model per tier; `selectModel()` falls back gracefully when a tier is not installed
+
+### Added (AI Engine — Features)
+
+- **3 Forensics Agents** (`backend/src/services/aiService.ts`) — inspired by My_AI's domain-specific temperature-tuned agents:
+  - `triage` (temp 0.1) — verdict in 5 lines max: CRITICAL/HIGH/MEDIUM/LOW/BENIGN + MITRE ID + one action; zero creativity, maximum precision for rapid classification
+  - `analysis` (temp 0.3) — 4-section deep dive: Observation → Hypothèse → ATT&CK Techniques → Recommandations
+  - `narrative` (temp 0.5) — executive/legal-quality prose: résumé exécutif + chronological narrative + impact + recommendations; jargon explained inline
+- **Analyst Feedback / RLHF-lite** — 👍 / 👎 buttons on each completed assistant message; stored in new `ai_feedback` table (`case_id UUID`, `user_id`, `rating SMALLINT CHECK IN (-1,1)`, `agent_type`, `model`, `msg_ref`, `created_at`); togglable (click again to un-record); fires `POST /cases/:caseId/ai/feedback` asynchronously without blocking the UI
+- **Admin active-model selector** (`frontend/src/pages/AdminPage.jsx`) — new accent-bordered "Modèle actif" card above the test section; dropdown of all installed models + "Définir" button with 2.5 s "✓ Enregistré" confirmation; choice persisted to `localStorage` key `heimdall.ai.activeModel`; copilot modal initialises from this key (prefers stored value if model is still installed, falls back to first available model otherwise)
+- **Agent selector chips in copilot** (`AiCopilotModal.jsx`) — ⚡ Triage / 🔍 Analyse / 📄 Rapport chip bar in the footer; active chip highlighted in accent colour; chips disabled while streaming; `agentType` forwarded in the stream request body
+- **Default model changed to `qwen3.5:4b`** — optimised for analyst machines without a high-end GPU (3 GB VRAM, CPU-friendly); configurable via `AI_MODEL` env var; `.env.example` updated
+
+### Changed (AI Engine)
+
+- `aiService.ts` no longer imports `http` directly — all Ollama HTTP calls delegated to `aiRouter.ts`; file is now purely DFIR context-building + conversation orchestration
+- `chat()` and `chatStream()` accept two new optional parameters: `thinkingMode: ThinkingMode` (default `'no_think'`) and `agentType: AgentType` (default `'analysis'`); both endpoints in `ai.ts` destructure these from the request body
+
+### Added (MODEL_CATALOG)
+
+- `qwen3.5:4b` — tagged `recommandé`, 2.6 Go, Heimdall default
+- `qwen3.5:7b` — tagged `qualité`, 4.7 Go
+- `qwen3.5:14b` — tagged `deep`, 9 Go, thinking mode recommended
+- `qwen2.5:7b` retained as "génération précédente — stable et éprouvé"
+- New tag colour `'deep': '#e879f9'` added to `TAG_COLOR`
+
+### Added (Network Map — Bug Fixes)
+
+- **Sysmon EID 3 source IP extraction fixed** (`backend/src/routes/network.js`) — the graph query was using `raw->>'Computer'` (machine hostname) as the source IP; Sysmon EID 3 stores the actual source IP in `raw->>'SourceIp'`; the new COALESCE priority: `SourceIp → src_ip column → SourceAddress → host_name → Computer → 'local'`; this fix unblocks network graph population for every EVTX-based case
+- **`DestinationHostname` preferred over raw IP for destination nodes** — `DestinationHostname` (resolved domain name, e.g. `c2.evil.com`) is now the first option in the dst COALESCE chain; nodes show meaningful hostnames instead of raw IPs, making the graph immediately more readable for analysts
+- **`DestinationIp` / `dst_ip` column added to filter condition** — the `WHERE` clause now also triggers on the structured `dst_ip INET` column, catching parsers that populate the column directly rather than raw JSON
+
+### Added (Network Map — New Features)
+
+- **Process name on edges** — `raw->>'Image'` (Sysmon EID 3 initiating process) extracted as `process_name` and stored in `edge.processes[]` (max 5 per edge to keep payload small); displayed as a purple `⚙ powershell.exe` chip in the event list when clicking a node
+- **Time-range filter** — `from_ts` / `to_ts` ISO timestamp parameters accepted by `GET /network/:caseId/graph-data` and `GET /network/:caseId/beacons`; frontend: two `datetime-local` inputs in the graph toolbar with a clear button; changing the range re-fetches both the graph and beacons; params appended dynamically to avoid renumbering existing SQL `$N` placeholders
+- **Beaconing detection endpoint** (`GET /network/:caseId/beacons`) — CTE with `LAG()` window function computes inter-connection intervals per `(src, dst, port)` group; pairs with CV (stddev/avg) < 0.35 and ≥ 5 events returned with `beacon_score = (1 − CV) × 100`; score 95+ = clock-regular C2 beacon; includes `processes[]`, `interval_avg_sec`, `first_seen`, `last_seen`
+- **Beacon visualisation** (`NetworkGraphD3.jsx`) — beacon edges rendered in dashed orange (#f97316) instead of blue; dashed orange ring drawn around both endpoints of a beacon pair; beacon chip in node panel: `📡 beacon 91% · ∅300s`; beacon count chip in toolbar: `📡 3 beacons détectés`; beacons loaded in parallel with the graph on mount and re-fetched on time filter change
+- **DGA score on domain nodes** — `computeDgaScore()` (Shannon entropy + consonant ratio + length + digit count + pattern) called inline when building `nodeMap`; score stored as `node.dga_score`; domains scoring ≥ 70 auto-flagged `is_suspicious = true`; red dashed outer ring on domains ≥ 60; `DGA 82%` chip in node side panel
+- **Truncation warning** — `buildNetworkGraph()` returns `{ truncated: bool, limit: 500 }`; frontend shows an amber warning bar below the toolbar when the cap was hit; advises using the time filter or evidence filter to isolate a window; LIMIT raised from 300 → 500
+- **`/graph-data/events` enriched** — side panel events now include `process_name` (from `raw->>'Image'`), `dst_port`, `protocol`; node lookup also searches `src_ip::text` and `dst_ip::text` columns so Sysmon-parsed rows with structured INET columns are found correctly
+- **`networkAPI.beacons(caseId, params)`** added to `frontend/src/utils/api.js`
+
+### Database Migrations
+
+- `db/migrate_v2.27.sql` — `ALTER TABLE workbench_evidence_pins/audit ALTER COLUMN … TYPE UUID` hotfix for existing deployments (also in v1.0.0 — repeated here for completeness)
+- `ai_feedback` table — inline migration in `server.js`: `id BIGSERIAL`, `case_id UUID`, `user_id UUID`, `rating SMALLINT CHECK IN (-1,1)`, `agent_type VARCHAR(32)`, `model VARCHAR(100)`, `msg_ref TEXT`, `created_at TIMESTAMPTZ`; GIN index `idx_ai_feedback_case` on `case_id`
+
+---
+
+## [1.0.0] — 2026-05-05 — Production Hardening: Codebase Audit, Docker Stack & Traefik TLS
+
+### Fixed (Codebase Health Check — Critical)
+
+- **[C-1] DB: UUID/INTEGER type mismatch on Workbench tables** — `migrate_v2.25.sql` declared `case_id` / `pinned_by` / `actor_id` as `INTEGER` while `cases.id` and `users.id` are `UUID`; every INSERT to `workbench_evidence_pins` and `workbench_evidence_audit` threw a PostgreSQL FK violation, silently breaking the entire Evidence Bridge and hash-chain ledger; fixed column types to `UUID` in the `CREATE TABLE` blocks; new `db/migrate_v2.27.sql` applies `ALTER TABLE … ALTER COLUMN … TYPE UUID` for existing deployments
+- **[C-2] Frontend TypeScript: `react-window` undeclared + missing `@types`** — `react-window` was consumed by `ParserConsole.tsx:9` but absent from `package.json`; `@types/react-window` was not installed; `npm run typecheck` exited with code 2 (`TS7016`); added `react-window ^1.8.8` to dependencies and `@types/react-window ^1.8.8` to devDependencies; also added missing `width="100%"` prop to the `<FixedSizeList>` call (`ParserConsole.tsx:394`) which caused a second `TS2769` overload error once types were resolved; `npm run typecheck` now exits 0
+- **[C-3] Frontend: `"Bearer null"` Authorization header** — `localStorage.getItem('heimdall_token')` returns `null` when the token is absent; `Authorization: \`Bearer ${token}\`` produced the literal string `"Bearer null"` instead of an omitted header, causing hard-to-diagnose 401s; fixed with a conditional spread at both call sites (`ParserConsole.tsx:137` and `:229`)
+
+### Fixed (Codebase Health Check — High)
+
+- **[H-2] Duplicate CSS object keys in three JSX files** — `border: 'none'` + `borderTop` declared twice on the same style object in `Layout.jsx:323`; `alignItems: 'center'` declared twice in `CaseDetailPage.jsx:762`; `border: 'none'` + `border: \`1px solid …\`` declared twice in `SuperTimelineWorkbench.jsx:3037`; JS engines silently use the last value, masking intent; duplicate keys removed from all three files; Vite build no longer emits duplicate-key warnings
+- **[H-3] Stale `onSuccess` closure in `ParserConsole` socket callback** — `useCallback` for `parser:status` event closed over the `onSuccess` prop but only listed `[appendLog]` as a dependency; after a parent re-render changed `onSuccess`, the callback held a stale reference; added `onSuccess` to the dependency array (`ParserConsole.tsx:178`)
+- **[H-4] Missing `AbortController` on fetch calls in `ParserConsole`** — two fetch chains (mount-time evidence/parser list, `handleRun` button) had no abort mechanism; on component unmount mid-request, React logged state-update-on-unmounted-component warnings; added `AbortController` with `return () => controller.abort()` cleanup to the mount `useEffect`; added `runControllerRef` (aborted on re-run and on component unmount via a dedicated cleanup `useEffect`) to the `handleRun` callback; abort errors are now silently swallowed and do not trigger the error branch
+
+### Added (Docker Infrastructure Hardening)
+
+- **Backend Dockerfile multi-stage build** — split the 162-line single stage into `tool-fetcher` (downloads .NET 9, 15 Zimmerman ZIPs, Hayabusa) + `runtime` (system deps, Python, copies tools from Stage 1, Node app); Stage 1 is Docker-layer-cached independently from source code; iterative rebuild time reduced from ~20 min to ~3 min on code changes; base image remains `node:20-bookworm-slim` (Alpine incompatible with .NET 9 + tshark + yara due to musl libc)
+- **Resource limits on all 16 services** — `deploy.resources.limits` + `reservations` added to every service in `docker-compose.yml`; limits are tuned to DFIR workloads: `huginn` (BullMQ worker) 4 CPU / 8 GB, `hel-worker` (Volatility 3) 4 CPU / 12 GB, `hel-worker-yara` (YARA scan) 1 CPU / 6 GB, `odin` (backend) 2 CPU / 4 GB, `yggdrasil` (Postgres) 2 CPU / 4 GB; prevents a runaway Volatility job from OOM-killing the host
+- **Healthchecks for 5 previously unmonitored services** — `odin` (backend): `curl -sf http://localhost:4000/api/health`; `huginn` (worker): process presence check via `ps`; `bifrost` (reverse proxy): `wget http://localhost:8080/ping`; `hel-api` (volweb-backend): `curl http://localhost:8000/`; `muninn` (PgBouncer): `pg_isready`; all services now have `service_healthy` conditions wired up the dependency chain
+- **Dependency chain hardening** — `bifrost` (reverse proxy) now waits for `backend: service_healthy` and `frontend: service_healthy` before starting; `hel-worker` and `hel-worker-yarascan` now wait for `volweb-backend: service_healthy`; removes race-condition window where workers started before their upstreams were ready
+- **3-network isolation** — replaced single flat `aesir-net` with `frontend-net` (Traefik ↔ frontend only), `heimdall-net` (all Heimdall internal services), `volweb-net` (isolated VolWeb stack); `frontend` (asgard) is on `frontend-net` only and cannot reach PostgreSQL or Redis directly; `db`, `redis`, `minio` are on both `heimdall-net` and `volweb-net` as shared infrastructure
+- **PgBouncer `muninn`** — new `bitnami/pgbouncer:1.23.1` service in transaction pool mode; 200 virtual client connections multiplexed to 25 real PostgreSQL connections; `backend` and `worker` now use `DB_HOST=pgbouncer` instead of `DB_HOST=db`; prevents `max_connections` saturation under concurrent parsing + Volatility + AI analysis; VolWeb continues using `DB_HOST=db` directly (Django ORM compatibility)
+- **BullMQ queue hardening** (`backend/src/config/queue.ts`) — `attempts` raised from 1 → 3 with exponential backoff (5 s → 10 s → 20 s); `timeout: 30 * 60 * 1000` hard-kills stuck jobs after 30 minutes; `removeOnComplete` / `removeOnFail` now include TTL (`age: 86400` / `age: 7 * 86400`) preventing unbounded queue growth
+- **BullMQ job progress reporting** (`backend/src/workers/parserWorker.ts`) — `makeEmitterIO()` now intercepts `parser:status` socket events and mirrors `recordCount` into `job.updateProgress()`; BullMQ admin dashboard and future polling clients can track live ingestion progress with zero changes to `parserService.ts`
+- **Infrastructure roadmap** — `tasks/docker_infrastructure_roadmap.md` documenting all changes, resource limit table, PgBouncer rationale, and architectural pitches (Traefik TLS, Prometheus + Grafana observability)
+
+### Added (Traefik v3 — Automatic TLS)
+
+- **Traefik v3.0 replaces nginx as reverse proxy** — `bifrost` container now runs `traefik:v3.0` instead of `nginx:alpine`; static config at `docker/traefik/traefik.yml`; hot-reloaded dynamic config at `docker/traefik/dynamic/config.yml`; Docker socket mounted read-only (`:ro`) — sufficient for label discovery, improves security posture
+- **Automatic Let's Encrypt TLS** — TLS challenge resolver configured; on first start with a public domain + reachable ports 80/443, Traefik issues and renews certificates with zero manual steps; falls back silently to an internal self-signed cert for `localhost` or private networks; `letsencrypt_data` named volume persists `acme.json` across container restarts; HTTP → HTTPS permanent redirect on entrypoint `web` (:80)
+- **4-router backend routing with priorities** — `heimdall-auth` (priority 30, `PathPrefix(/api/auth)`) uses `auth-ratelimit@file` (5 req/min, burst 3 — brute-force protection); `heimdall-socket` (priority 20, `PathPrefix(/socket.io)`) has no rate limit and passes WebSocket upgrades transparently; `heimdall-api` (priority 10, `PathPrefix(/api)`) uses `api-ratelimit@file` (30 req/s, burst 50); `heimdall-frontend` (priority 1, catch-all `Host()`) serves the React SPA
+- **`heavy@file` serversTransport** — 7200 s `responseHeaderTimeout` + 3600 s `readIdleTimeout` for forensic upload operations (10 GB+ collection imports, 5 GB memory dumps, Volatility analysis triggers); all backend routes use this transport, matching the previous nginx `proxy_read_timeout 7200s` behaviour on heavy endpoints
+- **`security-headers@file` middleware** — HSTS (1 year, includeSubDomains, preload), `X-Frame-Options: SAMEORIGIN`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, `Permissions-Policy` (geolocation/mic/camera/payment/usb blocked), CSP, server identity header stripped; applied to all 4 routers
+- **TLS hardening** — `docker/traefik/dynamic/config.yml` sets TLS 1.2 minimum and a modern cipher suite (ECDHE-ECDSA/RSA + AES-256-GCM / AES-128-GCM / ChaCha20-Poly1305); disables legacy RC4 / 3DES / CBC suites
+- **Per-container network routing** — `traefik.docker.network=heimdall-net` on backend, `traefik.docker.network=frontend-net` on frontend; Traefik uses the correct IP for each container across the multi-network topology; no global network restriction needed in the Docker provider
+- **`.env.example` updated** — `DOMAIN` (default `localhost`) and `ACME_EMAIL` (default `admin@heimdall.local`) documented; production deployment requires only updating these two variables
+
+### Dependencies
+
+- `react-window ^1.8.8` added to `frontend/package.json` dependencies (was transitive-only, now explicit)
+- `@types/react-window ^1.8.8` added to `frontend/package.json` devDependencies
+
+### Database Migrations
+
+- `db/migrate_v2.27.sql` — hotfix: `ALTER TABLE workbench_evidence_pins ALTER COLUMN case_id TYPE UUID`, `ALTER COLUMN pinned_by TYPE UUID`; `ALTER TABLE workbench_evidence_audit ALTER COLUMN case_id TYPE UUID`, `ALTER COLUMN actor_id TYPE UUID`; repairs existing deployments that ran the original v2.25 migration with incorrect INTEGER FK types
+
+---
+
 ## [0.9.9] — 2026-04-19 — Automated Threat Engine & Greyware Tagging
 
 ### Added

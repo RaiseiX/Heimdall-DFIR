@@ -759,7 +759,7 @@ export default function CaseDetailPage({ user }) {
                   whiteSpace: 'nowrap', maxWidth: 180, overflow: 'hidden',
                   textOverflow: 'ellipsis', flexShrink: 0, alignSelf: 'center',
                   borderBottom: tab === 'evidence' && selEv ? '2px solid #4d82c040' : '2px solid transparent',
-                  height: '100%', alignItems: 'center',
+                  height: '100%',
                 }}>
                   <FolderOpen size={9} style={{ flexShrink: 0 }} />
                   <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{selEv.name}</span>

@@ -1,0 +1,98 @@
+http:
+  # ── Middlewares ────────────────────────────────────────────────────────────
+
+  middlewares:
+
+    # Security headers applied to ALL responses
+    security-headers:
+      headers:
+        customResponseHeaders:
+          X-Frame-Options: "SAMEORIGIN"
+          X-Content-Type-Options: "nosniff"
+          Referrer-Policy: "strict-origin-when-cross-origin"
+          Permissions-Policy: "geolocation=(), microphone=(), camera=(), payment=(), usb=()"
+          X-XSS-Protection: "1; mode=block"
+          Server: ""  # Hide Traefik/server identity
+        # HSTS — 1 year, includeSubDomains, preload
+        stsSeconds: 31536000
+        stsIncludeSubdomains: true
+        stsPreload: true
+        forceSTSHeader: true
+        contentTypeNosniff: true
+        frameDeny: true
+        # CSP: allow unsafe-inline/eval for React SPA hot reload (tighten in hardened prod)
+        contentSecurityPolicy: >-
+          default-src 'self';
+          script-src 'self' 'unsafe-inline' 'unsafe-eval';
+          style-src 'self' 'unsafe-inline';
+          img-src 'self' data: blob:;
+          font-src 'self' data:;
+          connect-src 'self' ws: wss:;
+          frame-ancestors 'self';
+
+    # General API rate limit: 30 req/s, burst 50
+    api-ratelimit:
+      rateLimit:
+        average: 30
+        burst: 50
+        period: 1s
+        sourceCriterion:
+          ipStrategy:
+            depth: 1
+
+    # Auth endpoint rate limit: 5 req/min, burst 3 — brute-force protection
+    auth-ratelimit:
+      rateLimit:
+        average: 5
+        burst: 3
+        period: 60s
+        sourceCriterion:
+          ipStrategy:
+            depth: 1
+
+    # Upload/collection rate limit: 3 req/s, burst 20 — large-file ingestion
+    upload-ratelimit:
+      rateLimit:
+        average: 3
+        burst: 20
+        period: 1s
+        sourceCriterion:
+          ipStrategy:
+            depth: 1
+
+  # ── ServersTransports ─────────────────────────────────────────────────────
+  # Referenced by backend service via:
+  #   traefik.http.services.backend-svc.loadbalancer.serverstransport=heavy@file
+
+  serversTransports:
+
+    # Standard transport for most API routes
+    standard:
+      forwardingTimeouts:
+        dialTimeout: "30s"
+        responseHeaderTimeout: "600s"
+        idleConnTimeout: "90s"
+
+    # Heavy transport for forensic ingestion endpoints:
+    #   /api/collection/  — 10 GB+ CSV imports, up to 2 hours
+    #   /api/evidence/    — 5 GB memory dumps
+    #   /api/volweb/      — Volatility analysis triggers
+    heavy:
+      forwardingTimeouts:
+        dialTimeout: "30s"
+        responseHeaderTimeout: "7200s"
+        idleConnTimeout: "3600s"
+        readIdleTimeout: "3600s"
+
+tls:
+  options:
+    default:
+      minVersion: VersionTLS12
+      cipherSuites:
+        - TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384
+        - TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384
+        - TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256
+        - TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256
+        - TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256
+        - TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256
+      sniStrict: false  # Allow self-signed fallback for local dev

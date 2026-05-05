@@ -1,29 +1,20 @@
-FROM node:20-bookworm-slim
+# ════════════════════════════════════════════════════════════════════════════
+# Stage 1 — tool-fetcher
+# Downloads .NET 9, Zimmerman tools, and Hayabusa.
+# This stage is Docker-layer-cached independently from the application code.
+# It only re-runs when tool URLs or versions change — not on every code edit.
+# ════════════════════════════════════════════════════════════════════════════
+FROM node:20-bookworm-slim AS tool-fetcher
 
-WORKDIR /app
-
-# Install system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3 \
-    python3-pip \
     curl \
     wget \
-    file \
-    libmagic1 \
     unzip \
-    p7zip-full \
-    tar \
-    gzip \
     ca-certificates \
     gnupg \
-    libicu72 \
-    python3-libscca \
-    yara \
-    tshark \
-    gosu \
     && rm -rf /var/lib/apt/lists/*
 
-# ═══ Install .NET 9 Runtime (required for Zimmerman tools net9) ═══
+# ─── .NET 9 Runtime (required by all Zimmerman tools) ───
 RUN wget -q https://dot.net/v1/dotnet-install.sh -O /tmp/dotnet-install.sh \
     && chmod +x /tmp/dotnet-install.sh \
     && /tmp/dotnet-install.sh --channel 9.0 --runtime dotnet --install-dir /usr/share/dotnet \
@@ -31,21 +22,7 @@ RUN wget -q https://dot.net/v1/dotnet-install.sh -O /tmp/dotnet-install.sh \
     && rm /tmp/dotnet-install.sh \
     && dotnet --info || echo "dotnet installed"
 
-ENV DOTNET_ROOT=/usr/share/dotnet
-ENV PATH="${PATH}:/usr/share/dotnet"
-ENV DOTNET_CLI_TELEMETRY_OPTOUT=1
-
-# ═══ Install Python forensic parsing libraries ═══
-# dissect       — Fox-IT forensic framework (Prefetch v17/v23/v30/v31 incl. Win10 MAM, SRUM, etc.)
-# dissect.esedb — ESE database reader (SrumECmd replacement on Linux)
-# python3-libscca (apt, above) — fallback prefetch reader for older formats
-RUN pip3 install --no-cache-dir --break-system-packages \
-    dissect \
-    dissect.esedb \
-    && echo "=== dissect + dissect.esedb installed ===" \
-    || echo "WARNING: dissect install failed — prefetch/srum parsers may be unavailable"
-
-# ═══ Download Zimmerman Tools (.NET 9 versions) ═══
+# ─── Zimmerman Tools (.NET 9) ───
 RUN mkdir -p /app/zimmerman-tools /tmp/ztools/extracted \
     && cd /tmp/ztools \
     && BASE="https://download.ericzimmermanstools.com/net9" \
@@ -71,32 +48,31 @@ RUN mkdir -p /app/zimmerman-tools /tmp/ztools/extracted \
         && unzip -o -q "$tool" -d /tmp/ztools/extracted/ 2>/dev/null \
         || echo "Failed: $tool (will retry via entrypoint)"; \
     done \
-    # Flatten DLLs + runtimeconfig.json to /app/zimmerman-tools/ root
     && find /tmp/ztools/extracted -name "*.dll" -exec cp -n {} /app/zimmerman-tools/ \; 2>/dev/null || true \
     && find /tmp/ztools/extracted -name "*.runtimeconfig.json" -exec cp -n {} /app/zimmerman-tools/ \; 2>/dev/null || true \
-    # Download Maps for EvtxECmd (place at {ZIMMERMAN_DIR}/Maps/*.map)
+    # EvtxECmd Maps
     && echo "Downloading EvtxECmd Maps..." \
-    && curl -fsSL -o Maps.zip "https://download.ericzimmermanstools.com/net9/EvtxECmd.zip" 2>/dev/null \
+    && curl -fsSL -o Maps.zip "$BASE/EvtxECmd.zip" 2>/dev/null \
     && mkdir -p /app/zimmerman-tools/Maps \
     && unzip -o -q Maps.zip -d /app/zimmerman-tools/Maps/ 2>/dev/null || true \
-    # Download Maps for SQLECmd (place at {ZIMMERMAN_DIR}/SQLMaps/)
+    # SQLECmd Maps
     && echo "Downloading SQLECmd Maps..." \
-    && curl -fsSL -o SQLMaps.zip "https://download.ericzimmermanstools.com/net9/SQLECmd.zip" 2>/dev/null \
+    && curl -fsSL -o SQLMaps.zip "$BASE/SQLECmd.zip" 2>/dev/null \
     && mkdir -p /app/zimmerman-tools/SQLMaps \
     && unzip -o -q SQLMaps.zip -d /app/zimmerman-tools/SQLMaps/ 2>/dev/null || true \
-    # Download RECmd Batch files
+    # RECmd BatchExamples
     && echo "Downloading RECmd BatchExamples..." \
-    && curl -fsSL -o Batch.zip "https://download.ericzimmermanstools.com/net9/RECmd.zip" 2>/dev/null \
+    && curl -fsSL -o Batch.zip "$BASE/RECmd.zip" 2>/dev/null \
     && mkdir -p /app/zimmerman-tools/BatchExamples \
     && unzip -o -q Batch.zip -d /app/zimmerman-tools/BatchExamples/ 2>/dev/null || true \
     && rm -rf /tmp/ztools \
     && echo "=== Zimmerman tools installed ===" \
     && ls /app/zimmerman-tools/*.dll 2>/dev/null | head -20 || true
 
-# ═══ Download Hayabusa (latest Linux release) ═══
+# ─── Hayabusa (Linux x64) ───
 RUN mkdir -p /app/hayabusa /tmp/hayabusa \
     && cd /tmp/hayabusa \
-    && echo "Downloading Hayabusa (latest)..." \
+    && echo "Downloading Hayabusa..." \
     && curl -fsSL -L -o hayabusa.zip \
         "https://github.com/Yamato-Security/hayabusa/releases/download/v3.8.1/hayabusa-3.8.1-lin-x64-gnu.zip" \
     && unzip -o -q hayabusa.zip -d /app/hayabusa/ \
@@ -105,8 +81,7 @@ RUN mkdir -p /app/hayabusa /tmp/hayabusa \
     && ls -la /app/hayabusa/ \
     && rm -rf /tmp/hayabusa
 
-# Normalise Hayabusa binary: always expose as /app/hayabusa/hayabusa
-# The zip may contain a versioned binary (hayabusa-2.x.x-linux-gnu-x64).
+# Normalise Hayabusa binary name → always /app/hayabusa/hayabusa
 RUN HAYABIN=$(ls /app/hayabusa/hayabusa-* 2>/dev/null | head -1) \
     && if [ -n "$HAYABIN" ]; then \
         chmod +x "$HAYABIN" \
@@ -119,44 +94,92 @@ RUN HAYABIN=$(ls /app/hayabusa/hayabusa-* 2>/dev/null | head -1) \
         echo "WARNING: Hayabusa binary not found — fallback Sigma rules will be used"; \
     fi
 
-# Download/update Hayabusa rules
+# Pre-download Hayabusa rules while in the tool-fetcher stage
 RUN if [ -x /app/hayabusa/hayabusa ]; then \
         cd /app/hayabusa \
         && /app/hayabusa/hayabusa update-rules --no-wizard 2>/dev/null \
         || echo "Rules update skipped (offline build — will update at runtime)"; \
     fi
 
+
+# ════════════════════════════════════════════════════════════════════════════
+# Stage 2 — runtime
+# Installs system deps and the Node app. Rebuilds fast on code changes because
+# the heavy tool-fetcher stage above is pulled from cache.
+# ════════════════════════════════════════════════════════════════════════════
+FROM node:20-bookworm-slim
+
+WORKDIR /app
+
+# ─── System runtime dependencies ───
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 \
+    python3-pip \
+    curl \
+    wget \
+    file \
+    libmagic1 \
+    unzip \
+    p7zip-full \
+    tar \
+    gzip \
+    ca-certificates \
+    gnupg \
+    libicu72 \
+    python3-libscca \
+    yara \
+    tshark \
+    gosu \
+    && rm -rf /var/lib/apt/lists/*
+
+# ─── Python forensic libraries ───
+RUN pip3 install --no-cache-dir --break-system-packages \
+    dissect \
+    dissect.esedb \
+    && echo "=== dissect + dissect.esedb installed ===" \
+    || echo "WARNING: dissect install failed — prefetch/srum parsers may be unavailable"
+
+# ─── Copy forensic tools from tool-fetcher (no re-download) ───
+COPY --from=tool-fetcher /usr/share/dotnet /usr/share/dotnet
+COPY --from=tool-fetcher /app/zimmerman-tools /app/zimmerman-tools
+COPY --from=tool-fetcher /app/hayabusa /app/hayabusa
+
+RUN ln -sf /usr/share/dotnet/dotnet /usr/local/bin/dotnet
+
+ENV DOTNET_ROOT=/usr/share/dotnet
+ENV PATH="${PATH}:/usr/share/dotnet"
+ENV DOTNET_CLI_TELEMETRY_OPTOUT=1
 ENV HAYABUSA_DIR=/app/hayabusa
 ENV HAYABUSA_BIN=/app/hayabusa/hayabusa
 ENV ZIMMERMAN_TOOLS_DIR=/app/zimmerman-tools
 
-# ═══ Node.js app ═══
+# ─── Node.js application (production deps only) ───
 COPY --chown=node:node package*.json ./
 RUN npm install --omit=dev --no-audit --no-fund \
     && chown -R node:node /app/node_modules
 
 COPY --chown=node:node . .
 
-# ═══ Python forensic parser scripts ═══
+# ─── Python parser scripts ───
 RUN mkdir -p /app/parsers && chmod +x /app/parsers/*.py 2>/dev/null || true \
     && chown -R node:node /app/parsers
 
+# ─── Runtime directories ───
 RUN mkdir -p /app/uploads /app/evidence /app/temp /app/collections \
     && chown -R node:node /app/uploads /app/evidence /app/temp /app/collections
 
-# Keep download script for manual re-download if needed
 COPY --chown=node:node download-zimmerman.sh /app/download-zimmerman.sh
 RUN chmod +x /app/download-zimmerman.sh
 
-# Startup entrypoint: verifies tools, downloads missing ones, then starts API
 COPY --chown=node:node entrypoint.sh /app/entrypoint.sh
 RUN chmod +x /app/entrypoint.sh
 
-# Own tool directories downloaded as root
+# Own tool directories (copied as root above, hand to node)
 RUN chown -R node:node /app/zimmerman-tools /app/hayabusa
 
-# entrypoint.sh runs as root to fix volume permissions, then drops to node via gosu.
-# This is necessary because Docker named volumes are owned by root on first creation.
+# entrypoint.sh runs as root briefly to fix volume permissions, then drops to
+# the unprivileged `node` user via gosu. This is required because Docker named
+# volumes are owned by root on first creation.
 EXPOSE 4000
 
 ENTRYPOINT ["/bin/sh", "/app/entrypoint.sh"]
