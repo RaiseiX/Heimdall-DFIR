@@ -35,39 +35,6 @@ services:
   # Routes backend + worker connections through a single pool of 25 real PG
   # connections, supporting up to 200 virtual clients. Prevents saturation of
   # PostgreSQL max_connections under concurrent parsing + VolWeb + AI analysis.
-  pgbouncer:
-    image: bitnami/pgbouncer:1.23.1
-    container_name: muninn
-    restart: unless-stopped
-    environment:
-      POSTGRESQL_HOST: db
-      POSTGRESQL_PORT: 5432
-      PGBOUNCER_DATABASE: forensiclab
-      PGBOUNCER_POOL_MODE: transaction
-      PGBOUNCER_MAX_CLIENT_CONN: 200
-      PGBOUNCER_DEFAULT_POOL_SIZE: 25
-      POSTGRESQL_USERNAME: forensiclab
-      POSTGRESQL_PASSWORD: ${DB_PASSWORD}
-    depends_on:
-      db:
-        condition: service_healthy
-    networks:
-      - heimdall-net
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -p 5432 -U forensiclab || exit 1"]
-      interval: 15s
-      timeout: 5s
-      retries: 5
-      start_period: 10s
-    deploy:
-      resources:
-        limits:
-          cpus: "0.5"
-          memory: 256m
-        reservations:
-          cpus: "0.1"
-          memory: 64m
-
   # ─── Redis Cache & Sessions ───
   redis:
     image: redis:7-alpine
@@ -107,7 +74,7 @@ services:
       NODE_ENV: production
       PORT: 4000
       # Route through PgBouncer for connection multiplexing
-      DB_HOST: pgbouncer
+      DB_HOST: db
       DB_PORT: 5432
       DB_NAME: forensiclab
       DB_USER: forensiclab
@@ -179,8 +146,7 @@ services:
     depends_on:
       db:
         condition: service_healthy
-      pgbouncer:
-        condition: service_healthy
+
       redis:
         condition: service_healthy
       elasticsearch:
@@ -488,7 +454,7 @@ services:
     environment:
       NODE_ENV: production
       # Route through PgBouncer for connection multiplexing
-      DB_HOST: pgbouncer
+      DB_HOST: db
       DB_PORT: 5432
       DB_NAME: forensiclab
       DB_USER: forensiclab
@@ -511,8 +477,7 @@ services:
     depends_on:
       db:
         condition: service_healthy
-      pgbouncer:
-        condition: service_healthy
+
       redis:
         condition: service_healthy
       elasticsearch:

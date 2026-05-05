@@ -15,7 +15,7 @@ NC='\033[0m'
 echo -e "${CYAN}"
 echo "╔══════════════════════════════════════════════════════════════╗"
 echo "║                                                              ║"
-echo "║          H E I M D A L L   D F I R   v 0 . 9 . 6           ║"
+echo "║          H E I M D A L L   D F I R   v 1 . 1 . 0           ║"
 echo "║          DFIR & Threat Hunting Workbench                     ║"
 echo "║                                                              ║"
 echo "╚══════════════════════════════════════════════════════════════╝"
@@ -23,7 +23,7 @@ echo -e "${NC}"
 
 # ─── Prerequisites ────────────────────────────────────────────────────────────
 
-echo -e "${CYAN}[1/7] Checking prerequisites...${NC}"
+echo -e "${CYAN}[1/7] Vérification des prérequis...${NC}"
 
 if ! command -v docker &>/dev/null; then
     echo -e "${RED}❌ Docker is not installed. See https://docs.docker.com/get-docker/${NC}"
@@ -99,6 +99,14 @@ else
     if ! grep -q "^VOLWEB_PUBLIC_URL=" .env; then
         echo "VOLWEB_PUBLIC_URL=http://localhost:8888" >> .env
     fi
+    if ! grep -q "^DOMAIN=" .env; then
+        echo "DOMAIN=localhost" >> .env
+        echo -e "${GREEN}  ✓ DOMAIN=localhost ajouté (Traefik routing)${NC}"
+    fi
+    if ! grep -q "^ACME_EMAIL=" .env; then
+        echo "ACME_EMAIL=admin@heimdall.local" >> .env
+        echo -e "${GREEN}  ✓ ACME_EMAIL ajouté (Let's Encrypt)${NC}"
+    fi
 fi
 
 # Read final values from .env for the summary
@@ -114,8 +122,8 @@ if grep -q "DOCKER_GID=999" .env; then
 fi
 echo -e "${GREEN}  ✓ DOCKER_GID=${DOCKER_GID_VAL}${NC}"
 
-# Create SSL directory (required even without certificates)
-mkdir -p nginx/ssl
+# Ensure Traefik dynamic config directory exists (mounted read-only into bifrost)
+mkdir -p docker/traefik/dynamic
 
 # Ensure SQL files are world-readable so the postgres user inside the
 # container can execute them (Permission denied breaks schema init).
@@ -267,8 +275,8 @@ echo -e "${GREEN}╔════════════════════
 echo -e "${GREEN}║  ✅  Heimdall DFIR is ready!                                 ║${NC}"
 echo -e "${GREEN}╠══════════════════════════════════════════════════════════════╣${NC}"
 echo -e "${GREEN}║                                                              ║${NC}"
-echo -e "${GREEN}║  🌐  Main interface   →  http://localhost                    ║${NC}"
-echo -e "${GREEN}║  📡  Backend API      →  http://localhost:4000               ║${NC}"
+echo -e "${GREEN}║  🌐  Interface        →  http://localhost  (HTTPS si DOMAIN) ║${NC}"
+echo -e "${GREEN}║  🔀  Traefik          →  http://localhost:8080/dashboard     ║${NC}"
 echo -e "${GREEN}║  🧠  VolWeb (RAM)     →  http://localhost:8888               ║${NC}"
 echo -e "${GREEN}║  🗄️  MinIO (S3)       →  http://localhost:9001               ║${NC}"
 echo -e "${GREEN}║                                                              ║${NC}"
@@ -306,7 +314,7 @@ echo ""
 echo -e "${BOLD}  Local AI (Ollama):${NC}"
 echo "    → Set OLLAMA_URL=http://ollama:11434 in .env"
 echo "    → Then: docker compose up -d ollama"
-echo "    → Pull a model: docker exec ollama ollama pull qwen3:14b"
+echo "    → Pull a model: docker exec ollama ollama pull qwen3.5:4b"
 echo ""
 echo -e "${CYAN}  Useful commands:${NC}"
 echo "    docker compose logs -f backend   # API logs"
