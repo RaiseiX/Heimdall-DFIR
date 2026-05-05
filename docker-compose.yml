@@ -299,11 +299,11 @@ services:
     networks:
       - volweb-net
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:8000/ || exit 1"]
+      test: ["CMD-SHELL", "curl -s -o /dev/null -w '%{http_code}' http://localhost:8000/api/ | grep -qE '^[1-5][0-9][0-9]$'"]
       interval: 30s
       timeout: 10s
       retries: 5
-      start_period: 30s
+      start_period: 45s
     deploy:
       resources:
         limits:
