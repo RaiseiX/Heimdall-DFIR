@@ -1,6 +1,6 @@
 #!/bin/sh
 # ╔══════════════════════════════════════════════════════════════╗
-# ║   ForensicLab — Entrypoint de vérification des outils       ║
+# ║   Heimdall DFIR — Entrypoint de vérification des outils     ║
 # ║                                                              ║
 # ║   Exécuté au démarrage du conteneur (en root).               ║
 # ║   1. Corrige les permissions des volumes Docker             ║
@@ -38,7 +38,7 @@ HAYABUSA_DIR="${HAYABUSA_DIR:-/app/hayabusa}"
 HAYABUSA_BIN="${HAYABUSA_BIN:-/app/hayabusa/hayabusa}"
 
 echo "╔══════════════════════════════════════════════╗"
-echo "║   ForensicLab — Vérification des outils      ║"
+echo "║   Heimdall DFIR — Vérification des outils    ║"
 echo "╚══════════════════════════════════════════════╝"
 
 # ─── 1. Outils Eric Zimmerman ──────────────────────────────────
@@ -128,7 +128,7 @@ fi
 
 echo ""
 echo "╔══════════════════════════════════════════════╗"
-echo "║   Démarrage ForensicLab API v0.9.7           ║"
+echo "║   Démarrage Heimdall DFIR API v1.1.0         ║"
 echo "╚══════════════════════════════════════════════╝"
 echo ""
 
