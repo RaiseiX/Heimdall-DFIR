@@ -430,6 +430,7 @@ services:
       - volweb-frontend
     networks:
       - volweb-net
+      - heimdall-net   # needed to resolve odin:4000 for /heimdall-sso/ proxy
     deploy:
       resources:
         limits:
