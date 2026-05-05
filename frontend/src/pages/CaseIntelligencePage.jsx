@@ -36,6 +36,9 @@ export default function CaseIntelligencePage({ collectionId }) {
   const [activeEvidenceIds, setActiveEvidenceIds] = useState(
     initialEvidenceIds ? initialEvidenceIds.split(',').filter(Boolean) : []
   );
+  const [fromTs, setFromTs] = useState('');
+  const [toTs,   setToTs]   = useState('');
+  const [beacons, setBeacons] = useState([]);
 
   const networkSvgRef = useRef(null);
   const attackSvgRef = useRef(null);
@@ -49,9 +52,11 @@ export default function CaseIntelligencePage({ collectionId }) {
     Promise.allSettled([
       networkAPI.graphData(id, { view: 'all' }),
       casesAPI.get(id),
-    ]).then(([graphRes, caseRes]) => {
-      if (caseRes.status === 'fulfilled') setCaseInfo(caseRes.value?.data);
-      if (graphRes.status === 'fulfilled') setGraphData(graphRes.value?.data || {});
+      networkAPI.beacons(id),
+    ]).then(([graphRes, caseRes, beaconRes]) => {
+      if (caseRes.status   === 'fulfilled') setCaseInfo(caseRes.value?.data);
+      if (graphRes.status  === 'fulfilled') setGraphData(graphRes.value?.data || {});
+      if (beaconRes.status === 'fulfilled') setBeacons(beaconRes.value?.data?.beacons || []);
     }).catch(() => {
       setError('Erreur lors du chargement');
     }).finally(() => setLoading(false));
@@ -88,16 +93,33 @@ export default function CaseIntelligencePage({ collectionId }) {
       .catch(() => {});
   }, [collectionId, id]);
 
-  const handleEvidenceFilter = useCallback(async (ids) => {
-    setActiveEvidenceIds(ids);
+  const refetchNetwork = useCallback(async (ids, from, to) => {
     setFilterLoading(true);
-    const params = ids.length > 0
-      ? { view: 'network', evidence_ids: ids.join(',') }
-      : { view: 'network' };
-    const res = await networkAPI.graphData(id, params).catch(() => null);
-    if (res?.data?.network) setGraphData(prev => ({ ...prev, network: res.data.network }));
+    const params = { view: 'network' };
+    if (ids.length > 0) params.evidence_ids = ids.join(',');
+    if (from) params.from_ts = from;
+    if (to)   params.to_ts   = to;
+    const [graphRes, beaconRes] = await Promise.allSettled([
+      networkAPI.graphData(id, params),
+      networkAPI.beacons(id, { ...(from ? { from_ts: from } : {}), ...(to ? { to_ts: to } : {}) }),
+    ]);
+    if (graphRes.status  === 'fulfilled' && graphRes.value?.data?.network)
+      setGraphData(prev => ({ ...prev, network: graphRes.value.data.network }));
+    if (beaconRes.status === 'fulfilled')
+      setBeacons(beaconRes.value?.data?.beacons || []);
     setFilterLoading(false);
   }, [id]);
+
+  const handleEvidenceFilter = useCallback((ids) => {
+    setActiveEvidenceIds(ids);
+    refetchNetwork(ids, fromTs, toTs);
+  }, [id, fromTs, toTs, refetchNetwork]);
+
+  const handleTimeFilter = useCallback((from, to) => {
+    setFromTs(from);
+    setToTs(to);
+    refetchNetwork(activeEvidenceIds, from, to);
+  }, [id, activeEvidenceIds, refetchNetwork]);
 
   const svgRefForView = { network: networkSvgRef, attack: attackSvgRef, lateral: lateralSvgRef };
 
@@ -232,6 +254,12 @@ export default function CaseIntelligencePage({ collectionId }) {
                 evidenceSources={graphData.network?.evidence_sources || []}
                 activeEvidenceIds={activeEvidenceIds}
                 onEvidenceFilter={handleEvidenceFilter}
+                beacons={beacons}
+                truncated={graphData.network?.truncated || false}
+                truncatedLimit={graphData.network?.limit || 500}
+                fromTs={fromTs}
+                toTs={toTs}
+                onTimeFilter={handleTimeFilter}
                 theme={T}
               />
             </div>

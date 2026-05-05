@@ -1,0 +1,65 @@
+global:
+  checkNewVersion: false
+  sendAnonymousUsage: false
+
+# Internal entrypoint for healthcheck and optional dashboard
+ping:
+  entryPoint: traefik
+
+api:
+  dashboard: false  # Enable with auth middleware if you need the UI
+
+entryPoints:
+  # HTTP — redirects everything to HTTPS
+  web:
+    address: ":80"
+    http:
+      redirections:
+        entryPoint:
+          to: websecure
+          scheme: https
+          permanent: true
+
+  # HTTPS — all traffic
+  websecure:
+    address: ":443"
+
+  # Internal management port (healthcheck, optional dashboard)
+  traefik:
+    address: ":8080"
+
+providers:
+  docker:
+    endpoint: "unix:///var/run/docker.sock"
+    exposedByDefault: false  # Only services with traefik.enable=true are routed
+    # No global network — each service declares traefik.docker.network=<net> in its labels
+    # so Traefik picks the correct IP across the multi-network topology.
+  file:
+    directory: /etc/traefik/dynamic  # middlewares, serversTransports
+    watch: true
+
+# Let's Encrypt — TLS challenge (works on public domains with ports 80/443 reachable)
+# For local/private networks with no public DNS: Traefik falls back to a self-signed cert.
+# Set ACME_EMAIL in .env to a real address for production certificate issuance.
+certificatesResolvers:
+  letsencrypt:
+    acme:
+      # Email is injected via CLI arg in docker-compose: --certificatesresolvers.letsencrypt.acme.email
+      storage: /letsencrypt/acme.json
+      tlsChallenge: {}
+
+log:
+  level: WARN
+  format: json
+
+accessLog:
+  format: json
+  fields:
+    headers:
+      defaultMode: drop
+      names:
+        User-Agent: keep
+        X-Forwarded-For: keep
+  filters:
+    statusCodes:
+      - "400-599"

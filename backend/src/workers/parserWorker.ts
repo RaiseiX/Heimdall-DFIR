@@ -26,11 +26,19 @@ const pool = new Pool({
 const emitterRedis = createRedisConnection();
 const emitter = new Emitter(emitterRedis);
 
-function makeEmitterIO(): IOServer {
+function makeEmitterIO(job: Job<ParserJobData>): IOServer {
   return {
     to: (room: string) => ({
       emit: (event: string, data: unknown) => {
         emitter.to(room).emit(event, data);
+        // Mirror record count into BullMQ job progress so the admin dashboard
+        // and any future polling client can track ingestion without a full socket.
+        if (event === 'parser:status') {
+          const ev = data as { recordCount?: number };
+          if (typeof ev.recordCount === 'number' && ev.recordCount > 0) {
+            job.updateProgress(ev.recordCount).catch(() => {});
+          }
+        }
       },
     }),
   } as unknown as IOServer;
@@ -107,9 +115,10 @@ const worker = new Worker<ParserJobData>(
     }
 
     try {
+      await job.updateProgress(0);
       await runParser(
         { parser, evidenceId, caseId, userId, socketId, extraArgs: extraArgs || {} },
-        makeEmitterIO(),
+        makeEmitterIO(job),
         pool,
       );
     } catch (err) {

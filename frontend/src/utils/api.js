@@ -151,6 +151,7 @@ export const networkAPI = {
     return api.post(`/network/${caseId}/import-csv`, form, { headers: { 'Content-Type': 'multipart/form-data' } });
   },
   dgaAnalysis: (caseId) => api.get(`/network/${caseId}/dga-analysis`),
+  beacons:     (caseId, params) => api.get(`/network/${caseId}/beacons`, { params }),
 };
 
 export const parsersAPI = {

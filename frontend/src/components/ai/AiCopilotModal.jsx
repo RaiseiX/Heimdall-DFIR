@@ -228,7 +228,7 @@ export default function AiCopilotModal({ caseId, caseName, isOpen, onClose, sock
   const [messages, setMessages]               = useState([]);
   const [streaming, setStreaming]             = useState(false);
   const [input, setInput]                     = useState('');
-  const [model, setModel]                     = useState('');
+  const [model, setModel]                     = useState(() => localStorage.getItem('heimdall.ai.activeModel') || '');
   const [models, setModels]                   = useState([]);
   const [loadingHistory, setLoadingHistory]   = useState(true);
   const [clearConfirm, setClearConfirm]       = useState(false);
@@ -242,6 +242,9 @@ export default function AiCopilotModal({ caseId, caseName, isOpen, onClose, sock
 
   const [collapsedThinking, setCollapsedThinking] = useState({});
   const [collapsedThink, setCollapsedThink]       = useState({});
+
+  const [agentType, setAgentType] = useState('analysis');
+  const [feedback, setFeedback]   = useState({});  // msgId → 1 | -1
 
   const abortRef       = useRef(null);
   const endRef         = useRef(null);
@@ -259,7 +262,10 @@ export default function AiCopilotModal({ caseId, caseName, isOpen, onClose, sock
     api.get('/ai/models').then(r => {
       if (r.data.available && r.data.models?.length) {
         setModels(r.data.models);
-        setModel(r.data.models[0]);
+        // Honour the admin's active-model setting if it's installed,
+        // otherwise fall back to the first available model.
+        const saved = localStorage.getItem('heimdall.ai.activeModel');
+        setModel(saved && r.data.models.includes(saved) ? saved : r.data.models[0]);
       }
     }).catch(() => {});
 
@@ -371,7 +377,7 @@ export default function AiCopilotModal({ caseId, caseName, isOpen, onClose, sock
       const res = await fetch(`/api/cases/${caseId}/ai/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ message: userMsg, model: model || undefined }),
+        body: JSON.stringify({ message: userMsg, model: model || undefined, agentType }),
         signal: controller.signal,
       });
 
@@ -625,6 +631,35 @@ export default function AiCopilotModal({ caseId, caseName, isOpen, onClose, sock
                       <MessageContent content={msg.content} hasContext={msg.hasContext} />
                     )}
                   </div>
+
+                  {/* Feedback thumbs — only on completed assistant messages */}
+                  {msg.role === 'assistant' && !msg.loading && !msg.error && msg.content && (
+                    <div style={{ display: 'flex', gap: 4, marginTop: 4, justifyContent: 'flex-end' }}>
+                      {[{ r: 1, icon: '👍' }, { r: -1, icon: '👎' }].map(({ r, icon }) => (
+                        <button
+                          key={r}
+                          onClick={() => {
+                            const next = feedback[msg.id] === r ? 0 : r;
+                            setFeedback(f => ({ ...f, [msg.id]: next }));
+                            if (next !== 0) {
+                              const token = localStorage.getItem('heimdall_token');
+                              fetch(`/api/cases/${caseId}/ai/feedback`, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                                body: JSON.stringify({ rating: r, agentType, model, msgRef: msg.created_at }),
+                              }).catch(() => {});
+                            }
+                          }}
+                          style={{
+                            background: 'none', border: 'none', cursor: 'pointer',
+                            fontSize: 11, opacity: feedback[msg.id] === r ? 1 : 0.3,
+                            transition: 'opacity 0.15s', padding: '0 2px',
+                          }}
+                          title={r === 1 ? 'Réponse utile' : 'Réponse à améliorer'}
+                        >{icon}</button>
+                      ))}
+                    </div>
+                  )}
                 </div>
               ))
             )}
@@ -639,6 +674,31 @@ export default function AiCopilotModal({ caseId, caseName, isOpen, onClose, sock
                 borderRadius: 4, color: '#3a6a9a', cursor: streaming ? 'not-allowed' : 'pointer',
                 whiteSpace: 'nowrap', opacity: streaming ? 0.5 : 1,
               }}>{qa}</button>
+            ))}
+          </div>
+
+          {/* Agent selector */}
+          <div style={{ flexShrink: 0, padding: '6px 10px 0', display: 'flex', gap: 4, alignItems: 'center' }}>
+            <span style={{ fontSize: 8, fontFamily: 'monospace', color: 'var(--fl-muted)', marginRight: 2 }}>Agent :</span>
+            {[
+              { id: 'triage',   label: '⚡ Triage',   title: 'Verdict rapide · temp 0.1' },
+              { id: 'analysis', label: '🔍 Analyse',  title: 'Analyse approfondie · temp 0.3' },
+              { id: 'narrative',label: '📄 Rapport',  title: 'Prose rapport · temp 0.5' },
+            ].map(a => (
+              <button
+                key={a.id}
+                onClick={() => setAgentType(a.id)}
+                disabled={streaming}
+                title={a.title}
+                style={{
+                  padding: '2px 7px', fontSize: 8, fontFamily: 'monospace',
+                  borderRadius: 4, cursor: streaming ? 'not-allowed' : 'pointer',
+                  background: agentType === a.id ? 'rgba(77,130,192,0.18)' : 'rgba(77,130,192,0.04)',
+                  border: `1px solid ${agentType === a.id ? 'rgba(77,130,192,0.4)' : 'var(--fl-bg)'}`,
+                  color: agentType === a.id ? 'var(--fl-accent)' : '#3a6a9a',
+                  transition: 'all 0.12s',
+                }}
+              >{a.label}</button>
             ))}
           </div>
 

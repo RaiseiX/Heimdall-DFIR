@@ -320,7 +320,7 @@ export default function Layout({ user, onLogout, onTourStart, children }) {
         </div>
 
         <button onClick={() => setCollapsed(!collapsed)}
-          style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '8px', borderTop: '1px solid var(--fl-border)', background: 'none', border: 'none', borderTop: '1px solid var(--fl-border)', cursor: 'pointer', color: 'var(--fl-subtle)', width: '100%' }}>
+          style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '8px', borderTop: '1px solid var(--fl-border)', background: 'none', cursor: 'pointer', color: 'var(--fl-subtle)', width: '100%' }}>
           {collapsed ? <ChevronRight size={13} /> : <ChevronLeft size={13} />}
         </button>
       </aside>

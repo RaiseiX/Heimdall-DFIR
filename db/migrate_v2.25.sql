@@ -5,11 +5,11 @@ BEGIN;
 
 CREATE TABLE IF NOT EXISTS workbench_evidence_pins (
   pin_id                 UUID PRIMARY KEY,
-  case_id                INTEGER NOT NULL REFERENCES cases(id) ON DELETE CASCADE,
+  case_id                UUID NOT NULL REFERENCES cases(id) ON DELETE CASCADE,
   collection_timeline_id BIGINT NULL,
   dedupe_hash            TEXT NULL,
   pinned_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
-  pinned_by              INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+  pinned_by              UUID NULL REFERENCES users(id) ON DELETE SET NULL,
   timestamp              TIMESTAMPTZ NULL,
   artifact_type          VARCHAR(64) NULL,
   tool                   VARCHAR(64) NULL,
@@ -37,9 +37,9 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_wbpins_case_ctid
 -- Each row carries a SHA-256 of (prev_hash || canonical_payload_json), forming a verifiable chain per case.
 CREATE TABLE IF NOT EXISTS workbench_evidence_audit (
   seq        BIGSERIAL PRIMARY KEY,
-  case_id    INTEGER NOT NULL REFERENCES cases(id) ON DELETE CASCADE,
+  case_id    UUID NOT NULL REFERENCES cases(id) ON DELETE CASCADE,
   pin_id     UUID NOT NULL,
-  actor_id   INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+  actor_id   UUID NULL REFERENCES users(id) ON DELETE SET NULL,
   action     VARCHAR(16) NOT NULL,       -- pin | unpin | update | clear | import
   payload    JSONB NOT NULL,             -- canonical JSON of the mutation (or full row on pin/import)
   prev_hash  CHAR(64) NULL,              -- previous row's content_hash for this case_id

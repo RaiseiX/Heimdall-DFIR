@@ -515,7 +515,20 @@ async function runMigrations() {
       )
     `);
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_ai_ctx_case ON ai_investigator_context(case_id)`);
-    logger.info('[migration] ai_conversations + ai_investigator_context OK');
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS ai_feedback (
+        id         BIGSERIAL PRIMARY KEY,
+        case_id    UUID NOT NULL REFERENCES cases(id) ON DELETE CASCADE,
+        user_id    UUID REFERENCES users(id) ON DELETE SET NULL,
+        rating     SMALLINT NOT NULL CHECK (rating IN (-1, 1)),
+        agent_type VARCHAR(32),
+        model      VARCHAR(100),
+        msg_ref    TEXT,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_ai_feedback_case ON ai_feedback(case_id)`);
+    logger.info('[migration] ai_conversations + ai_investigator_context + ai_feedback OK');
   } catch (e) {
     logger.warn('[migration] ai tables', { error: e.message });
   }
