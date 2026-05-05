@@ -449,8 +449,6 @@ services:
       network: host
     container_name: huginn
     restart: unless-stopped
-    security_opt:
-      - no-new-privileges:true
     entrypoint: ["node", "src/workers/startWorker.js"]
     environment:
       NODE_ENV: production
@@ -508,8 +506,6 @@ services:
       network: host
     container_name: asgard
     restart: unless-stopped
-    security_opt:
-      - no-new-privileges:true
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=frontend-net"
