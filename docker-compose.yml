@@ -423,8 +423,6 @@ services:
     # Bound to localhost only — VolWeb not directly accessible from external networks.
     ports:
       - "127.0.0.1:8888:80"
-    security_opt:
-      - no-new-privileges:true
     volumes:
       - ./nginx/volweb.conf:/etc/nginx/nginx.conf:ro
     depends_on:
