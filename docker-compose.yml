@@ -99,6 +99,11 @@ services:
       VOLWEB_PUBLIC_URL: ${VOLWEB_PUBLIC_URL:-http://localhost:8888}
       OLLAMA_URL: ${OLLAMA_URL:-http://ollama:11434}
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      AWS_ENDPOINT_HOST: http://minio:9000
+      AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER}
+      AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
+      S3_PUBLIC_URL: ${MINIO_PUBLIC_URL}
+
     volumes:
       - uploads_data:/app/uploads
       - zimmerman_tools:/app/zimmerman-tools
@@ -146,13 +151,13 @@ services:
     depends_on:
       db:
         condition: service_healthy
-
       redis:
         condition: service_healthy
       elasticsearch:
         condition: service_healthy
     networks:
       - heimdall-net
+      - volweb-net
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:4000/api/health || exit 1"]
       interval: 15s
@@ -233,6 +238,7 @@ services:
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      MINIO_SERVER_URL: ${MINIO_PUBLIC_URL}
     ports:
       - "9000:9000"
       - "9001:9001"
@@ -286,6 +292,7 @@ services:
       DJANGO_SUPERUSER_PASSWORD: ${VOLWEB_PASSWORD}
       DJANGO_SUPERUSER_EMAIL: admin@forensiclab.local
     volumes:
+      - volweb_static:/home/app/web/staticfiles
       - volweb_media:/home/app/web/media
       - ./docker/volweb-init.sh:/init/volweb-init.sh:ro
       - ./docker/volweb_local_settings.py:/home/app/web/backend/local_settings.py:ro
@@ -425,6 +432,7 @@ services:
       - "127.0.0.1:8888:80"
     volumes:
       - ./nginx/volweb.conf:/etc/nginx/nginx.conf:ro
+      - volweb_static:/home/app/web/staticfiles:ro 
     depends_on:
       - volweb-backend
       - volweb-frontend
@@ -545,7 +553,7 @@ services:
   # On first start with a real public domain, Traefik issues a cert automatically.
   # For localhost or private networks it falls back to an internal self-signed cert.
   traefik:
-    image: traefik:v3.0
+    image: traefik:v3.7
     container_name: bifrost
     restart: unless-stopped
     command:
@@ -624,6 +632,7 @@ volumes:
   collections_data:
   temp_data:
   volweb_media:
+  volweb_static:
   minio_data:
   backups_data:
   ollama_data:

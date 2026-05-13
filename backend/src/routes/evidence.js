@@ -35,11 +35,22 @@ const storage = multer.diskStorage({
     cb(null, dir);
   },
   filename: (req, file, cb) => {
-    const uniqueSuffix = `${Date.now()}-${crypto.randomBytes(6).toString('hex')}`;
-    cb(null, `${uniqueSuffix}-${file.originalname}`);
+    // Fichier principal : préfixe unique pour éviter les collisions
+    // Fichiers additionnels : nom original conservé (symbols, .vmsn, etc.)
+    if (file.fieldname === 'file') {
+      const uniqueSuffix = `${Date.now()}-${crypto.randomBytes(6).toString('hex')}`;
+      cb(null, `${uniqueSuffix}-${file.originalname}`);
+    } else {
+      cb(null, file.originalname);
+    }
   }
 });
-const upload = multer({ storage, limits: { fileSize: 5 * 1024 * 1024 * 1024 } });
+const upload = multer({ storage, limits: { fileSize: 32 * 1024 * 1024 * 1024 } });
+// Accepte le dump principal (field "file") + jusqu'à 10 fichiers additionnels (field "additionalFiles")
+const uploadFields = upload.fields([
+  { name: 'file', maxCount: 1 },
+  { name: 'additionalFiles', maxCount: 10 },
+]);
 
 router.get('/:caseId', authenticate, async (req, res) => {
   try {
@@ -57,11 +68,29 @@ router.get('/:caseId', authenticate, async (req, res) => {
   }
 });
 
-router.post('/:caseId/upload', authenticate, upload.single('file'), async (req, res) => {
+router.post('/:caseId/upload', authenticate, uploadFields, async (req, res) => {
   try {
-    const file = req.file;
+    const file = req.files?.['file']?.[0];
     if (!file) return res.status(400).json({ error: 'Fichier requis' });
+    const ext      = path.extname(file.filename);
+    const stem     = path.basename(file.filename, ext);  // ex: 1778-abc123-memdump
+    const dir      = path.dirname(file.path);
 
+    // Renommer les additionnels pour qu'ils aient le même stem
+    const additionalFiles = await Promise.all(
+      (req.files?.['additionalFiles'] || []).map(async (f) => {
+        const newExt  = path.extname(f.originalname);
+        const newName = `${stem}${newExt}`;
+        const newPath = path.join(dir, newName);
+        await fs.promises.rename(f.path, newPath);
+        return newPath;
+      })
+    );
+    if (additionalFiles.length) {
+      logger.info(`[Evidence] ${additionalFiles.length} fichier(s) additionnel(s) reçu(s) : ${additionalFiles.map(p => path.basename(p)).join(', ')}`);
+    }
+
+    logger.info(`Fichier : ${file.path}`)
     const hash_md5    = crypto.createHash('md5');
     const hash_sha1   = crypto.createHash('sha1');
     const hash_sha256 = crypto.createHash('sha256');
@@ -77,15 +106,23 @@ router.post('/:caseId/upload', authenticate, upload.single('file'), async (req, 
     const sha256 = hash_sha256.digest('hex');
 
     const { evidence_type, notes } = req.body;
-
+    
+    const additionalFilesMeta = (req.files?.['additionalFiles'] || []).map(f => ({
+      name: path.basename(f.path),       // nom final sur le disque (même stem que le dump)
+      original_name: f.originalname,     // nom original uploadé
+      size: f.size,
+    }));
+    
     const result = await pool.query(
-      `INSERT INTO evidence (case_id, name, original_filename, file_path, file_size, evidence_type, hash_md5, hash_sha1, hash_sha256, notes, added_by, chain_of_custody)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING *`,
+      `INSERT INTO evidence (case_id, name, original_filename, file_path, file_size, evidence_type, hash_md5, hash_sha1, hash_sha256, notes, added_by, chain_of_custody,
+      additional_files)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING *`,
       [
         req.params.caseId, file.originalname, file.originalname, file.path,
         file.size, evidence_type || 'other', md5, sha1, sha256,
         notes, req.user.id,
-        JSON.stringify([{ action: 'uploaded', user: req.user.full_name, timestamp: new Date().toISOString(), hash_sha256: sha256 }])
+        JSON.stringify([{ action: 'uploaded', user: req.user.full_name, timestamp: new Date().toISOString(), hash_sha256: sha256 }]),
+        JSON.stringify(additionalFilesMeta),
       ]
     );
 
@@ -100,14 +137,15 @@ router.post('/:caseId/upload', authenticate, upload.single('file'), async (req, 
           const osGuess = /linux/i.test(file.originalname) ? 'linux'
             : /mac|osx/i.test(file.originalname) ? 'mac' : 'windows';
           processMemoryDump({
-            filePath:       file.path,
-            caseTitle:      title,
-            caseNumber:     case_number,
-            os:             req.body.dump_os || osGuess,
-            heimdallCaseId: req.params.caseId,
-            evidenceId:     result.rows[0].id,
+            filePath:        file.path,
+            additionalFiles: additionalFiles,
+            caseTitle:       title,
+            caseNumber:      case_number,
+            os:              req.body.dump_os || osGuess,
+            heimdallCaseId:  req.params.caseId,
+            evidenceId:      result.rows[0].id,
             pool,
-            io:             req.app.locals.io,
+            io:              req.app.locals.io,
           });
         })
         .catch(e => logger.warn('[VolWeb] case lookup error:', e.message));

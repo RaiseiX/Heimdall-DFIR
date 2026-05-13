@@ -1212,9 +1212,26 @@ export default function CaseDetailPage({ user }) {
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', cursor: 'pointer' }}
                     onClick={() => { if (isExpanded) navigate(`/cases/${id}`); else navigate(`/cases/${id}/collections/${ev.id}`); }}>
                     <FolderOpen size={13} style={{ color: isParsed ? '#22c55e' : 'var(--fl-muted)', flexShrink: 0 }} />
-                    <span style={{ fontWeight: 600, fontSize: 13, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--fl-text)' }}>
-                      {ev.name}
-                    </span>
+                    <div style={{ flex: 1, overflow: 'hidden', minWidth: 0 }}>
+                      <span style={{ fontWeight: 600, fontSize: 13, color: 'var(--fl-text)', display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {ev.name}
+                      </span>
+                      {ev.additional_files?.length > 0 && (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3, marginTop: 3 }}>
+                          {ev.additional_files.map(f => (
+                            <span key={f.name} style={{
+                              fontSize: 9, fontFamily: 'monospace',
+                              background: 'rgba(139,114,214,0.08)',
+                              border: '1px solid rgba(139,114,214,0.20)',
+                              borderRadius: 3, padding: '1px 6px',
+                              color: 'var(--fl-dim)',
+                            }}>
+                              📎 {f.original_name} · {fmtSize(f.size)}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                     {isParsed ? (
                       <span style={{ fontSize: 10, fontFamily: 'monospace', padding: '2px 7px', borderRadius: 4, background: '#22c55e18', color: '#22c55e', border: '1px solid #22c55e30', flexShrink: 0 }}>
                         ✓ {recordCount > 0 ? `${recordCount.toLocaleString()} ${t('casedetail.records_short')}` : t('casedetail.analyzed')}
