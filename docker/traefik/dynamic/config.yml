@@ -27,7 +27,7 @@ http:
           style-src 'self' 'unsafe-inline';
           img-src 'self' data: blob:;
           font-src 'self' data:;
-          connect-src 'self' ws: wss:;
+          connect-src 'self' ws: wss: http: https:;
           frame-ancestors 'self';
 
     # General API rate limit: 30 req/s, burst 50
