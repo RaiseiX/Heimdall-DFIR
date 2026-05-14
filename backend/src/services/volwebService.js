@@ -427,8 +427,8 @@ async function pollEvidenceStatus({
 // ─── processMemoryDump ────────────────────────────────────────────────────────
 
 async function processMemoryDump({
-  filePath,
-  additionalFiles = [],   // chemins absolus des fichiers symbols/additionnels
+  s3ObjectKey,      // ex: "CASE-2026-004/1778757142410-04ffb84853e7-image.vmem"
+  additionalKeys = [], // object keys MinIO des fichiers additionnels, déjà uploadés
   caseTitle,
   caseNumber,
   os = 'windows',
@@ -450,97 +450,108 @@ async function processMemoryDump({
     onResult?.(err, null);
     return;
   }
-
-  if (!fs.existsSync(filePath)) {
-    const err = new Error(`Fichier introuvable : ${filePath}`);
-    logger.warn(`[VolWeb] ${err.message}`);
-    if (pool && evidenceId) {
-      await pool.query(
-        "UPDATE evidence SET volweb_status = 'error', updated_at = NOW() WHERE id = $1",
-        [evidenceId]
-      ).catch(() => {});
-    }
-    onResult?.(err, null);
-    return;
-  }
-
+ 
+  const bucket = process.env.S3_BUCKET_NAME || 'volweb';
+ 
   try {
-    logger.info(`[VolWeb] Pipeline démarré pour ${path.basename(filePath)}`);
-    if (additionalFiles.length > 0) {
-      logger.info(`[VolWeb] Fichiers additionnels (${additionalFiles.length}) : ${additionalFiles.map(f => path.basename(f)).join(', ')}`);
+    logger.info(`[VolWeb/S3] Pipeline S3 démarré pour ${s3ObjectKey}`);
+    if (additionalKeys.length > 0) {
+      logger.info(`[VolWeb/S3] Fichiers additionnels déjà dans MinIO (${additionalKeys.length}) : ${additionalKeys.join(', ')}`);
     }
-
+ 
     if (pool && evidenceId) {
       await pool.query(
         'UPDATE evidence SET volweb_status = $1, updated_at = NOW() WHERE id = $2',
-        ['uploading', evidenceId]
+        ['processing', evidenceId]
       );
     }
-
+ 
     const token  = await getAdminToken();
     const vwCase = await createVolWebCase(
       token,
       `[${caseNumber}] ${caseTitle}`,
       `Importé depuis Heimdall — ${caseNumber}`
     );
-    logger.info(`[VolWeb] Cas créé : id=${vwCase.id} name="${vwCase.name}"`);
-
+    logger.info(`[VolWeb/S3] Cas VolWeb créé/retrouvé : id=${vwCase.id} name="${vwCase.name}"`);
+ 
     if (pool && heimdallCaseId) {
       await pool.query(
         'UPDATE cases SET volweb_case_id = $1, updated_at = NOW() WHERE id = $2',
         [vwCase.id, heimdallCaseId]
       );
     }
-
-    // ── 1. Upload dump principal ─────────────────────────────────────────
-    const uploadResult = await uploadDump(token, filePath, vwCase.id, os, caseNumber);
-    const volwebEvidenceId = uploadResult?.evidence_id || uploadResult?.id;
-    if (!volwebEvidenceId)
-      throw new Error(`Upload n'a pas retourné d'evidence_id : ${JSON.stringify(uploadResult)}`);
-    logger.info(`[VolWeb] Dump uploadé : evidence_id=${volwebEvidenceId}`);
-
-    // ── 2. Upload fichiers additionnels dans le même dossier S3 ─────────
-    //    Même caseNumber → même caseFolder → même dossier dans le bucket
-    //    Ex: volweb/CASE-2026-004/memdump.vmem
-    //        volweb/CASE-2026-004/memdump.vmsn   ← même dossier
-    //        volweb/CASE-2026-004/memdump.json   ← même dossier
-    if (additionalFiles.length > 0) {
-      await uploadAdditionalFiles(additionalFiles, caseNumber);
+ 
+    // ── 1. Récupérer l'ETag du dump depuis MinIO (déjà uploadé) ──────────
+    logger.info(`[VolWeb/S3] Récupération ETag pour ${bucket}/${s3ObjectKey}…`);
+    const objStat = await getMinioClient().statObject(bucket, s3ObjectKey);
+    const etag    = objStat.etag;
+    if (!etag) throw new Error(`ETag introuvable pour "${s3ObjectKey}" dans le bucket "${bucket}"`);
+    logger.info(`[VolWeb/S3] ETag: ${etag}`);
+ 
+    // ── 2. Enregistrer l'evidence dans VolWeb ────────────────────────────
+    const filename     = path.basename(s3ObjectKey);
+    const evidenceBody = {
+      name:          filename,
+      etag,
+      os:            os.toLowerCase(),
+      linked_case:   vwCase.id,
+      source:        'MINIO',
+      endpoint:      S3_ENDPOINT,
+      url:           `s3://${bucket}/${s3ObjectKey}`,
+      access_key_id: S3_ACCESS_KEY,
+      access_key:    S3_SECRET_KEY,
+    };
+ 
+    logger.info(`[VolWeb/S3] Enregistrement evidence VolWeb pour "${filename}"…`);
+    const evidenceRes = await requestWithRetry(
+      'POST', `${VOLWEB_URL}/api/evidences/`, evidenceBody, authHeader(token)
+    );
+ 
+    if (evidenceRes.status >= 400) {
+      throw new Error(`Register evidence failed (${evidenceRes.status}): ${JSON.stringify(evidenceRes.data)}`);
     }
-
+ 
+    const volwebEvidence   = evidenceRes.data;
+    const volwebEvidenceId = volwebEvidence?.evidence_id || volwebEvidence?.id;
+    if (!volwebEvidenceId)
+      throw new Error(`VolWeb n'a pas retourné d'evidence_id : ${JSON.stringify(volwebEvidence)}`);
+ 
+    logger.info(`[VolWeb/S3] Evidence enregistrée : id=${volwebEvidenceId}`);
+ 
+    // ── 3. Mettre à jour Heimdall ────────────────────────────────────────
     if (pool && evidenceId) {
       await pool.query(
         'UPDATE evidence SET volweb_evidence_id = $1, volweb_status = $2, updated_at = NOW() WHERE id = $3',
         [volwebEvidenceId, 'processing', evidenceId]
       );
     }
-
-    // ── 3. Déclencher l'analyse ───────────────────────────────────────────
+ 
+    // ── 4. Déclencher l'analyse ───────────────────────────────────────────
     await triggerAnalysis(token, volwebEvidenceId);
-
+ 
     if (io && heimdallCaseId) {
       io.to(`case:${heimdallCaseId}`).emit('volweb:processing', {
-        caseId: heimdallCaseId,
+        caseId:          heimdallCaseId,
         evidenceId,
-        volwebCaseId: vwCase.id,
+        volwebCaseId:    vwCase.id,
         volwebEvidenceId,
-        message: 'Analyse Volatility 3 en cours…',
+        message:         'Analyse Volatility 3 en cours…',
       });
     }
-
+ 
     const volwebUrl = `${VOLWEB_PUBLIC_URL}/cases/${vwCase.id}/`;
     onResult?.(null, { volwebCaseId: vwCase.id, evidenceId: volwebEvidenceId, url: volwebUrl });
-    logger.info(`[VolWeb] Pipeline complet → ${volwebUrl}`);
-
+    logger.info(`[VolWeb/S3] Pipeline complet → ${volwebUrl}`);
+ 
     pollEvidenceStatus({
       volwebEvidenceId,
       heimdallEvidenceId: evidenceId,
       heimdallCaseId,
       pool, io,
     }).catch(e => logger.warn('[VolWeb] pollEvidenceStatus failed:', e.message));
-
+ 
   } catch (err) {
-    logger.error(`[VolWeb] Erreur pipeline : ${err?.message || String(err)}`);
+    logger.error(`[VolWeb/S3] Erreur pipeline : ${err?.message || String(err)}`);
     if (pool && evidenceId) {
       await pool.query(
         'UPDATE evidence SET volweb_status = $1, updated_at = NOW() WHERE id = $2',

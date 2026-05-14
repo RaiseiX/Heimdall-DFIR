@@ -553,7 +553,7 @@
     "legal_disable_btn":   "Lift",
     "legal_saving":        "Saving…",
     "delete_evidence_title": "Delete this exhibit?",
-    "delete_evidence_sub": "This action will delete the physical file and all associated data.",
+    "delete_evidence_sub": "This action will delete the physical file and all associated data. In the case of a memory dump, the evidence on VolWeb will remain available in order to preserve the analysis.",
     "delete_evidence_btn": "Delete",
     "deleting_evidence":   "Deleting…",
     "delete_collect_title":"Free collection data",
