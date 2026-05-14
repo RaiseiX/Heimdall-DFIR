@@ -595,7 +595,7 @@ services:
 
   # ─── Ollama (Local AI / LLM inference) ───
   ollama:
-    image: ollama/ollama:0.6.2
+    image: ollama/ollama:0.23.3
     container_name: ollama
     restart: unless-stopped
     networks:

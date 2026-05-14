@@ -23,6 +23,11 @@ entryPoints:
   # HTTPS — all traffic
   websecure:
     address: ":443"
+    transport:
+      respondingTimeouts:
+        readTimeout: "7200s"    # 2h pour lire le body (gros uploads)
+        writeTimeout: "7200s"   # 2h pour écrire la réponse
+        idleTimeout: "3600s"    # 1h pour les connexions idle
 
   # Internal management port (healthcheck, optional dashboard)
   traefik:
