@@ -269,7 +269,7 @@ router.post('/:caseId/upload-stream', authenticate, async (req, res) => {
 
       const bb = require('busboy')({
         headers: req.headers,
-        limits: { fileSize: 32 * 1024 * 1024 * 1024, files: 11 },
+        limits: { fileSize: 256 * 1024 * 1024 * 1024, files: 11 },
       });
 
       bb.on('field', (name, value) => { fields[name] = value; });
