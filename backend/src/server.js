@@ -64,8 +64,10 @@ app.set('etag', false);
 const server = http.createServer(app);
 const PORT = process.env.PORT || 4000;
 
-server.keepAliveTimeout = 75000;
-server.headersTimeout   = 76000;
+server.requestTimeout = 0;      
+server.timeout = 0;             
+server.keepAliveTimeout = 0;    
+server.headersTimeout = 0;      
 
 const io = new IOServer(server, {
   cors: {

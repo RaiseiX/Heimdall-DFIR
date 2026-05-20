@@ -553,7 +553,7 @@
     "legal_disable_btn":   "Lever",
     "legal_saving":        "Enregistrement…",
     "delete_evidence_title": "Supprimer cette pièce ?",
-    "delete_evidence_sub": "Cette action supprimera le fichier physique et toutes les données associées.",
+    "delete_evidence_sub": "Cette action supprimera le fichier physique et toutes les données associées. Dans le cas d'un dump mémoire, l'évidence sur volweb restera disponible afin de conserver l'analyse",
     "delete_evidence_btn": "Supprimer",
     "deleting_evidence":   "Suppression…",
     "delete_collect_title":"Libérer les données de collecte",
