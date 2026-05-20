@@ -31,6 +31,7 @@
 Heimdall DFIR is a **unified investigation cockpit** built for CSIRT / SOC / DFIR teams.
 It ingests, correlates and visualises any forensic source — Windows/Linux artifacts,
 network captures, RAM dumps — in a single, collaborative, real-time interface.
+Discord link : https://discord.gg/sx7DnNYMNF
 
 > ⚠️ **BETA NOTICE:** Heimdall DFIR is currently in beta. Not all features are fully functional yet, and you may encounter bugs. Use in production environments at your own risk.
 
