@@ -51,7 +51,7 @@ router.post('/run', parserRateLimiter, async (req: AuthRequest, res: Response, n
       });
     }
 
-    const job = await parserQueue.add('parse', {
+    const job = await parserQueue.add('parse' as any, {
       parser,
       evidenceId,
       caseId,

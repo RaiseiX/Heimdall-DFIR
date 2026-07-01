@@ -288,7 +288,7 @@ router.post('/yara/scan-case/:caseId', authenticate, (requireRole as any)('analy
 
       const fileMatches: any[] = [];
       for (const rule of rulesResult.rows) {
-        const scanResult = scanEvidence(ev.file_path, rule.content);
+        const scanResult = await scanEvidence(ev.file_path, rule.content);
         if (scanResult.error) {
           logger.warn(`[YARA] ${ev.name} / ${rule.name}: ${scanResult.error}`);
           continue;
@@ -736,7 +736,7 @@ router.post('/github/import', authenticate, (requireRole as any)('admin'),
         const content = await fetchText(rawUrl);
 
         if (type === 'yara') {
-          const v = validateRule(content);
+          const v = await validateRule(content);
           if (!v.valid) { skipped++; errors.push(`${ruleName}: ${v.error}`); continue; }
           await pool.query(
             `INSERT INTO yara_rules (name, description, content, author_id, tags)
@@ -794,7 +794,7 @@ function downloadZip(url: string, dest: string, hops = 0): Promise<void> {
       file.on('finish', () => file.close(() => resolve()));
       file.on('error', (e) => { cleanup(); reject(e); });
     }).on('error', (e) => { cleanup(); reject(e); })
-      .setTimeout(180_000, function () { this.destroy(); reject(new Error('Timeout téléchargement ZIP')); });
+      .setTimeout(180_000, function (this: any) { this.destroy(); reject(new Error('Timeout téléchargement ZIP')); });
   });
 }
 
@@ -861,7 +861,7 @@ router.post('/github/import-zip', authenticate, (requireRole as any)('admin'),
           const content = fs.readFileSync(filePath, 'utf8');
 
           if (type === 'yara') {
-            const v = validateRule(content);
+            const v = await validateRule(content);
             if (!v.valid) { skipped++; if (errors.length < 50) errors.push(`${ruleName}: ${v.error}`); continue; }
             await pool.query(
               `INSERT INTO yara_rules (name, description, content, author_id, tags)

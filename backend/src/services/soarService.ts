@@ -50,7 +50,7 @@ async function runYara(
   for (const ev of evRes.rows) {
     for (const rule of rulesRes.rows) {
       try {
-        const result = scanEvidence(ev.file_path, rule.content);
+        const result = await scanEvidence(ev.file_path, rule.content);
         if (!result.matched) continue;
 
         totalMatches++;
@@ -61,7 +61,7 @@ async function runYara(
           [ev.id, caseId, rule.id, rule.name, JSON.stringify(result.strings)],
         );
 
-        const existing = ruleMap.get(rule.name) || { ruleId: rule.id, evidence: [], count: 0 };
+        const existing = ruleMap.get(rule.name) || { ruleId: rule.id, evidence: [] as string[], count: 0 };
         existing.evidence.push(ev.name);
         existing.count++;
         ruleMap.set(rule.name, existing);

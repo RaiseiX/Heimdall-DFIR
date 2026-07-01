@@ -20,7 +20,7 @@ export interface ChatMessage {
 }
 
 interface CaseContext {
-  caseId:              number;
+  caseId:              string;
   caseName:            string;
   caseDescription:     string;
   caseStatus:          string;
@@ -61,7 +61,7 @@ function ragKeywords(query?: string): string[] {
   return [...new Set(words)].filter((w) => !RAG_STOPWORDS.has(w)).slice(0, 8);
 }
 
-async function retrieveRelevant(pool: Pool, caseId: number, query?: string): Promise<CaseContext['relevant']> {
+async function retrieveRelevant(pool: Pool, caseId: string, query?: string): Promise<CaseContext['relevant']> {
   const kw = ragKeywords(query);
   if (!kw.length) return null;
   const pats = kw.map((k) => `%${k}%`);
@@ -105,7 +105,7 @@ export async function resolveModel(pool: Pool, requested?: string): Promise<stri
 
 export async function getConversationHistory(
   pool: Pool,
-  caseId: number,
+  caseId: string,
   limit = MAX_HISTORY
 ): Promise<ChatMessage[]> {
   const r = await pool.query<ChatMessage>(
@@ -121,8 +121,8 @@ export async function getConversationHistory(
 
 export async function saveMessage(
   pool: Pool,
-  caseId: number,
-  userId: number,
+  caseId: string,
+  userId: string,
   role: 'user' | 'assistant',
   content: string,
   model?: string
@@ -134,13 +134,13 @@ export async function saveMessage(
   );
 }
 
-export async function clearConversationHistory(pool: Pool, caseId: number): Promise<void> {
+export async function clearConversationHistory(pool: Pool, caseId: string): Promise<void> {
   await pool.query('DELETE FROM ai_conversations WHERE case_id = $1', [caseId]);
 }
 
 export async function getInvestigatorContext(
   pool: Pool,
-  caseId: number
+  caseId: string
 ): Promise<{ freeText: string | null; updatedBy: string | null; updatedAt: string | null }> {
   const r = await pool.query(
     `SELECT ic.free_text, u.username AS updated_by, ic.updated_at
@@ -160,8 +160,8 @@ export async function getInvestigatorContext(
 
 export async function saveInvestigatorContext(
   pool: Pool,
-  caseId: number,
-  userId: number,
+  caseId: string,
+  userId: string,
   freeText: string
 ): Promise<void> {
   await pool.query(
@@ -176,11 +176,11 @@ export async function saveInvestigatorContext(
   );
 }
 
-export async function clearInvestigatorContext(pool: Pool, caseId: number): Promise<void> {
+export async function clearInvestigatorContext(pool: Pool, caseId: string): Promise<void> {
   await pool.query('DELETE FROM ai_investigator_context WHERE case_id = $1', [caseId]);
 }
 
-export async function buildCaseContext(pool: Pool, caseId: number, query?: string): Promise<CaseContext> {
+export async function buildCaseContext(pool: Pool, caseId: string, query?: string): Promise<CaseContext> {
 
   const caseRes = await pool.query(
     'SELECT id, title, description, status FROM cases WHERE id = $1',
@@ -316,9 +316,9 @@ ${fmt(ctx.notes, n => `  [${n.author}] ${n.content?.slice(0, 200) || ''}`)}
 // Each agent appends a focused directive to the shared system prompt and runs
 // at its own temperature — low for precise triage, higher for prose generation.
 
-export type AgentType = 'triage' | 'analysis' | 'narrative';
+export type AgentType = 'triage' | 'analysis' | 'narrative' | 'agentic';
 
-const AGENT_CONFIG: Record<AgentType, { temperature: number; directive: string }> = {
+const AGENT_CONFIG: Partial<Record<AgentType, { temperature: number; directive: string }>> = {
   triage: {
     temperature: 0.1,
     directive: `
@@ -356,7 +356,7 @@ function applyAgentConfig(
   system: string,
   agentType: AgentType = 'analysis'
 ): { system: string; temperature: number } {
-  const cfg = AGENT_CONFIG[agentType] ?? AGENT_CONFIG.analysis;
+  const cfg = AGENT_CONFIG[agentType] ?? AGENT_CONFIG.analysis!;
   return {
     system:      system + cfg.directive,
     temperature: cfg.temperature,
@@ -365,8 +365,8 @@ function applyAgentConfig(
 
 export async function chat(
   pool: Pool,
-  caseId: number,
-  userId: number,
+  caseId: string,
+  userId: string,
   message: string,
   model         = '',
   thinkingMode: ThinkingMode = 'no_think',
@@ -397,8 +397,8 @@ export async function chat(
 
 export async function chatStream(
   pool: Pool,
-  caseId: number,
-  userId: number,
+  caseId: string,
+  userId: string,
   message: string,
   res: import('express').Response,
   model         = '',

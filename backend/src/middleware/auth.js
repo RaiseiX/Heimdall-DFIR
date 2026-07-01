@@ -70,6 +70,7 @@ function computeAuditHmacLegacy({ user_id, action, entity_type, entity_id, detai
   return crypto.createHmac('sha256', JWT_SECRET).update(payload).digest('hex');
 }
 
+/** @param {string|null|undefined} [ipAddress] */
 async function auditLog(userId, action, entityType, entityId, details = {}, ipAddress = null) {
   try {
     const ts = new Date().toISOString();
