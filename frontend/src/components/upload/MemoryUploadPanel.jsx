@@ -8,13 +8,13 @@ const OS_OPTIONS = [
   { value: 'linux',   label: 'Linux' },
   { value: 'mac',     label: 'macOS' },
 ];
-const ADDITIONAL_ACCEPT = '.vmsn,.vmss,.pdb,.json,.xz,.zip,.gz,.isf,.lzma,.dwarf,.sym,.symbols';
 
 const ADDITIONAL_ACCEPT = '.vmsn,.vmss,.pdb,.json,.xz,.zip,.gz,.isf,.lzma,.dwarf,.sym,.symbols';
 
 function formatBytes(bytes) {
   if (bytes === 0) return '0 B';
-  const k = 1024, sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const k = 1024;
+  const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
   const i = Math.min(Math.floor(Math.log(bytes) / Math.log(k)), sizes.length - 1);
   return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
 }
@@ -41,11 +41,8 @@ export default function MemoryUploadPanel({ caseId, onDone, onClose }) {
 
   const handleFile = useCallback((f) => {
     if (!f) return;
-    const os = guessOs(f.name);
-    fileRef.current   = f;
-    dumpOsRef.current = os;
     setFile(f);
-    setDumpOs(os);
+    setDumpOs(guessOs(f.name));
     setError(null);
     setStatus('idle');
     setProgress(0);
@@ -191,7 +188,13 @@ export default function MemoryUploadPanel({ caseId, onDone, onClose }) {
           onDragLeave={onDragLeave}
           onClick={() => document.getElementById(`mem-file-input-${caseId}`)?.click()}
         >
-          <input id={`mem-file-input-${caseId}`} type="file" accept=".raw,.mem,.vmem,.dmp,.lime,.bin" style={{ display: 'none' }} onChange={e => handleFile(e.target.files?.[0])} />
+          <input
+            id={`mem-file-input-${caseId}`}
+            type="file"
+            accept=".raw,.mem,.vmem,.dmp,.lime,.bin"
+            style={{ display: 'none' }}
+            onChange={e => handleFile(e.target.files?.[0])}
+          />
           <Upload size={28} style={{ color: 'var(--fl-subtle)', marginBottom: 8 }} />
           <div style={{ fontSize: 12, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-dim)' }}>
             {t('upload.memory_drop')}
@@ -237,8 +240,8 @@ export default function MemoryUploadPanel({ caseId, onDone, onClose }) {
             >
               {opt.label}
             </button>
-          </div>
-        </>
+          ))}
+        </div>
       )}
 
       {/* Additional files (symbols, snapshots…) */}
@@ -298,8 +301,8 @@ export default function MemoryUploadPanel({ caseId, onDone, onClose }) {
               {progress}%
             </span>
           </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, fontFamily: 'monospace', color: 'var(--fl-dim)' }}>
-            <span>{statusMsg}</span><span>{progress}%</span>
+          <div style={s.progressBar}>
+            <div style={s.progressFill(progress)} />
           </div>
         </div>
       )}
