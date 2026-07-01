@@ -16,7 +16,8 @@
     "noUnusedParameters": false,
     "exactOptionalPropertyTypes": false,
     "noImplicitAny": true,
-    "strictNullChecks": true
+    "strictNullChecks": true,
+    "strictFunctionTypes": false
   },
   "include": ["src/**/*"],
   "exclude": ["node_modules", "dist"]

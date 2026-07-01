@@ -423,12 +423,12 @@ router.post('/memory/:caseId/complete', authenticate, async (req: any, res) => {
         pool.query(
           'UPDATE memory_uploads SET status = $1, error_message = $2, updated_at = NOW() WHERE id = $3',
           [uploadStatus, err?.message || null, upload_id]
-        ).catch(e => logger.warn('[MemUpload] memory_uploads update failed:', e.message));
+        ).catch((e: any) => logger.warn('[MemUpload] memory_uploads update failed:', e.message));
 
         await pool.query(
           'UPDATE evidence SET volweb_status = $1, volweb_evidence_id = $2, updated_at = NOW() WHERE id = $3',
           [volwebStatus, result?.evidenceId ?? null, evidence.id]
-        ).catch(e => logger.warn('[MemUpload] evidence update failed:', e.message));
+        ).catch((e: any) => logger.warn('[MemUpload] evidence update failed:', e.message));
 
         if (io) {
           const emitEvent = err ? 'volweb:ready' : 'volweb:processing';
@@ -610,7 +610,7 @@ router.post('/memory/:caseId/retry/:evidenceId', authenticate, async (req: any, 
         await pool.query(
           'UPDATE evidence SET volweb_status = $1, updated_at = NOW() WHERE id = $2',
           [volwebStatus, evidenceId]
-        ).catch(e => logger.warn('[VolWeb] retry onResult DB update failed:', e.message));
+        ).catch((e: any) => logger.warn('[VolWeb] retry onResult DB update failed:', e.message));
 
         if (io) {
           io.to(`case:${caseId}`).emit(err ? 'volweb:ready' : 'volweb:processing', {

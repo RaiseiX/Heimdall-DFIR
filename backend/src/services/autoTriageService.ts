@@ -51,11 +51,11 @@ function parseVerdict(text: string): {
 
 export interface AutoTriageOptions {
   pool:          Pool;
-  caseId:        number;
+  caseId:        string;
   resultId:      string;
   artifactTypes: string[];
   totalRecords:  number;
-  userId:        number;
+  userId:        string;
   io?:           any;
 }
 

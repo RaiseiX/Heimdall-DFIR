@@ -266,6 +266,7 @@ export interface SearchParams {
   end_time?:       string;
   result_id?:      string;
   evidence_id?:    string;
+  evidence_ids?:   string[];
 }
 
 export interface SearchResult {

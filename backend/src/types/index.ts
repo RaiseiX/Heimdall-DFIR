@@ -73,7 +73,8 @@ export type ParserStatus =
   | 'INIT'
   | 'RUNNING'
   | 'SUCCESS'
-  | 'FAILED';
+  | 'FAILED'
+  | 'DEGRADED';
 
 export interface ZimmermanTool {
 
