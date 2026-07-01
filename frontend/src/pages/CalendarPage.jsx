@@ -1,30 +1,26 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { ChevronLeft, ChevronRight, Calendar, AlertTriangle, Clock, FolderOpen } from 'lucide-react';
 import { useTheme } from '../utils/theme';
 import { casesAPI } from '../utils/api';
 
 const PRIORITY_COLOR = {
   critical: 'var(--fl-danger)',
-  high: '#f97316',
-  medium: '#eab308',
-  low: '#22c55e',
+  high: 'var(--fl-warn)',
+  medium: 'var(--fl-warn)',
+  low: 'var(--fl-ok)',
 };
 
-const WEEKDAYS = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'];
-const MONTHS = [
-  'Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin',
-  'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre',
-];
-
-function hoursLabel(h) {
-  if (h < 0) return 'Expiré';
-  if (h < 24) return `${Math.round(h)}h restantes`;
+function hoursLabel(h, t) {
+  if (h < 0) return t('calendar.expired');
+  if (h < 24) return `${Math.round(h)}h`;
   const d = Math.floor(h / 24);
-  return `${d}j restants`;
+  return `${d}d`;
 }
 
 export default function CalendarPage() {
+  const { t, i18n } = useTranslation();
   const T = useTheme();
   const navigate = useNavigate();
   const [deadlines, setDeadlines] = useState([]);
@@ -66,16 +62,21 @@ export default function CalendarPage() {
 
   const urgent = deadlines.filter(d => d.hours_remaining != null && d.hours_remaining < 48);
   const upcoming = deadlines.filter(d => d.hours_remaining != null && d.hours_remaining >= 48 && d.hours_remaining < 168);
+  const weekdayLabels = Array.from({ length: 7 }, (_, i) => {
+    const base = new Date(Date.UTC(2024, 0, 1 + i));
+    return new Intl.DateTimeFormat(i18n.language, { weekday: 'short' }).format(base);
+  });
+  const monthLabel = new Intl.DateTimeFormat(i18n.language, { month: 'long' }).format(new Date(viewYear, viewMonth, 1));
 
   return (
     <div className="p-6 max-w-6xl mx-auto" style={{ color: T.text }}>
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-3">
-          <Calendar size={22} style={{ color: T.accent }} />
-          <h1 className="text-xl font-semibold">Calendrier des Échéances</h1>
+          <Calendar size={20} style={{ color: 'var(--fl-accent)' }} strokeWidth={1.6} />
+          <h1 style={{ fontSize: 20, fontWeight: 600, fontFamily: 'var(--f-display, var(--f-ui))', letterSpacing: '-0.01em', margin: 0 }}>{t('calendar.title')}</h1>
         </div>
         <div className="text-sm" style={{ color: T.muted }}>
-          {deadlines.length} échéance{deadlines.length !== 1 ? 's' : ''} dans les 60 prochains jours
+          {t('calendar.count', { count: deadlines.length })}
         </div>
       </div>
 
@@ -87,7 +88,7 @@ export default function CalendarPage() {
                 <ChevronLeft size={18} />
               </button>
               <span className="font-semibold text-base">
-                {MONTHS[viewMonth]} {viewYear}
+                {monthLabel} {viewYear}
               </span>
               <button onClick={nextMonth} className="p-1.5 rounded-lg hover:opacity-70" style={{ color: T.dim }}>
                 <ChevronRight size={18} />
@@ -95,7 +96,7 @@ export default function CalendarPage() {
             </div>
 
             <div className="grid grid-cols-7 mb-1">
-              {WEEKDAYS.map(d => (
+              {weekdayLabels.map(d => (
                 <div key={d} className="text-center text-xs font-medium py-1" style={{ color: T.muted }}>{d}</div>
               ))}
             </div>
@@ -118,8 +119,8 @@ export default function CalendarPage() {
                     key={dateStr}
                     className="relative rounded-lg p-1.5 min-h-14"
                     style={{
-                      background: isToday ? `${T.accent}18` : dayDeadlines.length > 0 ? `${T.border}` : 'transparent',
-                      border: isToday ? `1px solid ${T.accent}60` : '1px solid transparent',
+                      background: isToday ? `color-mix(in srgb, ${T.accent} 9%, transparent)` : dayDeadlines.length > 0 ? `${T.border}` : 'transparent',
+                      border: isToday ? `1px solid color-mix(in srgb, ${T.accent} 38%, transparent)` : '1px solid transparent',
                     }}
                   >
                     <div className="text-xs font-medium mb-1" style={{
@@ -133,7 +134,7 @@ export default function CalendarPage() {
                         className="w-full text-left text-xs rounded px-1 py-0.5 mb-0.5 truncate"
                         title={dl.title}
                         style={{
-                          background: `${PRIORITY_COLOR[dl.priority] || '#6b7280'}22`,
+                          background: `color-mix(in srgb, ${PRIORITY_COLOR[dl.priority] || 'var(--fl-muted)'} 13%, transparent)`,
                           color: PRIORITY_COLOR[dl.priority] || T.dim,
                           fontSize: 10,
                         }}
@@ -162,11 +163,11 @@ export default function CalendarPage() {
 
         <div className="space-y-4">
           {urgent.length > 0 && (
-            <div className="rounded-xl p-4" style={{ background: '#ef444410', border: '1px solid #ef444430' }}>
+            <div className="rounded-xl p-4" style={{ background: 'color-mix(in srgb, var(--fl-danger) 6%, transparent)', border: '1px solid color-mix(in srgb, var(--fl-danger) 19%, transparent)' }}>
               <div className="flex items-center gap-2 mb-3">
                 <AlertTriangle size={15} style={{ color: 'var(--fl-danger)' }} />
                 <span className="font-semibold text-sm" style={{ color: 'var(--fl-danger)' }}>
-                  Urgents — &lt; 48h ({urgent.length})
+                  {t('calendar.urgent', { count: urgent.length })}
                 </span>
               </div>
               <div className="space-y-2">
@@ -180,7 +181,12 @@ export default function CalendarPage() {
                     <div className="flex items-center justify-between mb-0.5">
                       <span className="font-mono text-xs" style={{ color: T.accent }}>{d.case_number}</span>
                       <span className="text-xs font-semibold" style={{ color: 'var(--fl-danger)' }}>
-                        {hoursLabel(d.hours_remaining)}
+                        {(() => {
+                          const remaining = hoursLabel(d.hours_remaining, t);
+                          return remaining === t('calendar.expired')
+                            ? remaining
+                            : t('calendar.hours_left', { value: remaining });
+                        })()}
                       </span>
                     </div>
                     <div className="text-xs font-medium truncate" style={{ color: T.text }}>{d.title}</div>
@@ -194,11 +200,11 @@ export default function CalendarPage() {
           )}
 
           {upcoming.length > 0 && (
-            <div className="rounded-xl p-4" style={{ background: '#f9731610', border: '1px solid #f9731630' }}>
+            <div className="rounded-xl p-4" style={{ background: 'color-mix(in srgb, var(--fl-warn) 6%, transparent)', border: '1px solid color-mix(in srgb, var(--fl-warn) 19%, transparent)' }}>
               <div className="flex items-center gap-2 mb-3">
-                <Clock size={15} style={{ color: '#f97316' }} />
-                <span className="font-semibold text-sm" style={{ color: '#f97316' }}>
-                  Cette semaine ({upcoming.length})
+                <Clock size={15} style={{ color: 'var(--fl-warn)' }} />
+                <span className="font-semibold text-sm" style={{ color: 'var(--fl-warn)' }}>
+                  {t('calendar.week', { count: upcoming.length })}
                 </span>
               </div>
               <div className="space-y-2">
@@ -211,8 +217,8 @@ export default function CalendarPage() {
                   >
                     <div className="flex items-center justify-between mb-0.5">
                       <span className="font-mono text-xs" style={{ color: T.accent }}>{d.case_number}</span>
-                      <span className="text-xs" style={{ color: '#f97316' }}>
-                        {hoursLabel(d.hours_remaining)}
+                      <span className="text-xs" style={{ color: 'var(--fl-warn)' }}>
+                        {t('calendar.hours_left', { value: hoursLabel(d.hours_remaining, t) })}
                       </span>
                     </div>
                     <div className="text-xs font-medium truncate" style={{ color: T.text }}>{d.title}</div>
@@ -225,12 +231,12 @@ export default function CalendarPage() {
           <div className="rounded-xl p-4" style={{ background: T.panel, border: `1px solid ${T.border}` }}>
             <div className="flex items-center gap-2 mb-3">
               <FolderOpen size={15} style={{ color: T.dim }} />
-              <span className="font-semibold text-sm" style={{ color: T.text }}>Toutes les échéances</span>
+              <span className="font-semibold text-sm" style={{ color: T.text }}>{t('calendar.all_deadlines')}</span>
             </div>
             {loading ? (
-              <div className="text-xs" style={{ color: T.muted }}>Chargement…</div>
+              <div className="text-xs" style={{ color: T.muted }}>{t('common.loading')}</div>
             ) : deadlines.length === 0 ? (
-              <div className="text-xs" style={{ color: T.muted }}>Aucune échéance planifiée</div>
+              <div className="text-xs" style={{ color: T.muted }}>{t('calendar.empty')}</div>
             ) : (
               <div className="space-y-1.5 max-h-80 overflow-y-auto">
                 {deadlines.map(d => {
@@ -242,8 +248,8 @@ export default function CalendarPage() {
                       key={d.id}
                       onClick={() => navigate(`/cases/${d.id}`)}
                       className="w-full text-left flex items-center gap-2 px-2 py-1.5 rounded-md transition-opacity hover:opacity-70"
-                      style={{ borderLeft: `2px solid ${PRIORITY_COLOR[d.priority] || T.border}` }}
                     >
+                      <span style={{ width: 7, height: 7, borderRadius: 2, background: PRIORITY_COLOR[d.priority] || 'var(--fl-subtle)', flexShrink: 0 }} />
                       <div className="flex-1 min-w-0">
                         <div className="text-xs font-medium truncate" style={{ color: T.text }}>{d.title}</div>
                         <div className="text-xs" style={{ color: T.muted }}>
@@ -252,9 +258,14 @@ export default function CalendarPage() {
                         </div>
                       </div>
                       <div className="text-xs font-mono shrink-0" style={{
-                        color: isUrgent ? 'var(--fl-danger)' : isWeek ? '#f97316' : T.muted,
+                        color: isUrgent ? 'var(--fl-danger)' : isWeek ? 'var(--fl-warn)' : T.muted,
                       }}>
-                        {hoursLabel(d.hours_remaining)}
+                        {(() => {
+                          const remaining = hoursLabel(d.hours_remaining, t);
+                          return remaining === t('calendar.expired')
+                            ? remaining
+                            : t('calendar.hours_left', { value: remaining });
+                        })()}
                       </div>
                     </button>
                   );

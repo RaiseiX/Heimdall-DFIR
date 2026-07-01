@@ -49,7 +49,7 @@ const StatusBadge: React.FC<{ status: ParserStatus | null; isConnected: boolean 
   if (!isConnected)
     return (
       <span className="flex items-center gap-1 text-xs text-slate-500">
-        <WifiOff className="w-3 h-3" /> Déconnecté
+        <WifiOff className="w-3 h-3" /> Disconnected
       </span>
     );
 
@@ -57,31 +57,31 @@ const StatusBadge: React.FC<{ status: ParserStatus | null; isConnected: boolean 
     case 'INIT':
       return (
         <span className="flex items-center gap-1 text-xs text-blue-400">
-          <Loader className="w-3 h-3 animate-spin" /> Initialisation
+          <Loader className="w-3 h-3 animate-spin" /> Initializing
         </span>
       );
     case 'RUNNING':
       return (
         <span className="flex items-center gap-1 text-xs text-cyan-400">
-          <Loader className="w-3 h-3 animate-spin" /> En cours
+          <Loader className="w-3 h-3 animate-spin" /> Running
         </span>
       );
     case 'SUCCESS':
       return (
         <span className="flex items-center gap-1 text-xs text-green-400">
-          <CheckCircle className="w-3 h-3" /> Succès
+          <CheckCircle className="w-3 h-3" /> Success
         </span>
       );
     case 'FAILED':
       return (
         <span className="flex items-center gap-1 text-xs text-red-400">
-          <XCircle className="w-3 h-3" /> Échec
+          <XCircle className="w-3 h-3" /> Failed
         </span>
       );
     default:
       return (
         <span className="flex items-center gap-1 text-xs text-slate-400">
-          <Wifi className="w-3 h-3 text-green-400" /> Prêt
+          <Wifi className="w-3 h-3 text-green-400" /> Ready
         </span>
       );
   }
@@ -293,31 +293,31 @@ const ParserConsole: React.FC<ParserConsoleProps> = ({ caseId, defaultEvidenceId
       <div className="flex flex-wrap items-end gap-3 p-3 bg-slate-850 border-b border-slate-700">
         
         <div className="flex-1 min-w-36">
-          <label className="block text-xs text-slate-400 mb-1">Parseur</label>
+          <label className="block text-xs text-slate-400 mb-1">Parser</label>
           <select
             value={selectedParser}
             onChange={(e) => setSelectedParser(e.target.value)}
             disabled={isRunning}
             className="w-full bg-slate-800 border border-slate-600 rounded px-2 py-1.5 text-sm text-slate-200 focus:outline-none focus:border-cyan-500 disabled:opacity-50"
           >
-            <option value="">— Choisir —</option>
+            <option value="">— Select —</option>
             {Object.entries(availableTools).map(([key, tool]) => (
               <option key={key} value={key} disabled={!tool.available}>
-                {tool.name} {!tool.available ? '(non installé)' : ''}
+                {tool.name} {!tool.available ? '(not installed)' : ''}
               </option>
             ))}
           </select>
         </div>
 
         <div className="flex-1 min-w-48">
-          <label className="block text-xs text-slate-400 mb-1">Preuve</label>
+          <label className="block text-xs text-slate-400 mb-1">Evidence</label>
           <select
             value={selectedEvidence}
             onChange={(e) => setSelectedEvidence(e.target.value)}
             disabled={isRunning}
             className="w-full bg-slate-800 border border-slate-600 rounded px-2 py-1.5 text-sm text-slate-200 focus:outline-none focus:border-cyan-500 disabled:opacity-50"
           >
-            <option value="">— Choisir —</option>
+            <option value="">— Select —</option>
             {evidenceList.map((ev) => (
               <option key={ev.id} value={ev.id}>
                 {ev.name}
@@ -339,12 +339,12 @@ const ParserConsole: React.FC<ParserConsoleProps> = ({ caseId, defaultEvidenceId
           {isRunning ? (
             <>
               <Loader className="w-4 h-4 animate-spin" />
-              En cours…
+              Running…
             </>
           ) : (
             <>
               <Play className="w-4 h-4" />
-              Exécuter
+              Run
             </>
           )}
         </button>
@@ -362,7 +362,7 @@ const ParserConsole: React.FC<ParserConsoleProps> = ({ caseId, defaultEvidenceId
           {statusMessage}
           {recordCount !== null && (
             <span className="ml-2 font-medium">
-              — {recordCount.toLocaleString()} événements importés
+              - {recordCount.toLocaleString()} imported events
             </span>
           )}
         </div>
@@ -374,7 +374,7 @@ const ParserConsole: React.FC<ParserConsoleProps> = ({ caseId, defaultEvidenceId
           type="text"
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
-          placeholder="Filtrer les logs…"
+          placeholder="Filter logs…"
           className="flex-1 bg-transparent text-xs text-slate-300 placeholder-slate-600 outline-none"
         />
         <span className="text-xs text-slate-500">
@@ -382,15 +382,15 @@ const ParserConsole: React.FC<ParserConsoleProps> = ({ caseId, defaultEvidenceId
         </span>
         <button
           onClick={() => setAutoScroll((v) => !v)}
-          title={autoScroll ? 'Défilement auto activé' : 'Défilement auto désactivé'}
+          title={autoScroll ? 'Auto-scroll enabled' : 'Auto-scroll disabled'}
           className={`p-1 rounded ${autoScroll ? 'text-cyan-400' : 'text-slate-500'}`}
         >
           <ChevronDown className="w-3 h-3" />
         </button>
-        <button onClick={handleCopy} title="Copier" className="p-1 rounded text-slate-500 hover:text-slate-300">
+        <button onClick={handleCopy} title="Copy" className="p-1 rounded text-slate-500 hover:text-slate-300">
           <Copy className="w-3 h-3" />
         </button>
-        <button onClick={handleDownload} title="Télécharger" className="p-1 rounded text-slate-500 hover:text-slate-300">
+        <button onClick={handleDownload} title="Download" className="p-1 rounded text-slate-500 hover:text-slate-300">
           <Download className="w-3 h-3" />
         </button>
       </div>
@@ -399,8 +399,8 @@ const ParserConsole: React.FC<ParserConsoleProps> = ({ caseId, defaultEvidenceId
         {displayedLogs.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-slate-600 text-sm gap-2">
             <Terminal className="w-8 h-8" />
-            <p>En attente d'exécution…</p>
-            <p className="text-xs text-slate-700">Sélectionnez un parseur et une preuve, puis cliquez sur Exécuter</p>
+            <p>Waiting for execution…</p>
+            <p className="text-xs text-slate-700">Select a parser and evidence, then click Run</p>
           </div>
         ) : (
           <VirtualList
@@ -424,15 +424,15 @@ const ParserConsole: React.FC<ParserConsoleProps> = ({ caseId, defaultEvidenceId
       <div className="flex items-center justify-between px-3 py-1 bg-slate-800 border-t border-slate-700 text-xs text-slate-500">
         <span>
           Socket: <span className={isConnected ? 'text-green-400' : 'text-red-400'}>
-            {isConnected ? socketId?.slice(0, 8) + '…' : 'Déconnecté'}
+            {isConnected ? socketId?.slice(0, 8) + '…' : 'Disconnected'}
           </span>
         </span>
         {resultId && (
           <span>
-            Résultat: <span className="text-slate-300 font-mono">{resultId.slice(0, 8)}</span>
+            Result: <span className="text-slate-300 font-mono">{resultId.slice(0, 8)}</span>
           </span>
         )}
-        <span>{logs.length.toLocaleString()} lignes</span>
+        <span>{logs.length.toLocaleString()} lines</span>
       </div>
     </div>
   );

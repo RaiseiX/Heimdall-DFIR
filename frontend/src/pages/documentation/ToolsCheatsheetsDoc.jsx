@@ -1,6 +1,11 @@
 import { useState, useMemo } from 'react';
-import { Copy, CheckCheck, ChevronDown, ChevronRight } from 'lucide-react';
+import { Copy, CheckCheck, ChevronDown, ChevronRight, Sparkles, Search } from 'lucide-react';
 import { useTheme } from '../../utils/theme';
+
+function askAi(tool) {
+  const prompt = `Explique l'outil DFIR « ${tool.name} » : à quoi il sert, ses commandes clés et comment l'utiliser dans une investigation forensique.`;
+  window.dispatchEvent(new CustomEvent('heimdall:ai-open', { detail: { prompt } }));
+}
 
 function CopyBtn({ text }) {
   const [ok, setOk] = useState(false);
@@ -10,10 +15,10 @@ function CopyBtn({ text }) {
       style={{
         display: 'inline-flex', alignItems: 'center', gap: 3,
         padding: '2px 6px', borderRadius: 4, cursor: 'pointer',
-        fontSize: 9, fontFamily: 'monospace', flexShrink: 0,
-        background: ok ? '#22c55e18' : 'var(--fl-card)',
-        color: ok ? '#22c55e' : 'var(--fl-dim)',
-        border: `1px solid ${ok ? '#22c55e40' : 'var(--fl-border)'}`,
+        fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', flexShrink: 0,
+        background: ok ? 'color-mix(in srgb, var(--fl-ok) 9%, transparent)' : 'var(--fl-card)',
+        color: ok ? 'var(--fl-ok)' : 'var(--fl-dim)',
+        border: `1px solid ${ok ? 'color-mix(in srgb, var(--fl-ok) 25%, transparent)' : 'var(--fl-border)'}`,
       }}>
       {ok ? <CheckCheck size={9} /> : <Copy size={9} />}
     </button>
@@ -460,9 +465,10 @@ const TOOLS = [
 
 const CATEGORIES = ['Tous', 'Mémoire', 'Windows Artifacts', 'Log Analysis', 'Acquisition', 'DFIR Platform', 'Monitoring', 'Timeline'];
 
-function ToolCard({ tool, search }) {
+function ToolCard({ tool, search, compact }) {
   const T = useTheme();
   const [open, setOpen] = useState(false);
+  const [hover, setHover] = useState(false);
   const [activeSection, setActiveSection] = useState(0);
 
   const matches = useMemo(() => {
@@ -476,33 +482,50 @@ function ToolCard({ tool, search }) {
   if (!matches) return null;
 
   return (
-    <div style={{ border: '1px solid var(--fl-border)', borderRadius: 8, overflow: 'hidden', marginBottom: 10 }}>
+    <div
+      onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}
+      style={{
+        border: `1px solid ${open || hover ? 'color-mix(in srgb, var(--fl-accent) 30%, var(--fl-border))' : 'var(--fl-border)'}`,
+        borderRadius: 10, overflow: 'hidden', marginBottom: compact ? 6 : 8, background: 'var(--fl-panel)', transition: 'border-color 0.14s',
+      }}>
       <button onClick={() => setOpen(o => !o)} className="w-full text-left"
-        style={{ padding: '12px 16px', background: 'var(--fl-card)', border: 'none', cursor: 'pointer', display: 'block', width: '100%' }}>
+        style={{ padding: compact ? '8px 14px' : '12px 16px', background: 'transparent', border: 'none', cursor: 'pointer', display: 'block', width: '100%' }}>
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, flexWrap: 'wrap' }}>
-            <span style={{ fontSize: 15 }}>{tool.icon}</span>
-            <span style={{ fontFamily: 'monospace', fontWeight: 700, fontSize: 13, color: T.text }}>{tool.name}</span>
-            <span style={{ fontFamily: 'monospace', fontSize: 8, padding: '1px 5px', borderRadius: 3,
-              background: 'var(--fl-panel)', color: T.dim, border: '1px solid var(--fl-border)' }}>{tool.version}</span>
-            <span style={{ fontFamily: 'monospace', fontSize: 9, padding: '1px 6px', borderRadius: 3,
+            {open
+              ? <ChevronDown size={14} style={{ color: 'var(--fl-accent)', flexShrink: 0, marginTop: 1 }} />
+              : <ChevronRight size={14} style={{ color: hover ? 'var(--fl-dim)' : 'var(--fl-muted)', flexShrink: 0, marginTop: 1, transition: 'color 0.12s' }} />}
+            <span style={{ fontSize: 14 }}>{tool.icon}</span>
+            <span style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontWeight: 700, fontSize: compact ? 12 : 13, color: 'var(--fl-text)' }}>{tool.name}</span>
+            <span style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 8, padding: '1px 5px', borderRadius: 3,
+              background: 'var(--fl-bg)', color: 'var(--fl-muted)', border: '1px solid var(--fl-border)' }}>{tool.version}</span>
+            <span style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 9, padding: '1px 6px', borderRadius: 3,
               background: 'color-mix(in srgb, var(--fl-accent) 12%, transparent)',
               color: 'var(--fl-accent)', border: '1px solid color-mix(in srgb, var(--fl-accent) 30%, transparent)' }}>
               {tool.category}
             </span>
           </div>
-          {open ? <ChevronDown size={13} style={{ color: T.dim, flexShrink: 0, marginTop: 2 }} /> : <ChevronRight size={13} style={{ color: T.dim, flexShrink: 0, marginTop: 2 }} />}
+          <button onClick={(e) => { e.stopPropagation(); askAi(tool); }} title="Demander à l'IA"
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 7px', borderRadius: 6, flexShrink: 0,
+              fontSize: 9.5, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', cursor: 'pointer',
+              background: 'transparent', color: hover ? 'var(--fl-accent)' : 'var(--fl-muted)',
+              border: `1px solid ${hover ? 'color-mix(in srgb, var(--fl-accent) 30%, transparent)' : 'var(--fl-border)'}`,
+              transition: 'all 0.12s', opacity: hover || open ? 1 : 0.55,
+            }}>
+            <Sparkles size={10} /> IA
+          </button>
         </div>
-        <p style={{ fontSize: 11, marginTop: 5, marginLeft: 22, color: T.muted, fontFamily: 'monospace', lineHeight: 1.5 }}>{tool.desc}</p>
+        <p style={{ fontSize: 11, marginTop: 5, marginLeft: 22, color: 'var(--fl-muted)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', lineHeight: 1.5 }}>{tool.desc}</p>
       </button>
 
       {open && (
-        <div style={{ background: T.bg, padding: '14px 16px' }}>
+        <div style={{ background: 'var(--fl-bg)', padding: '14px 16px', borderTop: '1px solid var(--fl-border)' }}>
           {/* Install */}
           <div style={{ marginBottom: 14 }}>
-            <div style={{ fontFamily: 'monospace', fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--fl-accent)', marginBottom: 7 }}>Installation / Référence</div>
+            <div style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--fl-accent)', marginBottom: 7 }}>Installation / Référence</div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 9px', borderRadius: 4, background: T.panel, border: '1px solid var(--fl-border)' }}>
-              <code style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--fl-ok)', flex: 1, lineHeight: 1.5 }}>{tool.install}</code>
+              <code style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11, color: 'var(--fl-ok)', flex: 1, lineHeight: 1.5 }}>{tool.install}</code>
               <CopyBtn text={tool.install} />
             </div>
           </div>
@@ -512,7 +535,7 @@ function ToolCard({ tool, search }) {
             {tool.sections.map((s, i) => (
               <button key={i} onClick={() => setActiveSection(i)}
                 style={{
-                  fontFamily: 'monospace', fontSize: 9, padding: '2px 8px', borderRadius: 4,
+                  fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 9, padding: '2px 8px', borderRadius: 4,
                   cursor: 'pointer', border: '1px solid',
                   background: activeSection === i ? 'color-mix(in srgb, var(--fl-accent) 18%, transparent)' : 'var(--fl-card)',
                   color: activeSection === i ? 'var(--fl-accent)' : T.dim,
@@ -528,7 +551,7 @@ function ToolCard({ tool, search }) {
             {tool.sections[activeSection].cmds.map((cmd, i) => (
               <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '5px 9px', borderRadius: 4,
                 background: T.panel, border: '1px solid var(--fl-border)' }}>
-                <code style={{ fontFamily: 'monospace', fontSize: 11, color: cmd.startsWith('#') ? T.dim : 'var(--fl-ok)', wordBreak: 'break-all', flex: 1, lineHeight: 1.5 }}>{cmd}</code>
+                <code style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11, color: cmd.startsWith('#') ? T.dim : 'var(--fl-ok)', wordBreak: 'break-all', flex: 1, lineHeight: 1.5 }}>{cmd}</code>
                 {!cmd.startsWith('#') && !cmd.startsWith('https://') && <CopyBtn text={cmd} />}
               </div>
             ))}
@@ -539,9 +562,11 @@ function ToolCard({ tool, search }) {
   );
 }
 
+export const DOC_INDEX = TOOLS.map(t => ({ title: t.name, sub: t.category }));
+
 export default function ToolsCheatsheetsDoc({ search }) {
-  const T = useTheme();
   const [catFilter, setCatFilter] = useState('Tous');
+  const [compact, setCompact] = useState(false);
 
   const filtered = useMemo(() => {
     return TOOLS.filter(t => {
@@ -555,40 +580,48 @@ export default function ToolsCheatsheetsDoc({ search }) {
   }, [search, catFilter]);
 
   return (
-    <div style={{ padding: '24px 28px', maxWidth: 960 }}>
-      <div style={{ marginBottom: 14 }}>
-        <h1 style={{ fontFamily: 'monospace', fontSize: 16, fontWeight: 700, color: T.text, marginBottom: 3 }}>Cheatsheets Outils DFIR</h1>
-        <p style={{ fontFamily: 'monospace', fontSize: 11, color: T.muted }}>
+    <div style={{ padding: '26px 34px', maxWidth: 960 }}>
+      <div style={{ marginBottom: 18 }}>
+        <h1 style={{ fontFamily: 'var(--f-display, "Space Grotesk", "Inter", sans-serif)', fontSize: 26, fontWeight: 600, letterSpacing: '-0.02em', color: 'var(--fl-text)', margin: 0 }}>
+          Cheatsheets Outils DFIR
+        </h1>
+        <p style={{ fontSize: 13, color: 'var(--fl-dim)', marginTop: 5, fontFamily: 'var(--f-ui, "Inter", sans-serif)' }}>
           {search || catFilter !== 'Tous'
             ? `${filtered.length} outil${filtered.length !== 1 ? 's' : ''} trouvé${filtered.length !== 1 ? 's' : ''}`
-            : `${TOOLS.length} outils — Volatility · EZTools · Hayabusa · Chainsaw · KAPE · Velociraptor · Sysmon · Plaso`}
+            : `${TOOLS.length} outils · Volatility · EZTools · Hayabusa · Chainsaw · KAPE · Velociraptor · Plaso`}
         </p>
       </div>
 
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 16 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 22, paddingBottom: 16, borderBottom: '1px solid var(--fl-border)' }}>
         {CATEGORIES.map(c => {
           const active = catFilter === c;
           const count = c === 'Tous' ? TOOLS.length : TOOLS.filter(t => t.category === c).length;
           return (
-            <button key={c} onClick={() => setCatFilter(c)}
-              style={{
-                fontFamily: 'monospace', fontSize: 10, padding: '3px 8px', borderRadius: 4,
-                cursor: 'pointer', border: '1px solid',
-                background: active ? 'color-mix(in srgb, var(--fl-gold) 18%, transparent)' : 'var(--fl-card)',
-                color: active ? 'var(--fl-gold)' : T.dim,
-                borderColor: active ? 'color-mix(in srgb, var(--fl-gold) 45%, transparent)' : T.border,
-              }}>
-              {c} ({count})
-            </button>
+            <button key={c} onClick={() => setCatFilter(c)} style={{
+              padding: '5px 11px', borderRadius: 999, cursor: 'pointer',
+              fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10.5, letterSpacing: '0.02em',
+              background: active ? 'color-mix(in srgb, var(--fl-accent) 12%, transparent)' : 'transparent',
+              border: `1px solid ${active ? 'color-mix(in srgb, var(--fl-accent) 28%, transparent)' : 'var(--fl-border)'}`,
+              color: active ? 'var(--fl-accent)' : 'var(--fl-muted)', transition: 'all 0.12s',
+            }}>{c} <span style={{ opacity: 0.6 }}>{count}</span></button>
           );
         })}
+        <div style={{ flex: 1 }} />
+        <button onClick={() => setCompact(v => !v)} title="Affichage compact" style={{
+          display: 'inline-flex', alignItems: 'center', gap: 6, padding: '5px 11px', borderRadius: 8, cursor: 'pointer',
+          fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11,
+          background: compact ? 'color-mix(in srgb, var(--fl-accent) 12%, transparent)' : 'transparent',
+          border: `1px solid ${compact ? 'color-mix(in srgb, var(--fl-accent) 30%, transparent)' : 'var(--fl-border)'}`,
+          color: compact ? 'var(--fl-accent)' : 'var(--fl-dim)',
+        }}>{compact ? 'Compact' : 'Confort'}</button>
       </div>
 
-      {filtered.map(t => <ToolCard key={t.id} tool={t} search={search} />)}
+      {filtered.map(t => <ToolCard key={t.id} tool={t} search={search} compact={compact} />)}
 
       {filtered.length === 0 && (
-        <div style={{ textAlign: 'center', padding: '60px 0', color: T.muted }}>
-          <p style={{ fontFamily: 'monospace', fontSize: 13 }}>Aucun outil ne correspond à "{search}"</p>
+        <div style={{ textAlign: 'center', padding: '64px 0', color: 'var(--fl-muted)' }}>
+          <Search size={28} style={{ opacity: 0.35, marginBottom: 10 }} />
+          <p style={{ fontSize: 13, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}>Aucun outil ne correspond à « {search} »</p>
         </div>
       )}
     </div>

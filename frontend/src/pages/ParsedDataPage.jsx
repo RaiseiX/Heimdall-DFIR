@@ -5,19 +5,20 @@ import {
   Table2, FolderOpen, ChevronDown, Loader2, FileText,
   Calendar, Hash, User, Info,
 } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 const PARSER_COLORS = {
   mft:      'var(--fl-purple)',
-  prefetch: '#22c55e',
+  prefetch: 'var(--fl-ok)',
   evtx:     'var(--fl-accent)',
   lnk:      'var(--fl-warn)',
   registry: 'var(--fl-pink)',
   amcache:  'var(--fl-gold)',
-  appcompat:'#f59e0b',
-  shellbags:'#06b6d4',
-  jumplist: '#8b5cf6',
-  srum:     '#f43f5e',
-  wxtcmd:   '#d946ef',
+  appcompat:'var(--fl-warn)',
+  shellbags:'var(--fl-purple)',
+  jumplist: 'var(--fl-accent)',
+  srum:     'var(--fl-danger)',
+  wxtcmd:   'var(--fl-pink)',
   hayabusa: 'var(--fl-danger)',
 };
 
@@ -26,12 +27,12 @@ function parserColor(name) {
   return PARSER_COLORS[key] || 'var(--fl-dim)';
 }
 
-function fmtDate(iso) {
+function fmtDate(iso, locale) {
   if (!iso) return '-';
   try {
     const d = new Date(iso);
-    return d.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' })
-      + ' ' + d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+    return d.toLocaleDateString(locale, { day: '2-digit', month: '2-digit', year: 'numeric' })
+      + ' ' + d.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' });
   } catch { return iso; }
 }
 
@@ -40,14 +41,14 @@ function ParserBadge({ name }) {
   return (
     <span
       className="px-2 py-0.5 rounded text-xs font-mono font-bold"
-      style={{ background: `${col}18`, color: col, border: `1px solid ${col}30` }}
+      style={{ background: `color-mix(in srgb, ${col} 9%, transparent)`, color: col, border: `1px solid color-mix(in srgb, ${col} 19%, transparent)` }}
     >
       {name}
     </span>
   );
 }
 
-function ResultItem({ result, selected, onSelect, T }) {
+function ResultItem({ result, selected, onSelect, T, t, locale }) {
   const col = parserColor(result.parser_name);
   const isSelected = selected?.id === result.id;
   return (
@@ -55,7 +56,7 @@ function ResultItem({ result, selected, onSelect, T }) {
       onClick={() => onSelect(result)}
       className="w-full text-left px-3 py-3 rounded-lg transition-all"
       style={{
-        background: isSelected ? `${col}10` : 'transparent',
+        background: isSelected ? `color-mix(in srgb, ${col} 6%, transparent)` : 'transparent',
         border: `1px solid ${isSelected ? col + '40' : T.border}`,
         marginBottom: 4,
       }}
@@ -63,24 +64,24 @@ function ResultItem({ result, selected, onSelect, T }) {
       <div className="flex items-center justify-between gap-2 mb-1">
         <ParserBadge name={result.parser_name} />
         <span className="text-xs font-mono" style={{ color: T.dim }}>
-          {result.record_count?.toLocaleString() ?? 0} lignes
+          {result.record_count?.toLocaleString() ?? 0} {t('parsedData.rows')}
         </span>
       </div>
       <div className="text-xs truncate" style={{ color: T.text }}>
         {result.evidence_name || '—'}
       </div>
       <div className="text-xs mt-0.5" style={{ color: T.muted ?? T.dim }}>
-        {fmtDate(result.created_at)} · {result.parsed_by || 'system'}
+        {fmtDate(result.created_at, locale)} · {result.parsed_by || 'system'}
       </div>
     </button>
   );
 }
 
-function DataTable({ records, T }) {
+function DataTable({ records, T, t }) {
   if (!records || records.length === 0) {
     return (
       <div className="text-center py-10 text-sm" style={{ color: T.dim }}>
-        Aucune donnée pour cette page.
+        {t('parsedData.empty_page')}
       </div>
     );
   }
@@ -110,8 +111,8 @@ function DataTable({ records, T }) {
             <tr
               key={i}
               style={{
-                borderBottom: `1px solid ${T.border}20`,
-                background: i % 2 === 0 ? 'transparent' : `${T.panel ?? '#0b101a'}80`,
+                borderBottom: `1px solid color-mix(in srgb, ${T.border} 13%, transparent)`,
+                background: i % 2 === 0 ? 'transparent' : `color-mix(in srgb, ${T.panel ?? 'var(--fl-panel)'} 50%, transparent)`,
               }}
             >
               {columns.map(col => {
@@ -144,6 +145,7 @@ function DataTable({ records, T }) {
 
 export default function ParsedDataPage() {
   const T = useTheme();
+  const { t, i18n } = useTranslation();
 
   const [cases, setCases]               = useState([]);
   const [caseId, setCaseId]             = useState('');
@@ -201,7 +203,7 @@ export default function ParsedDataPage() {
         setTotal(data.total || 0);
       })
       .catch(() => {
-        setDataError('Impossible de charger les données. Vérifiez la connexion.');
+        setDataError(t('parsedData.load_data_error'));
         setRecords([]);
         setTotal(0);
       })
@@ -217,9 +219,9 @@ export default function ParsedDataPage() {
         <div>
           <h1 className="fl-header-title">
             <Table2 size={20} className="inline mr-2" style={{ color: T.accent, verticalAlign: 'text-bottom' }} />
-            Données Parsées
+            {t('parsedData.title')}
           </h1>
-          <p className="fl-header-sub">Visualisation des artefacts parsés par cas forensique</p>
+          <p className="fl-header-sub">{t('parsedData.subtitle')}</p>
         </div>
       </div>
 
@@ -229,16 +231,16 @@ export default function ParsedDataPage() {
           style={{ color: T.dim }}
         >
           <FolderOpen size={12} className="inline mr-1" />
-          Dossier d'investigation (isolation des données)
+          {t('parsedData.case_label')}
         </label>
 
         {loadingCases ? (
           <div className="flex items-center gap-2 text-sm" style={{ color: T.dim }}>
-            <Loader2 size={14} className="animate-spin" /> Chargement des cas…
+            <Loader2 size={14} className="animate-spin" /> {t('parsedData.loading_cases')}
           </div>
         ) : cases.length === 0 ? (
           <span className="text-sm" style={{ color: 'var(--fl-danger)' }}>
-            Aucun cas disponible. Créez un cas d'abord.
+            {t('parsedData.no_cases')}
           </span>
         ) : (
           <div className="relative">
@@ -267,10 +269,9 @@ export default function ParsedDataPage() {
         )}
 
         {selectedCase && (
-          <div className="mt-2 flex items-center gap-1.5 text-xs font-mono" style={{ color: '#22c55e' }}>
+          <div className="mt-2 flex items-center gap-1.5 text-xs font-mono" style={{ color: 'var(--fl-ok)' }}>
             <Info size={11} />
-            Affichage isolé — uniquement les données de{' '}
-            <span style={{ fontWeight: 700 }}>{selectedCase.case_number}</span>
+            {t('parsedData.isolated_view', { caseNumber: selectedCase.case_number })}
           </div>
         )}
       </div>
@@ -283,9 +284,9 @@ export default function ParsedDataPage() {
             style={{ width: 260, background: T.card ?? T.panel, borderColor: T.border }}
           >
             <div className="text-xs font-mono uppercase tracking-wider mb-3" style={{ color: T.dim }}>
-              Résultats de parsing
+              {t('parsedData.parse_results')}
               {!loadingResults && (
-                <span className="ml-2 px-1.5 py-0.5 rounded font-bold" style={{ background: `${T.accent}18`, color: T.accent }}>
+                <span className="ml-2 px-1.5 py-0.5 rounded font-bold" style={{ background: `color-mix(in srgb, ${T.accent} 9%, transparent)`, color: T.accent }}>
                   {results.length}
                 </span>
               )}
@@ -299,10 +300,10 @@ export default function ParsedDataPage() {
               <div className="text-center py-8">
                 <FileText size={32} style={{ color: T.border, margin: '0 auto 8px' }} />
                 <p className="text-xs" style={{ color: T.dim }}>
-                  Aucun artefact parsé pour ce cas.
+                  {t('parsedData.no_artifacts')}
                 </p>
                 <p className="text-xs mt-1" style={{ color: T.muted ?? T.dim }}>
-                  Importez une collecte et lancez le parsing.
+                  {t('parsedData.parse_hint')}
                 </p>
               </div>
             ) : (
@@ -314,6 +315,8 @@ export default function ParsedDataPage() {
                     selected={selectedResult}
                     onSelect={setSelectedResult}
                     T={T}
+                    t={t}
+                    locale={i18n.language}
                   />
                 ))}
               </div>
@@ -329,10 +332,10 @@ export default function ParsedDataPage() {
               >
                 <Table2 size={48} style={{ color: T.border, marginBottom: 12 }} />
                 <p className="text-sm font-semibold" style={{ color: T.text }}>
-                  Sélectionnez un résultat
+                  {t('parsedData.select_result')}
                 </p>
                 <p className="text-xs mt-1" style={{ color: T.dim }}>
-                  Choisissez un artefact parsé dans la liste à gauche
+                  {t('parsedData.select_result_hint')}
                 </p>
               </div>
             ) : (
@@ -346,17 +349,17 @@ export default function ParsedDataPage() {
                     <div className="flex items-center gap-3">
                       <ParserBadge name={selectedResult.parser_name} />
                       <span className="text-sm font-semibold" style={{ color: T.text }}>
-                        {selectedResult.evidence_name || 'Artefact sans nom'}
+                        {selectedResult.evidence_name || t('parsedData.unnamed_artifact')}
                       </span>
                     </div>
                     <div className="flex items-center gap-4 text-xs font-mono" style={{ color: T.dim }}>
                       <span className="flex items-center gap-1">
                         <Hash size={11} />
-                        {total.toLocaleString()} enregistrements
+                        {t('parsedData.records', { count: total.toLocaleString() })}
                       </span>
                       <span className="flex items-center gap-1">
                         <Calendar size={11} />
-                        {fmtDate(selectedResult.created_at)}
+                        {fmtDate(selectedResult.created_at, i18n.language)}
                       </span>
                       <span className="flex items-center gap-1">
                         <User size={11} />
@@ -365,10 +368,9 @@ export default function ParsedDataPage() {
                     </div>
                   </div>
 
-                  <div className="mt-2 text-xs font-mono flex items-center gap-1" style={{ color: '#22c55e' }}>
+                  <div className="mt-2 text-xs font-mono flex items-center gap-1" style={{ color: 'var(--fl-ok)' }}>
                     <Info size={10} />
-                    Données isolées — cas {selectedCase?.case_number}
-                    {' '}· Affichage 50 premières lignes (pagination à venir)
+                    {t('parsedData.isolated_case', { caseNumber: selectedCase?.case_number })} · {t('parsedData.first_rows_hint')}
                   </div>
                 </div>
 
@@ -379,7 +381,7 @@ export default function ParsedDataPage() {
                   >
                     <div className="text-center" style={{ color: T.dim }}>
                       <Loader2 size={22} className="animate-spin mx-auto mb-2" />
-                      <span className="text-sm">Chargement des données…</span>
+                      <span className="text-sm">{t('parsedData.loading_data')}</span>
                     </div>
                   </div>
                 ) : dataError ? (
@@ -391,10 +393,10 @@ export default function ParsedDataPage() {
                       color: 'var(--fl-danger)',
                     }}
                   >
-                    ⚠ {dataError}
+                    {dataError}
                   </div>
                 ) : (
-                  <DataTable records={records} T={T} />
+                  <DataTable records={records} T={T} t={t} />
                 )}
               </>
             )}

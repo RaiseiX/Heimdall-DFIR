@@ -10,49 +10,49 @@ import TimelineHistogram from './TimelineHistogram';
 import { fmtLocal } from '../../utils/formatters';
 
 const ARTIFACT_COLORS = {
-  evtx:      'var(--fl-accent)', prefetch:  '#22c55e', mft:       'var(--fl-purple)',
+  evtx:      'var(--fl-accent)', prefetch:  'var(--fl-ok)', mft:       'var(--fl-purple)',
   lnk:       'var(--fl-warn)', registry:  'var(--fl-pink)', amcache:   'var(--fl-gold)',
-  appcompat: '#f59e0b', shellbags: '#06b6d4', jumplist:  '#8b5cf6',
-  srum:      '#f43f5e', recycle:   '#84cc16', wxtcmd:    '#d946ef',
-  bits:      '#64748b', sum:       '#0ea5e9',
+  appcompat: 'var(--fl-warn)', shellbags: 'var(--fl-purple)', jumplist:  'var(--fl-accent)',
+  srum:      'var(--fl-danger)', recycle:   'var(--fl-ok)', wxtcmd:    'var(--fl-pink)',
+  bits:      '#64748b', sum:       'var(--fl-purple)',
 };
 function artifactColor(t) { return ARTIFACT_COLORS[t] || 'var(--fl-dim)'; }
 
 const CONFIDENCE_LEVELS = [
-  { key: 'critical', label: 'Malveillant', color: 'var(--fl-danger)', bg: '#ef444418', dot: '●' },
-  { key: 'high',     label: 'Suspect',     color: 'var(--fl-warn)', bg: '#d97c2012', dot: '●' },
-  { key: 'medium',   label: 'À analyser',  color: 'var(--fl-gold)', bg: '#c89d1d10', dot: '●' },
-  { key: 'low',      label: 'Bénin',       color: '#22c55e', bg: '#22c55e08', dot: '●' },
+  { key: 'critical', label: 'Malicious', color: 'var(--fl-danger)', bg: 'color-mix(in srgb, var(--fl-danger) 9%, transparent)', dot: '●' },
+  { key: 'high',     label: 'Suspicious', color: 'var(--fl-warn)', bg: 'color-mix(in srgb, var(--fl-warn) 7%, transparent)', dot: '●' },
+  { key: 'medium',   label: 'Needs review',  color: 'var(--fl-gold)', bg: 'color-mix(in srgb, var(--fl-gold) 6%, transparent)', dot: '●' },
+  { key: 'low',      label: 'Benign',      color: 'var(--fl-ok)', bg: 'color-mix(in srgb, var(--fl-ok) 3%, transparent)', dot: '●' },
 ];
 const CONFIDENCE_MAP = Object.fromEntries(CONFIDENCE_LEVELS.map(l => [l.key, l]));
 
 const FORENSIC_TAGS = [
-  { key: 'exec',       label: 'Exécution',            color: 'var(--fl-warn)' },
-  { key: 'persist',    label: 'Persistance',           color: 'var(--fl-pink)' },
-  { key: 'lateral',    label: 'Latéralisation',        color: 'var(--fl-purple)' },
-  { key: 'exfil',      label: 'Exfiltration',          color: '#f43f5e' },
-  { key: 'privesc',    label: 'Élév. privilèges',      color: 'var(--fl-gold)' },
-  { key: 'credential', label: 'Accès credentials',     color: '#06b6d4' },
-  { key: 'network',    label: 'Activité réseau',       color: 'var(--fl-accent)' },
-  { key: 'file',       label: 'Accès fichier',         color: '#22c55e' },
-  { key: 'logon',      label: 'Connexion utilisateur', color: '#8b5cf6' },
-  { key: 'defense',    label: 'Contournement défense', color: '#64748b' },
-  { key: 'registry',   label: 'Registre',              color: '#d946ef' },
-  { key: 'ioc',        label: 'IOC confirmé',          color: '#00ff88' },
-  { key: 'recon',      label: 'Reconnaissance',        color: '#7dd3fc' },
-  { key: 'ransom',     label: 'Ransomware',            color: '#ff6b6b' },
+  { key: 'exec',       label: 'Execution',            color: 'var(--fl-warn)' },
+  { key: 'persist',    label: 'Persistence',          color: 'var(--fl-pink)' },
+  { key: 'lateral',    label: 'Lateral movement',     color: 'var(--fl-purple)' },
+  { key: 'exfil',      label: 'Exfiltration',         color: 'var(--fl-danger)' },
+  { key: 'privesc',    label: 'Privilege escalation', color: 'var(--fl-gold)' },
+  { key: 'credential', label: 'Credentials access',   color: 'var(--fl-purple)' },
+  { key: 'network',    label: 'Network activity',     color: 'var(--fl-accent)' },
+  { key: 'file',       label: 'File access',          color: 'var(--fl-ok)' },
+  { key: 'logon',      label: 'User logon',           color: 'var(--fl-accent)' },
+  { key: 'defense',    label: 'Defense evasion',      color: '#64748b' },
+  { key: 'registry',   label: 'Registry',             color: 'var(--fl-pink)' },
+  { key: 'ioc',        label: 'Confirmed IOC',        color: '#00ff88' },
+  { key: 'recon',      label: 'Reconnaissance',       color: '#7dd3fc' },
+  { key: 'ransom',     label: 'Ransomware',           color: '#ff6b6b' },
 ];
 const FORENSIC_TAG_MAP = Object.fromEntries(FORENSIC_TAGS.map(t => [t.key, t]));
 
 const COLUMNS = [
-  { key: 'timestamp',     label: 'Horodatage (UTC)',  width: 174, mono: true },
+  { key: 'timestamp',     label: 'Timestamp (UTC)',   width: 174, mono: true },
   { key: 'artifact_type', label: 'Type',              width: 88              },
   { key: 'source_short',  label: 'Source',            width: 120, mono: true },
-  { key: 'event_type',    label: "Type d'Événement",  width: 116             },
-  { key: 'category',      label: 'Catégorie',         width: 90              },
-  { key: 'description',   label: 'Détails',           flex: true             },
+  { key: 'event_type',    label: 'Event type',        width: 116             },
+  { key: 'category',      label: 'Category',          width: 90              },
+  { key: 'description',   label: 'Details',           flex: true             },
   { key: 'record_id',     label: 'ID',                width: 52,  mono: true },
-  { key: 'username',      label: 'Utilisateur',       width: 96,  mono: true },
+  { key: 'username',      label: 'User',              width: 96,  mono: true },
   { key: 'security_id',   label: 'ID Sec',            width: 80,  mono: true },
 ];
 const PAGE_SIZES = [200, 500, 1000];
@@ -100,7 +100,7 @@ function Highlight({ text, term }) {
   if (idx === -1) return str;
   return (
     <>{str.slice(0, idx)}
-      <mark style={{ background: '#f59e0b35', color: '#f59e0b', borderRadius: 2, padding: '0 1px' }}>
+      <mark style={{ background: 'color-mix(in srgb, var(--fl-warn) 21%, transparent)', color: 'var(--fl-warn)', borderRadius: 2, padding: '0 1px' }}>
         {str.slice(idx, idx + term.length)}
       </mark>
       {str.slice(idx + term.length)}</>
@@ -147,10 +147,10 @@ function TagPicker({ globalIdx, tagData, onChange, onClose, anchorRef }) {
       padding: 16,
     }}>
       <div style={{ marginBottom: 14 }}>
-        <div style={{ fontFamily: 'monospace', fontSize: 9,
+        <div style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 9,
           color: isDark ? '#ffffff' : '#0969da',
           textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: 8, fontWeight: 700 }}>
-          Niveau de confiance
+          Confidence level
         </div>
         <div style={{ display: 'flex', gap: 6 }}>
           {CONFIDENCE_LEVELS.map(l => {
@@ -159,7 +159,7 @@ function TagPicker({ globalIdx, tagData, onChange, onClose, anchorRef }) {
               <button key={l.key} onClick={() => setLevel(l.key)}
                 style={{
                   flex: 1, padding: '7px 4px', borderRadius: 6, fontSize: 10,
-                  fontFamily: 'monospace', cursor: 'pointer', fontWeight: 700,
+                  fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', cursor: 'pointer', fontWeight: 700,
                   display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4,
                   background: active ? l.bg : (isDark ? 'rgba(255,255,255,0.08)' : '#f0f6ff'),
                   color: active ? l.color : (isDark ? '#ffffff' : '#1f2328'),
@@ -174,10 +174,10 @@ function TagPicker({ globalIdx, tagData, onChange, onClose, anchorRef }) {
         </div>
       </div>
       <div>
-        <div style={{ fontFamily: 'monospace', fontSize: 9,
+        <div style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 9,
           color: isDark ? '#ffffff' : '#0969da',
           textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: 8, fontWeight: 700 }}>
-          Catégorie forensique
+          Forensic category
         </div>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
           {FORENSIC_TAGS.map(t => {
@@ -186,8 +186,8 @@ function TagPicker({ globalIdx, tagData, onChange, onClose, anchorRef }) {
               <button key={t.key} onClick={() => toggleTag(t.key)}
                 style={{
                   padding: '4px 10px', borderRadius: 10, fontSize: 10,
-                  fontFamily: 'monospace', cursor: 'pointer', fontWeight: 600,
-                  background: active ? `${t.color}35` : (isDark ? 'rgba(255,255,255,0.08)' : '#f0f6ff'),
+                  fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', cursor: 'pointer', fontWeight: 600,
+                  background: active ? `color-mix(in srgb, ${t.color} 21%, transparent)` : (isDark ? 'rgba(255,255,255,0.08)' : '#f0f6ff'),
                   color: active ? t.color : (isDark ? '#ffffff' : '#1f2328'),
                   border: `1px solid ${active ? t.color + '70' : (isDark ? 'rgba(255,255,255,0.2)' : '#c8d8ea')}`,
                   transition: 'all 0.12s',
@@ -202,17 +202,17 @@ function TagPicker({ globalIdx, tagData, onChange, onClose, anchorRef }) {
         marginTop: 14, paddingTop: 10,
         borderTop: `1px solid ${isDark ? 'rgba(255,255,255,0.15)' : '#e0eaf4'}` }}>
         <button onClick={clearAll}
-          style={{ fontSize: 10, fontFamily: 'monospace',
+          style={{ fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
             color: isDark ? 'rgba(255,255,255,0.55)' : '#57606a',
             background: 'none', border: 'none', cursor: 'pointer', padding: '2px 0' }}>
-          Effacer
+          Clear
         </button>
         <button onClick={onClose}
-          style={{ padding: '5px 14px', borderRadius: 5, fontSize: 10, fontFamily: 'monospace',
+          style={{ padding: '5px 14px', borderRadius: 5, fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
             background: isDark ? 'rgba(255,255,255,0.15)' : '#0969da',
             border: isDark ? '1px solid rgba(255,255,255,0.3)' : '1px solid #0969da',
             color: '#ffffff', cursor: 'pointer', fontWeight: 600 }}>
-          Fermer
+          Close
         </button>
       </div>
     </div>
@@ -465,8 +465,8 @@ export default function CaseTimelineExplorer({ caseId, onTotalChange, reloadKey 
     return (
       <div style={{ textAlign: 'center', padding: '40px 0', borderRadius: 10, background: 'var(--fl-bg)', border: '1px solid var(--fl-sep)' }}>
         <Clock size={32} style={{ color: 'var(--fl-sep)', margin: '0 auto 10px' }} />
-        <p style={{ fontFamily: 'monospace', fontSize: 12, color: 'var(--fl-subtle)' }}>
-          Aucune donnée dans la Super Timeline — importez et parsez une collecte.
+        <p style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 12, color: 'var(--fl-subtle)' }}>
+          No data in Super Timeline — import and parse a collection.
         </p>
       </div>
     );
@@ -476,16 +476,16 @@ export default function CaseTimelineExplorer({ caseId, onTotalChange, reloadKey 
     btn: (active, col) => ({
       display: 'flex', alignItems: 'center', gap: 4,
       padding: '3px 8px', borderRadius: 5, fontSize: 11,
-      fontFamily: 'monospace', cursor: 'pointer',
-      background: active ? `${col}18` : 'var(--fl-bg)',
+      fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', cursor: 'pointer',
+      background: active ? `color-mix(in srgb, ${col} 9%, transparent)` : 'var(--fl-bg)',
       color: active ? col : 'var(--fl-dim)',
       border: `1px solid ${active ? col + '35' : 'var(--fl-card)'}`,
     }),
     chip: (active, col) => ({
       padding: '2px 8px', borderRadius: 10, fontSize: 10,
-      fontFamily: 'monospace', cursor: 'pointer',
+      fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', cursor: 'pointer',
       display: 'flex', alignItems: 'center', gap: 4,
-      background: active ? `${col}18` : 'transparent',
+      background: active ? `color-mix(in srgb, ${col} 9%, transparent)` : 'transparent',
       color: active ? col : 'var(--fl-muted)',
       border: `1px solid ${active ? col + '35' : 'var(--fl-card)'}`,
     }),
@@ -516,24 +516,24 @@ export default function CaseTimelineExplorer({ caseId, onTotalChange, reloadKey 
           <Search size={11} style={{ position: 'absolute', left: 7, top: '50%', transform: 'translateY(-50%)', color: 'var(--fl-muted)', pointerEvents: 'none' }} />
           <input value={search} onChange={e => setSearch(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && applyFilter()}
-            placeholder="Rechercher… (Entrée)"
+            placeholder="Search… (Enter)"
             style={{
               paddingLeft: 22, paddingRight: 8, paddingTop: 4, paddingBottom: 4,
-              borderRadius: 5, fontSize: 11, fontFamily: 'monospace', width: 200,
+              borderRadius: 5, fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', width: 200,
               background: '#060a10', border: '1px solid var(--fl-card)', color: 'var(--fl-text)', outline: 'none',
             }} />
         </div>
 
         <input type="datetime-local" value={startTime} onChange={e => setStartTime(e.target.value)}
-          style={{ padding: '3px 6px', borderRadius: 5, fontSize: 10, fontFamily: 'monospace', flexShrink: 0,
-            background: '#060a10', border: '1px solid var(--fl-card)', color: startTime ? '#8899bb' : 'var(--fl-card)', colorScheme: 'dark', outline: 'none' }} />
+          style={{ padding: '3px 6px', borderRadius: 5, fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', flexShrink: 0,
+            background: '#060a10', border: '1px solid var(--fl-card)', color: startTime ? 'var(--fl-dim)' : 'var(--fl-card)', colorScheme: 'dark', outline: 'none' }} />
         <span style={{ fontSize: 10, color: 'var(--fl-muted)', flexShrink: 0 }}>→</span>
         <input type="datetime-local" value={endTime} onChange={e => setEndTime(e.target.value)}
-          style={{ padding: '3px 6px', borderRadius: 5, fontSize: 10, fontFamily: 'monospace', flexShrink: 0,
-            background: '#060a10', border: '1px solid var(--fl-card)', color: endTime ? '#8899bb' : 'var(--fl-card)', colorScheme: 'dark', outline: 'none' }} />
+          style={{ padding: '3px 6px', borderRadius: 5, fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', flexShrink: 0,
+            background: '#060a10', border: '1px solid var(--fl-card)', color: endTime ? 'var(--fl-dim)' : 'var(--fl-card)', colorScheme: 'dark', outline: 'none' }} />
 
         <button onClick={applyFilter} style={{ ...S.btn(false, 'var(--fl-accent)'), flexShrink: 0 }}>
-          <Filter size={10} /> Filtrer
+          <Filter size={10} /> Filter
         </button>
         {hasFilters && (
           <button onClick={clearFilters} style={{ ...S.btn(false, 'var(--fl-dim)'), flexShrink: 0 }}>
@@ -544,33 +544,33 @@ export default function CaseTimelineExplorer({ caseId, onTotalChange, reloadKey 
         <div style={{ flex: 1, minWidth: 0 }} />
 
         {total > 0 && (
-          <span style={{ fontSize: 10, fontFamily: 'monospace', padding: '2px 7px', borderRadius: 4, flexShrink: 0,
-            background: '#4d82c010', color: 'var(--fl-accent)', border: '1px solid #4d82c020' }}>
+          <span style={{ fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', padding: '2px 7px', borderRadius: 4, flexShrink: 0,
+            background: 'color-mix(in srgb, var(--fl-accent) 6%, transparent)', color: 'var(--fl-accent)', border: '1px solid color-mix(in srgb, var(--fl-accent) 13%, transparent)' }}>
             {total.toLocaleString()} enreg.
           </span>
         )}
 
         {bookmarks.size > 0 && (
-          <button onClick={() => setShowBookmarks(v => !v)} style={{ ...S.btn(showBookmarksOnly, '#f59e0b'), flexShrink: 0 }}>
-            <Star size={10} fill={showBookmarksOnly ? '#f59e0b' : 'none'} />
+          <button onClick={() => setShowBookmarks(v => !v)} style={{ ...S.btn(showBookmarksOnly, 'var(--fl-warn)'), flexShrink: 0 }}>
+            <Star size={10} fill={showBookmarksOnly ? 'var(--fl-warn)' : 'none'} />
             {bookmarks.size}
           </button>
         )}
 
         {taggedCount > 0 && (
-          <span style={{ fontSize: 10, fontFamily: 'monospace', padding: '2px 7px', borderRadius: 4, flexShrink: 0,
-            background: '#8b72d610', color: 'var(--fl-purple)', border: '1px solid #8b72d620' }}>
-            ⬤ {taggedCount} taggé{taggedCount > 1 ? 's' : ''}
+          <span style={{ fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', padding: '2px 7px', borderRadius: 4, flexShrink: 0,
+            background: 'color-mix(in srgb, var(--fl-purple) 6%, transparent)', color: 'var(--fl-purple)', border: '1px solid color-mix(in srgb, var(--fl-purple) 13%, transparent)' }}>
+            ⬤ {taggedCount} tagged{taggedCount > 1 ? 's' : ''}
           </span>
         )}
 
         <div style={{ display: 'flex', gap: 2, flexShrink: 0 }}>
           {PAGE_SIZES.map(s => (
             <button key={s} onClick={() => changePageSize(s)}
-              style={{ padding: '2px 7px', borderRadius: 4, fontSize: 10, fontFamily: 'monospace', cursor: 'pointer',
-                background: pageSize === s ? '#4d82c018' : 'transparent',
+              style={{ padding: '2px 7px', borderRadius: 4, fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', cursor: 'pointer',
+                background: pageSize === s ? 'color-mix(in srgb, var(--fl-accent) 9%, transparent)' : 'transparent',
                 color: pageSize === s ? 'var(--fl-accent)' : 'var(--fl-card)',
-                border: `1px solid ${pageSize === s ? '#4d82c030' : 'var(--fl-card)'}` }}>
+                border: `1px solid ${pageSize === s ? 'color-mix(in srgb, var(--fl-accent) 19%, transparent)' : 'var(--fl-card)'}` }}>
               {s}
             </button>
           ))}
@@ -590,7 +590,7 @@ export default function CaseTimelineExplorer({ caseId, onTotalChange, reloadKey 
               {COLUMNS.map(c => (
                 <label key={c.key} style={{
                   display: 'flex', alignItems: 'center', gap: 7, padding: '4px 8px',
-                  fontFamily: 'monospace', fontSize: 11, cursor: 'pointer', borderRadius: 4,
+                  fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11, cursor: 'pointer', borderRadius: 4,
                   color: hiddenCols.has(c.key) ? 'var(--fl-card)' : 'var(--fl-on-dark)',
                 }}>
                   <input type="checkbox" checked={!hiddenCols.has(c.key)}
@@ -605,8 +605,8 @@ export default function CaseTimelineExplorer({ caseId, onTotalChange, reloadKey 
         </div>
 
         <button onClick={exportCSV} disabled={!records.length} style={{
-          ...S.btn(false, '#22c55e'), flexShrink: 0,
-          color: records.length ? '#22c55e' : 'var(--fl-card)',
+          ...S.btn(false, 'var(--fl-ok)'), flexShrink: 0,
+          color: records.length ? 'var(--fl-ok)' : 'var(--fl-card)',
           cursor: records.length ? 'pointer' : 'default',
         }}>
           <Download size={10} /> CSV
@@ -629,7 +629,7 @@ export default function CaseTimelineExplorer({ caseId, onTotalChange, reloadKey 
                 {t !== 'all' && (
                   <span style={{ width: 5, height: 5, borderRadius: '50%', background: col, display: 'inline-block', flexShrink: 0 }} />
                 )}
-                {t === 'all' ? 'Tous' : t}
+                {t === 'all' ? 'All' : t}
               </button>
             );
           })}
@@ -643,7 +643,7 @@ export default function CaseTimelineExplorer({ caseId, onTotalChange, reloadKey 
           background: '#080d15', border: '1px solid #1a2030', borderRadius: 7,
         }}>
           <Tag size={10} style={{ color: 'var(--fl-muted)', flexShrink: 0 }} />
-          <span style={{ fontSize: 10, fontFamily: 'monospace', color: 'var(--fl-muted)' }}>Tags :</span>
+          <span style={{ fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-muted)' }}>Tags :</span>
           {CONFIDENCE_LEVELS.map(l => {
             if (!confidenceCounts[l.key]) return null;
             const active = confidenceFilter === l.key;
@@ -676,7 +676,7 @@ export default function CaseTimelineExplorer({ caseId, onTotalChange, reloadKey 
       {loading && (
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '48px 0', gap: 8 }}>
           <Loader2 size={18} className="animate-spin" style={{ color: 'var(--fl-accent)' }} />
-          <span style={{ fontFamily: 'monospace', fontSize: 12, color: 'var(--fl-muted)' }}>Chargement…</span>
+          <span style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 12, color: 'var(--fl-muted)' }}>Loading…</span>
         </div>
       )}
 
@@ -701,7 +701,7 @@ export default function CaseTimelineExplorer({ caseId, onTotalChange, reloadKey 
                   <th style={{ padding: '5px 4px', borderBottom: '1px solid var(--fl-card)' }} />
                   <th style={{
                     padding: '5px 4px', borderBottom: '1px solid var(--fl-card)',
-                    fontFamily: 'monospace', fontSize: 9, color: 'var(--fl-muted)', textAlign: 'center',
+                    fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 9, color: 'var(--fl-muted)', textAlign: 'center',
                   }}>
                     <Tag size={9} />
                   </th>
@@ -709,11 +709,11 @@ export default function CaseTimelineExplorer({ caseId, onTotalChange, reloadKey 
                     <th key={col.key} onClick={() => handleSort(col.key)}
                       style={{
                         padding: '5px 8px', textAlign: 'left', cursor: 'pointer', userSelect: 'none',
-                        fontFamily: 'monospace', fontSize: 10, fontWeight: 600,
+                        fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10, fontWeight: 600,
                         letterSpacing: '0.07em', textTransform: 'uppercase',
                         color: sortCol === col.key ? 'var(--fl-accent)' : 'var(--fl-subtle)',
                         borderBottom: '1px solid var(--fl-card)', whiteSpace: 'nowrap',
-                        background: sortCol === col.key ? '#4d82c008' : 'transparent',
+                        background: sortCol === col.key ? 'color-mix(in srgb, var(--fl-accent) 3%, transparent)' : 'transparent',
                       }}>
                       <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                         {col.label}
@@ -749,13 +749,13 @@ export default function CaseTimelineExplorer({ caseId, onTotalChange, reloadKey 
 
                       <td onClick={e => toggleBookmark(e, globalIdx)}
                         style={{ padding: '2px 2px', textAlign: 'center', width: 26 }}>
-                        <Star size={9} fill={isBkm ? '#f59e0b' : 'none'}
-                          style={{ color: isBkm ? '#f59e0b' : 'var(--fl-card)' }} />
+                        <Star size={9} fill={isBkm ? 'var(--fl-warn)' : 'none'}
+                          style={{ color: isBkm ? 'var(--fl-warn)' : 'var(--fl-card)' }} />
                       </td>
 
                       <td style={{ padding: '2px 2px', textAlign: 'center', width: 20 }}>
                         {hasNote && (
-                          <MessageSquare size={9} style={{ color: 'var(--fl-accent)' }} fill="#4d82c020" />
+                          <MessageSquare size={9} style={{ color: 'var(--fl-accent)' }} fill="color-mix(in srgb, var(--fl-accent) 13%, transparent)" />
                         )}
                       </td>
 
@@ -780,8 +780,8 @@ export default function CaseTimelineExplorer({ caseId, onTotalChange, reloadKey 
                           content = (
                             <span style={{
                               padding: '1px 5px', borderRadius: 3, fontSize: 10,
-                              fontWeight: 700, fontFamily: 'monospace',
-                              background: `${acol}15`, color: acol, border: `1px solid ${acol}28`,
+                              fontWeight: 700, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
+                              background: `color-mix(in srgb, ${acol} 8%, transparent)`, color: acol, border: `1px solid color-mix(in srgb, ${acol} 16%, transparent)`,
                             }}>
                               {r.artifact_type}
                             </span>
@@ -806,8 +806,8 @@ export default function CaseTimelineExplorer({ caseId, onTotalChange, reloadKey 
                                     return ft ? (
                                       <span key={key} style={{
                                         marginLeft: 3, padding: '0px 5px', borderRadius: 8,
-                                        fontSize: 9, fontFamily: 'monospace', fontWeight: 600,
-                                        background: `${ft.color}20`, color: ft.color, border: `1px solid ${ft.color}30`,
+                                        fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontWeight: 600,
+                                        background: `color-mix(in srgb, ${ft.color} 13%, transparent)`, color: ft.color, border: `1px solid color-mix(in srgb, ${ft.color} 19%, transparent)`,
                                       }}>
                                         {ft.label}
                                       </span>
@@ -832,7 +832,7 @@ export default function CaseTimelineExplorer({ caseId, onTotalChange, reloadKey 
                         return (
                           <td key={col2.key} style={{
                             padding: '3px 8px',
-                            fontFamily: col2.mono ? 'monospace' : undefined,
+                            fontFamily: col2.mono ? 'var(--f-mono, "JetBrains Mono", monospace)' : undefined,
                             overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                             maxWidth: col2.flex ? 0 : undefined,
                           }}>
@@ -847,9 +847,9 @@ export default function CaseTimelineExplorer({ caseId, onTotalChange, reloadKey 
                   <tr>
                     <td colSpan={visibleCols.length + 2} style={{
                       textAlign: 'center', padding: '32px 0',
-                      fontFamily: 'monospace', fontSize: 11, color: 'var(--fl-muted)',
+                      fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11, color: 'var(--fl-muted)',
                     }}>
-                      Aucun résultat pour ce filtre
+                      No results for this filter
                     </td>
                   </tr>
                 )}
@@ -878,12 +878,12 @@ export default function CaseTimelineExplorer({ caseId, onTotalChange, reloadKey 
                     {['details', 'notes'].map(tab => (
                       <button key={tab} onClick={() => setInspectorTab(tab)} style={{
                         background: 'none', border: 'none', cursor: 'pointer',
-                        padding: '3px 10px', borderRadius: 4, fontSize: 11, fontFamily: 'monospace',
+                        padding: '3px 10px', borderRadius: 4, fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
                         fontWeight: inspectorTab === tab ? 600 : 400,
                         color: inspectorTab === tab ? 'var(--fl-accent)' : 'var(--fl-subtle)',
                         borderBottom: inspectorTab === tab ? '2px solid var(--fl-accent)' : '2px solid transparent',
                       }}>
-                        {tab === 'details' ? 'Détails' : (
+                        {tab === 'details' ? 'Details' : (
                           <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                             <MessageSquare size={10} />
                             Notes {notes.length > 0 && `(${notes.length})`}
@@ -892,21 +892,21 @@ export default function CaseTimelineExplorer({ caseId, onTotalChange, reloadKey 
                       </button>
                     ))}
                     {lvl && (
-                      <span style={{ padding: '1px 7px', borderRadius: 8, fontSize: 10, fontFamily: 'monospace', fontWeight: 700, background: lvl.bg, color: lvl.color, border: `1px solid ${lvl.color}40` }}>
+                      <span style={{ padding: '1px 7px', borderRadius: 8, fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontWeight: 700, background: lvl.bg, color: lvl.color, border: `1px solid color-mix(in srgb, ${lvl.color} 25%, transparent)` }}>
                         {lvl.label}
                       </span>
                     )}
                     {td.tags?.map(key => {
                       const ft = FORENSIC_TAG_MAP[key];
                       return ft ? (
-                        <span key={key} style={{ padding: '1px 7px', borderRadius: 8, fontSize: 10, fontFamily: 'monospace', background: `${ft.color}18`, color: ft.color, border: `1px solid ${ft.color}30` }}>
+                        <span key={key} style={{ padding: '1px 7px', borderRadius: 8, fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', background: `color-mix(in srgb, ${ft.color} 9%, transparent)`, color: ft.color, border: `1px solid color-mix(in srgb, ${ft.color} 19%, transparent)` }}>
                           {ft.label}
                         </span>
                       ) : null;
                     })}
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <span style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--fl-subtle)' }}>
+                    <span style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11, color: 'var(--fl-subtle)' }}>
                       ID {rid} — <span style={{ color: acol }}>{r.artifact_type}</span>
                     </span>
                     <button onClick={() => setSelectedRow(null)}
@@ -923,8 +923,8 @@ export default function CaseTimelineExplorer({ caseId, onTotalChange, reloadKey 
                     
                     <div style={{ flex: 1, overflow: 'auto', padding: '8px 14px', display: 'flex', flexDirection: 'column', gap: 8 }}>
                       {notes.length === 0 ? (
-                        <div style={{ color: 'var(--fl-muted)', fontFamily: 'monospace', fontSize: 11, textAlign: 'center', marginTop: 24 }}>
-                          Aucune note — ajoutez-en une ci-dessous
+                        <div style={{ color: 'var(--fl-muted)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11, textAlign: 'center', marginTop: 24 }}>
+                          No notes — add one below
                         </div>
                       ) : notes.map(n => (
                         <div key={n.id} style={{ borderRadius: 6, border: '1px solid var(--fl-card)', background: '#060e1c', padding: '8px 10px' }}>
@@ -932,18 +932,18 @@ export default function CaseTimelineExplorer({ caseId, onTotalChange, reloadKey 
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                               <textarea value={noteEditText} onChange={e => setNoteEditText(e.target.value)}
                                 style={{ width: '100%', background: '#050c18', border: '1px solid var(--fl-card)', borderRadius: 4,
-                                  color: 'var(--fl-on-dark)', fontFamily: 'monospace', fontSize: 11, padding: '6px 8px',
+                                  color: 'var(--fl-on-dark)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11, padding: '6px 8px',
                                   resize: 'vertical', minHeight: 60, outline: 'none', boxSizing: 'border-box' }} />
                               <div style={{ display: 'flex', gap: 6 }}>
                                 <button onClick={() => saveEditNote(caseId, computeRef(r), n.id)}
-                                  style={{ padding: '3px 10px', borderRadius: 4, background: '#1a3a5a', border: '1px solid #2a5080',
-                                    color: 'var(--fl-accent)', fontSize: 10, fontFamily: 'monospace', cursor: 'pointer' }}>
+                                  style={{ padding: '3px 10px', borderRadius: 4, background: '#1a1f2c', border: '1px solid #2a5080',
+                                    color: 'var(--fl-accent)', fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', cursor: 'pointer' }}>
                                   Enregistrer
                                 </button>
                                 <button onClick={() => setNoteEditId(null)}
                                   style={{ padding: '3px 10px', borderRadius: 4, background: 'none', border: '1px solid var(--fl-card)',
-                                    color: 'var(--fl-subtle)', fontSize: 10, fontFamily: 'monospace', cursor: 'pointer' }}>
-                                  Annuler
+                                    color: 'var(--fl-subtle)', fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', cursor: 'pointer' }}>
+                                  Cancel
                                 </button>
                               </div>
                             </div>
@@ -953,9 +953,9 @@ export default function CaseTimelineExplorer({ caseId, onTotalChange, reloadKey 
                                 {n.note}
                               </div>
                               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                                <span style={{ fontSize: 9, color: 'var(--fl-subtle)', fontFamily: 'monospace' }}>
+                                <span style={{ fontSize: 9, color: 'var(--fl-subtle)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}>
                                   {n.author_name || n.author_username} · {fmtLocal(n.created_at)}
-                                  {n.updated_at !== n.created_at && ' (modifié)'}
+                                  {n.updated_at !== n.created_at && ' (edited)'}
                                 </span>
                                 <div style={{ display: 'flex', gap: 6 }}>
                                   <button onClick={() => { setNoteEditId(n.id); setNoteEditText(n.note); }}
@@ -976,16 +976,16 @@ export default function CaseTimelineExplorer({ caseId, onTotalChange, reloadKey 
                     
                     <div style={{ flexShrink: 0, padding: '8px 14px', borderTop: '1px solid var(--fl-bg)', display: 'flex', gap: 8 }}>
                       <textarea value={noteText} onChange={e => setNoteText(e.target.value)}
-                        placeholder="Ajouter une note d'investigation…"
+                        placeholder="Add an investigation note…"
                         onKeyDown={e => { if (e.key === 'Enter' && e.ctrlKey) submitNote(r); }}
                         style={{ flex: 1, background: '#050c18', border: '1px solid var(--fl-card)', borderRadius: 4,
-                          color: 'var(--fl-on-dark)', fontFamily: 'monospace', fontSize: 11, padding: '6px 8px',
+                          color: 'var(--fl-on-dark)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11, padding: '6px 8px',
                           resize: 'none', height: 52, outline: 'none' }} />
                       <button onClick={() => submitNote(r)} disabled={noteSaving || !noteText.trim()}
-                        style={{ padding: '0 12px', borderRadius: 4, background: noteText.trim() ? '#1a3a5a' : '#0a1020',
+                        style={{ padding: '0 12px', borderRadius: 4, background: noteText.trim() ? '#1a1f2c' : '#0a1020',
                           border: `1px solid ${noteText.trim() ? '#2a5080' : '#0e1828'}`,
                           color: noteText.trim() ? 'var(--fl-accent)' : 'var(--fl-card)', cursor: noteText.trim() ? 'pointer' : 'default',
-                          display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, fontFamily: 'monospace' }}>
+                          display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}>
                         <Send size={11} /> Envoyer
                       </button>
                     </div>
@@ -996,22 +996,22 @@ export default function CaseTimelineExplorer({ caseId, onTotalChange, reloadKey 
                   <div style={{ flexShrink: 0, padding: '8px 14px', borderBottom: '1px solid var(--fl-bg)', display: 'flex', flexDirection: 'column', gap: 6 }}>
                     
                     <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
-                      <span style={{ fontFamily: 'monospace', fontSize: 10, color: '#4d6080', minWidth: 84, flexShrink: 0, paddingTop: 1 }}>Horodatage</span>
-                      <span style={{ fontFamily: 'monospace', fontSize: 11, color: '#7abfff', fontWeight: 600 }}>
+                      <span style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10, color: '#4d6080', minWidth: 84, flexShrink: 0, paddingTop: 1 }}>Horodatage</span>
+                      <span style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11, color: '#7abfff', fontWeight: 600 }}>
                         {fmtTs(r.timestamp)}
                       </span>
                     </div>
                     
                     {r.source && (
                       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
-                        <span style={{ fontFamily: 'monospace', fontSize: 10, color: '#4d6080', minWidth: 84, flexShrink: 0, paddingTop: 1 }}>Source</span>
-                        <span style={{ fontFamily: 'monospace', fontSize: 10, color: '#8aa8c8', wordBreak: 'break-all', lineHeight: 1.4 }}>{r.source}</span>
+                        <span style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10, color: '#4d6080', minWidth: 84, flexShrink: 0, paddingTop: 1 }}>Source</span>
+                        <span style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10, color: '#8aa8c8', wordBreak: 'break-all', lineHeight: 1.4 }}>{r.source}</span>
                       </div>
                     )}
                     
                     {r.description && (
                       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
-                        <span style={{ fontFamily: 'monospace', fontSize: 10, color: '#4d6080', minWidth: 84, flexShrink: 0, paddingTop: 1 }}>Détails</span>
+                        <span style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10, color: '#4d6080', minWidth: 84, flexShrink: 0, paddingTop: 1 }}>Details</span>
                         <span style={{ fontSize: 11, color: 'var(--fl-on-dark)', lineHeight: 1.5, wordBreak: 'break-word' }}>{r.description}</span>
                       </div>
                     )}
@@ -1022,10 +1022,10 @@ export default function CaseTimelineExplorer({ caseId, onTotalChange, reloadKey 
                     <div style={{
                       position: 'sticky', top: 0, zIndex: 1,
                       padding: '4px 14px', background: '#060c18', borderBottom: '1px solid var(--fl-bg)',
-                      fontFamily: 'monospace', fontSize: 9, color: 'var(--fl-subtle)',
+                      fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 9, color: 'var(--fl-subtle)',
                       textTransform: 'uppercase', letterSpacing: '0.08em',
                     }}>
-                      Données brutes CSV — {Object.entries(raw).filter(([,v]) => v !== null && v !== undefined && v !== '').length} champs
+                      Raw CSV data — {Object.entries(raw).filter(([,v]) => v !== null && v !== undefined && v !== '').length} fields
                     </div>
                     
                     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 10.5 }}>
@@ -1037,7 +1037,7 @@ export default function CaseTimelineExplorer({ caseId, onTotalChange, reloadKey 
                             <tr key={k} style={{ borderBottom: '1px solid #080e1a' }}>
                               <td style={{
                                 padding: '4px 14px',
-                                fontFamily: 'monospace', fontSize: 10, color: '#4d7090',
+                                fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10, color: '#4d7090',
                                 whiteSpace: 'nowrap', verticalAlign: 'top',
                                 width: '30%', maxWidth: 180,
                                 userSelect: 'none',
@@ -1046,7 +1046,7 @@ export default function CaseTimelineExplorer({ caseId, onTotalChange, reloadKey 
                               </td>
                               <td style={{
                                 padding: '4px 14px 4px 6px',
-                                fontFamily: 'monospace', fontSize: 10, color: '#a8bfd4',
+                                fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10, color: '#a8bfd4',
                                 wordBreak: 'break-all', lineHeight: 1.5,
                               }}>
                                 {strV}
@@ -1069,7 +1069,7 @@ export default function CaseTimelineExplorer({ caseId, onTotalChange, reloadKey 
               display: 'flex', alignItems: 'center', justifyContent: 'space-between',
               marginTop: 6, padding: '5px 2px',
             }}>
-              <span style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--fl-muted)' }}>
+              <span style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10, color: 'var(--fl-muted)' }}>
                 {((page - 1) * pageSize + 1).toLocaleString()}–{Math.min(page * pageSize, total).toLocaleString()} / {total.toLocaleString()}
               </span>
 
@@ -1082,7 +1082,7 @@ export default function CaseTimelineExplorer({ caseId, onTotalChange, reloadKey 
                   style={{ ...S.btn(false, 'var(--fl-dim)'), color: page <= 1 ? 'var(--fl-card)' : 'var(--fl-muted)', cursor: page <= 1 ? 'default' : 'pointer' }}>
                   <ChevronLeft size={11} />
                 </button>
-                <span style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--fl-muted)', padding: '0 8px', whiteSpace: 'nowrap' }}>
+                <span style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11, color: 'var(--fl-muted)', padding: '0 8px', whiteSpace: 'nowrap' }}>
                   {page} <span style={{ color: 'var(--fl-muted)' }}>/</span> {totalPages}
                 </span>
                 <button disabled={page >= totalPages} onClick={() => changePage(page + 1)}
@@ -1100,16 +1100,16 @@ export default function CaseTimelineExplorer({ caseId, onTotalChange, reloadKey 
                       if (p >= 1 && p <= totalPages) { changePage(p); setJumpPage(''); }
                     }
                   }}
-                  placeholder="aller à…"
+                  placeholder="go to…"
                   style={{
                     width: 66, padding: '3px 6px', borderRadius: 4, textAlign: 'center',
-                    fontFamily: 'monospace', fontSize: 10, outline: 'none',
+                    fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10, outline: 'none',
                     background: '#060a10', border: '1px solid var(--fl-card)', color: 'var(--fl-muted)',
                   }} />
               </div>
 
-              <span style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--fl-muted)' }}>
-                {taggedCount > 0 ? `⬤ ${taggedCount} taggé${taggedCount > 1 ? 's' : ''}` : ''}
+              <span style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10, color: 'var(--fl-muted)' }}>
+                {taggedCount > 0 ? `⬤ ${taggedCount} tagged${taggedCount > 1 ? 's' : ''}` : ''}
               </span>
             </div>
           )}

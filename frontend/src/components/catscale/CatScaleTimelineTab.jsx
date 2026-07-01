@@ -19,13 +19,13 @@ const ALL_CATSCALE_TYPES = [
 ];
 
 const TYPE_META = {
-  catscale_auth:        { label: 'Auth',        color: '#f43f5e', icon: Shield,    },
-  catscale_logon:       { label: 'Logons',      color: '#22c55e', icon: UserCheck, },
+  catscale_auth:        { label: 'Auth',        color: 'var(--fl-danger)', icon: Shield,    },
+  catscale_logon:       { label: 'Logons',      color: 'var(--fl-ok)', icon: UserCheck, },
   catscale_process:     { label: 'Processus',   color: 'var(--fl-purple)', icon: Terminal,  },
-  catscale_network:     { label: 'Réseau',      color: 'var(--fl-accent)', icon: Network,   },
-  catscale_history:     { label: 'Historique',  color: 'var(--fl-warn)', icon: History,   },
-  catscale_persistence: { label: 'Persistance', color: 'var(--fl-gold)', icon: Clock,     },
-  catscale_fstimeline:  { label: 'FS Timeline', color: '#06b6d4', icon: Clock,     },
+  catscale_network:     { label: 'Network',     color: 'var(--fl-accent)', icon: Network,   },
+  catscale_history:     { label: 'History',     color: 'var(--fl-warn)', icon: History,   },
+  catscale_persistence: { label: 'Persistence', color: 'var(--fl-gold)', icon: Clock,     },
+  catscale_fstimeline:  { label: 'FS Timeline', color: 'var(--fl-purple)', icon: Clock,     },
 };
 
 const SUSPICIOUS_RE = [
@@ -55,7 +55,7 @@ function TypeBadge({ type }) {
   const m = TYPE_META[type] || { label: type, color: 'var(--fl-dim)' };
   return (
     <span style={{
-      fontSize: 10, fontFamily: 'monospace', padding: '1px 6px',
+      fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', padding: '1px 6px',
       borderRadius: 'var(--fl-radius-sm)',
       background: `color-mix(in srgb, ${m.color} 12%, transparent)`,
       color: m.color,
@@ -86,7 +86,7 @@ function EventRow({ ev }) {
           alignItems: 'center',
           cursor: 'pointer',
           fontSize: 12,
-          fontFamily: 'monospace',
+          fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
         }}
         onMouseEnter={e => e.currentTarget.style.background = 'var(--fl-hover-bg)'}
         onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
@@ -106,7 +106,7 @@ function EventRow({ ev }) {
       {open && (
         <div style={{ padding: '4px 10px 8px 10px', borderTop: '1px solid var(--fl-sep)' }}>
           <pre style={{
-            margin: 0, fontSize: 11, fontFamily: 'monospace',
+            margin: 0, fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
             background: 'var(--fl-bg)', color: 'var(--fl-dim)',
             padding: 8, borderRadius: 'var(--fl-radius-sm)',
             overflow: 'auto', maxHeight: 200,
@@ -180,7 +180,7 @@ export default function CatScaleTimelineTab({ caseId, onTotalChange }) {
     return (
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 60, color: 'var(--fl-dim)' }}>
         <Loader2 size={20} style={{ animation: 'spin 1s linear infinite', marginRight: 8 }} />
-        Chargement des artefacts CatScale…
+        Loading CatScale artifacts…
       </div>
     );
   }
@@ -189,14 +189,14 @@ export default function CatScaleTimelineTab({ caseId, onTotalChange }) {
     return (
       <div className="fl-empty">
         <Monitor size={40} className="fl-empty-icon" />
-        <div className="fl-empty-title">Aucun artefact CatScale dans ce cas</div>
-        <div className="fl-empty-sub">Importez une collecte CatScale (.tar.gz) via l'onglet Preuves</div>
+        <div className="fl-empty-title">No CatScale artifacts in this case</div>
+        <div className="fl-empty-sub">Import a CatScale collection (.tar.gz) via the Evidence tab</div>
       </div>
     );
   }
 
   return (
-    <div style={{ fontFamily: 'monospace', display: 'flex', flexDirection: 'column', gap: 10 }}>
+    <div style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', display: 'flex', flexDirection: 'column', gap: 10 }}>
       <PanelShell
         icon={Monitor}
         title={sysInfo.hostname}
@@ -220,12 +220,12 @@ export default function CatScaleTimelineTab({ caseId, onTotalChange }) {
               size="xs"
               icon={BarChart2}
               onClick={() => setShowHeatmap(v => !v)}
-              title="Heatmap d'activité"
+              title="Activity heatmap"
               style={showHeatmap ? { color: 'var(--fl-accent)' } : undefined}
             >
               Heatmap
             </Button>
-            <Button variant="ghost" size="xs" icon={RefreshCw} onClick={load} title="Rafraîchir" />
+            <Button variant="ghost" size="xs" icon={RefreshCw} onClick={load} title="Refresh" />
           </>
         }
       />
@@ -242,7 +242,7 @@ export default function CatScaleTimelineTab({ caseId, onTotalChange }) {
           onClick={() => setTypeFilter('all')}
           count={events.length}
         >
-          Tous
+          All
         </FilterChip>
 
         {ALL_CATSCALE_TYPES.map(type => {
@@ -278,11 +278,11 @@ export default function CatScaleTimelineTab({ caseId, onTotalChange }) {
         value={search}
         onChange={setSearch}
         onClear={() => setSearch('')}
-        placeholder="Filtrer les événements…"
+        placeholder="Filter events…"
       />
 
       <div style={{ fontSize: 11, color: 'var(--fl-muted)', paddingLeft: 2 }}>
-        {filtered.length.toLocaleString()} événement{filtered.length > 1 ? 's' : ''}
+        {filtered.length.toLocaleString()} event{filtered.length > 1 ? 's' : ''}
         {filtered.length !== events.length && ` (sur ${events.length.toLocaleString()})`}
       </div>
 
@@ -296,13 +296,13 @@ export default function CatScaleTimelineTab({ caseId, onTotalChange }) {
         }}>
           <span>HORODATAGE</span>
           <span>TYPE</span>
-          <span>ÉVÉNEMENT</span>
+          <span>EVENT</span>
           <span />
         </div>
 
         {filtered.length === 0 ? (
           <div style={{ padding: '30px 24px', textAlign: 'center', color: 'var(--fl-muted)', fontSize: 12 }}>
-            Aucun événement correspondant
+            No matching events
           </div>
         ) : (
           filtered.map((ev, i) => <EventRow key={`${ev.id || i}`} ev={ev} />)

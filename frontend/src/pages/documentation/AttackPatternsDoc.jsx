@@ -10,10 +10,10 @@ function CopyBtn({ text }) {
       style={{
         display: 'inline-flex', alignItems: 'center', gap: 3,
         padding: '2px 6px', borderRadius: 4, cursor: 'pointer',
-        fontSize: 9, fontFamily: 'monospace', flexShrink: 0,
-        background: ok ? '#22c55e18' : 'var(--fl-card)',
-        color: ok ? '#22c55e' : 'var(--fl-dim)',
-        border: `1px solid ${ok ? '#22c55e40' : 'var(--fl-border)'}`,
+        fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', flexShrink: 0,
+        background: ok ? 'color-mix(in srgb, var(--fl-ok) 9%, transparent)' : 'var(--fl-card)',
+        color: ok ? 'var(--fl-ok)' : 'var(--fl-dim)',
+        border: `1px solid ${ok ? 'color-mix(in srgb, var(--fl-ok) 25%, transparent)' : 'var(--fl-border)'}`,
       }}>
       {ok ? <CheckCheck size={9} /> : <Copy size={9} />}
     </button>
@@ -23,7 +23,7 @@ function CopyBtn({ text }) {
 function MitreBadge({ id }) {
   return (
     <span style={{
-      fontFamily: 'monospace', fontSize: 9, fontWeight: 700, whiteSpace: 'nowrap',
+      fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 9, fontWeight: 700, whiteSpace: 'nowrap',
       padding: '1px 5px', borderRadius: 3,
       background: 'color-mix(in srgb, var(--fl-accent) 15%, transparent)',
       color: 'var(--fl-accent)',
@@ -34,25 +34,25 @@ function MitreBadge({ id }) {
 
 function TacticBadge({ tactic }) {
   const colors = {
-    'Initial Access':       '#f97316',
-    'Execution':            '#eab308',
-    'Persistence':          '#a855f7',
+    'Initial Access':       'var(--fl-warn)',
+    'Execution':            'var(--fl-warn)',
+    'Persistence':          'var(--fl-accent)',
     'Privilege Escalation': '#ec4899',
-    'Defense Evasion':      '#06b6d4',
-    'Credential Access':    '#ef4444',
-    'Discovery':            '#84cc16',
-    'Lateral Movement':     '#f59e0b',
-    'Collection':           '#10b981',
+    'Defense Evasion':      'var(--fl-purple)',
+    'Credential Access':    'var(--fl-danger)',
+    'Discovery':            'var(--fl-ok)',
+    'Lateral Movement':     'var(--fl-warn)',
+    'Collection':           'var(--fl-ok)',
     'Command & Control':    '#3b82f6',
-    'Exfiltration':         '#8b5cf6',
+    'Exfiltration':         'var(--fl-accent)',
     'Impact':               '#dc2626',
   };
   const c = colors[tactic] || '#94a3b8';
   return (
     <span style={{
-      fontFamily: 'monospace', fontSize: 8, fontWeight: 700, whiteSpace: 'nowrap',
+      fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 8, fontWeight: 700, whiteSpace: 'nowrap',
       padding: '1px 5px', borderRadius: 3,
-      background: `${c}18`, color: c, border: `1px solid ${c}40`,
+      background: `color-mix(in srgb, ${c} 9%, transparent)`, color: c, border: `1px solid color-mix(in srgb, ${c} 25%, transparent)`,
     }}>{tactic}</span>
   );
 }
@@ -978,7 +978,7 @@ function PatternCard({ pattern, search }) {
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', flex: 1 }}>
             <span style={{ fontSize: 15 }}>{pattern.icon}</span>
-            <span style={{ fontFamily: 'monospace', fontWeight: 700, fontSize: 12, color: T.text }}>{pattern.title}</span>
+            <span style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontWeight: 700, fontSize: 12, color: T.text }}>{pattern.title}</span>
             <TacticBadge tactic={pattern.tactic} />
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3 }}>
               {pattern.ttps.map(t => <MitreBadge key={t} id={t} />)}
@@ -986,7 +986,7 @@ function PatternCard({ pattern, search }) {
           </div>
           {open ? <ChevronDown size={13} style={{ color: T.dim, flexShrink: 0, marginTop: 2 }} /> : <ChevronRight size={13} style={{ color: T.dim, flexShrink: 0, marginTop: 2 }} />}
         </div>
-        <p style={{ fontSize: 11, marginTop: 5, marginLeft: 22, color: T.muted, fontFamily: 'monospace', lineHeight: 1.5 }}>{pattern.summary}</p>
+        <p style={{ fontSize: 11, marginTop: 5, marginLeft: 22, color: T.muted, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', lineHeight: 1.5 }}>{pattern.summary}</p>
       </button>
 
       {open && (
@@ -998,11 +998,11 @@ function PatternCard({ pattern, search }) {
               <div style={{ flex: 1, minWidth: 190 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 5 }}>
                   <Users size={10} style={{ color: 'var(--fl-danger)' }} />
-                  <span style={{ fontFamily: 'monospace', fontSize: 9, fontWeight: 700, color: 'var(--fl-danger)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>Groupes APT</span>
+                  <span style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 9, fontWeight: 700, color: 'var(--fl-danger)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>Groupes APT</span>
                 </div>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
                   {pattern.apt.map((a, i) => (
-                    <span key={i} style={{ fontFamily: 'monospace', fontSize: 10, padding: '2px 6px', borderRadius: 3,
+                    <span key={i} style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10, padding: '2px 6px', borderRadius: 3,
                       background: 'color-mix(in srgb, var(--fl-danger) 10%, transparent)',
                       color: 'var(--fl-danger)', border: '1px solid color-mix(in srgb, var(--fl-danger) 25%, transparent)' }}>{a}</span>
                   ))}
@@ -1013,11 +1013,11 @@ function PatternCard({ pattern, search }) {
               <div style={{ flex: 1, minWidth: 190 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 5 }}>
                   <Bug size={10} style={{ color: 'var(--fl-warn)' }} />
-                  <span style={{ fontFamily: 'monospace', fontSize: 9, fontWeight: 700, color: 'var(--fl-warn)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>Malware / Outils</span>
+                  <span style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 9, fontWeight: 700, color: 'var(--fl-warn)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>Malware / Outils</span>
                 </div>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
                   {pattern.malware.map((m, i) => (
-                    <span key={i} style={{ fontFamily: 'monospace', fontSize: 10, padding: '2px 6px', borderRadius: 3,
+                    <span key={i} style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10, padding: '2px 6px', borderRadius: 3,
                       background: 'color-mix(in srgb, var(--fl-warn) 10%, transparent)',
                       color: 'var(--fl-warn)', border: '1px solid color-mix(in srgb, var(--fl-warn) 25%, transparent)' }}>{m}</span>
                   ))}
@@ -1028,14 +1028,14 @@ function PatternCard({ pattern, search }) {
 
           {/* Artifacts */}
           <div style={{ marginBottom: 12 }}>
-            <div style={{ fontFamily: 'monospace', fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--fl-accent)', marginBottom: 7 }}>Artefacts à rechercher</div>
+            <div style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--fl-accent)', marginBottom: 7 }}>Artefacts à rechercher</div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', gap: 6 }}>
               {pattern.artifacts.map(a => (
                 <div key={a.type} style={{ background: T.panel, border: `1px solid ${T.border}`, borderRadius: 5, padding: '7px 9px' }}>
-                  <span style={{ fontFamily: 'monospace', fontSize: 10, fontWeight: 700, color: T.text, display: 'block', marginBottom: 4 }}>{a.type}</span>
+                  <span style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10, fontWeight: 700, color: T.text, display: 'block', marginBottom: 4 }}>{a.type}</span>
                   <ul style={{ margin: 0, padding: 0, listStyle: 'none' }}>
                     {a.items.map((item, i) => (
-                      <li key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 4, fontSize: 10, fontFamily: 'monospace', color: T.muted, lineHeight: 1.5, marginBottom: 2 }}>
+                      <li key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 4, fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: T.muted, lineHeight: 1.5, marginBottom: 2 }}>
                         <span style={{ color: sev.color, flexShrink: 0 }}>›</span>
                         <span>{item}</span>
                       </li>
@@ -1049,12 +1049,12 @@ function PatternCard({ pattern, search }) {
           {/* Commands */}
           {pattern.commands && pattern.commands.length > 0 && (
             <div style={{ marginBottom: 12 }}>
-              <div style={{ fontFamily: 'monospace', fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--fl-accent)', marginBottom: 7 }}>Commandes malveillantes connues</div>
+              <div style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--fl-accent)', marginBottom: 7 }}>Commandes malveillantes connues</div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
                 {pattern.commands.map((cmd, i) => (
                   <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '5px 9px', borderRadius: 4,
                     background: T.panel, border: `1px solid ${T.border}` }}>
-                    <code style={{ fontFamily: 'monospace', fontSize: 11, color: cmd.startsWith('#') ? T.dim : 'var(--fl-warn)', wordBreak: 'break-all', flex: 1, lineHeight: 1.5 }}>{cmd}</code>
+                    <code style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11, color: cmd.startsWith('#') ? T.dim : 'var(--fl-warn)', wordBreak: 'break-all', flex: 1, lineHeight: 1.5 }}>{cmd}</code>
                     {!cmd.startsWith('#') && <CopyBtn text={cmd} />}
                   </div>
                 ))}
@@ -1065,11 +1065,11 @@ function PatternCard({ pattern, search }) {
           {/* Sigma */}
           {pattern.sigma && pattern.sigma.length > 0 && (
             <div style={{ marginBottom: 12 }}>
-              <div style={{ fontFamily: 'monospace', fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--fl-accent)', marginBottom: 7 }}>Règles Sigma</div>
+              <div style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--fl-accent)', marginBottom: 7 }}>Règles Sigma</div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
                 {pattern.sigma.map((s, i) => (
                   <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
-                    <span style={{ fontFamily: 'monospace', fontSize: 10, padding: '2px 7px', borderRadius: 3,
+                    <span style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10, padding: '2px 7px', borderRadius: 3,
                       background: 'color-mix(in srgb, var(--fl-ok) 10%, transparent)',
                       color: 'var(--fl-ok)', border: '1px solid color-mix(in srgb, var(--fl-ok) 25%, transparent)' }}>{s}</span>
                     <CopyBtn text={s} />
@@ -1082,10 +1082,10 @@ function PatternCard({ pattern, search }) {
           {/* IOCs */}
           {pattern.iocs && pattern.iocs.length > 0 && (
             <div style={{ marginBottom: 12 }}>
-              <div style={{ fontFamily: 'monospace', fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--fl-accent)', marginBottom: 7 }}>Indicateurs de Compromission (IOCs)</div>
+              <div style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--fl-accent)', marginBottom: 7 }}>Indicateurs de Compromission (IOCs)</div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
                 {pattern.iocs.map((ioc, i) => (
-                  <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 5, fontSize: 11, fontFamily: 'monospace', padding: '5px 8px', borderRadius: 4,
+                  <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 5, fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', padding: '5px 8px', borderRadius: 4,
                     background: 'color-mix(in srgb, var(--fl-danger) 5%, transparent)',
                     border: '1px solid color-mix(in srgb, var(--fl-danger) 18%, transparent)', color: T.text }}>
                     <AlertTriangle size={10} style={{ color: 'var(--fl-danger)', flexShrink: 0, marginTop: 2 }} />
@@ -1099,10 +1099,10 @@ function PatternCard({ pattern, search }) {
           {/* Remediation */}
           {pattern.remediation && pattern.remediation.length > 0 && (
             <div>
-              <div style={{ fontFamily: 'monospace', fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--fl-accent)', marginBottom: 7 }}>Remédiation & Détection</div>
+              <div style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--fl-accent)', marginBottom: 7 }}>Remédiation & Détection</div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
                 {pattern.remediation.map((r, i) => (
-                  <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 5, fontSize: 11, fontFamily: 'monospace', padding: '5px 8px', borderRadius: 4,
+                  <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 5, fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', padding: '5px 8px', borderRadius: 4,
                     background: 'color-mix(in srgb, var(--fl-ok) 5%, transparent)',
                     border: '1px solid color-mix(in srgb, var(--fl-ok) 15%, transparent)', color: T.text }}>
                     <Shield size={10} style={{ color: 'var(--fl-ok)', flexShrink: 0, marginTop: 2 }} />
@@ -1117,6 +1117,8 @@ function PatternCard({ pattern, search }) {
     </div>
   );
 }
+
+export const DOC_INDEX = PATTERNS.map(p => ({ title: p.title, sub: p.tactic }));
 
 export default function AttackPatternsDoc({ search }) {
   const T = useTheme();
@@ -1141,10 +1143,10 @@ export default function AttackPatternsDoc({ search }) {
   }, [search, tacticFilter]);
 
   return (
-    <div style={{ padding: '24px 28px', maxWidth: 960 }}>
-      <div style={{ marginBottom: 14 }}>
-        <h1 style={{ fontFamily: 'monospace', fontSize: 16, fontWeight: 700, color: T.text, marginBottom: 3 }}>Patterns d'Attaques MITRE ATT&CK</h1>
-        <p style={{ fontFamily: 'monospace', fontSize: 11, color: T.muted }}>
+    <div style={{ padding: '26px 34px', maxWidth: 960 }}>
+      <div style={{ marginBottom: 18 }}>
+        <h1 style={{ fontFamily: 'var(--f-display, "Space Grotesk", "Inter", sans-serif)', fontSize: 26, fontWeight: 600, letterSpacing: '-0.02em', color: 'var(--fl-text)', margin: 0 }}>Patterns d'Attaques MITRE ATT&CK</h1>
+        <p style={{ fontFamily: 'var(--f-ui, "Inter", sans-serif)', fontSize: 13, color: 'var(--fl-dim)', marginTop: 5 }}>
           {search || tacticFilter !== 'Tous'
             ? `${filtered.length} pattern${filtered.length !== 1 ? 's' : ''} trouvé${filtered.length !== 1 ? 's' : ''}`
             : `${PATTERNS.length} patterns — APT groups · malware · artefacts · Sigma rules · IOCs · remédiation`}
@@ -1158,7 +1160,7 @@ export default function AttackPatternsDoc({ search }) {
             {KILL_CHAIN.map((phase, i) => (
               <div key={phase} style={{ display: 'flex', alignItems: 'center' }}>
                 <div style={{
-                  padding: '3px 8px', fontSize: 8, fontFamily: 'monospace', fontWeight: 700,
+                  padding: '3px 8px', fontSize: 8, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontWeight: 700,
                   background: `color-mix(in srgb, var(--fl-accent) ${Math.max(8, 18 - i)}%, transparent)`,
                   color: 'var(--fl-accent)',
                   border: '1px solid color-mix(in srgb, var(--fl-accent) 30%, transparent)',
@@ -1186,7 +1188,7 @@ export default function AttackPatternsDoc({ search }) {
           return (
             <button key={t} onClick={() => setTacticFilter(t)}
               style={{
-                fontFamily: 'monospace', fontSize: 10, padding: '3px 8px', borderRadius: 4,
+                fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10, padding: '3px 8px', borderRadius: 4,
                 cursor: 'pointer', border: '1px solid',
                 background: active ? 'color-mix(in srgb, var(--fl-accent) 18%, transparent)' : 'var(--fl-card)',
                 color: active ? 'var(--fl-accent)' : T.dim,
@@ -1202,7 +1204,7 @@ export default function AttackPatternsDoc({ search }) {
 
       {filtered.length === 0 && (
         <div style={{ textAlign: 'center', padding: '60px 0', color: T.muted }}>
-          <p style={{ fontFamily: 'monospace', fontSize: 13 }}>Aucun pattern ne correspond à "{search}"</p>
+          <p style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 13 }}>Aucun pattern ne correspond à "{search}"</p>
         </div>
       )}
     </div>

@@ -2,6 +2,7 @@ const express = require('express');
 const { pool } = require('../config/database');
 const { authenticate, auditLog } = require('../middleware/auth');
 const { enrichIOC, vtVerdictToColumns } = require('../services/iocEnrichmentService');
+const { denoiseByEntity } = require('../services/triageService');
 
 const logger = require('../config/logger').default;
 const router = express.Router();
@@ -40,6 +41,23 @@ router.post('/:caseId', authenticate, async (req, res) => {
     await auditLog(req.user.id, 'create_ioc', 'ioc', result.rows[0].id, { ioc_type, value }, req.ip);
     res.status(201).json(result.rows[0]);
   } catch (err) {
+    res.status(500).json({ error: 'Erreur serveur' });
+  }
+});
+
+// Delete a single IOC by id (global page deletes by IOC id, not case-scoped)
+router.delete('/:id', authenticate, async (req, res) => {
+  try {
+    const result = await pool.query(
+      'DELETE FROM iocs WHERE id = $1 RETURNING ioc_type, value, case_id',
+      [req.params.id]
+    );
+    if (!result.rowCount) return res.status(404).json({ error: 'IOC non trouvé' });
+    const row = result.rows[0];
+    await auditLog(req.user.id, 'delete_ioc', 'ioc', req.params.id, { ioc_type: row.ioc_type, value: row.value, case_id: row.case_id }, req.ip);
+    res.json({ success: true });
+  } catch (err) {
+    logger.error('[IOC] delete error:', err.message);
     res.status(500).json({ error: 'Erreur serveur' });
   }
 });
@@ -141,6 +159,9 @@ router.post('/:id/enrich', authenticate, async (req, res) => {
       ]
     );
 
+    if (enrichment.noise) {
+      await denoiseByEntity(value, enrichment.noise_reason);
+    }
     res.json({ success: true, from_cache: enrichment.from_cache || false, enrichment });
   } catch (err) {
     logger.error('[enrich]', err);
@@ -169,6 +190,9 @@ router.post('/enrich-case/:caseId', authenticate, async (req, res) => {
             [vtCols.vt_malicious, vtCols.vt_total, vtCols.vt_verdict,
              enrichment.abuseipdb?.score ?? null, JSON.stringify(enrichment), ioc.id]
           );
+          if (enrichment.noise) {
+            await denoiseByEntity(ioc.value, enrichment.noise_reason);
+          }
           if (!enrichment.from_cache) {
             await new Promise(r => setTimeout(r, 300));
           }

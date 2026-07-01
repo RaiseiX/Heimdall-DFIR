@@ -10,10 +10,10 @@ function CopyBtn({ text }) {
       style={{
         display: 'inline-flex', alignItems: 'center', gap: 3,
         padding: '2px 7px', borderRadius: 4, cursor: 'pointer',
-        fontSize: 10, fontFamily: 'monospace', flexShrink: 0,
-        background: ok ? '#22c55e18' : 'var(--fl-card)',
-        color: ok ? '#22c55e' : 'var(--fl-dim)',
-        border: `1px solid ${ok ? '#22c55e40' : 'var(--fl-border)'}`,
+        fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', flexShrink: 0,
+        background: ok ? 'color-mix(in srgb, var(--fl-ok) 9%, transparent)' : 'var(--fl-card)',
+        color: ok ? 'var(--fl-ok)' : 'var(--fl-dim)',
+        border: `1px solid ${ok ? 'color-mix(in srgb, var(--fl-ok) 25%, transparent)' : 'var(--fl-border)'}`,
       }}>
       {ok ? <CheckCheck size={10} /> : <Copy size={10} />}
       {ok ? 'Copié' : 'Copier'}
@@ -30,7 +30,7 @@ function CodeBlock({ cmd, desc }) {
       justifyContent: 'space-between', gap: 12,
     }}>
       <div>
-        <code style={{ fontFamily: 'monospace', fontSize: 12, color: 'var(--fl-accent)', display: 'block' }}>
+        <code style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 12, color: 'var(--fl-accent)', display: 'block' }}>
           {cmd}
         </code>
         {desc && <p style={{ fontSize: 11, color: T.muted, marginTop: 3 }}>{desc}</p>}
@@ -114,18 +114,22 @@ function SectionTitle({ children }) {
   );
 }
 
+export const DOC_INDEX = [
+  ...RESIDUAL_FILES, ...ACQ_TOOLS, ...USE_CASES,
+].map(x => ({ title: x.file || x.tool || x.obj || '', sub: x.desc || x.note || '' })).filter(x => x.title);
+
 export default function MemoryForensicsDoc({ search }) {
   const T = useTheme();
 
   const filter = (str) => !search || str.toLowerCase().includes(search.toLowerCase());
 
   return (
-    <div style={{ padding: '24px 32px', maxWidth: 900 }}>
-      <div className="mb-6">
-        <h1 className="text-lg font-mono font-bold mb-1" style={{ color: T.text }}>
+    <div style={{ padding: '26px 34px', maxWidth: 900 }}>
+      <div style={{ marginBottom: 22 }}>
+        <h1 style={{ fontFamily: 'var(--f-display, "Space Grotesk", "Inter", sans-serif)', fontSize: 26, fontWeight: 600, letterSpacing: '-0.02em', color: 'var(--fl-text)', margin: 0 }}>
           Analyse Mémoire Forensique
         </h1>
-        <p className="text-sm" style={{ color: T.muted }}>
+        <p style={{ fontFamily: 'var(--f-ui, "Inter", sans-serif)', fontSize: 13, color: 'var(--fl-dim)', marginTop: 5 }}>
           Acquisition RAM · Volatility 3 · Fichiers résiduels
         </p>
       </div>
@@ -154,7 +158,7 @@ export default function MemoryForensicsDoc({ search }) {
             <div key={f.file} className="p-3 rounded-lg"
               style={{ background: T.panel, border: `1px solid ${T.border}` }}>
               <div className="flex items-center gap-2 mb-1">
-                <code style={{ fontFamily: 'monospace', fontSize: 12, fontWeight: 700,
+                <code style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 12, fontWeight: 700,
                   color: 'var(--fl-accent)' }}>{f.file}</code>
                 <CopyBtn text={f.file} />
               </div>
@@ -184,7 +188,7 @@ export default function MemoryForensicsDoc({ search }) {
           <thead>
             <tr style={{ background: 'var(--fl-card)' }}>
               {['Outil', 'OS', 'Notes'].map(h => (
-                <th key={h} style={{ padding: '8px 12px', textAlign: 'left', fontFamily: 'monospace',
+                <th key={h} style={{ padding: '8px 12px', textAlign: 'left', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
                   fontSize: 10, color: T.muted, fontWeight: 700, textTransform: 'uppercase',
                   borderBottom: `1px solid ${T.border}` }}>{h}</th>
               ))}
@@ -192,13 +196,13 @@ export default function MemoryForensicsDoc({ search }) {
           </thead>
           <tbody>
             {ACQ_TOOLS.filter(t => filter(t.tool) || filter(t.os) || filter(t.note)).map((t, i) => (
-              <tr key={t.tool} style={{ background: i % 2 === 0 ? 'transparent' : `${T.panel}88`,
-                borderBottom: `1px solid ${T.border}22` }}>
+              <tr key={t.tool} style={{ background: i % 2 === 0 ? 'transparent' : `color-mix(in srgb, ${T.panel} 53%, transparent)`,
+                borderBottom: `1px solid color-mix(in srgb, ${T.border} 13%, transparent)` }}>
                 <td style={{ padding: '8px 12px' }}>
                   <span className="font-mono font-semibold" style={{ color: T.text }}>{t.tool}</span>
                 </td>
                 <td style={{ padding: '8px 12px' }}>
-                  <span style={{ fontFamily: 'monospace', fontSize: 10, padding: '1px 6px',
+                  <span style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10, padding: '1px 6px',
                     borderRadius: 3, background: 'var(--fl-card)', color: T.muted,
                     border: `1px solid ${T.border}` }}>{t.os}</span>
                 </td>
@@ -214,7 +218,7 @@ export default function MemoryForensicsDoc({ search }) {
           <SectionTitle>Structure EPROCESS — pslist vs psscan</SectionTitle>
           <div className="rounded-lg overflow-hidden" style={{ border: `1px solid ${T.border}` }}>
             <pre style={{
-              fontFamily: 'monospace', fontSize: 12, padding: '16px',
+              fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 12, padding: '16px',
               background: T.panel, color: T.text, margin: 0, overflowX: 'auto',
               lineHeight: 1.7,
             }}>{EPROCESS_DIAGRAM}</pre>
@@ -222,12 +226,12 @@ export default function MemoryForensicsDoc({ search }) {
           <div className="mt-3 space-y-2">
             <div className="flex items-start gap-2 p-3 rounded-lg"
               style={{ background: 'color-mix(in srgb, var(--fl-accent) 8%, transparent)', border: '1px solid color-mix(in srgb, var(--fl-accent) 25%, transparent)' }}>
-              <code style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--fl-accent)', flexShrink: 0 }}>pslist</code>
+              <code style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11, color: 'var(--fl-accent)', flexShrink: 0 }}>pslist</code>
               <span className="text-xs" style={{ color: T.text }}>Parcourt la liste chaînée EPROCESS → un rootkit peut se cacher en se détachant de cette liste</span>
             </div>
             <div className="flex items-start gap-2 p-3 rounded-lg"
               style={{ background: 'color-mix(in srgb, var(--fl-danger) 8%, transparent)', border: '1px solid color-mix(in srgb, var(--fl-danger) 25%, transparent)' }}>
-              <code style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--fl-danger)', flexShrink: 0 }}>psscan</code>
+              <code style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11, color: 'var(--fl-danger)', flexShrink: 0 }}>psscan</code>
               <span className="text-xs" style={{ color: T.text }}>Scanne la mémoire physique brute → détecte les processus cachés même s'ils sont absents de la liste chaînée</span>
             </div>
           </div>

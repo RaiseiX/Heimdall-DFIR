@@ -37,7 +37,7 @@ export default function ContextMenu({ record, pos, onClose, onFollowProcess, onF
         position: 'fixed',
         top: pos.y, left: pos.x,
         zIndex: 9999,
-        background: '#0a1520',
+        background: '#0e1118',
         border: '1px solid var(--fl-accent)',
         borderRadius: 7,
         boxShadow: '0 8px 32px rgba(0,0,0,0.6)',
@@ -49,10 +49,10 @@ export default function ContextMenu({ record, pos, onClose, onFollowProcess, onF
     >
       
       <div style={{ padding: '7px 12px', borderBottom: '1px solid var(--fl-bg)', background: '#06111f' }}>
-        <div style={{ fontFamily: 'monospace', fontSize: 9, color: '#3a6a9a', textTransform: 'uppercase', letterSpacing: '0.07em' }}>
+        <div style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 9, color: '#3a6a9a', textTransform: 'uppercase', letterSpacing: '0.07em' }}>
           {record?.artifact_type || '?'}
         </div>
-        <div style={{ fontFamily: 'monospace', fontSize: 10, color: '#7abfff', marginTop: 1,
+        <div style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10, color: '#7abfff', marginTop: 1,
           maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {record?.description?.substring(0, 60) || '—'}
         </div>
@@ -70,14 +70,14 @@ export default function ContextMenu({ record, pos, onClose, onFollowProcess, onF
 
         <Item
           icon="🏷"
-          label={`Filtrer par type: ${record?.artifact_type}`}
+            label={`Filter by type: ${record?.artifact_type}`}
           onClick={() => { onFilter?.('type', record?.artifact_type); onClose(); }}
         />
 
         {record?.host_name && (
           <Item
             icon="🖥"
-            label={`Filtrer par hôte: ${record.host_name}`}
+            label={`Filter by host: ${record.host_name}`}
             onClick={() => { onFilter?.('host', record.host_name); onClose(); }}
           />
         )}
@@ -85,7 +85,7 @@ export default function ContextMenu({ record, pos, onClose, onFollowProcess, onF
         {record?.user_name && (
           <Item
             icon="👤"
-            label={`Filtrer par utilisateur: ${record.user_name}`}
+            label={`Filter by user: ${record.user_name}`}
             onClick={() => { onFilter?.('user', record.user_name); onClose(); }}
           />
         )}
@@ -95,25 +95,25 @@ export default function ContextMenu({ record, pos, onClose, onFollowProcess, onF
             <div style={{ height: 1, background: 'var(--fl-bg)', margin: '4px 0' }} />
             <Item
               icon="🔍"
-              label={enrichLoading ? 'Enrichissement…' : `Enrichir IP: ${ip}`}
+              label={enrichLoading ? 'Enriching…' : `Enrich IP: ${ip}`}
               onClick={quickEnrich}
             />
             {enrichResult && (
               <div style={{ padding: '6px 12px', background: '#06111f', borderTop: '1px solid var(--fl-bg)' }}>
-                <div style={{ fontFamily: 'monospace', fontSize: 9, color: '#2a5a8a', marginBottom: 4 }}>
+                <div style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 9, color: '#2a5a8a', marginBottom: 4 }}>
                   VirusTotal · AbuseIPDB
                 </div>
                 {enrichResult.virustotal?.verdict && (
-                  <div style={{ fontFamily: 'monospace', fontSize: 10, color:
+                  <div style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10, color:
                     enrichResult.virustotal.verdict === 'malicious' ? 'var(--fl-danger)' :
-                    enrichResult.virustotal.verdict === 'suspicious' ? '#f59e0b' : '#22c55e'
+                    enrichResult.virustotal.verdict === 'suspicious' ? 'var(--fl-warn)' : 'var(--fl-ok)'
                   }}>
                     VT: {enrichResult.virustotal.verdict}
                     {enrichResult.virustotal.positives != null && ` (${enrichResult.virustotal.positives}/${enrichResult.virustotal.total})`}
                   </div>
                 )}
                 {enrichResult.abuseipdb?.score != null && (
-                  <div style={{ fontFamily: 'monospace', fontSize: 10, color: enrichResult.abuseipdb.score > 50 ? 'var(--fl-danger)' : '#7abfff' }}>
+                  <div style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10, color: enrichResult.abuseipdb.score > 50 ? 'var(--fl-danger)' : '#7abfff' }}>
                     AbuseIPDB score: {enrichResult.abuseipdb.score}%
                   </div>
                 )}
@@ -125,12 +125,12 @@ export default function ContextMenu({ record, pos, onClose, onFollowProcess, onF
         <div style={{ height: 1, background: 'var(--fl-bg)', margin: '4px 0' }} />
         <Item
           icon="📋"
-          label="Copier la description"
+          label="Copy description"
           onClick={() => { navigator.clipboard.writeText(record?.description || ''); onClose(); }}
         />
         <Item
           icon="📋"
-          label="Copier la source"
+          label="Copy source"
           onClick={() => { navigator.clipboard.writeText(record?.source || ''); onClose(); }}
         />
       </div>
@@ -149,7 +149,7 @@ function Item({ icon, label, onClick }) {
         display: 'flex', alignItems: 'center', gap: 8,
         padding: '6px 12px', cursor: 'pointer',
         background: hov ? '#0d1f35' : 'transparent',
-        fontFamily: 'monospace', fontSize: 10,
+        fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10,
         color: hov ? 'var(--fl-on-dark)' : '#7abfff',
       }}
     >

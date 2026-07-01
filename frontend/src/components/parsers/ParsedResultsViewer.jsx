@@ -14,34 +14,34 @@ const PARSER_COLORS = {
 
   evtx:       'var(--fl-accent)',
   mft:        'var(--fl-purple)',
-  prefetch:   '#22c55e',
+  prefetch:   'var(--fl-ok)',
   lnk:        'var(--fl-warn)',
   registry:   'var(--fl-pink)',
   amcache:    'var(--fl-gold)',
-  appcompat:  '#f59e0b',
-  shellbags:  '#06b6d4',
-  jumplist:   '#8b5cf6',
-  srum:       '#f43f5e',
+  appcompat:  'var(--fl-warn)',
+  shellbags:  'var(--fl-purple)',
+  jumplist:   'var(--fl-accent)',
+  srum:       'var(--fl-danger)',
   wxtcmd:     '#14b8a6',
-  recycle:    '#84cc16',
+  recycle:    'var(--fl-ok)',
   bits:       '#fb923c',
-  sum:        '#d946ef',
+  sum:        'var(--fl-pink)',
   hayabusa:   'var(--fl-danger)',
 
   mfteCmd:          'var(--fl-purple)',
-  pecmd:            '#22c55e',
+  pecmd:            'var(--fl-ok)',
   lecmd:            'var(--fl-warn)',
-  sbecmd:           '#06b6d4',
+  sbecmd:           'var(--fl-purple)',
   amcacheparser:    'var(--fl-gold)',
-  appcompatcacheparser: '#f59e0b',
+  appcompatcacheparser: 'var(--fl-warn)',
   evtxecmd:         'var(--fl-accent)',
   recmd:            'var(--fl-pink)',
-  jlecmd:           '#8b5cf6',
-  srumeCmd:         '#f43f5e',
+  jlecmd:           'var(--fl-accent)',
+  srumeCmd:         'var(--fl-danger)',
   wxtcmd2:          '#14b8a6',
-  rbcmd:            '#84cc16',
+  rbcmd:            'var(--fl-ok)',
   bitsparser:       '#fb923c',
-  sumeCmd:          '#d946ef',
+  sumeCmd:          'var(--fl-pink)',
   unifiedtimeline:  'var(--fl-dim)',
   magnetresponseimport: 'var(--fl-muted)',
 };
@@ -86,8 +86,8 @@ function ParserBadge({ name }) {
   const col = parserColor(name);
   return (
     <span style={{
-      padding: '2px 8px', borderRadius: 4, fontSize: 11, fontFamily: 'monospace',
-      fontWeight: 700, background: `${col}18`, color: col, border: `1px solid ${col}30`,
+      padding: '2px 8px', borderRadius: 4, fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
+      fontWeight: 700, background: `color-mix(in srgb, ${col} 9%, transparent)`, color: col, border: `1px solid color-mix(in srgb, ${col} 19%, transparent)`,
     }}>
       {name}
     </span>
@@ -103,13 +103,13 @@ function ResultChip({ result, isSelected, onClick, onDelete, deleting, onExplore
         style={{
           display: 'flex', flexDirection: 'column', alignItems: 'flex-start',
           padding: '8px 12px', paddingRight: 54, borderRadius: 8, cursor: 'pointer', textAlign: 'left',
-          background: isSelected ? `${col}10` : 'var(--fl-bg)',
+          background: isSelected ? `color-mix(in srgb, ${col} 6%, transparent)` : 'var(--fl-bg)',
           border: `1px solid ${isSelected ? col + '50' : 'var(--fl-border)'}`,
           minWidth: 140, transition: 'all 0.15s',
         }}
       >
         <ParserBadge name={result.parser_name} />
-        <span style={{ fontSize: 11, color: 'var(--fl-dim)', marginTop: 4, fontFamily: 'monospace' }}>
+        <span style={{ fontSize: 11, color: 'var(--fl-dim)', marginTop: 4, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}>
           {(result.record_count ?? 0).toLocaleString()} lignes
         </span>
         <span style={{ fontSize: 10, color: 'var(--fl-muted)', marginTop: 2 }}>
@@ -119,32 +119,32 @@ function ResultChip({ result, isSelected, onClick, onDelete, deleting, onExplore
       
       <button
         onClick={(e) => { e.stopPropagation(); onExplore(result); }}
-        title="Ouvrir dans la Super Timeline"
+        title="Open in Super Timeline"
         style={{
           position: 'absolute', top: 6, right: 28,
           width: 20, height: 20, borderRadius: 4,
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           background: 'transparent', border: 'none', cursor: 'pointer',
-          color: '#4d82c060', transition: 'color 0.15s',
+          color: 'color-mix(in srgb, var(--fl-accent) 38%, transparent)', transition: 'color 0.15s',
         }}
         onMouseEnter={e => e.currentTarget.style.color = 'var(--fl-accent)'}
-        onMouseLeave={e => e.currentTarget.style.color = '#4d82c060'}
+        onMouseLeave={e => e.currentTarget.style.color = 'color-mix(in srgb, var(--fl-accent) 38%, transparent)'}
       >
         <ExternalLink size={11} />
       </button>
       <button
         onClick={(e) => { e.stopPropagation(); onDelete(result); }}
         disabled={deleting}
-        title="Supprimer ce résultat"
+        title="Delete this result"
         style={{
           position: 'absolute', top: 6, right: 6,
           width: 20, height: 20, borderRadius: 4,
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           background: 'transparent', border: 'none', cursor: deleting ? 'not-allowed' : 'pointer',
-          color: '#da363360', transition: 'color 0.15s',
+          color: 'color-mix(in srgb, var(--fl-danger) 38%, transparent)', transition: 'color 0.15s',
         }}
         onMouseEnter={e => e.currentTarget.style.color = 'var(--fl-danger)'}
-        onMouseLeave={e => e.currentTarget.style.color = '#da363360'}
+        onMouseLeave={e => e.currentTarget.style.color = 'color-mix(in srgb, var(--fl-danger) 38%, transparent)'}
       >
         {deleting ? <Loader2 size={11} className="animate-spin" /> : <Trash2 size={11} />}
       </button>
@@ -157,7 +157,7 @@ function DataTable({ records, columns, loading }) {
     return (
       <div style={{ textAlign: 'center', padding: '32px 0', color: 'var(--fl-dim)' }}>
         <Loader2 size={20} className="animate-spin" style={{ display: 'inline', marginRight: 8 }} />
-        Chargement des données…
+        Loading data…
       </div>
     );
   }
@@ -165,7 +165,7 @@ function DataTable({ records, columns, loading }) {
   if (!records || records.length === 0) {
     return (
       <div style={{ textAlign: 'center', padding: '32px 0', color: 'var(--fl-dim)', fontSize: 13 }}>
-        Aucune donnée sur cette page.
+        No data on this page.
       </div>
     );
   }
@@ -177,7 +177,7 @@ function DataTable({ records, columns, loading }) {
           <tr style={{ background: 'var(--fl-bg)' }}>
             {columns.map(col => (
               <th key={col} style={{
-                textAlign: 'left', padding: '6px 10px', fontFamily: 'monospace',
+                textAlign: 'left', padding: '6px 10px', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
                 textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600,
                 color: 'var(--fl-dim)', borderBottom: '1px solid var(--fl-border)', whiteSpace: 'nowrap',
               }}>
@@ -203,7 +203,7 @@ function DataTable({ records, columns, loading }) {
                     key={col}
                     title={display}
                     style={{
-                      padding: '5px 10px', fontFamily: 'monospace', color: 'var(--fl-text)',
+                      padding: '5px 10px', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-text)',
                       maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis',
                       whiteSpace: 'nowrap',
                     }}
@@ -231,28 +231,28 @@ function Pagination({ page, totalPages, total, pageSize, onChange }) {
         onClick={() => onChange(page - 1)}
         style={{
           display: 'flex', alignItems: 'center', gap: 4,
-          padding: '5px 12px', borderRadius: 6, fontSize: 12, fontFamily: 'monospace',
+          padding: '5px 12px', borderRadius: 6, fontSize: 12, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
           background: 'var(--fl-card)', border: '1px solid var(--fl-border)',
           color: page <= 1 ? 'var(--fl-card)' : 'var(--fl-dim)', cursor: page <= 1 ? 'not-allowed' : 'pointer',
         }}
       >
-        <ChevronLeft size={12} /> Précédent
+        <ChevronLeft size={12} /> Previous
       </button>
-      <span style={{ fontSize: 11, fontFamily: 'monospace', color: 'var(--fl-dim)' }}>
-        {from.toLocaleString()}–{to.toLocaleString()} sur {total.toLocaleString()} · Page {page}/{totalPages}
+      <span style={{ fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-dim)' }}>
+        {from.toLocaleString()}–{to.toLocaleString()} of {total.toLocaleString()} · Page {page}/{totalPages}
       </span>
       <button
         disabled={page >= totalPages}
         onClick={() => onChange(page + 1)}
         style={{
           display: 'flex', alignItems: 'center', gap: 4,
-          padding: '5px 12px', borderRadius: 6, fontSize: 12, fontFamily: 'monospace',
+          padding: '5px 12px', borderRadius: 6, fontSize: 12, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
           background: 'var(--fl-card)', border: '1px solid var(--fl-border)',
           color: page >= totalPages ? 'var(--fl-card)' : 'var(--fl-dim)',
           cursor: page >= totalPages ? 'not-allowed' : 'pointer',
         }}
       >
-        Suivant <ChevronRight size={12} />
+        Next <ChevronRight size={12} />
       </button>
     </div>
   );
@@ -305,7 +305,7 @@ export default function ParsedResultsViewer({ caseId, refreshKey = 0 }) {
         else if (list.length > 0) setSelected(list[0]);
       })
       .catch(() => {
-        setListError('Impossible de charger la liste des résultats.');
+        setListError('Unable to load the results list.');
         setResults([]);
       })
       .finally(() => setLoadingList(false));
@@ -340,7 +340,7 @@ export default function ParsedResultsViewer({ caseId, refreshKey = 0 }) {
         setColumns(deriveColumns(recs));
       })
       .catch(() => {
-        setDataError('Impossible de charger les données de ce résultat.');
+        setDataError('Unable to load this result data.');
         setRecords([]);
         setTotal(0);
       })
@@ -369,7 +369,7 @@ export default function ParsedResultsViewer({ caseId, refreshKey = 0 }) {
         setTotal(0);
       }
     } catch (e) {
-      alert('Erreur suppression : ' + (e.response?.data?.error || e.message));
+      alert('Delete error: ' + (e.response?.data?.error || e.message));
     }
     setDeletingId(null);
   };
@@ -386,7 +386,7 @@ export default function ParsedResultsViewer({ caseId, refreshKey = 0 }) {
           setSelected(unified || list[0]);
         }
       })
-      .catch(() => setListError('Actualisation échouée.'))
+      .catch(() => setListError('Refresh failed.'))
       .finally(() => setLoadingList(false));
   };
 
@@ -396,13 +396,13 @@ export default function ParsedResultsViewer({ caseId, refreshKey = 0 }) {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <Table2 size={15} style={{ color: 'var(--fl-accent)' }} />
-          <span style={{ fontSize: 11, fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--fl-dim)' }}>
-            Résultats de parsing
+          <span style={{ fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--fl-dim)' }}>
+            Parsing results
           </span>
           {!loadingList && results.length > 0 && (
             <span style={{
-              padding: '1px 8px', borderRadius: 4, fontSize: 11, fontFamily: 'monospace',
-              fontWeight: 700, background: '#4d82c018', color: 'var(--fl-accent)', border: '1px solid #4d82c030',
+              padding: '1px 8px', borderRadius: 4, fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
+              fontWeight: 700, background: 'color-mix(in srgb, var(--fl-accent) 9%, transparent)', color: 'var(--fl-accent)', border: '1px solid color-mix(in srgb, var(--fl-accent) 19%, transparent)',
             }}>
               {results.length}
             </span>
@@ -411,11 +411,11 @@ export default function ParsedResultsViewer({ caseId, refreshKey = 0 }) {
         <button onClick={handleRefresh} disabled={loadingList}
           style={{
             display: 'flex', alignItems: 'center', gap: 4,
-            padding: '4px 10px', borderRadius: 6, fontSize: 11, fontFamily: 'monospace',
+            padding: '4px 10px', borderRadius: 6, fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
             background: 'transparent', border: '1px solid var(--fl-border)', color: 'var(--fl-dim)', cursor: 'pointer',
           }}
         >
-          <RefreshCw size={11} className={loadingList ? 'animate-spin' : ''} /> Actualiser
+          <RefreshCw size={11} className={loadingList ? 'animate-spin' : ''} /> Refresh
         </button>
       </div>
 
@@ -426,7 +426,7 @@ export default function ParsedResultsViewer({ caseId, refreshKey = 0 }) {
         {loadingList ? (
           <div style={{ textAlign: 'center', padding: '16px 0', color: 'var(--fl-dim)' }}>
             <Loader2 size={16} className="animate-spin" style={{ display: 'inline', marginRight: 6 }} />
-            Chargement…
+            Loading…
           </div>
         ) : listError ? (
           <div style={{ color: 'var(--fl-danger)', fontSize: 12 }}>⚠ {listError}</div>
@@ -434,9 +434,9 @@ export default function ParsedResultsViewer({ caseId, refreshKey = 0 }) {
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 0' }}>
             <FileText size={20} style={{ color: 'var(--fl-muted)' }} />
             <div>
-              <div style={{ fontSize: 13, color: 'var(--fl-dim)' }}>Aucun résultat de parsing pour ce cas.</div>
+              <div style={{ fontSize: 13, color: 'var(--fl-dim)' }}>No parsing results for this case.</div>
               <div style={{ fontSize: 11, color: 'var(--fl-muted)', marginTop: 2 }}>
-                Sélectionnez un parseur et une preuve ci-dessus, puis cliquez sur "Exécuter".
+                Select a parser and an evidence item above, then click "Run".
               </div>
             </div>
           </div>
@@ -469,18 +469,18 @@ export default function ParsedResultsViewer({ caseId, refreshKey = 0 }) {
             <span style={{ fontSize: 12, color: 'var(--fl-text)' }}>
               {selected.evidence_name || '—'}
             </span>
-            <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: 'var(--fl-dim)', fontFamily: 'monospace' }}>
-              <Hash size={11} /> {total.toLocaleString()} enregistrements
+            <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: 'var(--fl-dim)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}>
+              <Hash size={11} /> {total.toLocaleString()} records
             </span>
-            <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: 'var(--fl-dim)', fontFamily: 'monospace' }}>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: 'var(--fl-dim)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}>
               <Calendar size={11} /> {fmtDate(selected.created_at)}
             </span>
-            <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: 'var(--fl-dim)', fontFamily: 'monospace' }}>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: 'var(--fl-dim)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}>
               <User size={11} /> {selected.parsed_by || 'system'}
             </span>
             {columns.length > 0 && (
-              <span style={{ fontSize: 11, color: 'var(--fl-dim)', fontFamily: 'monospace' }}>
-                {columns.length} colonnes détectées
+              <span style={{ fontSize: 11, color: 'var(--fl-dim)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}>
+                {columns.length} columns detected
               </span>
             )}
             <button
@@ -495,10 +495,10 @@ export default function ParsedResultsViewer({ caseId, refreshKey = 0 }) {
                   URL.revokeObjectURL(url);
                 } catch (_e) {}
               }}
-              title="Exporter en CSV"
+              title="Export to CSV"
               style={{
                 display: 'flex', alignItems: 'center', gap: 4,
-                padding: '3px 10px', borderRadius: 5, fontSize: 11, fontFamily: 'monospace',
+                padding: '3px 10px', borderRadius: 5, fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
                 background: 'transparent', border: '1px solid var(--fl-border)',
                 color: 'var(--fl-dim)', cursor: 'pointer', marginLeft: 'auto',
               }}
@@ -514,9 +514,9 @@ export default function ParsedResultsViewer({ caseId, refreshKey = 0 }) {
               background: 'var(--fl-bg)', border: '1px solid var(--fl-border)',
             }}>
               {loadingTypes ? (
-                <span style={{ fontSize: 11, color: 'var(--fl-dim)', fontFamily: 'monospace' }}>
-                  <Loader2 size={11} style={{ display: 'inline', marginRight: 4 }} className="animate-spin" />
-                  Chargement des types…
+                <span style={{ fontSize: 11, color: 'var(--fl-dim)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}>
+              <Loader2 size={11} style={{ display: 'inline', marginRight: 4 }} className="animate-spin" />
+                  Loading types…
                 </span>
               ) : (
                 <>
@@ -525,13 +525,13 @@ export default function ParsedResultsViewer({ caseId, refreshKey = 0 }) {
                     onClick={() => { setSelectedType(null); setPage(1); }}
                     style={{
                       padding: '3px 10px', borderRadius: 20, fontSize: 11,
-                      fontFamily: 'monospace', fontWeight: 600, cursor: 'pointer',
-                      background: selectedType === null ? '#4d82c018' : 'transparent',
+                      fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontWeight: 600, cursor: 'pointer',
+                      background: selectedType === null ? 'color-mix(in srgb, var(--fl-accent) 9%, transparent)' : 'transparent',
                       color:      selectedType === null ? 'var(--fl-accent)'   : 'var(--fl-dim)',
-                      border:    `1px solid ${selectedType === null ? '#4d82c040' : 'var(--fl-border)'}`,
+                      border:    `1px solid ${selectedType === null ? 'color-mix(in srgb, var(--fl-accent) 25%, transparent)' : 'var(--fl-border)'}`,
                     }}
                   >
-                    Tous
+                    All
                     <span style={{
                       marginLeft: 5, fontSize: 10,
                       color: selectedType === null ? 'var(--fl-accent)' : 'var(--fl-muted)',
@@ -550,8 +550,8 @@ export default function ParsedResultsViewer({ caseId, refreshKey = 0 }) {
                         style={{
                           display: 'flex', alignItems: 'center', gap: 5,
                           padding: '3px 10px', borderRadius: 20, fontSize: 11,
-                          fontFamily: 'monospace', fontWeight: 600, cursor: 'pointer',
-                          background: active ? `${col}18` : 'transparent',
+                          fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontWeight: 600, cursor: 'pointer',
+                          background: active ? `color-mix(in srgb, ${col} 9%, transparent)` : 'transparent',
                           color:      active ? col        : 'var(--fl-dim)',
                           border:    `1px solid ${active ? col + '40' : 'var(--fl-border)'}`,
                         }}
@@ -601,24 +601,24 @@ export default function ParsedResultsViewer({ caseId, refreshKey = 0 }) {
           background: 'rgba(0,0,0,0.75)',
         }}>
           <div style={{
-            background: 'var(--fl-card)', border: '1px solid #da363340',
+            background: 'var(--fl-card)', border: '1px solid color-mix(in srgb, var(--fl-danger) 25%, transparent)',
             borderRadius: 12, padding: 24, width: '100%', maxWidth: 400,
           }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
               <div style={{
                 width: 36, height: 36, borderRadius: '50%',
-                background: '#da363320', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                background: 'color-mix(in srgb, var(--fl-danger) 13%, transparent)', display: 'flex', alignItems: 'center', justifyContent: 'center',
               }}>
                 <Trash2 size={18} style={{ color: 'var(--fl-danger)' }} />
               </div>
               <div>
-                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--fl-text)' }}>Supprimer le résultat</div>
-                <div style={{ fontSize: 11, color: 'var(--fl-dim)', marginTop: 2 }}>Action irréversible</div>
+              <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--fl-text)' }}>Delete result</div>
+                <div style={{ fontSize: 11, color: 'var(--fl-dim)', marginTop: 2 }}>Irreversible action</div>
               </div>
             </div>
             <p style={{ fontSize: 12, color: '#a0aec0', marginBottom: 20 }}>
-              Supprimer le résultat <strong style={{ color: 'var(--fl-text)' }}>{confirmDelete.parser_name}</strong> ({(confirmDelete.record_count ?? 0).toLocaleString()} enregistrements) ?<br /><br />
-              Les entrées associées dans la collection timeline seront également supprimées.
+              Delete result <strong style={{ color: 'var(--fl-text)' }}>{confirmDelete.parser_name}</strong> ({(confirmDelete.record_count ?? 0).toLocaleString()} records)?<br /><br />
+              Associated entries in the timeline collection will also be deleted.
             </p>
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
               <button
@@ -629,17 +629,17 @@ export default function ParsedResultsViewer({ caseId, refreshKey = 0 }) {
                   color: 'var(--fl-dim)', cursor: 'pointer',
                 }}
               >
-                Annuler
+                Cancel
               </button>
               <button
                 onClick={() => handleDeleteResult(confirmDelete)}
                 style={{
                   padding: '6px 14px', borderRadius: 6, fontSize: 12,
-                  background: '#da363318', border: '1px solid #da363340',
+                  background: 'color-mix(in srgb, var(--fl-danger) 9%, transparent)', border: '1px solid color-mix(in srgb, var(--fl-danger) 25%, transparent)',
                   color: 'var(--fl-danger)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6,
                 }}
               >
-                <Trash2 size={12} /> Supprimer
+                <Trash2 size={12} /> Delete
               </button>
             </div>
           </div>

@@ -10,6 +10,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     wget \
     unzip \
+    git \
     ca-certificates \
     gnupg \
     && rm -rf /var/lib/apt/lists/*
@@ -74,7 +75,7 @@ RUN mkdir -p /app/hayabusa /tmp/hayabusa \
     && cd /tmp/hayabusa \
     && echo "Downloading Hayabusa..." \
     && curl -fsSL -L -o hayabusa.zip \
-        "https://github.com/Yamato-Security/hayabusa/releases/download/v3.8.1/hayabusa-3.8.1-lin-x64-gnu.zip" \
+        "https://github.com/Yamato-Security/hayabusa/releases/download/v3.8.1/hayabusa-3.8.1-lin-x64-musl.zip" \
     && unzip -o -q hayabusa.zip -d /app/hayabusa/ \
     && chmod +x /app/hayabusa/hayabusa* 2>/dev/null || true \
     && echo "=== Hayabusa installed ===" \
@@ -94,12 +95,16 @@ RUN HAYABIN=$(ls /app/hayabusa/hayabusa-* 2>/dev/null | head -1) \
         echo "WARNING: Hayabusa binary not found — fallback Sigma rules will be used"; \
     fi
 
-# Pre-download Hayabusa rules while in the tool-fetcher stage
-RUN if [ -x /app/hayabusa/hayabusa ]; then \
-        cd /app/hayabusa \
-        && /app/hayabusa/hayabusa update-rules --no-wizard 2>/dev/null \
-        || echo "Rules update skipped (offline build — will update at runtime)"; \
-    fi
+# Bundle Hayabusa rules at build time via git clone (deterministic, no runtime network needed).
+# update-rules is unreliable in CI/offline builds — silently fails and leaves /rules empty.
+RUN git clone --depth=1 --single-branch \
+        https://github.com/Yamato-Security/hayabusa-rules.git \
+        /app/hayabusa/rules \
+    && echo "=== Hayabusa rules bundled: $(find /app/hayabusa/rules -name '*.yml' | wc -l) Sigma rules ===" \
+    || { echo "WARNING: git clone of hayabusa-rules failed — attempting update-rules fallback"; \
+         [ -x /app/hayabusa/hayabusa ] \
+           && cd /app/hayabusa && /app/hayabusa/hayabusa update-rules --no-wizard 2>&1 | tail -5 \
+           || echo "Binary unavailable — no rules installed"; }
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -135,9 +140,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # ─── Python forensic libraries ───
 RUN pip3 install --no-cache-dir --break-system-packages \
     dissect \
-    dissect.esedb \
-    && echo "=== dissect + dissect.esedb installed ===" \
-    || echo "WARNING: dissect install failed — prefetch/srum parsers may be unavailable"
+    "dissect.regf>=3" \
+    "dissect.esedb>=3" \
+    "dissect.cim>=3" \
+    Pillow \
+    && echo "=== dissect + dissect.regf + dissect.esedb + dissect.cim + Pillow installed ===" \
+    || echo "WARNING: dissect/Pillow install failed — some parsers may be unavailable"
+
+# ─── RDP Bitmap Cache reconstructor (ANSSI bmc-tools) — reconstructs RDP session tiles ───
+RUN mkdir -p /app/tools \
+    && wget -q https://raw.githubusercontent.com/ANSSI-FR/bmc-tools/master/bmc-tools.py -O /app/tools/bmc-tools.py \
+    && echo "=== bmc-tools installed ===" \
+    || echo "WARNING: bmc-tools download failed — RDP bitmap cache parsing unavailable"
 
 # ─── Copy forensic tools from tool-fetcher (no re-download) ───
 COPY --from=tool-fetcher /usr/share/dotnet /usr/share/dotnet
@@ -165,8 +179,8 @@ RUN mkdir -p /app/parsers && chmod +x /app/parsers/*.py 2>/dev/null || true \
     && chown -R node:node /app/parsers
 
 # ─── Runtime directories ───
-RUN mkdir -p /app/uploads /app/evidence /app/temp /app/collections \
-    && chown -R node:node /app/uploads /app/evidence /app/temp /app/collections
+RUN mkdir -p /app/uploads /app/evidence /app/temp /app/collections /app/logs \
+    && chown -R node:node /app/uploads /app/evidence /app/temp /app/collections /app/logs
 
 COPY --chown=node:node download-zimmerman.sh /app/download-zimmerman.sh
 RUN chmod +x /app/download-zimmerman.sh

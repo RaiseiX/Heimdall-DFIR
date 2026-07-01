@@ -22,7 +22,7 @@ router.get('/:caseId', authenticate, async (req, res) => {
 
 router.post('/:caseId', authenticate, async (req, res) => {
   try {
-    const { technique_id, tactic, technique_name, sub_technique_name, confidence, notes } = req.body;
+    const { technique_id, tactic, technique_name, sub_technique_name, confidence, notes, significance, links_to } = req.body;
     if (!technique_id || !tactic || !technique_name) {
       return res.status(400).json({ error: 'technique_id, tactic, technique_name requis' });
     }
@@ -37,8 +37,8 @@ router.post('/:caseId', authenticate, async (req, res) => {
 
     const result = await pool.query(
       `INSERT INTO case_mitre_techniques
-         (case_id, technique_id, tactic, technique_name, sub_technique_name, confidence, notes, created_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+         (case_id, technique_id, tactic, technique_name, sub_technique_name, confidence, notes, significance, links_to, created_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
        RETURNING *`,
       [
         req.params.caseId,
@@ -48,6 +48,8 @@ router.post('/:caseId', authenticate, async (req, res) => {
         sub_technique_name || null,
         confidence || 'medium',
         notes || null,
+        significance || null,
+        links_to || null,
         req.user.id,
       ]
     );
@@ -66,16 +68,24 @@ router.post('/:caseId', authenticate, async (req, res) => {
 
 router.patch('/:caseId/:id', authenticate, async (req, res) => {
   try {
-    const { confidence, notes } = req.body;
+    // PATCH semantics: only update the keys actually present in the body, so
+    // an explicit null/'' clears the field (COALESCE would silently keep it).
+    const has = (k) => Object.prototype.hasOwnProperty.call(req.body, k);
+    const sets = [];
+    const vals = [];
+    for (const k of ['confidence', 'notes', 'significance', 'links_to']) {
+      if (has(k)) { vals.push(req.body[k] === '' ? null : req.body[k]); sets.push(`${k} = $${vals.length}`); }
+    }
+    if (!sets.length) return res.status(400).json({ error: 'Aucun champ à mettre à jour' });
+    vals.push(req.params.id, req.params.caseId);
     const result = await pool.query(
-      `UPDATE case_mitre_techniques
-       SET confidence = COALESCE($1, confidence),
-           notes      = COALESCE($2, notes)
-       WHERE id = $3 AND case_id = $4
+      `UPDATE case_mitre_techniques SET ${sets.join(', ')}
+       WHERE id = $${vals.length - 1} AND case_id = $${vals.length}
        RETURNING *`,
-      [confidence || null, notes !== undefined ? notes : null, req.params.id, req.params.caseId]
+      vals
     );
     if (result.rows.length === 0) return res.status(404).json({ error: 'Non trouvé' });
+    const { confidence, notes } = req.body;
     await auditLog(req.user.id, 'update_mitre_technique', 'case', req.params.caseId,
       { technique_entry_id: req.params.id, confidence, notes }, req.ip);
     res.json(result.rows[0]);

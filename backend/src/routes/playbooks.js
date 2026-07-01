@@ -132,6 +132,40 @@ router.put('/cases/:caseId/:instanceId/steps/:stepId', authenticate, async (req,
   }
 });
 
+// Open playbook steps across cases the current user is already engaged in
+// (started the playbook or completed at least one step) — never exposes
+// cases the user has no prior involvement with.
+router.get('/my-open-steps', authenticate, async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT s.id AS step_id, s.title AS step_title, s.note_required, s.mitre_technique, s.step_order,
+             cp.id AS instance_id, cp.case_id, cp.started_at,
+             c.case_number, c.title AS case_title,
+             p.title AS playbook_title, p.incident_type
+      FROM case_playbooks cp
+      JOIN cases c          ON c.id = cp.case_id
+      JOIN playbooks p      ON p.id = cp.playbook_id
+      JOIN playbook_steps s ON s.playbook_id = p.id
+      LEFT JOIN case_playbook_steps cps
+        ON cps.step_id = s.id AND cps.case_playbook_id = cp.id
+      WHERE cp.completed_at IS NULL
+        AND (cps.completed IS NULL OR cps.completed = FALSE)
+        AND (
+          cp.started_by = $1
+          OR EXISTS (
+            SELECT 1 FROM case_playbook_steps cps2
+            WHERE cps2.case_playbook_id = cp.id AND cps2.completed_by = $1
+          )
+        )
+      ORDER BY cp.started_at DESC, s.step_order
+      LIMIT 12
+    `, [req.user.id]);
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ error: 'Erreur serveur' });
+  }
+});
+
 router.get('/:id', authenticate, async (req, res) => {
   try {
     const [pb, steps] = await Promise.all([

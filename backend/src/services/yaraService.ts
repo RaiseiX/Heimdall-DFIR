@@ -1,5 +1,5 @@
 
-import { spawnSync } from 'child_process';
+import { spawn } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -7,7 +7,7 @@ import { v4 as uuidv4 } from 'uuid';
 
 const UPLOAD_DIR = path.resolve(process.env.UPLOAD_DIR || '/app/uploads');
 const YARA_BIN   = 'yara';
-const YARA_TIMEOUT_MS = 60_000;
+const YARA_TIMEOUT_MS = 300_000; // 5 min — large RAM dumps need time, but must not block event loop
 
 export interface YaraMatch {
   identifier: string;
@@ -27,22 +27,38 @@ function writeTmpRule(content: string): string {
   return tmpPath;
 }
 
-export function validateRule(content: string): { valid: boolean; error?: string } {
+// Async spawn wrapper — never blocks the event loop
+function spawnAsync(args: string[], timeoutMs: number): Promise<{ stdout: string; stderr: string; status: number | null }> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(YARA_BIN, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    let stdout = '';
+    let stderr = '';
+    child.stdout.on('data', (d: Buffer) => { stdout += d.toString(); });
+    child.stderr.on('data', (d: Buffer) => { stderr += d.toString(); });
+    const timer = setTimeout(() => {
+      child.kill('SIGKILL');
+      reject(new Error(`yara timeout after ${timeoutMs}ms`));
+    }, timeoutMs);
+    child.on('close', (code: number | null) => {
+      clearTimeout(timer);
+      resolve({ stdout, stderr, status: code });
+    });
+    child.on('error', (err: Error) => {
+      clearTimeout(timer);
+      reject(err);
+    });
+  });
+}
+
+export async function validateRule(content: string): Promise<{ valid: boolean; error?: string }> {
   let tmpPath: string | null = null;
   try {
     tmpPath = writeTmpRule(content);
 
-    let result = spawnSync(YARA_BIN, ['--syntax-only', tmpPath, '/dev/null'], {
-      timeout: 10_000,
-      encoding: 'utf8',
-    });
+    let result = await spawnAsync(['--syntax-only', tmpPath, '/dev/null'], 10_000);
 
     if ((result.stderr || '').includes('unknown option')) {
-      result = spawnSync(YARA_BIN, [tmpPath, '/dev/null'], {
-        timeout: 10_000,
-        encoding: 'utf8',
-      });
-
+      result = await spawnAsync([tmpPath, '/dev/null'], 10_000);
       if (result.status === 0 || result.status === 1) return { valid: true };
       const stderr = (result.stderr || '').trim();
       return { valid: false, error: stderr || 'Règle YARA invalide' };
@@ -60,7 +76,6 @@ export function validateRule(content: string): { valid: boolean; error?: string 
 function parseYaraOutput(stdout: string): YaraMatch[] {
   const matches: YaraMatch[] = [];
   for (const line of stdout.split('\n')) {
-
     const m = line.match(/^0x([0-9a-f]+):(\$\S+):\s*(.+)$/i);
     if (m) {
       matches.push({
@@ -73,10 +88,10 @@ function parseYaraOutput(stdout: string): YaraMatch[] {
   return matches;
 }
 
-export function scanEvidence(
+export async function scanEvidence(
   evidencePath: string,
   ruleContent:  string,
-): YaraScanResult {
+): Promise<YaraScanResult> {
 
   const resolved = path.resolve(evidencePath);
   if (!resolved.startsWith(UPLOAD_DIR + path.sep) && !resolved.startsWith(UPLOAD_DIR)) {
@@ -89,14 +104,10 @@ export function scanEvidence(
   let tmpPath: string | null = null;
   try {
     tmpPath = writeTmpRule(ruleContent);
-    const result = spawnSync(YARA_BIN, ['-s', tmpPath, resolved], {
-      timeout:  YARA_TIMEOUT_MS,
-      encoding: 'utf8',
-      maxBuffer: 4 * 1024 * 1024,
-    });
+    const result = await spawnAsync(['-s', tmpPath, resolved], YARA_TIMEOUT_MS);
 
-    if (result.error) {
-      return { matched: false, strings: [], error: String(result.error) };
+    if (!result) {
+      return { matched: false, strings: [], error: 'Pas de résultat' };
     }
 
     const stdout = result.stdout || '';

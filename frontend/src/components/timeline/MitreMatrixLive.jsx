@@ -84,11 +84,11 @@ export default function MitreMatrixLive({ records }) {
 
   if (totalHits === 0) {
     return (
-      <div style={{ padding: '20px 16px', fontFamily: 'monospace', color: '#2a5a8a', fontSize: 11 }}>
-        Aucune technique MITRE ATT&CK dans les enregistrements actuels.
+      <div style={{ padding: '20px 16px', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: '#2a5a8a', fontSize: 11 }}>
+        No MITRE ATT&CK technique in the current records.
         <br />
         <span style={{ fontSize: 10, color: 'var(--fl-accent)' }}>
-          Parsez des logs Hayabusa ou Sigma pour enrichir le champ mitre_technique.
+          Parse Hayabusa or Sigma logs to enrich the mitre_technique field.
         </span>
       </div>
     );
@@ -99,10 +99,10 @@ export default function MitreMatrixLive({ records }) {
   return (
     <div style={{ padding: '12px 16px', overflow: 'auto' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
-        <span style={{ fontFamily: 'monospace', fontSize: 9, color: '#3a6a9a', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+        <span style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 9, color: '#3a6a9a', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
           MITRE ATT&CK Matrix — Live
         </span>
-        <span style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--fl-accent)', fontWeight: 700 }}>
+        <span style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10, color: 'var(--fl-accent)', fontWeight: 700 }}>
           {totalHits} hit{totalHits > 1 ? 's' : ''} · {activeTactics.length} tactic{activeTactics.length > 1 ? 's' : ''} · {techCounts.size} technique{techCounts.size > 1 ? 's' : ''}
         </span>
       </div>
@@ -125,14 +125,14 @@ export default function MitreMatrixLive({ records }) {
                 borderBottom: `1px solid ${active ? 'var(--fl-accent)' : 'var(--fl-bg)'}`,
               }}>
                 <span style={{
-                  fontFamily: 'monospace', fontSize: 8, fontWeight: 700,
+                  fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 8, fontWeight: 700,
                   textTransform: 'uppercase', letterSpacing: '0.08em',
                   color: active ? 'var(--fl-accent)' : 'var(--fl-accent)',
                 }}>
                   {tac.short}
                 </span>
                 {active && (
-                  <span style={{ marginLeft: 4, fontSize: 8, fontFamily: 'monospace', color: '#7abfff' }}>
+                  <span style={{ marginLeft: 4, fontSize: 8, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: '#7abfff' }}>
                     ({techMap.size})
                   </span>
                 )}
@@ -147,13 +147,13 @@ export default function MitreMatrixLive({ records }) {
                     borderBottom: '1px solid var(--fl-bg)',
                     display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 4,
                   }}
-                    title={`${tech} — ${count} événement${count > 1 ? 's' : ''}`}
+                    title={`${tech} - ${count} event${count > 1 ? 's' : ''}`}
                   >
-                    <span style={{ fontFamily: 'monospace', fontSize: 9, color: '#7abfff', fontWeight: 600 }}>
+                    <span style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 9, color: '#7abfff', fontWeight: 600 }}>
                       {tech}
                     </span>
                     <span style={{
-                      fontFamily: 'monospace', fontSize: 8, fontWeight: 700,
+                      fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 8, fontWeight: 700,
                       padding: '0 4px', borderRadius: 3,
                       background: `rgba(77,130,192,${intensity * 0.4})`,
                       color: 'var(--fl-accent)',
@@ -165,7 +165,7 @@ export default function MitreMatrixLive({ records }) {
               })}
 
               {!active && (
-                <div style={{ padding: '4px 7px', fontSize: 8, color: 'var(--fl-muted)', fontFamily: 'monospace' }}>—</div>
+                <div style={{ padding: '4px 7px', fontSize: 8, color: 'var(--fl-muted)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}>—</div>
               )}
             </div>
           );

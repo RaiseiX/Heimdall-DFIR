@@ -1,6 +1,8 @@
 import axios from 'axios';
 import logger from '../config/logger';
 import { getRedis } from '../config/redis';
+// @ts-ignore — CommonJS helper (env first, then system_settings)
+import { getIntegrationKey } from './integrationKeys';
 
 const CACHE_TTL = 86400;
 
@@ -45,7 +47,39 @@ export interface GeoResult {
   is_tor?: boolean;
 }
 
+export interface GreyNoiseResult {
+  noise: boolean;          // mass-scanner background noise
+  riot: boolean;           // known benign service (RIOT)
+  classification: string;  // 'benign' | 'malicious' | 'unknown'
+  name?: string;
+  link?: string;
+}
+export interface UrlhausResult {
+  query_status: string;    // 'ok' | 'no_results'
+  threat?: string;
+  url_status?: string;     // 'online' | 'offline'
+  tags?: string[];
+}
+export interface MalwareBazaarResult {
+  query_status: string;    // 'ok' | 'hash_not_found'
+  file_name?: string;
+  file_type?: string;
+  signature?: string;      // malware family
+  tags?: string[];
+}
+export interface HibpResult {
+  pwned: boolean;
+  breach_count: number;
+  breaches?: string[];
+}
+
 export interface EnrichmentResult {
+  greynoise?: GreyNoiseResult | null;
+  urlhaus?: UrlhausResult | null;
+  malwarebazaar?: MalwareBazaarResult | null;
+  hibp?: HibpResult | null;
+  noise?: boolean;          // true → likely internet background noise / benign (de-prioritise)
+  noise_reason?: string;
   virustotal?: VTResult | null;
   abuseipdb?: AbuseResult | null;
   shodan?: ShodanResult | null;
@@ -83,7 +117,7 @@ async function setCached(key: string, data: EnrichmentResult): Promise<void> {
 }
 
 async function enrichVirusTotal(value: string, iocType: string): Promise<VTResult | null> {
-  const apiKey = process.env.VIRUSTOTAL_API_KEY;
+  const apiKey = process.env.VIRUSTOTAL_API_KEY || await getIntegrationKey('virustotal');
   if (!apiKey) return null;
 
   let url: string;
@@ -137,7 +171,7 @@ async function enrichVirusTotal(value: string, iocType: string): Promise<VTResul
 }
 
 async function enrichAbuseIPDB(ip: string): Promise<AbuseResult | null> {
-  const apiKey = process.env.ABUSEIPDB_API_KEY;
+  const apiKey = process.env.ABUSEIPDB_API_KEY || await getIntegrationKey('abuseipdb');
   if (!apiKey) return null;
 
   try {
@@ -162,7 +196,7 @@ async function enrichAbuseIPDB(ip: string): Promise<AbuseResult | null> {
 }
 
 async function enrichShodan(ip: string): Promise<ShodanResult | null> {
-  const apiKey = process.env.SHODAN_API_KEY;
+  const apiKey = process.env.SHODAN_API_KEY || await getIntegrationKey('shodan');
   if (!apiKey) return null;
 
   const cacheKey = `shodan:${ip}`;
@@ -262,6 +296,108 @@ async function enrichGeoIP(ip: string): Promise<GeoResult | null> {
   }
 }
 
+// ── Noise-reduction / reputation sources ─────────────────────────────────
+
+// GreyNoise Community API — is this IP just internet background noise?
+async function enrichGreyNoise(ip: string): Promise<GreyNoiseResult | null> {
+  const apiKey = process.env.GREYNOISE_API_KEY || await getIntegrationKey('greynoise');
+  if (!apiKey) return null;
+  try {
+    const resp = await axios.get(`https://api.greynoise.io/v3/community/${encodeURIComponent(ip)}`, {
+      headers: { key: apiKey, Accept: 'application/json' }, timeout: 10_000,
+    });
+    const d = resp.data || {};
+    return {
+      noise:          !!d.noise,
+      riot:           !!d.riot,
+      classification: d.classification || 'unknown',
+      name:           d.name,
+      link:           d.link,
+    };
+  } catch (err: any) {
+    if (err.response?.status === 404) return { noise: false, riot: false, classification: 'unknown' };
+    logger.warn('[enrich] greynoise error', { error: err.message });
+    return null;
+  }
+}
+
+// abuse.ch URLhaus — is this URL a known malware/payload URL?
+async function enrichUrlhaus(url: string): Promise<UrlhausResult | null> {
+  const apiKey = process.env.URLHAUS_API_KEY || await getIntegrationKey('urlhaus');
+  if (!apiKey) return null;
+  try {
+    const body = new URLSearchParams({ url });
+    const resp = await axios.post('https://urlhaus-api.abuse.ch/v1/url/', body, {
+      headers: { 'Auth-Key': apiKey, 'Content-Type': 'application/x-www-form-urlencoded' }, timeout: 10_000,
+    });
+    const d = resp.data || {};
+    return {
+      query_status: d.query_status || 'unknown',
+      threat:       d.threat,
+      url_status:   d.url_status,
+      tags:         Array.isArray(d.tags) ? d.tags : undefined,
+    };
+  } catch (err: any) {
+    logger.warn('[enrich] urlhaus error', { error: err.message });
+    return null;
+  }
+}
+
+// abuse.ch MalwareBazaar — is this hash a known malware sample?
+async function enrichMalwareBazaar(hash: string): Promise<MalwareBazaarResult | null> {
+  const apiKey = process.env.MALWAREBAZAAR_API_KEY || await getIntegrationKey('malwarebazaar');
+  if (!apiKey) return null;
+  try {
+    const body = new URLSearchParams({ query: 'get_info', hash });
+    const resp = await axios.post('https://mb-api.abuse.ch/api/v1/', body, {
+      headers: { 'Auth-Key': apiKey, 'Content-Type': 'application/x-www-form-urlencoded' }, timeout: 10_000,
+    });
+    const d = resp.data || {};
+    const info = Array.isArray(d.data) && d.data.length ? d.data[0] : {};
+    return {
+      query_status: d.query_status || 'unknown',
+      file_name:    info.file_name,
+      file_type:    info.file_type,
+      signature:    info.signature,
+      tags:         Array.isArray(info.tags) ? info.tags : undefined,
+    };
+  } catch (err: any) {
+    logger.warn('[enrich] malwarebazaar error', { error: err.message });
+    return null;
+  }
+}
+
+// Have I Been Pwned — is this email in known breaches?
+async function enrichHibp(email: string): Promise<HibpResult | null> {
+  const apiKey = process.env.HIBP_API_KEY || await getIntegrationKey('hibp');
+  if (!apiKey) return null;
+  try {
+    const resp = await axios.get(
+      `https://haveibeenpwned.com/api/v3/breachedaccount/${encodeURIComponent(email)}?truncateResponse=true`,
+      { headers: { 'hibp-api-key': apiKey, 'user-agent': 'Heimdall-DFIR' }, timeout: 10_000 },
+    );
+    const breaches = (resp.data || []).map((b: any) => b.Name).filter(Boolean);
+    return { pwned: breaches.length > 0, breach_count: breaches.length, breaches };
+  } catch (err: any) {
+    if (err.response?.status === 404) return { pwned: false, breach_count: 0, breaches: [] };
+    logger.warn('[enrich] hibp error', { error: err.message });
+    return null;
+  }
+}
+
+/**
+ * Derive a noise verdict from enrichment: true → likely benign internet noise,
+ * so automation can de-prioritise (lower severity) the related triage alert.
+ * Returns { noise, reason }.
+ */
+export function assessNoise(r: EnrichmentResult): { noise: boolean; reason?: string } {
+  if (r.greynoise?.riot) return { noise: true, reason: `GreyNoise RIOT: ${r.greynoise.name || 'known benign service'}` };
+  if (r.greynoise && r.greynoise.noise && r.greynoise.classification === 'benign') {
+    return { noise: true, reason: 'GreyNoise: benign background scanner' };
+  }
+  return { noise: false };
+}
+
 export async function enrichIOC(value: string, iocType: string): Promise<EnrichmentResult> {
   const cacheKey = `enrich:${iocType}:${value.toLowerCase()}`;
   const cached = await getCached(cacheKey);
@@ -288,7 +424,21 @@ export async function enrichIOC(value: string, iocType: string): Promise<Enrichm
       result.geo_city         = geo.city;
       result.geo_org          = geo.org;
     }
+    result.greynoise = await enrichGreyNoise(value);
   }
+  if (iocType === 'url' || iocType === 'domain') {
+    result.urlhaus = await enrichUrlhaus(value);
+  }
+  if (['md5', 'sha1', 'sha256', 'hash'].includes(iocType)) {
+    result.malwarebazaar = await enrichMalwareBazaar(value);
+  }
+  if (iocType === 'email') {
+    result.hibp = await enrichHibp(value);
+  }
+
+  // Noise verdict — de-prioritise triage alerts for benign background traffic.
+  const { noise, reason } = assessNoise(result);
+  if (noise) { result.noise = true; result.noise_reason = reason; }
 
   await setCached(cacheKey, result);
   return result;

@@ -4,10 +4,10 @@ import { ChevronDown, ChevronRight, RefreshCw, Activity, ExternalLink } from 'lu
 import { useDateFormat } from '../../hooks/useDateFormat';
 
 const RISK_COLOR = {
-  CRITIQUE: 'var(--fl-danger)',
-  'ÉLEVÉ':   'var(--fl-warn)',
-  MOYEN:    'var(--fl-gold)',
-  FAIBLE:   'var(--fl-ok)',
+  CRITICAL: 'var(--fl-danger)',
+  HIGH:     'var(--fl-warn)',
+  MEDIUM:   'var(--fl-gold)',
+  LOW:      'var(--fl-ok)',
 };
 
 const RULE_SEARCH = {
@@ -30,15 +30,15 @@ const RULE_SEARCH = {
 };
 
 const RULE_LABELS = {
-  suspicious_exec_path:       'Exécution chemin suspect (%TEMP%/AppData)',
-  powershell_encoded:         'PowerShell encodé (-enc)',
-  lateral_movement:           'Mouvement latéral (LogonType 3/10)',
-  privilege_escalation:       'Élévation de privilèges (EID 4672)',
+  suspicious_exec_path:       'Suspicious path execution (%TEMP%/AppData)',
+  powershell_encoded:         'Encoded PowerShell (-enc)',
+  lateral_movement:           'Lateral movement (LogonType 3/10)',
+  privilege_escalation:       'Privilege escalation (EID 4672)',
   double_extension:           'Double extension (.pdf.exe, .docx.scr)',
-  night_activity:             'Activité nocturne (22h–6h)',
+  night_activity:             'Night activity (22:00-06:00)',
   sysmon_proc_injection:      'Injection de processus (EID 8 / CreateRemoteThread)',
-  sysmon_lsass_access:        'Accès LSASS (dump credentials)',
-  sysmon_suspicious_netconn:  'Connexion réseau depuis chemin suspect',
+  sysmon_lsass_access:        'LSASS access (credential dump)',
+  sysmon_suspicious_netconn:  'Network connection from suspicious path',
   sysmon_ads:                 'Alternate Data Stream (Zone.Identifier)',
   credential_dump_tool:       'Outil de dump credentials (mimikatz, procdump)',
   lolbas_exec:                'LOLBaS — certutil/regsvr32/mshta (T1218)',
@@ -94,34 +94,34 @@ function MachineRow({ machine, caseId, collectionId }) {
           {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
         </span>
         <span style={{
-          fontFamily: 'monospace', fontSize: 11, color: 'var(--fl-text)',
+          fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11, color: 'var(--fl-text)',
           flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
         }}>
           {machine.hostname}
         </span>
-        <span style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--fl-muted)', marginRight: 8, flexShrink: 0 }}>
-          {machine.event_count.toLocaleString()} evt
+        <span style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10, color: 'var(--fl-muted)', marginRight: 8, flexShrink: 0 }}>
+          {machine.event_count.toLocaleString()} events
         </span>
         <ScoreBar score={machine.score} color={color} />
         <span style={{
-          fontFamily: 'monospace', fontSize: 12, fontWeight: 700,
+          fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 12, fontWeight: 700,
           color, width: 28, textAlign: 'right', flexShrink: 0,
         }}>
           {machine.score}
         </span>
         <span style={{
-          fontSize: 9, fontFamily: 'monospace', fontWeight: 700,
+          fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontWeight: 700,
           padding: '1px 5px', borderRadius: 3, marginLeft: 4,
-          background: `${color}18`, color, border: `1px solid ${color}35`,
+          background: `color-mix(in srgb, ${color} 9%, transparent)`, color, border: `1px solid color-mix(in srgb, ${color} 21%, transparent)`,
           flexShrink: 0,
         }}>
           {machine.risk_level}
         </span>
         {!open && topFactor && (
           <span
-            title={`Règle principale : ${RULE_LABELS[topFactor[0]] || topFactor[0]} (+${topFactor[1]} pts)`}
+          title={`Top rule: ${RULE_LABELS[topFactor[0]] || topFactor[0]} (+${topFactor[1]} pts)`}
             style={{
-              fontFamily: 'monospace', fontSize: 9, color: 'var(--fl-dim)',
+              fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 9, color: 'var(--fl-dim)',
               maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
               flexShrink: 1, marginLeft: 6,
               padding: '1px 6px', borderRadius: 3, background: '#1c2a3a', border: '1px solid var(--fl-card)',
@@ -139,14 +139,14 @@ function MachineRow({ machine, caseId, collectionId }) {
               display: 'flex', alignItems: 'center', gap: 8,
               padding: '3px 0', borderBottom: '1px solid rgba(30,42,60,0.4)',
             }}>
-              <span style={{ fontFamily: 'monospace', fontSize: 10, fontWeight: 700,
+              <span style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10, fontWeight: 700,
                 color: pts >= 20 ? 'var(--fl-danger)' : pts >= 15 ? 'var(--fl-warn)' : 'var(--fl-gold)',
                 width: 24, textAlign: 'right', flexShrink: 0 }}>
                 +{pts}
               </span>
               <button
                 onClick={e => handleRuleClick(e, rule)}
-                title={RULE_SEARCH[rule] ? `Rechercher "${RULE_SEARCH[rule]}" dans la Timeline` : 'Ouvrir la Timeline'}
+                title={RULE_SEARCH[rule] ? `Search "${RULE_SEARCH[rule]}" in Timeline` : 'Open Timeline'}
                 style={{
                   display: 'flex', alignItems: 'center', gap: 4,
                   background: 'none', border: 'none', cursor: 'pointer', padding: 0,
@@ -162,8 +162,8 @@ function MachineRow({ machine, caseId, collectionId }) {
       )}
 
       {open && factors.length === 0 && (
-        <div style={{ padding: '4px 12px 10px 32px', fontSize: 11, color: 'var(--fl-muted)', fontFamily: 'monospace' }}>
-          Aucun facteur de risque détecté
+        <div style={{ padding: '4px 12px 10px 32px', fontSize: 11, color: 'var(--fl-muted)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}>
+          No risk factors detected
         </div>
       )}
     </div>
@@ -185,18 +185,18 @@ export default function MachineScorePanel({ triageData, onRefresh, loading, case
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <Activity size={14} style={{ color: 'var(--fl-accent)' }} />
-          <span style={{ fontSize: 11, fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--fl-dim)' }}>
-            Scores de Compromission par Machine
+          <span style={{ fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--fl-dim)' }}>
+            Machine compromise scores
           </span>
           {machines.length > 0 && (
-            <span style={{ fontSize: 10, fontFamily: 'monospace', padding: '1px 6px', borderRadius: 4, background: '#4d82c018', color: 'var(--fl-accent)', border: '1px solid #4d82c030' }}>
+            <span style={{ fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', padding: '1px 6px', borderRadius: 4, background: 'color-mix(in srgb, var(--fl-accent) 9%, transparent)', color: 'var(--fl-accent)', border: '1px solid color-mix(in srgb, var(--fl-accent) 19%, transparent)' }}>
               {machines.length} machine{machines.length > 1 ? 's' : ''}
             </span>
           )}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           {computed_at && (
-            <span style={{ fontSize: 10, fontFamily: 'monospace', color: 'var(--fl-muted)' }}>
+            <span style={{ fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-muted)' }}>
               {fmtDateTime(computed_at)}
             </span>
           )}
@@ -204,12 +204,12 @@ export default function MachineScorePanel({ triageData, onRefresh, loading, case
             <button
               onClick={onRefresh}
               disabled={loading}
-              style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, fontFamily: 'monospace',
+              style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
                 background: 'none', border: '1px solid var(--fl-border)', borderRadius: 4, padding: '2px 7px',
                 color: 'var(--fl-dim)', cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.5 : 1 }}
             >
               <RefreshCw size={10} style={{ animation: loading ? 'spin 1s linear infinite' : 'none' }} />
-              Recalculer
+              Recalculate
             </button>
           )}
         </div>
@@ -220,27 +220,27 @@ export default function MachineScorePanel({ triageData, onRefresh, loading, case
           display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap',
         }}>
           {ci.yara_matches > 0 && (
-            <span style={{ fontSize: 10, fontFamily: 'monospace', padding: '2px 8px', borderRadius: 4,
-              background: '#da363318', color: 'var(--fl-danger)', border: '1px solid #da363330' }}>
-              {ci.yara_matches} match YARA
+            <span style={{ fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', padding: '2px 8px', borderRadius: 4,
+              background: 'color-mix(in srgb, var(--fl-danger) 9%, transparent)', color: 'var(--fl-danger)', border: '1px solid color-mix(in srgb, var(--fl-danger) 19%, transparent)' }}>
+              {ci.yara_matches} YARA match{ci.yara_matches > 1 ? 'es' : ''}
             </span>
           )}
           {ci.sigma_matches > 0 && (
-            <span style={{ fontSize: 10, fontFamily: 'monospace', padding: '2px 8px', borderRadius: 4,
-              background: '#d97c2018', color: 'var(--fl-warn)', border: '1px solid #d97c2030' }}>
-              {ci.sigma_matches} alerte Sigma
+            <span style={{ fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', padding: '2px 8px', borderRadius: 4,
+              background: 'color-mix(in srgb, var(--fl-warn) 9%, transparent)', color: 'var(--fl-warn)', border: '1px solid color-mix(in srgb, var(--fl-warn) 19%, transparent)' }}>
+              {ci.sigma_matches} Sigma alert{ci.sigma_matches > 1 ? 's' : ''}
             </span>
           )}
           {ci.threat_intel_matches > 0 && (
-            <span style={{ fontSize: 10, fontFamily: 'monospace', padding: '2px 8px', borderRadius: 4,
-              background: '#8b72d618', color: 'var(--fl-purple)', border: '1px solid #8b72d630' }}>
-              {ci.threat_intel_matches} corrélation Threat Intel
+            <span style={{ fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', padding: '2px 8px', borderRadius: 4,
+              background: 'color-mix(in srgb, var(--fl-purple) 9%, transparent)', color: 'var(--fl-purple)', border: '1px solid color-mix(in srgb, var(--fl-purple) 19%, transparent)' }}>
+              {ci.threat_intel_matches} Threat Intel correlation{ci.threat_intel_matches > 1 ? 's' : ''}
             </span>
           )}
           {ci.malicious_iocs > 0 && (
-            <span style={{ fontSize: 10, fontFamily: 'monospace', padding: '2px 8px', borderRadius: 4,
-              background: '#c89d1d18', color: 'var(--fl-gold)', border: '1px solid #c89d1d30' }}>
-              {ci.malicious_iocs} IOC malveillant{ci.malicious_iocs > 1 ? 's' : ''}
+            <span style={{ fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', padding: '2px 8px', borderRadius: 4,
+              background: 'color-mix(in srgb, var(--fl-gold) 9%, transparent)', color: 'var(--fl-gold)', border: '1px solid color-mix(in srgb, var(--fl-gold) 19%, transparent)' }}>
+              {ci.malicious_iocs} malicious IOC{ci.malicious_iocs > 1 ? 's' : ''}
             </span>
           )}
         </div>
@@ -249,8 +249,8 @@ export default function MachineScorePanel({ triageData, onRefresh, loading, case
       {machines.length === 0 ? (
         <div style={{ padding: '24px', textAlign: 'center', borderRadius: 8,
           background: 'var(--fl-bg)', border: '1px solid var(--fl-border)', color: 'var(--fl-muted)',
-          fontFamily: 'monospace', fontSize: 11 }}>
-          Aucun score calculé — lancez le triage pour analyser les machines
+          fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11 }}>
+          No score computed - run triage to analyze the machines
         </div>
       ) : (
         <div style={{ borderRadius: 8, border: '1px solid var(--fl-border)', background: 'var(--fl-bg)', overflow: 'hidden' }}>
@@ -258,11 +258,11 @@ export default function MachineScorePanel({ triageData, onRefresh, loading, case
           <div style={{ display: 'flex', alignItems: 'center', gap: 10,
             padding: '5px 12px', borderBottom: '1px solid var(--fl-border)', background: '#0a0f16' }}>
             <span style={{ width: 12 }} />
-            <span style={{ flex: 1, fontSize: 9, fontFamily: 'monospace', textTransform: 'uppercase',
+            <span style={{ flex: 1, fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', textTransform: 'uppercase',
               letterSpacing: '0.06em', color: 'var(--fl-muted)' }}>Machine</span>
-            <span style={{ width: 80, fontSize: 9, fontFamily: 'monospace', textTransform: 'uppercase',
-              letterSpacing: '0.06em', color: 'var(--fl-muted)', textAlign: 'right', marginRight: 8 }}>Evénements</span>
-            <span style={{ flex: 1, fontSize: 9, fontFamily: 'monospace', textTransform: 'uppercase',
+            <span style={{ width: 80, fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', textTransform: 'uppercase',
+              letterSpacing: '0.06em', color: 'var(--fl-muted)', textAlign: 'right', marginRight: 8 }}>Events</span>
+            <span style={{ flex: 1, fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', textTransform: 'uppercase',
               letterSpacing: '0.06em', color: 'var(--fl-muted)' }}>Score</span>
           </div>
           {machines.map(m => <MachineRow key={m.hostname} machine={m} caseId={caseId} collectionId={collectionId} />)}

@@ -59,7 +59,7 @@ function AlertRow({ alert, onAck, onUnack, fmtDateTime }) {
 
         <button
           className={`ml-2 p-1 rounded hover:bg-gray-600 shrink-0 ${alert.acknowledged ? 'text-green-400' : 'text-gray-500'}`}
-          title={alert.acknowledged ? 'Annuler acquittement' : 'Acquitter'}
+          title={alert.acknowledged ? 'Undo acknowledgment' : 'Acknowledge'}
           onClick={e => { e.stopPropagation(); alert.acknowledged ? onUnack(alert.id) : onAck(alert.id); }}
         >
           <ShieldCheck size={14} />
@@ -73,7 +73,7 @@ function AlertRow({ alert, onAck, onUnack, fmtDateTime }) {
           <p>{alert.description}</p>
           {alert.acknowledged && (
             <p className="text-xs text-green-400">
-              Acquitté par {alert.acknowledged_by_name || 'inconnu'} le {fmtDateTime(alert.acknowledged_at)}
+              Acknowledged by {alert.acknowledged_by_name || 'unknown'} on {fmtDateTime(alert.acknowledged_at)}
             </p>
           )}
           {alert.details && Object.keys(alert.details).length > 0 && (
@@ -135,7 +135,7 @@ export default function SoarAlertsPanel({ caseId, socket, onBadgeUpdate }) {
 
   const kpis = [
     { label: 'Critique', count: summary?.critical || 0, color: 'text-red-400' },
-    { label: 'Élevé',    count: summary?.high     || 0, color: 'text-orange-400' },
+    { label: 'High',     count: summary?.high     || 0, color: 'text-orange-400' },
     { label: 'Moyen',    count: summary?.medium   || 0, color: 'text-yellow-400' },
   ];
 
@@ -160,13 +160,13 @@ export default function SoarAlertsPanel({ caseId, socket, onBadgeUpdate }) {
             className="flex items-center gap-1 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-sm rounded-lg"
           >
             <Zap size={14} />
-            {running ? 'Analyse…' : 'Lancer SOAR'}
+            {running ? 'Analyzing…' : 'Run SOAR'}
           </button>
           <button
             onClick={load}
             disabled={loading}
             className="p-1.5 text-gray-400 hover:text-white hover:bg-gray-700 rounded-lg"
-            title="Rafraîchir"
+            title="Refresh"
           >
             <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
           </button>
@@ -188,7 +188,7 @@ export default function SoarAlertsPanel({ caseId, socket, onBadgeUpdate }) {
           onChange={e => setFilter(f => ({ ...f, type: e.target.value }))}
           className="bg-gray-700 text-gray-300 text-sm rounded-lg px-2 py-1 border border-gray-600"
         >
-          <option value="">Tous les types</option>
+          <option value="">All types</option>
           {Object.entries(TYPE_LABELS).map(([v, l]) => (
             <option key={v} value={v}>{l}</option>
           ))}
@@ -199,7 +199,7 @@ export default function SoarAlertsPanel({ caseId, socket, onBadgeUpdate }) {
           onChange={e => setFilter(f => ({ ...f, severity: e.target.value }))}
           className="bg-gray-700 text-gray-300 text-sm rounded-lg px-2 py-1 border border-gray-600"
         >
-          <option value="">Toutes sévérités</option>
+          <option value="">All severities</option>
           {['critical','high','medium','low','info'].map(s => (
             <option key={s} value={s}>{s}</option>
           ))}
@@ -214,7 +214,7 @@ export default function SoarAlertsPanel({ caseId, socket, onBadgeUpdate }) {
           }`}
         >
           {showAcked ? <Eye size={13} /> : <EyeOff size={13} />}
-          {showAcked ? 'Masquer acquittés' : 'Voir acquittés'}
+          {showAcked ? 'Hide acknowledged' : 'Show acknowledged'}
         </button>
 
         {alerts.length > 0 && !showAcked && (
@@ -228,12 +228,12 @@ export default function SoarAlertsPanel({ caseId, socket, onBadgeUpdate }) {
         )}
       </div>
 
-      {loading && <p className="text-gray-500 text-sm">Chargement…</p>}
+      {loading && <p className="text-gray-500 text-sm">Loading…</p>}
 
       {!loading && alerts.length === 0 && (
         <div className="text-center py-10 text-gray-500">
           <ShieldCheck size={40} className="mx-auto mb-2 text-green-600 opacity-50" />
-          <p>Aucune alerte active</p>
+          <p>No active alerts</p>
           <p className="text-xs mt-1">Lancez une analyse SOAR pour scanner le cas</p>
         </div>
       )}

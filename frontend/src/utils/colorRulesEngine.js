@@ -108,7 +108,7 @@ export function conditionToString(condition) {
     starts_with: 'commence par', ends_with: 'finit par',
     regex: '~ regex', in: 'dans', not_in: 'pas dans',
     is_null: 'est vide', is_not_null: 'n\'est pas vide',
-    off_hours: 'hors heures (avant 7h / après 22h)',
+    off_hours: 'off hours (before 7am / after 10pm)',
   }[op] ?? op;
 
   if (op === 'is_null' || op === 'is_not_null' || op === 'off_hours') {
@@ -123,21 +123,21 @@ export const RULE_FIELDS = [
   { value: 'artifact_type',       label: 'Type d\'artefact' },
   { value: 'source',              label: 'Source' },
   { value: 'host_name',           label: 'Machine (host_name)' },
-  { value: 'user_name',           label: 'Utilisateur (user_name)' },
+  { value: 'user_name',           label: 'User (user_name)' },
   { value: 'process_name',        label: 'Processus (process_name)' },
   { value: 'mitre_tactic',        label: 'MITRE Tactic' },
   { value: 'mitre_technique_id',  label: 'MITRE Technique ID' },
   { value: 'raw.level',           label: 'Hayabusa Level (raw.level)' },
   { value: 'raw.EventID',         label: 'EventID (raw.EventID)' },
   { value: 'raw.Channel',         label: 'Channel EVTX (raw.Channel)' },
-  { value: 'timestamp',           label: 'Timestamp (hors heures)' },
+  { value: 'timestamp',           label: 'Timestamp (off hours)' },
 ];
 
 export const RULE_OPS = [
   { value: 'contains',     label: 'contient' },
   { value: 'not_contains', label: 'ne contient pas' },
-  { value: 'equals',       label: 'égal à' },
-  { value: 'not_equals',   label: 'différent de' },
+  { value: 'equals',       label: 'equals' },
+  { value: 'not_equals',   label: 'not equal to' },
   { value: 'starts_with',  label: 'commence par' },
   { value: 'ends_with',    label: 'finit par' },
   { value: 'regex',        label: 'regex ~' },

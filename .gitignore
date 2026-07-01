@@ -1,1 +1,55 @@
 .env
+.env.*
+*.env
+
+# deps & build
+node_modules/
+node_modules_old/
+*_old/
+dist/
+dist_old/
+build/
+.vite/
+
+# runtime / evidence
+*.log
+logs/
+uploads/
+evidence/
+temp/
+backups/
+
+# backups & caches
+*.bak
+**/__pycache__/
+
+# secrets / certs
+nginx/ssl/
+*.pem
+*.key
+*.p12
+*.p8
+*.pfx
+
+# OS
+.DS_Store
+Thumbs.db
+
+# CI non poussable sans token à scope workflow
+.github/workflows/
+
+# AI / docs scaffolding — exclus du repo
+.claude/
+.claudeignore
+.superpowers/
+docs/
+tasks/
+prompts/
+templates/
+CLAUDE.md
+AGENTS.md
+CONTEXT.md
+STACK.md
+RULES.md
+INVESTIGATION_COMMITS.txt
+mockup-nordic.html

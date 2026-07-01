@@ -24,10 +24,10 @@ http:
         contentSecurityPolicy: >-
           default-src 'self';
           script-src 'self' 'unsafe-inline' 'unsafe-eval';
-          style-src 'self' 'unsafe-inline';
+          style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
           img-src 'self' data: blob:;
-          font-src 'self' data:;
-          connect-src 'self' ws: wss: http: https:;
+          font-src 'self' data: https://fonts.gstatic.com;
+          connect-src 'self' ws: wss:;
           frame-ancestors 'self';
 
     # General API rate limit: 30 req/s, burst 50
@@ -60,9 +60,57 @@ http:
           ipStrategy:
             depth: 1
 
+  # ── Routers ───────────────────────────────────────────────────────────────
+
+  routers:
+    heimdall-auth:
+      rule: "Host(`localhost`) && PathPrefix(`/api/auth`)"
+      entryPoints: [websecure]
+      tls: {}
+      middlewares: [security-headers, auth-ratelimit]
+      service: backend-svc
+      priority: 30
+
+    heimdall-socket:
+      rule: "Host(`localhost`) && PathPrefix(`/socket.io`)"
+      entryPoints: [websecure]
+      tls: {}
+      middlewares: [security-headers]
+      service: backend-svc
+      priority: 20
+
+    heimdall-api:
+      rule: "Host(`localhost`) && PathPrefix(`/api`)"
+      entryPoints: [websecure]
+      tls: {}
+      middlewares: [security-headers, api-ratelimit]
+      service: backend-svc
+      priority: 10
+
+    heimdall-frontend:
+      rule: "Host(`localhost`)"
+      entryPoints: [websecure]
+      tls: {}
+      middlewares: [security-headers]
+      service: frontend-svc
+      priority: 1
+
+  # ── Services ──────────────────────────────────────────────────────────────
+
+  services:
+    backend-svc:
+      loadBalancer:
+        passHostHeader: true
+        serversTransport: heavy
+        servers:
+          - url: "http://backend:4000"
+
+    frontend-svc:
+      loadBalancer:
+        servers:
+          - url: "http://frontend:3000"
+
   # ── ServersTransports ─────────────────────────────────────────────────────
-  # Referenced by backend service via:
-  #   traefik.http.services.backend-svc.loadbalancer.serverstransport=heavy@file
 
   serversTransports:
 

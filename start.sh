@@ -79,6 +79,7 @@ if [ ! -f .env ]; then
     sed -i "s|VOLWEB_PASSWORD=CHANGEME_min16chars_volweb|VOLWEB_PASSWORD=${VOLWEB_PASSWORD}|g" .env
     sed -i "s|MINIO_ROOT_USER=CHANGEME_access_key_id|MINIO_ROOT_USER=${MINIO_ROOT_USER}|g" .env
     sed -i "s|MINIO_ROOT_PASSWORD=CHANGEME_min12chars_secret_key|MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD}|g" .env
+    sed -i "s|ADMIN_DEFAULT_PASSWORD=CHANGEME_strong_admin_password|ADMIN_DEFAULT_PASSWORD=Admin2026!|g" .env
 
     echo -e "${GREEN}  ✓ Secrets generated automatically${NC}"
 else
@@ -314,7 +315,7 @@ echo ""
 echo -e "${BOLD}  Local AI (Ollama):${NC}"
 echo "    → Set OLLAMA_URL=http://ollama:11434 in .env"
 echo "    → Then: docker compose up -d ollama"
-echo "    → Pull a model: docker exec ollama ollama pull qwen3.5:4b"
+echo "    → Pull a model: docker exec ollama ollama pull qwen2.5:3b   # léger, recommandé"
 echo ""
 echo -e "${CYAN}  Useful commands:${NC}"
 echo "    docker compose logs -f backend   # API logs"

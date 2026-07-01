@@ -26,6 +26,7 @@ const { connectRedis } = require('./config/redis');
 const { authenticate, auditLog, JWT_SECRET } = require('./middleware/auth');
 const logger = require('./config/logger').default;
 const { requestIdMiddleware } = require('./middleware/requestId');
+const { accessLogMiddleware } = require('./middleware/accessLogMiddleware');
 
 const attributionRoutes = require('./routes/attribution');
 const authRoutes = require('./routes/auth');
@@ -45,29 +46,39 @@ const parsersStreamRoutes = require('./routes/parsers-stream');
 const artifactsRoutes = require('./routes/artifacts');
 const threatHuntingRoutes = require('./routes/threatHunting');
 const threatIntelRoutes   = require('./routes/threatIntel');
+const mispRoutes          = require('./routes/misp');
 const sysmonRoutes        = require('./routes/sysmon');
 const timelinePinsRoutes  = require('./routes/timelinePins');
-const workbenchPinsRoutes = require('./routes/workbenchPins');
 const chatRoutes          = require('./routes/chat');
 const adminRoutes         = require('./routes/admin');
+const settingsRoutes      = require('./routes/settings');
+const triageRoutes        = require('./routes/triage');
+const notebookRoutes      = require('./routes/notebook');
 const playbooksRoutes     = require('./routes/playbooks');
 const soarRoutes          = require('./routes/soar');
 const feedbackRoutes      = require('./routes/feedback');
 const volwebRoutes        = require('./routes/volweb');
 const llmRoutes           = require('./routes/llm');
 const aiRoutes            = require('./routes/ai');
+const bookmarksRoutes     = require('./routes/bookmarks');
+const investigationRoutes = require('./routes/investigation');
 
 const app = express();
+
+// Trust the reverse proxy hop(s) in front (Traefik / nginx) so req.ip is the real
+// client IP — required for accurate audit logs and IP-based rate limiting.
+// Configurable: set TRUST_PROXY_HOPS to the number of proxies between client and app.
+app.set('trust proxy', Number(process.env.TRUST_PROXY_HOPS || 1));
 
 app.set('etag', false);
 
 const server = http.createServer(app);
 const PORT = process.env.PORT || 4000;
 
-server.requestTimeout = 0;      
-server.timeout = 0;             
-server.keepAliveTimeout = 0;    
-server.headersTimeout = 0;      
+server.requestTimeout    = 0;
+server.timeout           = 0;
+server.keepAliveTimeout  = 0;
+server.headersTimeout    = 0;
 
 const io = new IOServer(server, {
   cors: {
@@ -123,9 +134,16 @@ io.use((socket, next) => {
 });
 
 const presenceMap = new Map();
+const netmapPresenceMap = new Map();
 
 function getPresence(caseId) {
   const room = presenceMap.get(caseId);
+  if (!room) return [];
+  return Array.from(room.values());
+}
+
+function getNetmapPresence(caseId) {
+  const room = netmapPresenceMap.get(caseId);
   if (!room) return [];
   return Array.from(room.values());
 }
@@ -181,6 +199,21 @@ io.on('connection', (socket) => {
     io.to(caseId).emit('case:presence', getPresence(caseId));
     logger.info('[Presence] Utilisateur quitte', { username: user.username, caseId });
     await closeSession(socket.id, caseId);
+  });
+
+  socket.on('networkmap:join', ({ caseId }) => {
+    if (!caseId) return;
+    socket.join(`netmap:${caseId}`);
+    if (!netmapPresenceMap.has(caseId)) netmapPresenceMap.set(caseId, new Map());
+    netmapPresenceMap.get(caseId).set(socket.id, { id: user.id, username: user.username, full_name: user.full_name });
+    io.to(`netmap:${caseId}`).emit('networkmap:presence', getNetmapPresence(caseId));
+  });
+
+  socket.on('networkmap:leave', ({ caseId }) => {
+    if (!caseId) return;
+    socket.leave(`netmap:${caseId}`);
+    netmapPresenceMap.get(caseId)?.delete(socket.id);
+    io.to(`netmap:${caseId}`).emit('networkmap:presence', getNetmapPresence(caseId));
   });
 
   socket.on('chat:send', async ({ caseId, content, reply_to_id }) => {
@@ -310,6 +343,12 @@ io.on('connection', (socket) => {
         await closeSession(socket.id, caseId);
       }
     }
+    for (const [caseId, room] of netmapPresenceMap.entries()) {
+      if (room.has(socket.id)) {
+        room.delete(socket.id);
+        io.to(`netmap:${caseId}`).emit('networkmap:presence', getNetmapPresence(caseId));
+      }
+    }
   });
 
   socket.on('error', (err) => {
@@ -337,8 +376,12 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization'],
 }));
 // Custom Morgan format — excludes Authorization header and query strings from logs
-app.use(morgan(':remote-addr :method :url :status :res[content-length] - :response-time ms'));
+app.use(morgan('combined', {
+  stream: { write: (msg) => logger.info(msg.trim(), { type: 'http_access' }) },
+  skip:   (req) => req.path === '/api/health',
+}));
 app.use(requestIdMiddleware);
+app.use(accessLogMiddleware);
 
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
@@ -367,18 +410,23 @@ app.use('/api/parsers', authenticate, parsersStreamRoutes);
 app.use('/api/artifacts', artifactsRoutes);
 app.use('/api/threat-hunting', threatHuntingRoutes);
 app.use('/api/threat-intel',   threatIntelRoutes);
+app.use('/api/misp',           mispRoutes);
 app.use('/api/sysmon',         sysmonRoutes);
 app.use('/api/timeline-pins',  timelinePinsRoutes);
-app.use('/api/workbench-pins', workbenchPinsRoutes);
 app.use('/api/chat',           chatRoutes);
 app.use('/api/admin',                  adminRoutes);
+app.use('/api/settings',               settingsRoutes);
+app.use('/api/triage',                 triageRoutes);
+app.use('/api/notebook',               notebookRoutes);
 app.use('/api/playbooks',              playbooksRoutes);
 app.use('/api/cases/:caseId/soar',    soarRoutes);
+app.use('/api/cases/:caseId/bookmarks',     bookmarksRoutes);
+app.use('/api/cases/:caseId/investigation', investigationRoutes);
 app.use('/api/feedback',              feedbackRoutes);
 app.use('/api/volweb',                volwebRoutes);
 app.use('/api/llm',                   llmRoutes);
-app.use('/api',                       aiRoutes);
 
+// Health endpoint must be registered before the /api catch-all (aiRoutes)
 app.get('/api/health', async (req, res) => {
   try {
     await pool.query('SELECT 1');
@@ -393,6 +441,8 @@ app.get('/api/health', async (req, res) => {
     res.status(503).json({ status: 'unhealthy', error: err.message });
   }
 });
+
+app.use('/api',                       aiRoutes);
 
 app.use((err, req, res, _next) => {
   logger.error('[Error]', { requestId: req.requestId, error: err.message, status: err.status || 500 });
@@ -610,6 +660,28 @@ async function runMigrations() {
   } catch (e) {
     logger.warn('[migration] report_templates', { error: e.message });
   }
+
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS access_log (
+        id           BIGSERIAL PRIMARY KEY,
+        user_id      UUID REFERENCES users(id) ON DELETE SET NULL,
+        username     VARCHAR(100),
+        method       VARCHAR(10) NOT NULL,
+        path         TEXT NOT NULL,
+        status_code  SMALLINT,
+        response_ms  INTEGER,
+        ip_address   INET,
+        created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_access_log_created ON access_log(created_at DESC)`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_access_log_user    ON access_log(user_id)`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_access_log_method  ON access_log(method)`);
+    logger.info('[migration] access_log OK');
+  } catch (e) {
+    logger.warn('[migration] access_log', { error: e.message });
+  }
 }
 
 async function start() {
@@ -629,6 +701,17 @@ async function start() {
         mode: 'Streaming + Chunked Upload',
       });
     });
+
+    // Daily retention purge tick (no-op unless explicitly enabled in Settings).
+    // Runs every 6h; the service itself re-checks the policy on each tick.
+    try {
+      const { retentionTick } = require('./services/retentionService');
+      const RETENTION_INTERVAL_MS = 6 * 60 * 60 * 1000;
+      setTimeout(() => retentionTick().catch(e => logger.error('[retention] tick:', e.message)), 5 * 60 * 1000);
+      setInterval(() => retentionTick().catch(e => logger.error('[retention] tick:', e.message)), RETENTION_INTERVAL_MS);
+    } catch (e) {
+      logger.error('[retention] scheduler init failed:', e.message);
+    }
   } catch (err) {
     logger.error('Échec du démarrage', { error: err.message, stack: err.stack });
     process.exit(1);

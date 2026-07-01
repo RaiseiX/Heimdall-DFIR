@@ -8,10 +8,10 @@ const INCIDENT_LABELS = {
   ransomware:   'Ransomware',
   rdp:          'Intrusion RDP',
   phishing:     'Phishing',
-  lateral:      'Mouvement latéral',
-  insider:      'Menace interne',
-  malware:      'Malware générique',
-  generic:      'Générique',
+  lateral:      'Lateral movement',
+  insider:      'Insider threat',
+  malware:      'Generic malware',
+  generic:      'Generic',
 };
 
 const INCIDENT_COLORS = {
@@ -32,7 +32,7 @@ function ProgressBar({ done, total }) {
       <div style={{ flex: 1, height: 4, borderRadius: 2, background: '#1c2a3a', overflow: 'hidden' }}>
         <div style={{ height: '100%', width: `${pct}%`, background: color, borderRadius: 2, transition: 'width 0.3s' }} />
       </div>
-      <span style={{ fontFamily: 'monospace', fontSize: 10, color, width: 42, textAlign: 'right', flexShrink: 0 }}>
+      <span style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10, color, width: 42, textAlign: 'right', flexShrink: 0 }}>
         {done}/{total}
       </span>
     </div>
@@ -59,7 +59,7 @@ function StepItem({ step, instanceId, caseId, onUpdated }) {
       });
       onUpdated();
     } catch (e) {
-      alert('Erreur : ' + (e.response?.data?.error || e.message));
+      alert('Error: ' + (e.response?.data?.error || e.message));
     } finally {
       setSaving(false);
     }
@@ -76,7 +76,7 @@ function StepItem({ step, instanceId, caseId, onUpdated }) {
       setShowNote(false);
       onUpdated();
     } catch (e) {
-      alert('Erreur : ' + (e.response?.data?.error || e.message));
+      alert('Error: ' + (e.response?.data?.error || e.message));
     } finally {
       setSaving(false);
     }
@@ -104,14 +104,14 @@ function StepItem({ step, instanceId, caseId, onUpdated }) {
             fontSize: 12, color: step.completed ? 'var(--fl-muted)' : 'var(--fl-text)',
             textDecoration: step.completed ? 'line-through' : 'none',
           }}>
-            <span style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--fl-subtle)', marginRight: 6 }}>
+            <span style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10, color: 'var(--fl-subtle)', marginRight: 6 }}>
               {step.step_order}.
             </span>
             {step.title}
             {step.note_required && !step.completed && (
-              <span style={{ fontSize: 9, fontFamily: 'monospace', marginLeft: 6,
-                color: 'var(--fl-warn)', border: '1px solid #d97c2030', padding: '0 4px', borderRadius: 3 }}>
-                note requise
+              <span style={{ fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', marginLeft: 6,
+                color: 'var(--fl-warn)', border: '1px solid color-mix(in srgb, var(--fl-warn) 19%, transparent)', padding: '0 4px', borderRadius: 3 }}>
+                note required
               </span>
             )}
           </div>
@@ -121,15 +121,15 @@ function StepItem({ step, instanceId, caseId, onUpdated }) {
             </div>
           )}
           {step.completed && step.note && (
-            <div style={{ fontSize: 10, fontFamily: 'monospace', color: 'var(--fl-accent)', marginTop: 3,
-              padding: '2px 6px', borderRadius: 3, background: '#4d82c010', border: '1px solid #4d82c020',
+            <div style={{ fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-accent)', marginTop: 3,
+              padding: '2px 6px', borderRadius: 3, background: 'color-mix(in srgb, var(--fl-accent) 6%, transparent)', border: '1px solid color-mix(in srgb, var(--fl-accent) 13%, transparent)',
               display: 'inline-block' }}>
               Note: {step.note}
             </div>
           )}
           {step.completed && step.completed_by_name && (
-            <div style={{ fontSize: 9, fontFamily: 'monospace', color: 'var(--fl-subtle)', marginTop: 2 }}>
-              Complété par {step.completed_by_name} · {step.completed_at ? fmtLocal(step.completed_at) : ''}
+            <div style={{ fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-subtle)', marginTop: 2 }}>
+              Completed by {step.completed_by_name} · {step.completed_at ? fmtLocal(step.completed_at) : ''}
             </div>
           )}
         </div>
@@ -141,10 +141,10 @@ function StepItem({ step, instanceId, caseId, onUpdated }) {
             autoFocus
             value={noteVal}
             onChange={e => setNoteVal(e.target.value)}
-            placeholder="Note obligatoire avant de cocher cette étape…"
+            placeholder="Note required before checking off this step…"
             rows={2}
             style={{
-              flex: 1, fontSize: 11, fontFamily: 'monospace', padding: '5px 8px',
+              flex: 1, fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', padding: '5px 8px',
               borderRadius: 5, border: '1px solid var(--fl-border)', background: 'var(--fl-bg)',
               color: 'var(--fl-text)', resize: 'vertical',
             }}
@@ -153,7 +153,7 @@ function StepItem({ step, instanceId, caseId, onUpdated }) {
             <button
               onClick={submitWithNote}
               disabled={saving || !noteVal.trim()}
-              style={{ fontSize: 10, fontFamily: 'monospace', padding: '3px 8px', borderRadius: 4,
+              style={{ fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', padding: '3px 8px', borderRadius: 4,
                 background: 'var(--fl-accent)', color: 'var(--fl-text)', border: 'none', cursor: 'pointer',
                 opacity: (!noteVal.trim() || saving) ? 0.5 : 1 }}
             >
@@ -161,7 +161,7 @@ function StepItem({ step, instanceId, caseId, onUpdated }) {
             </button>
             <button
               onClick={() => setShowNote(false)}
-              style={{ fontSize: 10, fontFamily: 'monospace', padding: '3px 8px', borderRadius: 4,
+              style={{ fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', padding: '3px 8px', borderRadius: 4,
                 background: 'none', color: 'var(--fl-dim)', border: '1px solid var(--fl-border)', cursor: 'pointer' }}
             >
               ✕
@@ -200,7 +200,7 @@ function PlaybookInstance({ instance, caseId, onRefresh }) {
   };
 
   return (
-    <div style={{ borderRadius: 8, border: `1px solid ${isDone ? '#3fb95030' : 'var(--fl-border)'}`,
+    <div style={{ borderRadius: 8, border: `1px solid ${isDone ? 'color-mix(in srgb, var(--fl-ok) 19%, transparent)' : 'var(--fl-border)'}`,
       background: isDone ? '#0a1a12' : 'var(--fl-bg)', overflow: 'hidden', marginBottom: 10 }}>
       <button
         onClick={handleToggle}
@@ -213,21 +213,21 @@ function PlaybookInstance({ instance, caseId, onRefresh }) {
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
             <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--fl-text)' }}>{instance.title}</span>
-            <span style={{ fontSize: 9, fontFamily: 'monospace', padding: '1px 5px', borderRadius: 3,
-              background: `${color}18`, color, border: `1px solid ${color}35` }}>
+            <span style={{ fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', padding: '1px 5px', borderRadius: 3,
+              background: `color-mix(in srgb, ${color} 9%, transparent)`, color, border: `1px solid color-mix(in srgb, ${color} 21%, transparent)` }}>
               {INCIDENT_LABELS[instance.incident_type] || instance.incident_type}
             </span>
             {isDone && (
-              <span style={{ fontSize: 9, fontFamily: 'monospace', padding: '1px 5px', borderRadius: 3,
-                background: '#3fb95018', color: 'var(--fl-ok)', border: '1px solid #3fb95030' }}>
-                TERMINÉ
+              <span style={{ fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', padding: '1px 5px', borderRadius: 3,
+                background: 'color-mix(in srgb, var(--fl-ok) 9%, transparent)', color: 'var(--fl-ok)', border: '1px solid color-mix(in srgb, var(--fl-ok) 19%, transparent)' }}>
+                DONE
               </span>
             )}
           </div>
           <ProgressBar done={instance.done_steps} total={instance.total_steps} />
         </div>
-        <div style={{ fontSize: 10, fontFamily: 'monospace', color: 'var(--fl-muted)', marginLeft: 8, flexShrink: 0 }}>
-          Démarré par {instance.started_by_name || '—'}<br />
+        <div style={{ fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-muted)', marginLeft: 8, flexShrink: 0 }}>
+          Started by {instance.started_by_name || '—'}<br />
           <span style={{ color: 'var(--fl-subtle)' }}>{new Date(instance.started_at).toLocaleDateString('fr-FR')}</span>
         </div>
       </button>
@@ -236,11 +236,11 @@ function PlaybookInstance({ instance, caseId, onRefresh }) {
         <div style={{ padding: '0 14px 12px 14px', borderTop: '1px solid #1c2a3a' }}>
           {loadingSteps ? (
             <div style={{ padding: '16px 0', display: 'flex', justifyContent: 'center' }}>
-              <Spinner size={14} text="Chargement des étapes…" />
+              <Spinner size={14} text="Loading steps…" />
             </div>
           ) : steps.length === 0 ? (
-            <div style={{ padding: '12px 0', fontSize: 11, color: 'var(--fl-muted)', fontFamily: 'monospace' }}>
-              Aucune étape définie
+            <div style={{ padding: '12px 0', fontSize: 11, color: 'var(--fl-muted)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}>
+              No steps defined
             </div>
           ) : (
             <div style={{ paddingTop: 8 }}>
@@ -290,7 +290,7 @@ export default function PlaybooksTab({ caseId }) {
       await playbooksAPI.start(caseId, playbookId);
       await load();
     } catch (e) {
-      alert('Erreur : ' + (e.response?.data?.error || e.message));
+      alert('Error: ' + (e.response?.data?.error || e.message));
     } finally {
       setStarting(null);
     }
@@ -304,14 +304,14 @@ export default function PlaybooksTab({ caseId }) {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <BookOpen size={14} style={{ color: 'var(--fl-accent)' }} />
-          <span style={{ fontSize: 11, fontFamily: 'monospace', textTransform: 'uppercase',
+          <span style={{ fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', textTransform: 'uppercase',
             letterSpacing: '0.08em', color: 'var(--fl-dim)' }}>
-            Playbooks d'Investigation
+            Investigation playbooks
           </span>
           {instances.length > 0 && (
-            <span style={{ fontSize: 10, fontFamily: 'monospace', padding: '1px 6px', borderRadius: 4,
-              background: '#4d82c018', color: 'var(--fl-accent)', border: '1px solid #4d82c030' }}>
-              {instances.length} actif{instances.length > 1 ? 's' : ''}
+            <span style={{ fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', padding: '1px 6px', borderRadius: 4,
+              background: 'color-mix(in srgb, var(--fl-accent) 9%, transparent)', color: 'var(--fl-accent)', border: '1px solid color-mix(in srgb, var(--fl-accent) 19%, transparent)' }}>
+              {instances.length} active{instances.length > 1 ? 's' : ''}
             </span>
           )}
         </div>
@@ -319,13 +319,13 @@ export default function PlaybooksTab({ caseId }) {
           <button
             onClick={() => setShowStartMenu(v => !v)}
             disabled={!!starting}
-            style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, fontFamily: 'monospace',
-              padding: '4px 10px', borderRadius: 5, border: '1px solid #4d82c040',
-              background: '#4d82c015', color: 'var(--fl-accent)', cursor: 'pointer',
+            style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
+              padding: '4px 10px', borderRadius: 5, border: '1px solid color-mix(in srgb, var(--fl-accent) 25%, transparent)',
+              background: 'color-mix(in srgb, var(--fl-accent) 8%, transparent)', color: 'var(--fl-accent)', cursor: 'pointer',
               opacity: starting ? 0.5 : 1 }}
           >
             <Plus size={12} />
-            Démarrer un playbook
+            Start a playbook
             <ChevronDown size={10} />
           </button>
 
@@ -337,8 +337,8 @@ export default function PlaybooksTab({ caseId }) {
               zIndex: 100, overflow: 'hidden',
             }}>
               {templates.length === 0 ? (
-                <div style={{ padding: '12px 14px', fontSize: 11, color: 'var(--fl-muted)', fontFamily: 'monospace' }}>
-                  Aucun playbook disponible
+                <div style={{ padding: '12px 14px', fontSize: 11, color: 'var(--fl-muted)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}>
+                  No playbooks available
                 </div>
               ) : (
                 templates.map(tpl => {
@@ -358,7 +358,7 @@ export default function PlaybooksTab({ caseId }) {
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ fontSize: 12, color: 'var(--fl-text)', marginBottom: 2 }}>
                           {tpl.title}
-                          {already && <span style={{ fontSize: 9, fontFamily: 'monospace', marginLeft: 6, color: 'var(--fl-ok)' }}>déjà actif</span>}
+                          {already && <span style={{ fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', marginLeft: 6, color: 'var(--fl-ok)' }}>already active</span>}
                         </div>
                         {tpl.description && (
                           <div style={{ fontSize: 10, color: 'var(--fl-dim)', whiteSpace: 'nowrap',
@@ -368,12 +368,12 @@ export default function PlaybooksTab({ caseId }) {
                         )}
                       </div>
                       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2, flexShrink: 0 }}>
-                        <span style={{ fontSize: 9, fontFamily: 'monospace', padding: '1px 4px', borderRadius: 3,
-                          background: `${color}18`, color, border: `1px solid ${color}35` }}>
+                        <span style={{ fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', padding: '1px 4px', borderRadius: 3,
+                          background: `color-mix(in srgb, ${color} 9%, transparent)`, color, border: `1px solid color-mix(in srgb, ${color} 21%, transparent)` }}>
                           {INCIDENT_LABELS[tpl.incident_type] || tpl.incident_type}
                         </span>
-                        <span style={{ fontSize: 9, color: 'var(--fl-muted)', fontFamily: 'monospace' }}>
-                          {tpl.step_count} étape{tpl.step_count !== 1 ? 's' : ''}
+                        <span style={{ fontSize: 9, color: 'var(--fl-muted)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}>
+                          {tpl.step_count} step{tpl.step_count !== 1 ? 's' : ''}
                         </span>
                       </div>
                     </button>
@@ -396,27 +396,27 @@ export default function PlaybooksTab({ caseId }) {
       
       {starting && (
         <div style={{ marginBottom: 12, padding: '8px 12px', borderRadius: 6,
-          background: '#4d82c010', border: '1px solid #4d82c030',
-          fontSize: 11, fontFamily: 'monospace', color: 'var(--fl-accent)',
+          background: 'color-mix(in srgb, var(--fl-accent) 6%, transparent)', border: '1px solid color-mix(in srgb, var(--fl-accent) 19%, transparent)',
+          fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-accent)',
           display: 'flex', alignItems: 'center', gap: 8 }}>
           <Spinner size={12} />
-          Démarrage du playbook…
+          Starting playbook…
         </div>
       )}
 
       {loading ? (
         <div style={{ display: 'flex', justifyContent: 'center', padding: '40px 0' }}>
-          <Spinner size={16} text="Chargement des playbooks…" />
+          <Spinner size={16} text="Loading playbooks…" />
         </div>
       ) : instances.length === 0 ? (
         <div style={{ padding: '40px 20px', textAlign: 'center',
           borderRadius: 10, border: '1px solid var(--fl-border)', background: 'var(--fl-bg)' }}>
           <BookOpen size={32} style={{ color: 'var(--fl-muted)', margin: '0 auto 12px' }} />
           <div style={{ fontSize: 13, color: 'var(--fl-dim)', marginBottom: 4 }}>
-            Aucun playbook actif sur ce cas
+            No active playbook on this case
           </div>
           <div style={{ fontSize: 11, color: 'var(--fl-muted)' }}>
-            Démarrez un playbook pour suivre les étapes d'investigation DFIR
+            Start a playbook to track DFIR investigation steps
           </div>
         </div>
       ) : (

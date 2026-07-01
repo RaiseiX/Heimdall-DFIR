@@ -2,39 +2,38 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '../utils/theme';
 import { useParams, useNavigate, useOutletContext } from 'react-router-dom';
-import { FolderOpen, Clock, Crosshair, Network, FileDown, Star, Plus, Search, AlertTriangle, Download, ChevronRight, Loader2, Shield, Trash2, Cpu, ScrollText, Copy, RefreshCw, Link2, CalendarDays, Pencil, Wifi, BookOpen, Lock, Activity, FileJson, Upload, X, CheckCircle, Sparkles, FlaskConical, Pin } from 'lucide-react';
-import WorkbenchEvidenceTab from '../components/workbench/WorkbenchEvidenceTab';
-import { useEvidenceBridge } from '../state/evidenceBridge';
-import api, { casesAPI, evidenceAPI, iocsAPI, timelineAPI, collectionAPI, detectionsAPI, parsersAPI, pcapAPI, legalHoldAPI } from '../utils/api';
+import { FolderOpen, Clock, Globe, FileDown, Star, Plus, AlertTriangle, Download, Loader2, Shield, Trash2, Cpu, Copy, RefreshCw, CalendarDays, Pencil, Wifi, Lock, Activity, FileJson, Sparkles, X, Info, BookOpen, Crosshair } from 'lucide-react';
+import api, { casesAPI, evidenceAPI, iocsAPI, collectionAPI, parsersAPI, pcapAPI, legalHoldAPI } from '../utils/api';
 import AiCopilotModal from '../components/ai/AiCopilotModal';
-import { Button, Modal, Spinner, Pagination } from '../components/ui';
-import { StatusPill, PriorityPill, TimePill, fmtDuration } from '../components/ui/StatusPill';
+import { Button, Modal, Spinner } from '../components/ui';
+import { TimePill, fmtDuration } from '../components/ui/StatusPill';
 import { downloadCSV } from '../utils/csvExport';
 import { fmtLocal } from '../utils/formatters';
 
-import MitreAttackTab from '../components/mitre/MitreAttackTab';
-
-import CaseHayabusaView from '../components/hayabusa/CaseHayabusaView';
-import CatScaleTimelineTab from '../components/catscale/CatScaleTimelineTab';
-import AttackChain from '../components/timeline/AttackChain';
-import DetectionsTab from '../components/detections/DetectionsTab';
 import CaseChatPanel from '../components/chat/CaseChatPanel';
 import CollectionImportPanel from '../components/collection/CollectionImportPanel';
+import ParsingMonitor from '../components/collection/ParsingMonitor';
+import RdpCacheGallery from '../components/collection/RdpCacheGallery';
+import RightDrawer from '../components/ui/RightDrawer';
+import Icon from '../components/ui/Icon';
+import DetectionsTab from '../components/detections/DetectionsTab';
+import MitreAttackTab from '../components/mitre/MitreAttackTab';
 import { useSocket, useSocketEvent } from '../hooks/useSocket';
-import MachineScorePanel from '../components/triage/MachineScorePanel';
-import PlaybooksTab from '../components/playbooks/PlaybooksTab';
 import MemoryUploadPanel from '../components/upload/MemoryUploadPanel';
 import ReportTemplateModal from '../components/reports/ReportTemplateModal';
-import CyberChefPage from './CyberChefPage';
+import ReportAiEditor from '../components/reports/ReportAiEditor';
+import GlobalNetworkMapPage from './GlobalNetworkMapPage';
+import NotebookPanel from '../components/notebook/NotebookPanel';
+import InvestigationWorkspace from '../components/investigation/InvestigationWorkspace';
 
 const PC = { critical: 'var(--fl-danger)', high: 'var(--fl-warn)', medium: 'var(--fl-gold)', low: 'var(--fl-ok)' };
 const EC = { alert: 'var(--fl-danger)', malware: 'var(--fl-warn)', exfil: 'var(--fl-gold)', network: 'var(--fl-accent)', analysis: 'var(--fl-purple)', response: 'var(--fl-ok)', persistence: '#f472b6', other: 'var(--fl-dim)' };
 
 const ARTIFACT_COLORS = {
-  evtx: 'var(--fl-accent)', hayabusa: 'var(--fl-danger)', mft: 'var(--fl-purple)', prefetch: '#22c55e', lnk: 'var(--fl-warn)',
-  registry: 'var(--fl-pink)', amcache: 'var(--fl-gold)', appcompat: '#f59e0b', shellbags: '#06b6d4',
-  jumplist: '#8b5cf6', srum: '#f43f5e', wxtcmd: '#14b8a6', recycle: '#84cc16',
-  sum: '#d946ef', bits: '#fb923c', collection: 'var(--fl-dim)',
+  evtx: 'var(--fl-accent)', hayabusa: 'var(--fl-danger)', mft: 'var(--fl-purple)', prefetch: 'var(--fl-ok)', lnk: 'var(--fl-warn)',
+  registry: 'var(--fl-pink)', amcache: 'var(--fl-gold)', appcompat: 'var(--fl-warn)', shellbags: 'var(--fl-purple)',
+  jumplist: 'var(--fl-accent)', srum: 'var(--fl-danger)', wxtcmd: '#14b8a6', recycle: 'var(--fl-ok)',
+  sum: 'var(--fl-pink)', bits: '#fb923c', collection: 'var(--fl-dim)',
 };
 
 function fmtSize(b) {
@@ -45,7 +44,16 @@ function fmtSize(b) {
 }
 
 function ColorBadge({ color, children }) {
-  return <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-mono font-semibold" style={{ background: `${color}15`, color, border: `1px solid ${color}30` }}>{children}</span>;
+  return <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-mono font-semibold" style={{ background: `color-mix(in srgb, ${color} 8%, transparent)`, color, border: `1px solid color-mix(in srgb, ${color} 19%, transparent)` }}>{children}</span>;
+}
+
+function volwebVisual(ev, progress) {
+  const pct = progress ? (progress.volweb_raw_status ?? progress.pct) : null;
+  const done = ev.volweb_status === 'ready' || (ev.volweb_status === 'processing' && pct === 100);
+  if (done)                              return { bg: 'color-mix(in srgb, var(--fl-ok) 10%, transparent)',     fg: 'var(--fl-ok)',     bd: 'color-mix(in srgb, var(--fl-ok) 30%, transparent)' };
+  if (ev.volweb_status === 'processing') return { bg: 'color-mix(in srgb, var(--fl-gold) 10%, transparent)',   fg: 'var(--fl-gold)',   bd: 'color-mix(in srgb, var(--fl-gold) 30%, transparent)' };
+  if (ev.volweb_status === 'error')      return { bg: 'color-mix(in srgb, var(--fl-danger) 10%, transparent)', fg: 'var(--fl-danger)', bd: 'color-mix(in srgb, var(--fl-danger) 30%, transparent)' };
+  return                                        { bg: 'color-mix(in srgb, var(--fl-purple) 10%, transparent)', fg: 'var(--fl-purple)', bd: 'color-mix(in srgb, var(--fl-purple) 30%, transparent)' };
 }
 
 function HexStringsPreview({ evId }) {
@@ -81,24 +89,24 @@ function HexStringsPreview({ evId }) {
     return () => { cancelled = true; };
   }, [activeTab, evId]);
   return (
-    <div style={{ borderRadius: 7, border: '1px solid #da363330', background: '#1a0f0f', overflow: 'hidden' }}>
-      <div style={{ display: 'flex', borderBottom: '1px solid #da363325' }}>
+    <div style={{ borderRadius: 7, border: '1px solid color-mix(in srgb, var(--fl-danger) 19%, transparent)', background: '#1a0f0f', overflow: 'hidden' }}>
+      <div style={{ display: 'flex', borderBottom: '1px solid color-mix(in srgb, var(--fl-danger) 15%, transparent)' }}>
         {[['hex', 'Hex'], ['strings', 'Strings']].map(([key, label]) => (
-          <button key={key} onClick={() => setActiveTab(key)} style={{ padding: '5px 14px', fontSize: 10, fontFamily: 'monospace', background: 'none', border: 'none', outline: 'none', cursor: 'pointer', borderBottom: `2px solid ${activeTab === key ? 'var(--fl-danger)' : 'transparent'}`, color: activeTab === key ? 'var(--fl-danger)' : 'var(--fl-muted)', marginBottom: -1, transition: 'color 0.1s' }}>{label}</button>
+          <button key={key} onClick={() => setActiveTab(key)} style={{ padding: '5px 14px', fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', background: 'none', border: 'none', outline: 'none', cursor: 'pointer', borderBottom: `2px solid ${activeTab === key ? 'var(--fl-danger)' : 'transparent'}`, color: activeTab === key ? 'var(--fl-danger)' : 'var(--fl-muted)', marginBottom: -1, transition: 'color 0.1s' }}>{label}</button>
         ))}
-        <span style={{ marginLeft: 'auto', padding: '5px 10px', fontSize: 9, fontFamily: 'monospace', color: '#da363360', alignSelf: 'center' }}>SUSPECT</span>
+        <span style={{ marginLeft: 'auto', padding: '5px 10px', fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'color-mix(in srgb, var(--fl-danger) 38%, transparent)', alignSelf: 'center' }}>SUSPECT</span>
       </div>
       <div style={{ padding: '8px 10px', maxHeight: 200, overflowY: 'auto' }}>
         {loadingPreview ? (
-          <div style={{ fontSize: 11, fontFamily: 'monospace', color: 'var(--fl-muted)', textAlign: 'center', padding: '12px 0' }}>{t('casedetail.hex_loading')}</div>
+          <div style={{ fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-muted)', textAlign: 'center', padding: '12px 0' }}>{t('casedetail.hex_loading')}</div>
         ) : previewError ? (
-          <div style={{ fontSize: 11, fontFamily: 'monospace', color: 'var(--fl-danger)' }}>{previewError}</div>
+          <div style={{ fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-danger)' }}>{previewError}</div>
         ) : activeTab === 'hex' ? (
-          <pre style={{ fontSize: 10, fontFamily: 'monospace', color: '#da363390', margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-all', lineHeight: 1.6 }}>{hexData || t('casedetail.hex_empty')}</pre>
+          <pre style={{ fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'color-mix(in srgb, var(--fl-danger) 56%, transparent)', margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-all', lineHeight: 1.6 }}>{hexData || t('casedetail.hex_empty')}</pre>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-            {(stringsData || []).filter(Boolean).map((s, i) => (<span key={i} style={{ fontSize: 10, fontFamily: 'monospace', color: 'var(--fl-gold)', padding: '1px 0' }}>{s}</span>))}
-            {(!stringsData || stringsData.filter(Boolean).length === 0) && (<span style={{ fontSize: 11, fontFamily: 'monospace', color: 'var(--fl-muted)' }}>{t('casedetail.no_strings')}</span>)}
+            {(stringsData || []).filter(Boolean).map((s, i) => (<span key={i} style={{ fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-gold)', padding: '1px 0' }}>{s}</span>))}
+            {(!stringsData || stringsData.filter(Boolean).length === 0) && (<span style={{ fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-muted)' }}>{t('casedetail.no_strings')}</span>)}
           </div>
         )}
       </div>
@@ -106,22 +114,22 @@ function HexStringsPreview({ evId }) {
   );
 }
 
-function TopNavBtn({ onClick, isActive, activeBorderColor = 'var(--fl-accent)', activeTextColor = 'var(--fl-on-dark)', icon: Icon, label, padding = '0 10px' }) {
+function TopNavBtn({ onClick, isActive, icon: Icon, label, padding = '0 12px' }) {
   const inactiveColor = 'var(--fl-subtle)';
   return (
     <button
       onClick={onClick}
       style={{
         display: 'flex', alignItems: 'center', gap: 5, padding,
-        height: '100%', fontFamily: 'monospace', fontSize: 11,
-        background: 'none', border: 'none', outline: 'none', flexShrink: 0,
-        borderBottom: `2px solid ${isActive ? activeBorderColor : 'transparent'}`,
-        color: isActive ? activeTextColor : inactiveColor,
-        cursor: 'pointer', whiteSpace: 'nowrap', marginBottom: -1,
-        transition: 'color 0.1s',
+        height: 24, alignSelf: 'center', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11,
+        outline: 'none', flexShrink: 0, borderRadius: 6,
+        background: isActive ? 'color-mix(in srgb, var(--fl-accent) 13%, transparent)' : 'transparent',
+        border: `1px solid ${isActive ? 'color-mix(in srgb, var(--fl-accent) 26%, transparent)' : 'transparent'}`,
+        color: isActive ? 'var(--fl-accent)' : inactiveColor,
+        cursor: 'pointer', whiteSpace: 'nowrap', transition: 'all 0.12s',
       }}
-      onMouseEnter={e => { if (!isActive) e.currentTarget.style.color = 'var(--fl-dim)'; }}
-      onMouseLeave={e => { if (!isActive) e.currentTarget.style.color = inactiveColor; }}
+      onMouseEnter={e => { if (!isActive) { e.currentTarget.style.color = 'var(--fl-dim)'; e.currentTarget.style.background = 'var(--fl-card)'; } }}
+      onMouseLeave={e => { if (!isActive) { e.currentTarget.style.color = inactiveColor; e.currentTarget.style.background = 'transparent'; } }}
     >
       <Icon size={11} /> {label}
     </button>
@@ -136,20 +144,12 @@ export default function CaseDetailPage({ user }) {
   const id = shellCtx.caseId || params.id;
   const collectionId = params.collectionId;
   const navigate = useNavigate();
-  const pinnedForCase = useEvidenceBridge(s => s.pinned[String(shellCtx.caseId || params.id)] || []);
 
   const TABS = useMemo(() => [
-    { id: 'evidence',    label: t('casedetail.tab_evidence'),   icon: FolderOpen },
-    { id: 'timeline',   label: 'Super Timeline',                icon: Clock },
-    { id: 'workbench',  label: 'Workbench',                     icon: Pin },
-    { id: 'iocs',       label: 'IOCs',                          icon: Crosshair },
-    { id: 'detections', label: t('casedetail.tab_detections'),  icon: AlertTriangle },
-    { id: 'network',    label: t('casedetail.tab_network'),     icon: Network },
-    { id: 'mitre',      label: 'MITRE ATT\u0026CK',            icon: Shield },
-    { id: 'playbooks',  label: t('casedetail.tab_playbooks'),   icon: BookOpen },
-    { id: 'hayabusa',  label: 'Hayabusa',                       icon: Activity },
-    { id: 'cyberchef', label: 'CyberChef',                     icon: FlaskConical },
-    { id: 'audit',      label: t('casedetail.tab_audit'),       icon: ScrollText },
+    { id: 'evidence',       label: t('casedetail.tab_evidence'), icon: FolderOpen },
+    { id: 'global-network', label: t('casedetail.tab_global_network'), icon: Globe },
+    { id: 'investigation',  label: t('casedetail.tab_investigation'), icon: Crosshair },
+    { id: 'notebook',       label: t('casedetail.tab_notebook'), icon: BookOpen },
   ], [t]);
 
   const SM = useMemo(() => ({
@@ -165,44 +165,61 @@ export default function CaseDetailPage({ user }) {
   const [caseData, setCaseData] = useState(null);
   const [evidence, setEvidence] = useState([]);
   const [selEv, setSelEv] = useState(null);
+  const [drawerEv, setDrawerEv] = useState(null); // evidence metadata quick-peek drawer
 
-  const [iocSearch, setIocSearch] = useState('');
   const [generating, setGenerating] = useState(false);
   const [reportDone, setReportDone] = useState(false);
   const [showTemplateModal, setShowTemplateModal] = useState(false);
   const [selectedTemplate, setSelectedTemplate]   = useState(null);
 
   const [caseIOCs, setCaseIOCs] = useState([]);
-  const [caseTL, setCaseTL] = useState([]);
-  const [auditEntries, setAuditEntries] = useState([]);
-  const [auditTotal, setAuditTotal] = useState(0);
-  const [auditPage, setAuditPage] = useState(0);
-  const [auditFilterAction, setAuditFilterAction] = useState('');
-  const [auditFilterUser, setAuditFilterUser] = useState('');
-  const [auditFilterFrom, setAuditFilterFrom] = useState('');
-  const [auditFilterTo, setAuditFilterTo] = useState('');
-  const [loadingAudit, setLoadingAudit] = useState(false);
+  const [showAddIoc, setShowAddIoc] = useState(false);
+  const [addingIoc, setAddingIoc]   = useState(false);
+  const [newIoc, setNewIoc] = useState({ ioc_type: 'ip', value: '', severity: 5, is_malicious: false, description: '' });
+  const [iocVerdictFilter, setIocVerdictFilter] = useState('all');
+  const [iocEnriching, setIocEnriching] = useState({});
+  const refetchIOCs = () => iocsAPI.list(id)
+    .then(r => setCaseIOCs(Array.isArray(r.data) ? r.data : (r.data?.iocs || [])))
+    .catch(() => {});
+  const addIoc = async () => {
+    if (!newIoc.value.trim() || addingIoc) return;
+    setAddingIoc(true);
+    try {
+      await iocsAPI.create(id, { ...newIoc, value: newIoc.value.trim(), severity: Number(newIoc.severity) || 5 });
+      setNewIoc({ ioc_type: 'ip', value: '', severity: 5, is_malicious: false, description: '' });
+      setShowAddIoc(false);
+      await refetchIOCs();
+    } catch (e) { /* surfaced inline via disabled/retry */ }
+    finally { setAddingIoc(false); }
+  };
+  const deleteIoc = async (iocId) => {
+    if (!window.confirm(t('casedetail.ioc_delete_confirm'))) return;
+    try {
+      await iocsAPI.remove(iocId);
+      await refetchIOCs();
+    } catch (e) { /* non-fatal */ }
+  };
+  const handleIocEnrich = async (ioc) => {
+    setIocEnriching(p => ({ ...p, [ioc.id]: true }));
+    try {
+      await iocsAPI.enrich(ioc.id);
+      await refetchIOCs();
+    } catch (e) {}
+    finally { setIocEnriching(p => { const n = { ...p }; delete n[ioc.id]; return n; }); }
+  };
+  const [auditRows, setAuditRows] = useState([]);
+  const [auditLoading, setAuditLoading] = useState(false);
   const [reportId, setReportId] = useState(null);
+  const [showComposer, setShowComposer] = useState(false);
+  const [reportGroups, setReportGroups] = useState(() => new Set(['mitre', 'killchain', 'findings', 'iocs', 'timeline', 'evidence']));
+  const [reportNote, setReportNote] = useState('');
+  const [aiEnabled, setAiEnabled] = useState(true);
+  const [aiDraft, setAiDraft] = useState(null);       // editable AI narrative
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState('');
   const [showImportPanel, setShowImportPanel] = useState(false);
   const [evResultMap, setEvResultMap] = useState({});
-  const [showIOCForm, setShowIOCForm] = useState(false);
-  const [iocSaving, setIocSaving] = useState(false);
-  const [iocForm, setIocForm] = useState({ ioc_type: 'ip', value: '', description: '', severity: 5, is_malicious: false, source: '', tags: '' });
-  const [showStixImport, setShowStixImport] = useState(false);
-  const [stixFiles, setStixFiles] = useState([]);
-  const [stixImporting, setStixImporting] = useState(false);
-  const [stixResult, setStixResult] = useState(null);
-  const [stTotal, setStTotal] = useState(0);
-  const [stReparsing, setStReparsing] = useState(false);
-  const [stReloadKey, setStReloadKey] = useState(0);
-  const [hayCount, setHayCount] = useState(0);
-  const [catscaleCount, setCatscaleCount] = useState(0);
-  const [stParseProgress, setStParseProgress] = useState(null);
   const { socket, socketId } = useSocket();
-  const stProgressRef = useRef(null);
-  const [subTab, setSubTab] = useState(null);
-  const [showDeleteCollect, setShowDeleteCollect] = useState(false);
-  const [deletingCollect, setDeletingCollect] = useState(false);
   const [evToDelete, setEvToDelete] = useState(null);
   const [deletingEv, setDeletingEv] = useState(false);
   const [presenceUsers, setPresenceUsers] = useState([]);
@@ -216,8 +233,6 @@ export default function CaseDetailPage({ user }) {
   const [hardDeleting, setHardDeleting] = useState(false);
   const [hardDeleteResult, setHardDeleteResult] = useState(null);
   const [pcapState, setPcapState] = useState({});
-  const [networkConns, setNetworkConns] = useState([]);
-  const [networkStats, setNetworkStats] = useState(null);
   const [triageData, setTriageData] = useState(null);
   const [triageRunning, setTriageRunning] = useState(false);
   const [showTriageModal, setShowTriageModal] = useState(false);
@@ -227,14 +242,15 @@ export default function CaseDetailPage({ user }) {
   const [volwebStatus,  setVolwebStatus]    = useState(null);
   const [volwebRetrying,  setVolwebRetrying]  = useState(null);
   const [volwebProgress,  setVolwebProgress]  = useState({});
-  const [parserRunning, setParserRunning]   = useState(null);
-  const [parserResults, setParserResults]   = useState([]);
+  const [volwebSteps,     setVolwebSteps]     = useState({});
+  const [parseProg,       setParseProg]       = useState(null);
   const [legalHoldModal, setLegalHoldModal] = useState(false);
   const [legalHoldReason, setLegalHoldReason] = useState('');
   const [aiOpen, setAiOpen] = useState(false);
   const [legalHoldSaving, setLegalHoldSaving] = useState(false);
   const [caseTimeStats, setCaseTimeStats] = useState(null);
   const [showTimeTooltip, setShowTimeTooltip] = useState(false);
+  const [showActionsMenu, setShowActionsMenu] = useState(false);
   useEffect(() => {
     if (!socket || !id) return;
     socket.emit('case:join', { caseId: id });
@@ -286,6 +302,10 @@ export default function CaseDetailPage({ user }) {
       ));
     }
     api.get(`/volweb/status/${id}`).then(r => setVolwebStatus(r.data)).catch(() => {});
+  });
+  useSocketEvent(socket, 'volweb:step', (data) => {
+    if (data.caseId !== id) return;
+    setVolwebSteps(prev => ({ ...prev, [data.evidenceId]: data.message }));
   });
 
   const openVolWeb = useCallback(async (caseId) => {
@@ -357,45 +377,31 @@ export default function CaseDetailPage({ user }) {
     return () => clearInterval(timer);
   }, [evidence, id]);
 
-  const AUDIT_PAGE_SIZE = 50;
-  const fetchAuditLog = useCallback(async (page, filters) => {
-    if (!id) return;
-    setLoadingAudit(true);
-    try {
-      const params = {
-        limit: AUDIT_PAGE_SIZE,
-        offset: page * AUDIT_PAGE_SIZE,
-        ...(filters.action    ? { action:    filters.action    } : {}),
-        ...(filters.username  ? { username:  filters.username  } : {}),
-        ...(filters.date_from ? { date_from: filters.date_from } : {}),
-        ...(filters.date_to   ? { date_to:   filters.date_to   } : {}),
-      };
-      const res = await casesAPI.audit(id, params);
-      const data = res.data;
-      if (Array.isArray(data)) {
-        setAuditEntries(data);
-        setAuditTotal(data.length);
-      } else {
-        setAuditEntries(data?.rows || []);
-        setAuditTotal(data?.total ?? (data?.rows?.length ?? 0));
-      }
-    } catch {
-      setAuditEntries([]);
-      setAuditTotal(0);
-    } finally {
-      setLoadingAudit(false);
-    }
-  }, [id]);
-
+  // Poll server-side parse progress so the monitor re-attaches after navigation
+  // (the parse itself runs detached server-side and survives leaving the page).
   useEffect(() => {
-    if (tab !== 'audit') return;
-    fetchAuditLog(auditPage, {
-      action: auditFilterAction,
-      username: auditFilterUser,
-      date_from: auditFilterFrom,
-      date_to: auditFilterTo,
-    });
-  }, [tab, auditPage, id]);
+    if (!id || tab !== 'evidence') { setParseProg(null); return; }
+    let alive = true;
+    const poll = () => collectionAPI.parseProgress(id)
+      .then(r => { if (alive) setParseProg(r.data?.active ? r.data : null); })
+      .catch(() => {});
+    poll();
+    const timer = setInterval(poll, 2500);
+    return () => { alive = false; clearInterval(timer); };
+  }, [id, tab]);
+
+  // Case audit log — fetched when the Audit tab is opened.
+  useEffect(() => {
+    if (tab !== 'audit' || !id) return;
+    let alive = true;
+    setAuditLoading(true);
+    casesAPI.audit(id, { limit: 200 })
+      .then(r => { if (alive) setAuditRows(r.data?.rows || []); })
+      .catch(() => { if (alive) setAuditRows([]); })
+      .finally(() => { if (alive) setAuditLoading(false); });
+    return () => { alive = false; };
+  }, [id, tab]);
+
 
   useEffect(() => {
     let cancelled = false;
@@ -404,8 +410,6 @@ export default function CaseDetailPage({ user }) {
     setCaseData(null);
     setEvidence([]);
     setCaseIOCs([]);
-    setCaseTL([]);
-    setAuditEntries([]);
 
     const loadCase = async () => {
       try {
@@ -432,23 +436,6 @@ export default function CaseDetailPage({ user }) {
         }
 
         try {
-          const tlRes = await timelineAPI.list(id);
-          if (!cancelled && tlRes.data) setCaseTL(Array.isArray(tlRes.data) ? tlRes.data : (tlRes.data.events || []));
-        } catch {
-          if (!cancelled) setCaseTL([]);
-        }
-
-        try {
-          const netRes = await (await import('../utils/api')).networkAPI.list(id);
-          if (!cancelled && netRes.data) setNetworkConns(Array.isArray(netRes.data) ? netRes.data : []);
-        } catch {}
-
-        try {
-          const statsRes = await (await import('../utils/api')).networkAPI.stats(id);
-          if (!cancelled && statsRes.data) setNetworkStats(statsRes.data);
-        } catch {}
-
-        try {
           const trRes = await casesAPI.getTriage(id);
           if (!cancelled && trRes.data) setTriageData(trRes.data);
         } catch {}
@@ -459,7 +446,6 @@ export default function CaseDetailPage({ user }) {
         setCaseData(null);
         setEvidence([]);
         setCaseIOCs([]);
-        setCaseTL([]);
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -481,40 +467,16 @@ export default function CaseDetailPage({ user }) {
     if (ev) setSelEv(ev);
   }, [collectionId, evidence]);
 
-  useEffect(() => {
-    if (!socket) return;
-    function handleProgress(data) {
-      if (data.type === 'start') {
-        setStParseProgress({ type: 'start', current: 0, total: data.total, artifact: '', name: '', completed: [] });
-        stProgressRef.current = { completed: [] };
-      } else if (data.type === 'artifact_start') {
-        setStParseProgress(prev => ({ ...(prev || {}), type: 'artifact_start', current: data.current, total: data.total, artifact: data.artifact, name: data.name }));
-      } else if (data.type === 'artifact_done') {
-        const entry = { artifact: data.artifact, name: data.name, status: data.status, records: data.records };
-        if (stProgressRef.current) stProgressRef.current.completed.push(entry);
-        setStParseProgress(prev => ({
-          ...(prev || {}), type: 'artifact_done',
-          current: data.current, total: data.total,
-          artifact: data.artifact, name: data.name,
-          completed: stProgressRef.current?.completed || [],
-        }));
-      } else if (data.type === 'saving') {
-        setStParseProgress(prev => ({ ...(prev || {}), type: 'saving' }));
-      }
-    }
-    socket.on('collection:progress', handleProgress);
-    return () => socket.off('collection:progress', handleProgress);
-  }, [socket]);
 
   const c = caseData;
 
-  if (loading) {
-    return (
-      <div className="p-6 flex items-center justify-center" style={{ minHeight: 400 }}>
-        <Spinner size={24} text={t('casedetail.loading')} />
-      </div>
-    );
-  }
+  if (loading) return (
+    <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+      {[0,1,2,3].map(i => (
+        <div key={i} className="fl-skeleton" style={{ height: 56, borderRadius: 8, background: 'var(--fl-card)' }} />
+      ))}
+    </div>
+  );
 
   if (!c) {
     return (
@@ -614,62 +576,69 @@ export default function CaseDetailPage({ user }) {
     }
   };
 
+  const exportRGPD = async () => {
+    try {
+      const res = await casesAPI.exportAnonymized(id);
+      const url = URL.createObjectURL(res.data);
+      const a = document.createElement('a');
+      a.href = url;
+      const cd = res.headers?.['content-disposition'] || '';
+      const fnMatch = cd.match(/filename="([^"]+)"/);
+      a.download = fnMatch ? fnMatch[1] : `heimdall-anonymized-${id.slice(0,8)}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch {}
+  };
+
   const toggleHL = (eid) => setEvidence(prev => prev.map(e => e.id === eid ? { ...e, is_highlighted: !e.is_highlighted } : e));
-  const filteredIOC = caseIOCs.filter(i => !iocSearch || (i.value || '').toLowerCase().includes(iocSearch.toLowerCase()) || (i.description || '').toLowerCase().includes(iocSearch.toLowerCase()) || (i.tags || []).some(t => t.includes(iocSearch.toLowerCase())));
   const highlighted = evidence.filter(e => e.is_highlighted);
 
-  const createIOC = async () => {
-    if (!iocForm.value) return;
-    setIocSaving(true);
-    try {
-      const payload = {
-        ...iocForm,
-        tags: iocForm.tags ? iocForm.tags.split(',').map(t => t.trim()).filter(Boolean) : [],
-        severity: parseInt(iocForm.severity),
-      };
-      const { data } = await iocsAPI.create(id, payload);
-      setCaseIOCs(prev => [data, ...prev]);
-      setShowIOCForm(false);
-      setIocForm({ ioc_type: 'ip', value: '', description: '', severity: 5, is_malicious: false, source: '', tags: '' });
-    } catch (err) {
-      console.error('IOC create error:', err);
-      alert(t('casedetail.err_ioc') + (err.response?.data?.error || err.message));
-    }
-    setIocSaving(false);
+
+
+
+
+
+  const GROUP_SECTIONS = {
+    mitre: ['mitre'],
+    killchain: ['killchain', 'workflow'],
+    findings: ['hayabusa', 'sigma', 'yara'],
+    iocs: ['iocs'],
+    timeline: ['timeline'],
+    evidence: ['evidence', 'custody'],
   };
 
-  const addNetworkConn = async (conn) => {
+  const generateAiDraft = async () => {
+    setAiLoading(true); setAiError('');
     try {
-      const { data } = await (await import('../utils/api')).networkAPI.create(id, conn);
-      setNetworkConns(prev => [...prev, data]);
-    } catch (err) {
-      console.error('Network create error:', err);
+      const { reportsAPI: rAPI } = await import('../utils/api');
+      // Pass the analyst's note so the AI grounds its analysis on it (+ the case's
+      // bookmarks/pins/notes are pulled server-side).
+      const { data } = await rAPI.aiDraft(c.id, reportNote.trim() ? { notes: reportNote.trim() } : {});
+      setAiDraft(data.narrative || {});
+    } catch (e) {
+      setAiError(e?.response?.data?.error || t('casedetail.ai_generation_failed'));
     }
-  };
-
-  const runParser = async (key, name) => {
-    setParserRunning(key);
-    try {
-      if (key === 'hayabusa') {
-        const res = await collectionAPI.runHayabusa(id);
-        const total = res.data?.total || res.data?.detections?.length || 0;
-        setParserResults(prev => [...prev, { parser: name, time: new Date().toISOString(), records: total, status: 'success', data: res.data }]);
-      } else {
-        const res = await collectionAPI.parse(id, { artifact_types: [key] });
-        const total = res.data?.total_records || 0;
-        setParserResults(prev => [...prev, { parser: name, time: new Date().toISOString(), records: total, status: 'success' }]);
-      }
-    } catch (err) {
-      setParserResults(prev => [...prev, { parser: name, time: new Date().toISOString(), records: Math.floor(Math.random() * 500) + 50, status: 'simulated' }]);
-    }
-    setParserRunning(null);
+    setAiLoading(false);
   };
 
   const generateReport = async () => {
     setGenerating(true);
     try {
       const { reportsAPI: rAPI } = await import('../utils/api');
-      const { data } = await rAPI.generate(c.id, selectedTemplate?.id || null);
+      let opts;
+      if (selectedTemplate?.id) {
+        opts = { templateId: selectedTemplate.id };
+      } else {
+        // Analyst-chosen sections (executive summary is always included) — not defaulted to "everything".
+        opts = { sections: ['summary', ...[...reportGroups].flatMap(g => GROUP_SECTIONS[g] || [])] };
+      }
+      if (reportNote.trim()) opts.notes = reportNote.trim();
+      // AI: use the analyst-edited draft if present; otherwise let the backend generate it (or disable).
+      opts.use_ai = aiEnabled;
+      if (aiEnabled && aiDraft && Object.keys(aiDraft).length) opts.ai_narrative = aiDraft;
+      const { data } = await rAPI.generate(c.id, opts);
       setReportId(data.report?.id);
       setReportDone(true);
     } catch {
@@ -686,7 +655,7 @@ export default function CaseDetailPage({ user }) {
         const url = window.URL.createObjectURL(new Blob([data], { type: 'application/pdf' }));
         const link = document.createElement(`a`);
         link.href = url;
-        link.download = `Rapport_${c.case_number}.pdf`;
+        link.download = `${t('casedetail.report_filename_prefix')}_${c.case_number}.pdf`;
         link.click();
         window.URL.revokeObjectURL(url);
         return;
@@ -706,31 +675,110 @@ export default function CaseDetailPage({ user }) {
                + `${p(d.getUTCHours())}:${p(d.getUTCMinutes())}:${p(d.getUTCSeconds())} UTC`;
         } catch { return String(ts); }
       }
-      w.document.write('<html><head><title>Rapport ' + esc(c.case_number) + '</title><style>body{font-family:sans-serif;padding:40px;color:#333}h1{color:#3a6aaa}table{width:100%;border-collapse:collapse;margin:20px 0}td,th{border:1px solid #ddd;padding:8px;text-align:left}th{background:#f5f5f5}</style></head><body>');
-      w.document.write('<h1>HEIMDALL DFIR — Rapport Forensique</h1><p><strong>' + esc(c.case_number) + '</strong> — ' + esc(c.title) + '</p><p>Statut: ' + esc(c.status) + ' | Priorité: ' + esc(c.priority) + ' | Investigateur: ' + esc(c.investigator_name || '') + '</p><p>' + esc(c.description) + '</p><hr>');
-      w.document.write('<h2>Preuves (' + evidence.length + ')</h2><table><tr><th>Nom</th><th>Type</th><th>SHA256</th><th>Surligné</th></tr>');
+      w.document.write('<html><head><title>' + esc(t('casedetail.print_report_title', { caseNumber: c.case_number })) + '</title><style>body{font-family:sans-serif;padding:40px;color:#333}h1{color:#3a6aaa}table{width:100%;border-collapse:collapse;margin:20px 0}td,th{border:1px solid #ddd;padding:8px;text-align:left}th{background:#f5f5f5}</style></head><body>');
+      w.document.write('<h1>' + esc(t('casedetail.print_report_h1')) + '</h1><p><strong>' + esc(c.case_number) + '</strong> — ' + esc(c.title) + '</p><p>' + esc(t('casedetail.print_status')) + ': ' + esc(c.status) + ' | ' + esc(t('casedetail.print_priority')) + ': ' + esc(c.priority) + ' | ' + esc(t('casedetail.print_investigator')) + ': ' + esc(c.investigator_name || '') + '</p><p>' + esc(c.description) + '</p><hr>');
+      w.document.write('<h2>' + esc(t('casedetail.print_evidence_count', { count: evidence.length })) + '</h2><table><tr><th>' + esc(t('casedetail.col_name')) + '</th><th>' + esc(t('casedetail.col_type')) + '</th><th>SHA256</th><th>' + esc(t('casedetail.col_highlighted')) + '</th></tr>');
       evidence.forEach(function(e) { w.document.write('<tr><td>' + esc(e.name) + '</td><td>' + esc(e.evidence_type) + '</td><td style="font-family:monospace;font-size:10px">' + esc((e.hash_sha256 || '').substring(0,24)) + '...</td><td>' + (e.is_highlighted ? '★' : '') + '</td></tr>'); });
-      w.document.write('</table><h2>Timeline (' + caseTL.length + ' événements)</h2><table><tr><th>Date (UTC)</th><th>Type</th><th>Événement</th></tr>');
-      caseTL.forEach(function(tlEv) { w.document.write('<tr><td>' + esc(fmtUtc(tlEv.event_time)) + '</td><td>' + esc(tlEv.event_type) + '</td><td>' + esc(tlEv.title) + '</td></tr>'); });
-      w.document.write('</table><h2>IOCs (' + caseIOCs.length + ')</h2><table><tr><th>Type</th><th>Valeur</th><th>Sévérité</th><th>Malveillant</th></tr>');
-      caseIOCs.forEach(function(i) { w.document.write('<tr><td>' + esc(i.ioc_type) + '</td><td style="font-family:monospace">' + esc(i.value) + '</td><td>' + esc(String(i.severity)) + '/10</td><td>' + (i.is_malicious ? '⚠ OUI' : 'Non') + '</td></tr>'); });
-      w.document.write('</table><hr><p style="color:#999;font-size:12px">Généré par Heimdall DFIR v0.9.7 — ' + esc(fmtUtc(new Date().toISOString())) + '</p></body></html>');
+      w.document.write('</table><h2>' + esc(t('casedetail.print_iocs_count', { count: caseIOCs.length })) + '</h2><table><tr><th>' + esc(t('casedetail.col_type')) + '</th><th>' + esc(t('casedetail.col_value')) + '</th><th>' + esc(t('casedetail.col_severity')) + '</th><th>' + esc(t('casedetail.col_malicious')) + '</th></tr>');
+      caseIOCs.forEach(function(i) { w.document.write('<tr><td>' + esc(i.ioc_type) + '</td><td style="font-family:monospace">' + esc(i.value) + '</td><td>' + esc(String(i.severity)) + '/10</td><td>' + (i.is_malicious ? '⚠ ' + esc(t('common.yes').toUpperCase()) : esc(t('common.no'))) + '</td></tr>'); });
+      w.document.write('</table><hr><p style="color:#999;font-size:12px">' + esc(t('casedetail.print_generated_by', { date: fmtUtc(new Date().toISOString()) })) + '</p></body></html>');
       w.document.close();
       w.print();
     }
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100%' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
 
-      <div style={{
-        display: shellCtx.insideCollectionLayout ? 'none' : 'flex',
-        alignItems: 'stretch', flexShrink: 0,
-        height: 36, padding: '0 14px',
-        background: 'var(--fl-bg)',
-        borderBottom: `1px solid ${PC[c.priority] ? PC[c.priority] + '35' : 'var(--fl-border)'}`,
-        position: 'sticky', top: 36, zIndex: 100,
-      }}>
+      {!shellCtx.insideCollectionLayout && (
+      <div style={{ position: 'sticky', top: 36, zIndex: 100, flexShrink: 0 }}>
+
+        {/* ── Tier 1 — Cockpit state strip: status chip + SLA / metadata ─── */}
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 8,
+          padding: '0 14px', height: 30,
+          background: 'var(--fl-panel)', borderBottom: '1px solid var(--fl-sep)',
+          fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
+        }}>
+          {/* Status — single clickable source of truth (no longer duplicated in the CaseShell strip) */}
+          <button onClick={() => setStatusModal('_pick')} title={t('casedetail.change_status')} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '2px 9px', borderRadius: 5, cursor: 'pointer', background: `color-mix(in srgb, ${SM[c.status]?.c || 'var(--fl-dim)'} 11%, transparent)`, color: SM[c.status]?.c || 'var(--fl-dim)', border: `1px solid color-mix(in srgb, ${SM[c.status]?.c || 'var(--fl-dim)'} 26%, transparent)`, fontSize: 10.5, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontWeight: 600, flexShrink: 0 }}>
+            <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'currentColor', flexShrink: 0 }} />
+            {SM[c.status]?.l || c.status}<span style={{ fontSize: 8, opacity: 0.6 }}>▾</span>
+          </button>
+
+          <span style={{ width: 1, height: 14, background: 'var(--fl-sep)', flexShrink: 0 }} />
+
+          {/* Metadata: opened · investigator · deadline · time — separated by hairline dots */}
+          <Clock size={10} style={{ color: 'var(--fl-subtle)', flexShrink: 0 }} />
+          <span style={{ fontSize: 10, color: 'var(--fl-subtle)', whiteSpace: 'nowrap', flexShrink: 0 }}>{t('casedetail.opened_on', { date: new Date(c.created_at).toLocaleDateString(i18n.language) })}</span>
+          {c.investigator_name && (
+            <><span style={{ color: 'var(--fl-sep)', fontSize: 11 }}>·</span>
+            <span style={{ fontSize: 10, color: 'var(--fl-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 160 }}>{c.investigator_name}</span></>
+          )}
+          <span style={{ color: 'var(--fl-sep)', fontSize: 11 }}>·</span>
+          {editDeadline ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+              <input type="datetime-local" value={deadlineVal} onChange={e => setDeadlineVal(e.target.value)} className="fl-input" style={{ fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', padding: '0 4px', height: 20 }} autoFocus />
+              <Button variant="primary" size="xs" loading={deadlineSaving} onClick={saveDeadline}>{deadlineSaving ? '…' : 'OK'}</Button>
+              <Button variant="secondary" size="xs" onClick={() => setEditDeadline(false)}>✕</Button>
+            </div>
+          ) : (
+            <button onClick={() => { setDeadlineVal(c.report_deadline ? c.report_deadline.slice(0,16) : ''); setEditDeadline(true); }} title={t('casedetail.edit_deadline')} style={{ display: 'flex', alignItems: 'center', gap: 3, background: 'none', border: 'none', cursor: 'pointer', padding: '1px 4px', borderRadius: 3, flexShrink: 0, color: c.report_deadline && new Date(c.report_deadline) < new Date(Date.now() + 48*3600*1000) ? 'var(--fl-danger)' : 'var(--fl-muted)' }}>
+              <CalendarDays size={9} />
+              <span style={{ fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}>{c.report_deadline ? new Date(c.report_deadline).toLocaleDateString(i18n.language) : t('casedetail.deadline')}</span>
+              <Pencil size={7} style={{ opacity: 0.4 }} />
+            </button>
+          )}
+          {caseTimeStats && caseTimeStats.grand_total_seconds > 0 && (
+            <><span style={{ color: 'var(--fl-sep)', fontSize: 11 }}>·</span>
+            <div style={{ position: 'relative', flexShrink: 0 }}>
+              <button onMouseEnter={() => setShowTimeTooltip(true)} onMouseLeave={() => setShowTimeTooltip(false)} style={{ background: 'none', border: 'none', cursor: 'default', padding: 0 }}>
+                <TimePill totalSeconds={caseTimeStats.grand_total_seconds} analystCount={caseTimeStats.analysts?.length || 0} />
+              </button>
+              {showTimeTooltip && caseTimeStats.analysts?.length > 0 && (
+                <div style={{ position: 'absolute', left: 0, top: '100%', marginTop: 6, zIndex: 500, background: 'var(--fl-panel)', border: '1px solid var(--fl-border)', borderRadius: 8, padding: '8px 12px', minWidth: 200, boxShadow: 'var(--fl-shadow-lg)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}>
+                  <div style={{ fontSize: 9, color: 'var(--fl-subtle)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>{t('casedetail.analytic_time')}</div>
+                  {caseTimeStats.analysts.map(a => (
+                    <div key={a.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, fontSize: 11, padding: '2px 0', color: 'var(--fl-dim)' }}>
+                      <span>{a.full_name || a.username}</span>
+                      <span style={{ color: 'var(--fl-text)', fontWeight: 600 }}>{fmtDuration(a.total_seconds)}</span>
+                    </div>
+                  ))}
+                  <div style={{ borderTop: '1px solid var(--fl-sep)', marginTop: 5, paddingTop: 5, display: 'flex', justifyContent: 'space-between', fontSize: 11 }}>
+                    <span style={{ color: 'var(--fl-subtle)' }}>{t('casedetail.total')}</span>
+                    <span style={{ color: 'var(--fl-accent)', fontWeight: 700 }}>{fmtDuration(caseTimeStats.grand_total_seconds)}</span>
+                  </div>
+                </div>
+              )}
+            </div></>
+          )}
+
+          <span style={{ flex: 1, minWidth: 8 }} />
+
+          {/* Live analyst presence — pushed to the right edge of the cockpit strip */}
+          {presenceUsers.length > 0 && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 2, flexShrink: 0 }} title={presenceUsers.map(u => u.full_name || u.username).join(', ')}>
+              {presenceUsers.slice(0, 4).map((u, i) => {
+                const col = ['var(--fl-accent)', 'var(--fl-ok)', 'var(--fl-warn)', 'var(--fl-purple)'][i % 4];
+                const ini = u.full_name ? u.full_name.split(' ').map(p => p[0]).join('').substring(0, 2).toUpperCase() : u.username?.substring(0, 2).toUpperCase() || '?';
+                return (
+                  <div key={u.id + i} title={u.full_name || u.username} style={{ width: 18, height: 18, borderRadius: '50%', background: `color-mix(in srgb, ${col} 13%, transparent)`, border: `1px solid color-mix(in srgb, ${col} 38%, transparent)`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 7, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontWeight: 700, color: col, marginLeft: i > 0 ? -5 : 0, zIndex: 4 - i }}>
+                    {ini}
+                  </div>
+                );
+              })}
+              {presenceUsers.length > 4 && <div style={{ width: 18, height: 18, borderRadius: '50%', background: 'var(--fl-card)', border: '1px solid var(--fl-sep)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 7, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-subtle)', marginLeft: -5 }}>+{presenceUsers.length - 4}</div>}
+              <div style={{ width: 5, height: 5, borderRadius: '50%', background: 'var(--fl-ok)', marginLeft: 3 }} title={t('casedetail.online')} />
+            </div>
+          )}
+        </div>
+
+        {/* ── Row 2 — Navigation tabs + compact action buttons ─── */}
+        <div style={{
+          display: 'flex', alignItems: 'stretch', height: 32, padding: '0 14px',
+          background: 'var(--fl-bg)',
+          borderBottom: `1px solid ${PC[c.priority] ? PC[c.priority] + '35' : 'var(--fl-border)'}`,
+        }}>
         <div style={{ display: 'flex', alignItems: 'stretch', flex: 1, overflow: 'auto', scrollbarWidth: 'none' }}>
 
           <TopNavBtn onClick={() => navigate(`/cases/${id}/evidence`)} padding="0 12px"
@@ -738,41 +786,44 @@ export default function CaseDetailPage({ user }) {
             label={<>
               {t('casedetail.tab_evidence')}
               {evidence.length > 0 && (
-                <span style={{ marginLeft: 4, padding: '0px 5px', borderRadius: 8, fontSize: 9, fontFamily: 'monospace', fontWeight: 700, background: 'var(--fl-card)', color: 'var(--fl-accent)', border: '1px solid var(--fl-border)' }}>
+                <span style={{ marginLeft: 4, padding: '0px 5px', borderRadius: 8, fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontWeight: 700, background: 'var(--fl-card)', color: 'var(--fl-accent)', border: '1px solid var(--fl-border)' }}>
                   {evidence.length}
                 </span>
               )}
             </>}
           />
 
-          {selEv && !shellCtx.insideCollectionLayout && (() => {
-            const evResult = evResultMap[selEv.name];
+          {/* Evidence breadcrumb — only when evidence is expanded */}
+          {selEv && !shellCtx.insideCollectionLayout && (
+            <>
+              <span style={{ color: 'var(--fl-border)', fontSize: 13, alignSelf: 'center', margin: '0 1px', flexShrink: 0 }}>›</span>
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: 5, padding: '0 8px',
+                fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10, color: 'var(--fl-dim)',
+                whiteSpace: 'nowrap', maxWidth: 180, overflow: 'hidden',
+                textOverflow: 'ellipsis', flexShrink: 0, alignSelf: 'center',
+                height: 24, borderRadius: 6,
+                background: tab === 'evidence' ? 'color-mix(in srgb, var(--fl-accent) 8%, transparent)' : 'transparent',
+              }}>
+                <FolderOpen size={9} style={{ flexShrink: 0 }} />
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{selEv.name}</span>
+              </div>
+            </>
+          )}
+
+          {/* All case tabs — always visible */}
+          {!shellCtx.insideCollectionLayout && (() => {
+            const evResult = selEv ? evResultMap[selEv.name] : null;
             const resultId = evResult?.resultId;
-            const cur = tab !== 'evidence' ? TABS.find(tb => tb.id === tab) : null;
+            const isMemory = selEv && (
+              selEv.evidence_type === 'memory' ||
+              /\.(raw|mem|vmem|lime|dmp)$/i.test(selEv.original_filename || selEv.name || '')
+            );
             return (
               <>
                 <span style={{ color: 'var(--fl-border)', fontSize: 13, alignSelf: 'center', margin: '0 1px', flexShrink: 0 }}>›</span>
-
-                <div style={{
-                  display: 'flex', alignItems: 'center', gap: 5, padding: '0 8px',
-                  fontFamily: 'monospace', fontSize: 10, color: 'var(--fl-dim)',
-                  whiteSpace: 'nowrap', maxWidth: 180, overflow: 'hidden',
-                  textOverflow: 'ellipsis', flexShrink: 0, alignSelf: 'center',
-                  borderBottom: tab === 'evidence' && selEv ? '2px solid #4d82c040' : '2px solid transparent',
-                  height: '100%',
-                }}>
-                  <FolderOpen size={9} style={{ flexShrink: 0 }} />
-                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{selEv.name}</span>
-                </div>
-
-                <span style={{ color: 'var(--fl-border)', fontSize: 13, alignSelf: 'center', margin: '0 1px', flexShrink: 0 }}>›</span>
-
                 {TABS.filter(tb => {
                   if (tb.id === 'evidence') return false;
-                  const isMemory = selEv && (
-                    selEv.evidence_type === 'memory' ||
-                    /\.(raw|mem|vmem|lime|dmp)$/i.test(selEv.original_filename || selEv.name || '')
-                  );
                   if (isMemory) return ['cyberchef', 'audit'].includes(tb.id);
                   return true;
                 }).map(tb => {
@@ -782,355 +833,476 @@ export default function CaseDetailPage({ user }) {
                   const hasResult = isTimeline && Boolean(resultId);
                   return (
                     <button key={tb.id}
-                      onClick={() => {
-                        navigate(`${base}/${tb.id}`);
-                        setSubTab(null);
-                      }}
+                      title={!isActive ? tb.label : undefined}
+                      onClick={() => navigate(`${base}/${tb.id}`)}
                       style={{
-                        display: 'flex', alignItems: 'center', gap: 4,
-                        padding: '0 9px', height: '100%', flexShrink: 0,
-                        fontFamily: 'monospace', fontSize: 10,
-                        background: 'none', border: 'none', outline: 'none',
-                        borderBottom: `2px solid ${isActive ? 'var(--fl-accent)' : hasResult ? '#22c55e40' : 'transparent'}`,
-                        color: isActive ? 'var(--fl-text)' : hasResult ? 'var(--fl-accent)' : 'var(--fl-muted)',
-                        cursor: 'pointer', whiteSpace: 'nowrap', marginBottom: -1,
-                        transition: 'color 0.1s',
+                        display: 'flex', alignItems: 'center', gap: isActive ? 4 : 5,
+                        padding: '0 10px', height: 24, alignSelf: 'center', flexShrink: 0,
+                        fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10,
+                        outline: 'none', borderRadius: 6,
+                        background: isActive ? 'color-mix(in srgb, var(--fl-accent) 13%, transparent)' : 'transparent',
+                        border: `1px solid ${isActive ? 'color-mix(in srgb, var(--fl-accent) 26%, transparent)' : 'transparent'}`,
+                        color: isActive ? 'var(--fl-accent)' : hasResult ? 'var(--fl-accent)' : 'var(--fl-muted)',
+                        cursor: 'pointer', whiteSpace: 'nowrap', transition: 'all 0.12s',
                       }}
-                      onMouseEnter={e => { if (!isActive) { e.currentTarget.style.color = 'var(--fl-dim)'; e.currentTarget.style.borderBottomColor = 'var(--fl-border)'; }}}
-                      onMouseLeave={e => { if (!isActive) { e.currentTarget.style.color = hasResult ? 'var(--fl-accent)' : 'var(--fl-muted)'; e.currentTarget.style.borderBottomColor = isActive ? 'var(--fl-accent)' : hasResult ? '#22c55e40' : 'transparent'; }}}>
-                      <Icon size={10} />
-                      {tb.label}
-                      {tb.id === 'iocs'       && caseIOCs.length > 0       && <span style={{ marginLeft: 3, padding: '0 4px', borderRadius: 8, fontSize: 9, fontWeight: 700, background: 'var(--fl-card)', color: caseIOCs.some(i => i.is_malicious) ? 'var(--fl-warn)' : 'var(--fl-dim)', border: '1px solid var(--fl-border)' }}>{caseIOCs.length}</span>}
-                      {tb.id === 'workbench'  && pinnedForCase.length > 0 && <span style={{ marginLeft: 3, padding: '0 4px', borderRadius: 8, fontSize: 9, fontWeight: 700, background: 'var(--fl-card)', color: 'var(--fl-purple, #c96898)', border: '1px solid var(--fl-border)' }}>{pinnedForCase.length}</span>}
-                      {hasResult && <span style={{ width: 4, height: 4, borderRadius: '50%', background: '#22c55e', display: 'inline-block', marginLeft: 1 }} />}
+                      onMouseEnter={e => { if (!isActive) { e.currentTarget.style.color = hasResult ? 'var(--fl-accent)' : 'var(--fl-dim)'; e.currentTarget.style.background = 'var(--fl-card)'; }}}
+                      onMouseLeave={e => { if (!isActive) { e.currentTarget.style.color = hasResult ? 'var(--fl-accent)' : 'var(--fl-muted)'; e.currentTarget.style.background = 'transparent'; }}}>
+                      <Icon size={isActive ? 10 : 11} />
+                      {isActive && tb.label}
+                      {isActive && tb.id === 'iocs' && caseIOCs.length > 0 && <span style={{ marginLeft: 3, padding: '0 4px', borderRadius: 8, fontSize: 9, fontWeight: 700, background: 'var(--fl-card)', color: caseIOCs.some(i => i.is_malicious) ? 'var(--fl-warn)' : 'var(--fl-dim)', border: '1px solid var(--fl-border)' }}>{caseIOCs.length}</span>}
+                      {!isActive && tb.id === 'iocs' && caseIOCs.length > 0 && <span style={{ width: 4, height: 4, borderRadius: '50%', background: caseIOCs.some(i => i.is_malicious) ? 'var(--fl-warn)' : 'var(--fl-accent)', display: 'inline-block', marginLeft: 2 }} />}
+                      {hasResult && <span style={{ width: 4, height: 4, borderRadius: '50%', background: 'var(--fl-ok)', display: 'inline-block', marginLeft: isActive ? 1 : 2 }} />}
                     </button>
                   );
                 })}
               </>
             );
           })()}
-
-          {!selEv && tab !== 'evidence' && (() => {
-            const cur = TABS.find(tb => tb.id === tab);
-            const Icon = cur?.icon;
-            return (
-              <>
-                <span style={{ color: 'var(--fl-border)', fontSize: 13, alignSelf: 'center', margin: '0 1px' }}>›</span>
-                <div style={{
-                  display: 'flex', alignItems: 'center', gap: 5, padding: '0 10px',
-                  height: '100%', fontFamily: 'monospace', fontSize: 11,
-                  color: 'var(--fl-text)', whiteSpace: 'nowrap',
-                  borderBottom: '2px solid var(--fl-accent)', marginBottom: -1,
-                }}>
-                  {Icon && <Icon size={11} />}
-                  {cur?.label}
-                </div>
-              </>
-            );
-          })()}
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginLeft: 10, flexShrink: 0 }}>
-          {c.investigator_name && (
-            <span style={{ fontSize: 11, fontFamily: 'monospace', color: 'var(--fl-muted)' }}>
-              {c.investigator_name}
-            </span>
-          )}
-          <span style={{ color: 'var(--fl-border)', fontSize: 12 }}>·</span>
-          <span style={{ fontSize: 11, fontFamily: 'monospace', color: 'var(--fl-muted)' }}>
-            {new Date(c.created_at).toLocaleDateString(i18n.language)}
-          </span>
-          {editDeadline ? (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-              <input
-                type="datetime-local"
-                value={deadlineVal}
-                onChange={e => setDeadlineVal(e.target.value)}
-                className="fl-input"
-                style={{ fontSize: 10, fontFamily: 'monospace', padding: '1px 5px' }}
-                autoFocus
-              />
-              <Button variant="primary" size="xs" loading={deadlineSaving} onClick={saveDeadline}>
-                {deadlineSaving ? '…' : 'OK'}
-              </Button>
-              <Button variant="secondary" size="xs" onClick={() => setEditDeadline(false)}>✕</Button>
-            </div>
-          ) : (
-            <button
-              onClick={() => { setDeadlineVal(c.report_deadline ? c.report_deadline.slice(0,16) : ''); setEditDeadline(true); }}
-              title={t('casedetail.edit_deadline')}
-              style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'none', border: 'none', cursor: 'pointer', padding: '1px 5px', borderRadius: 4,
-                color: c.report_deadline && new Date(c.report_deadline) < new Date(Date.now() + 48*3600*1000) ? 'var(--fl-danger)' : 'var(--fl-muted)',
-              }}>
-              <CalendarDays size={10} />
-              <span style={{ fontSize: 10, fontFamily: 'monospace' }}>
-                {c.report_deadline ? new Date(c.report_deadline).toLocaleDateString(i18n.language) : t('casedetail.deadline')}
-              </span>
-              <Pencil size={8} style={{ opacity: 0.5 }} />
-            </button>
-          )}
-
-          {caseTimeStats && caseTimeStats.grand_total_seconds > 0 && (
-            <div style={{ position: 'relative' }}>
-              <button
-                onMouseEnter={() => setShowTimeTooltip(true)}
-                onMouseLeave={() => setShowTimeTooltip(false)}
-                style={{ background: 'none', border: 'none', cursor: 'default', padding: 0 }}>
-                <TimePill totalSeconds={caseTimeStats.grand_total_seconds} analystCount={caseTimeStats.analysts?.length || 0} />
-              </button>
-              {showTimeTooltip && caseTimeStats.analysts?.length > 0 && (
-                <div style={{
-                  position: 'absolute', right: 0, top: '100%', marginTop: 6, zIndex: 500,
-                  background: 'var(--fl-bg)', border: '1px solid var(--fl-border)', borderRadius: 8,
-                  padding: '8px 12px', minWidth: 200, boxShadow: '0 8px 24px rgba(0,0,0,0.6)',
-                  fontFamily: 'monospace',
-                }}>
-                  <div style={{ fontSize: 9, color: 'var(--fl-subtle)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>
-                    Temps analytique
-                  </div>
-                  {caseTimeStats.analysts.map(a => (
-                    <div key={a.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, fontSize: 11, padding: '2px 0', color: 'var(--fl-dim)' }}>
-                      <span>{a.full_name || a.username}</span>
-                      <span style={{ color: 'var(--fl-text)', fontWeight: 600 }}>{fmtDuration(a.total_seconds)}</span>
-                    </div>
-                  ))}
-                  <div style={{ borderTop: '1px solid var(--fl-sep)', marginTop: 5, paddingTop: 5, display: 'flex', justifyContent: 'space-between', fontSize: 11 }}>
-                    <span style={{ color: 'var(--fl-subtle)' }}>Total</span>
-                    <span style={{ color: 'var(--fl-accent)', fontWeight: 700 }}>{fmtDuration(caseTimeStats.grand_total_seconds)}</span>
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-
-          {presenceUsers.length > 0 && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 2, marginLeft: 4 }}
-              title={presenceUsers.map(u => u.full_name).join(', ')}>
-              {presenceUsers.slice(0, 5).map((u, i) => {
-                const colors = ['var(--fl-accent)', '#22c55e', 'var(--fl-warn)', 'var(--fl-purple)', 'var(--fl-gold)'];
-                const col = colors[i % colors.length];
-                const initials = u.full_name
-                  ? u.full_name.split(' ').map(p => p[0]).join('').substring(0, 2).toUpperCase()
-                  : u.username?.substring(0, 2).toUpperCase() || '?';
-                return (
-                  <div key={u.id + i} title={u.full_name || u.username} style={{
-                    width: 22, height: 22, borderRadius: '50%',
-                    background: `${col}22`, border: `1px solid ${col}60`,
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    fontSize: 8, fontFamily: 'monospace', fontWeight: 700, color: col,
-                    marginLeft: i > 0 ? -6 : 0, zIndex: 5 - i,
-                  }}>
-                    {initials}
-                  </div>
-                );
-              })}
-              {presenceUsers.length > 5 && (
-                <div style={{ width: 22, height: 22, borderRadius: '50%', background: 'var(--fl-card)', border: '1px solid var(--fl-card)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 8, fontFamily: 'monospace', color: 'var(--fl-subtle)', marginLeft: -6 }}>
-                  +{presenceUsers.length - 5}
-                </div>
-              )}
-              <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#22c55e', marginLeft: 4, flexShrink: 0 }}
-                title={t('casedetail.online')} />
-            </div>
-          )}
-          <div className="relative" style={{ position: 'relative' }}>
-            <button
-              onClick={() => {
-                const next = c.status === 'active' ? ['pending', 'closed']
-                  : c.status === 'pending' ? ['active', 'closed']
-                  : ['active', 'pending'];
-                setStatusModal('_pick');
-              }}
-              title={t('casedetail.change_status')}
-              style={{
-                display: 'inline-flex', alignItems: 'center', gap: 5,
-                padding: '2px 8px', borderRadius: 4, cursor: 'pointer',
-                background: `${SM[c.status]?.c || 'var(--fl-dim)'}18`,
-                color: SM[c.status]?.c || 'var(--fl-dim)',
-                border: `1px solid ${SM[c.status]?.c || 'var(--fl-dim)'}35`,
-                fontSize: 11, fontFamily: 'monospace', fontWeight: 600,
-                transition: 'opacity 0.15s',
-              }}
-            >
-              {SM[c.status]?.l || c.status}
-              <span style={{ fontSize: 9, opacity: 0.6 }}>▾</span>
-            </button>
-          </div>
-          <ColorBadge color={PC[c.priority] || 'var(--fl-dim)'}>
-            {c.priority === 'critical' && <AlertTriangle size={9} />}
-            {(c.priority || '').toUpperCase()}
-          </ColorBadge>
+        {/* Compact action buttons */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 3, flexShrink: 0, paddingLeft: 8, borderLeft: '1px solid var(--fl-sep)', marginLeft: 4 }}>
           <Button
-            variant="ghost"
-            size="xs"
-            icon={volwebLoading ? undefined : Cpu}
-            loading={volwebLoading}
+            variant="ghost" size="xs"
+            icon={volwebLoading ? undefined : Cpu} loading={volwebLoading}
             onClick={() => {
               const isLinked = volwebStatus?.linked || evidence.some(ev => ev.volweb_status === 'ready' || ev.volweb_status === 'processing');
-              if (isLinked) {
-                openVolWeb(id);
-              } else {
-                setShowMemUpload(v => !v);
-              }
+              if (isLinked) { openVolWeb(id); } else { setShowMemUpload(v => !v); }
             }}
             title={t('casedetail.volweb_title')}
-            style={{ color: 'var(--fl-purple)', borderColor: 'rgba(139,114,214,0.30)', background: 'rgba(139,114,214,0.10)' }}
+            style={{ color: 'var(--fl-purple)', borderColor: 'color-mix(in srgb, var(--fl-purple) 30%, transparent)', background: 'color-mix(in srgb, var(--fl-purple) 10%, transparent)' }}
           >
-            {t('casedetail.analyze_ram')}
+            RAM
           </Button>
           <Button
-            variant="ghost"
-            size="xs"
-            icon={triageRunning ? undefined : Activity}
-            loading={triageRunning}
+            variant="ghost" size="xs"
+            icon={triageRunning ? undefined : Activity} loading={triageRunning}
             onClick={() => { setShowTriageModal(true); if (!triageRunning) runTriage(); }}
             title={t('casedetail.triage_title')}
-            style={{ color: 'var(--fl-gold)', borderColor: 'rgba(200,157,29,0.30)', background: 'rgba(200,157,29,0.08)' }}
+            style={{ color: 'var(--fl-gold)', borderColor: 'color-mix(in srgb, var(--fl-gold) 30%, transparent)', background: 'color-mix(in srgb, var(--fl-gold) 9%, transparent)' }}
           >
             TRIAGE
           </Button>
-
           <Button
-            variant="ghost"
-            size="xs"
-            icon={Sparkles}
+            variant="ghost" size="xs" icon={Sparkles}
             onClick={() => setAiOpen(v => !v)}
-            title="IA Copilot — analyse forensique assistée"
-            style={{ color: '#7abfff', borderColor: 'rgba(77,130,192,0.30)', background: aiOpen ? 'rgba(77,130,192,0.18)' : 'rgba(77,130,192,0.08)' }}
+            title={t('casedetail.ai_copilot_title')}
+            style={{ color: 'var(--fl-accent)', borderColor: 'color-mix(in srgb, var(--fl-accent) 30%, transparent)', background: aiOpen ? 'color-mix(in srgb, var(--fl-accent) 18%, transparent)' : 'color-mix(in srgb, var(--fl-accent) 8%, transparent)' }}
           >
             IA
           </Button>
-
-          {user?.role === 'admin' && c.legal_hold ? (
-            <>
-              <span title={t('casedetail.legal_hold_active_title')} style={{
-                display: 'inline-flex', alignItems: 'center', gap: 4,
-                fontSize: 10, fontFamily: 'monospace', fontWeight: 700,
-                padding: '2px 8px', borderRadius: 4, flexShrink: 0,
-                background: 'rgba(218,54,51,0.10)', color: 'var(--fl-danger)',
-                border: '1px solid rgba(218,54,51,0.30)',
-              }}>
-                <Lock size={10} /> LEGAL HOLD
-              </span>
-              <Button variant="ghost" size="xs" icon={FileJson}
-                onClick={downloadManifest} title={t('casedetail.tooltip_manifest')}
-                style={{ color: 'var(--fl-purple)', borderColor: 'rgba(139,114,214,0.30)', background: 'rgba(139,114,214,0.08)' }}>
-                {t('casedetail.manifest')}
-              </Button>
-              <Button variant="ghost" size="xs" onClick={() => setLegalHoldModal('disable')}
-                title={t('casedetail.edit_deadline')}
-                style={{ color: 'var(--fl-warn)', borderColor: 'rgba(217,124,32,0.30)', background: 'rgba(217,124,32,0.08)', fontSize: 10 }}>
-                {t('casedetail.lift_hold')}
-              </Button>
-            </>
-          ) : user?.role === 'admin' ? (
-            <Button variant="ghost" size="xs" icon={Lock}
-              onClick={() => setLegalHoldModal('enable')}
-              title={t('casedetail.tooltip_enable_legal_hold')}
-              style={{ color: 'var(--fl-dim)', borderColor: 'rgba(125,133,144,0.25)', background: 'rgba(125,133,144,0.06)' }}>
-              LEGAL HOLD
-            </Button>
-          ) : null}
-
-          <Button
-            variant="ghost"
-            size="xs"
-            icon={Lock}
-            title={t('casedetail.tooltip_export_rgpd')}
-            style={{ background: 'transparent', border: '1px solid var(--fl-border)', color: 'var(--fl-dim)' }}
-            onClick={async () => {
-              try {
-                const res = await casesAPI.exportAnonymized(id);
-                const url = URL.createObjectURL(res.data);
-                const a = document.createElement('a');
-                a.href = url;
-                const cd = res.headers?.['content-disposition'] || '';
-                const fnMatch = cd.match(/filename="([^"]+)"/);
-                a.download = fnMatch ? fnMatch[1] : `heimdall-anonymized-${id.slice(0,8)}.json`;
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-                URL.revokeObjectURL(url);
-              } catch {}
-            }}
-          >
-            {t('casedetail.export_rgpd')}
-          </Button>
-
-          {user?.role === 'admin' && (
-            <Button
-              variant="ghost"
-              size="xs"
-              icon={Trash2}
-              onClick={() => { setShowHardDelete(true); setHardDeleteConfirm(''); }}
-              title={t('casedetail.destroy_title')}
-              style={{ color: 'var(--fl-danger)', borderColor: 'rgba(218,54,51,0.25)', background: 'rgba(218,54,51,0.08)' }}
-            >
-              {t('casedetail.destroy')}
-            </Button>
+          {user?.role === 'admin' && c.legal_hold && (
+            <span title={t('casedetail.legal_hold_active_title')} style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontWeight: 700, padding: '1px 6px', borderRadius: 3, background: 'color-mix(in srgb, var(--fl-danger) 10%, transparent)', color: 'var(--fl-danger)', border: '1px solid color-mix(in srgb, var(--fl-danger) 30%, transparent)' }}>
+              <Lock size={8} /> HOLD
+            </span>
           )}
+          <div style={{ position: 'relative' }}>
+            {showActionsMenu && <div style={{ position: 'fixed', inset: 0, zIndex: 599 }} onClick={() => setShowActionsMenu(false)} />}
+            <button
+              onClick={() => setShowActionsMenu(v => !v)}
+              title={t('casedetail.more_actions')}
+              style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 26, height: 26, borderRadius: 3, background: showActionsMenu ? 'var(--fl-card)' : 'transparent', border: `1px solid ${showActionsMenu ? 'var(--fl-border)' : 'var(--fl-sep)'}`, color: 'var(--fl-muted)', cursor: 'pointer', fontSize: 14, letterSpacing: 1 }}
+            >···</button>
+            {showActionsMenu && (
+              <div style={{ position: 'absolute', right: 0, top: '100%', marginTop: 4, zIndex: 600, background: 'var(--fl-panel)', border: '1px solid var(--fl-border)', borderRadius: 8, padding: 4, minWidth: 180, boxShadow: 'var(--fl-shadow-lg)' }}>
+                {user?.role === 'admin' && (c.legal_hold ? (
+                  <>
+                    <button onClick={() => { setShowActionsMenu(false); downloadManifest(); }} style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%', padding: '5px 10px', background: 'none', border: 'none', borderRadius: 4, cursor: 'pointer', fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-purple)' }}><FileJson size={11} />{t('casedetail.manifest')}</button>
+                    <button onClick={() => { setShowActionsMenu(false); setLegalHoldModal('disable'); }} style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%', padding: '5px 10px', background: 'none', border: 'none', borderRadius: 4, cursor: 'pointer', fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-warn)' }}><Lock size={11} />{t('casedetail.lift_hold')}</button>
+                  </>
+                ) : (
+                  <button onClick={() => { setShowActionsMenu(false); setLegalHoldModal('enable'); }} style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%', padding: '5px 10px', background: 'none', border: 'none', borderRadius: 4, cursor: 'pointer', fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-dim)' }}><Lock size={11} />{t('casedetail.legal_hold')}</button>
+                ))}
+                <button onClick={() => { setShowActionsMenu(false); exportRGPD(); }} style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%', padding: '5px 10px', background: 'none', border: 'none', borderRadius: 4, cursor: 'pointer', fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-dim)' }}><Lock size={11} />{t('casedetail.export_rgpd')}</button>
+                {user?.role === 'admin' && (
+                  <>
+                    <div style={{ height: 1, background: 'var(--fl-sep)', margin: '3px 6px' }} />
+                    <button onClick={() => { setShowActionsMenu(false); setShowHardDelete(true); setHardDeleteConfirm(''); }} style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%', padding: '5px 10px', background: 'none', border: 'none', borderRadius: 4, cursor: 'pointer', fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-danger)' }}><Trash2 size={11} />{t('casedetail.destroy')}</button>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
         </div>
-      </div>
+        </div>
 
-      {/* E — Case context condensed bar */}
-      {!shellCtx.insideCollectionLayout && c && (
-        <div style={{
-          display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
-          padding: '5px 16px', background: 'var(--fl-panel)',
-          borderBottom: '1px solid var(--fl-sep)', flexShrink: 0,
-          fontFamily: 'monospace', fontSize: 10,
-        }}>
-          <span style={{ fontWeight: 700, color: 'var(--fl-text)', fontSize: 11 }}>{c.case_number}</span>
-          <span style={{ color: 'var(--fl-border)' }}>·</span>
-          <span style={{ color: 'var(--fl-dim)', maxWidth: 320, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.title}</span>
-          <span style={{ color: 'var(--fl-border)' }}>·</span>
-          <StatusPill status={c.status} />
-          <PriorityPill priority={c.priority} />
-          {evidence.length > 0 && (
-            <span style={{ display: 'flex', alignItems: 'center', gap: 3, color: 'var(--fl-accent)' }}>
-              <FolderOpen size={9} />{evidence.length} collection{evidence.length > 1 ? 's' : ''}
-            </span>
-          )}
-          {caseIOCs.length > 0 && (
-            <span style={{ display: 'flex', alignItems: 'center', gap: 3, color: caseIOCs.some(i => i.is_malicious) ? 'var(--fl-warn)' : 'var(--fl-dim)' }}>
-              <Crosshair size={9} />{caseIOCs.length} IOC{caseIOCs.length > 1 ? 's' : ''}
-            </span>
-          )}
-          {c.report_deadline && (
-            <span style={{ display: 'flex', alignItems: 'center', gap: 3, color: new Date(c.report_deadline) < new Date(Date.now() + 48*3600*1000) ? 'var(--fl-danger)' : 'var(--fl-subtle)' }}>
-              <CalendarDays size={9} />
-              {new Date(c.report_deadline).toLocaleDateString(i18n.language)}
-            </span>
+      </div>
+      )}
+
+      <div style={{ flex: 1, overflow: tab === 'global-network' ? 'hidden' : 'auto', padding: tab === 'global-network' ? 0 : '12px 16px', position: 'relative' }}>
+
+      <div key={tab} style={{ animation: 'fl-fade 120ms var(--ease, ease)' }}>
+
+      {tab === 'global-network' && (
+        <div style={{ position: 'absolute', inset: 0 }}>
+          <GlobalNetworkMapPage />
+        </div>
+      )}
+
+      {tab === 'detections' && <DetectionsTab caseId={id} />}
+
+      {tab === 'mitre' && <MitreAttackTab caseId={id} />}
+
+      {tab === 'investigation' && <InvestigationWorkspace caseId={id} />}
+
+      {tab === 'notebook' && <NotebookPanel caseId={id} />}
+
+      {tab === 'audit' && (
+        <div style={{ maxWidth: 1100, margin: '0 auto' }}>
+          <div className="flex items-center mb-4" style={{ gap: 8 }}>
+            <Icon name="ScrollText" size={14} style={{ color: 'var(--fl-accent)' }} />
+            <span style={{ fontSize: 11, fontFamily: 'var(--f-mono, monospace)', textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--fl-dim)' }}>{t('casedetail.audit_log')}</span>
+            {auditRows.length > 0 && <span style={{ fontSize: 10, fontFamily: 'var(--f-mono, monospace)', padding: '1px 6px', borderRadius: 4, background: 'color-mix(in srgb, var(--fl-accent) 9%, transparent)', color: 'var(--fl-accent)', border: '1px solid color-mix(in srgb, var(--fl-accent) 19%, transparent)' }}>{auditRows.length}</span>}
+          </div>
+          {auditLoading ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {[0,1,2,3,4].map(i => <div key={i} className="fl-skeleton" style={{ height: 40, borderRadius: 6, background: 'var(--fl-card)' }} />)}
+            </div>
+          ) : auditRows.length === 0 ? (
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '48px 16px', gap: 8 }}>
+              <Icon name="ScrollText" size={22} style={{ color: 'var(--fl-border)' }} />
+              <span style={{ fontSize: 12, fontFamily: 'var(--f-mono, monospace)', color: 'var(--fl-muted)' }}>{t('casedetail.audit_empty')}</span>
+            </div>
+          ) : (
+            <div style={{ border: '1px solid var(--fl-border)', borderRadius: 8, overflow: 'hidden' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: 'var(--f-ui, sans-serif)' }}>
+                <thead>
+                  <tr style={{ background: 'var(--fl-bg)', borderBottom: '1px solid var(--fl-border)' }}>
+                    {[[t('casedetail.col_date'), 150], [t('casedetail.col_actor'), 150], [t('casedetail.col_action'), null], [t('casedetail.col_entity'), 120], ['IP', 120]].map(([l, w]) => (
+                      <th key={l} style={{ textAlign: 'left', padding: '7px 10px', width: w || undefined, fontSize: 9.5, fontFamily: 'var(--f-mono, monospace)', textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--fl-muted)', fontWeight: 600, whiteSpace: 'nowrap' }}>{l}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {auditRows.map((r, i) => {
+                    const td = { padding: '0 10px', height: 38, borderBottom: '1px solid var(--fl-border2)', verticalAlign: 'middle' };
+                    return (
+                      <tr key={r.id || i}>
+                        <td style={{ ...td, fontSize: 10.5, fontFamily: 'var(--f-mono, monospace)', color: 'var(--fl-dim)', whiteSpace: 'nowrap' }}>{r.created_at ? new Date(r.created_at).toLocaleString(i18n.language) : '—'}</td>
+                        <td style={{ ...td, fontSize: 11, color: 'var(--fl-text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 150 }}>{r.user_name || r.username || t('dashboard.system_actor')}</td>
+                        <td style={{ ...td, fontSize: 11, fontFamily: 'var(--f-mono, monospace)', color: 'var(--fl-accent)' }}>{(r.action || '').replace(/_/g, ' ')}</td>
+                        <td style={{ ...td, fontSize: 11, fontFamily: 'var(--f-mono, monospace)', color: 'var(--fl-muted)' }}>{(r.entity_type || '').replace(/_/g, ' ') || '—'}</td>
+                        <td style={{ ...td, fontSize: 10.5, fontFamily: 'var(--f-mono, monospace)', color: 'var(--fl-subtle)', whiteSpace: 'nowrap' }}>{r.ip_address || '—'}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           )}
         </div>
       )}
 
-      <div style={{ flex: 1, overflow: 'auto', padding: '12px 16px' }}>
+      {tab === 'iocs' && (() => {
+        const iocMalCount    = caseIOCs.filter(i => i.is_malicious === true).length;
+        const iocSuspectCount= caseIOCs.filter(i => i.is_malicious == null).length;
+        const iocBenignCount = caseIOCs.filter(i => i.is_malicious === false).length;
+        const VERDICT_TABS = [
+          { key: 'all',       label: t('common.all'),            count: caseIOCs.length },
+          { key: 'malicious', label: t('iocs.tab_malicious'),    count: iocMalCount,     color: 'var(--fl-danger)' },
+          { key: 'suspect',   label: t('iocs.tab_suspect'),      count: iocSuspectCount, color: 'var(--fl-gold)' },
+          { key: 'benign',    label: t('iocs.tab_benign'),       count: iocBenignCount,  color: 'var(--fl-ok)' },
+        ];
+        const visibleIOCs = caseIOCs.filter(i =>
+          iocVerdictFilter === 'all'      ? true
+          : iocVerdictFilter === 'malicious' ? i.is_malicious === true
+          : iocVerdictFilter === 'benign'    ? i.is_malicious === false
+          : i.is_malicious == null
+        );
+        const SEV_COLOR = s => s >= 8 ? 'var(--fl-danger)' : s >= 6 ? 'var(--fl-warn)' : s >= 4 ? 'var(--fl-gold)' : 'var(--fl-ok)';
+        const TYPE_LABEL = { ip: 'IP', domain: 'Domain', url: 'URL', email: 'Email', md5: 'MD5', sha1: 'SHA-1', sha256: 'SHA-256', filename: 'File', registry: 'Registry', other: 'Other' };
+
+        return (
+          <div style={{ maxWidth: 1200, margin: '0 auto' }}>
+
+            {/* ── header row ── */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, gap: 12 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontSize: 11, fontFamily: 'var(--f-mono, monospace)', textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--fl-dim)', fontWeight: 700 }}>IOCs</span>
+                <span style={{ fontSize: 10.5, fontFamily: 'var(--f-mono, monospace)', padding: '1px 7px', borderRadius: 4, background: 'color-mix(in srgb, var(--fl-accent) 9%, transparent)', color: 'var(--fl-accent)', border: '1px solid color-mix(in srgb, var(--fl-accent) 19%, transparent)' }}>{caseIOCs.length}</span>
+              </div>
+              <button onClick={() => setShowAddIoc(v => !v)}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 12px', borderRadius: 6, cursor: 'pointer', fontFamily: 'var(--f-mono, monospace)', fontSize: 11, fontWeight: 600,
+                  background: showAddIoc ? 'var(--fl-card)' : 'var(--fl-accent)', color: showAddIoc ? 'var(--fl-dim)' : '#fff', border: `1px solid ${showAddIoc ? 'var(--fl-border)' : 'var(--fl-accent)'}` }}>
+                {showAddIoc ? <><X size={12} /> {t('common.cancel')}</> : <><Plus size={12} /> {t('casedetail.add_ioc_long')}</>}
+              </button>
+            </div>
+
+            {/* ── add form ── */}
+            {showAddIoc && (
+              <div style={{ marginBottom: 16, padding: 14, border: '1px solid var(--fl-border)', borderRadius: 8, background: 'var(--fl-panel)', display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+                <select value={newIoc.ioc_type} onChange={e => setNewIoc(s => ({ ...s, ioc_type: e.target.value }))}
+                  style={{ padding: '7px 9px', borderRadius: 6, background: 'var(--fl-input-bg)', border: '1px solid var(--fl-border)', color: 'var(--fl-text)', fontFamily: 'var(--f-mono, monospace)', fontSize: 11.5, cursor: 'pointer' }}>
+                  {['ip', 'domain', 'url', 'email', 'md5', 'sha1', 'sha256', 'filename', 'registry', 'other'].map(o => <option key={o} value={o}>{o}</option>)}
+                </select>
+                <input autoFocus value={newIoc.value} onChange={e => setNewIoc(s => ({ ...s, value: e.target.value }))} placeholder={t('casedetail.ioc_value_ph')}
+                  onKeyDown={e => { if (e.key === 'Enter') addIoc(); }}
+                  style={{ flex: '1 1 240px', minWidth: 200, padding: '7px 10px', borderRadius: 6, background: 'var(--fl-input-bg)', border: '1px solid var(--fl-border)', color: 'var(--fl-text)', fontFamily: 'var(--f-mono, monospace)', fontSize: 12, outline: 'none' }} />
+                <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                  <span style={{ fontSize: 10.5, fontFamily: 'var(--f-mono, monospace)', color: 'var(--fl-muted)' }}>{t('casedetail.severity_abbr')}</span>
+                  <input type="number" min="1" max="10" value={newIoc.severity} onChange={e => setNewIoc(s => ({ ...s, severity: e.target.value }))}
+                    style={{ width: 54, padding: '7px 8px', borderRadius: 6, textAlign: 'right', background: 'var(--fl-input-bg)', border: '1px solid var(--fl-border)', color: 'var(--fl-text)', fontFamily: 'var(--f-mono, monospace)', fontSize: 12 }} />
+                </div>
+                <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11.5, fontFamily: 'var(--f-mono, monospace)', color: 'var(--fl-dim)', cursor: 'pointer' }}>
+                  <input type="checkbox" checked={newIoc.is_malicious} onChange={e => setNewIoc(s => ({ ...s, is_malicious: e.target.checked }))} style={{ accentColor: 'var(--fl-danger)' }} />
+                  {t('casedetail.malicious')}
+                </label>
+                <input value={newIoc.description} onChange={e => setNewIoc(s => ({ ...s, description: e.target.value }))} placeholder={t('casedetail.description_optional_ph')}
+                  style={{ flex: '1 1 180px', minWidth: 140, padding: '7px 10px', borderRadius: 6, background: 'var(--fl-input-bg)', border: '1px solid var(--fl-border)', color: 'var(--fl-text)', fontFamily: 'var(--f-ui, sans-serif)', fontSize: 12, outline: 'none' }} />
+                <button onClick={addIoc} disabled={!newIoc.value.trim() || addingIoc}
+                  style={{ padding: '7px 14px', borderRadius: 6, cursor: !newIoc.value.trim() || addingIoc ? 'not-allowed' : 'pointer', fontFamily: 'var(--f-mono, monospace)', fontSize: 11.5, fontWeight: 600,
+                    background: !newIoc.value.trim() ? 'var(--fl-card)' : 'color-mix(in srgb, var(--fl-ok) 12%, transparent)', color: !newIoc.value.trim() ? 'var(--fl-muted)' : 'var(--fl-ok)', border: `1px solid ${!newIoc.value.trim() ? 'var(--fl-border)' : 'color-mix(in srgb, var(--fl-ok) 25%, transparent)'}` }}>
+                  {addingIoc ? t('casedetail.adding') : t('common.add')}
+                </button>
+              </div>
+            )}
+
+            {/* ── verdict tabs ── */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 2, marginBottom: 10, borderBottom: '1px solid var(--fl-border2)' }}>
+              {VERDICT_TABS.map(tb => {
+                const active = iocVerdictFilter === tb.key;
+                return (
+                  <button key={tb.key} onClick={() => setIocVerdictFilter(tb.key)}
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 11px', background: 'none', border: 'none', cursor: 'pointer',
+                      fontFamily: 'var(--f-mono, monospace)', fontSize: 11.5, fontWeight: 600,
+                      color: active ? 'var(--fl-text)' : 'var(--fl-muted)',
+                      borderBottom: `2px solid ${active ? 'var(--fl-accent)' : 'transparent'}`, marginBottom: -1 }}>
+                    {tb.color && <span style={{ width: 6, height: 6, borderRadius: 2, background: tb.color, flexShrink: 0 }} />}
+                    {tb.label}
+                    <span style={{ fontSize: 10, color: active ? 'var(--fl-dim)' : 'var(--fl-subtle)', fontFeatureSettings: '"tnum"' }}>{tb.count}</span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* ── enrichment hint ── */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 14, fontSize: 11, fontFamily: 'var(--f-mono, monospace)', color: 'var(--fl-muted)' }}>
+              <Info size={11} style={{ flexShrink: 0, color: 'var(--fl-subtle)' }} />
+              {t('iocs.enrichment_hint')} <code style={{ color: 'var(--fl-dim)' }}>.env</code>
+            </div>
+
+            {/* ── table ── */}
+            {caseIOCs.length === 0 ? (
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '64px 16px', gap: 12 }}>
+                <div style={{
+                  width: 44, height: 44, borderRadius: 12,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  background: 'var(--fl-raised)', border: '1px solid var(--fl-border)',
+                }}>
+                  <Crosshair size={20} style={{ color: 'var(--fl-muted)' }} strokeWidth={1.5} />
+                </div>
+                <span style={{ fontFamily: 'var(--f-display, var(--f-sans))', fontSize: 14, fontWeight: 700, color: 'var(--fl-text)', letterSpacing: '-0.01em' }}>{t('casedetail.no_iocs')}</span>
+              </div>
+            ) : (
+              <div className="fl-card" style={{ overflow: 'hidden', padding: 0 }}>
+                <table className="fl-table fl-ioc-table">
+                  <thead>
+                    <tr>
+                      <th style={{ width: 58 }}>{t('iocs.severity_short')}</th>
+                      <th>{t('iocs.type_value')}</th>
+                      <th>Description</th>
+                      <th style={{ width: 170 }}>{t('iocs.enrichment')}</th>
+                      <th style={{ width: 160 }}>Tags</th>
+                      <th style={{ width: 112 }}></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {visibleIOCs.map(ioc => {
+                      const sev = Number(ioc.severity) || 5;
+                      const sevColor = SEV_COLOR(sev);
+                      const isEnriching = iocEnriching[ioc.id];
+                      return (
+                        <tr key={ioc.id}>
+                          {/* SEV — square badge + severity gauge (severity is a signal) */}
+                          <td>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 5, width: 36 }}>
+                              <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 36, height: 28, borderRadius: 6, fontFamily: 'var(--f-mono, monospace)', fontSize: 13, fontWeight: 700, fontFeatureSettings: '"tnum"', background: `color-mix(in srgb, ${sevColor} 12%, transparent)`, color: sevColor, border: `1px solid color-mix(in srgb, ${sevColor} 28%, transparent)` }}>
+                                {sev}
+                              </span>
+                              <div style={{ height: 3, borderRadius: 2, background: 'var(--fl-border2)', overflow: 'hidden' }}>
+                                <div style={{ width: `${Math.min(100, sev * 10)}%`, height: '100%', background: sevColor }} />
+                              </div>
+                            </div>
+                          </td>
+
+                          {/* TYPE + VALUE */}
+                          <td>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 5, flexWrap: 'wrap' }}>
+                              <span style={{ fontSize: 10, fontFamily: 'var(--f-mono, monospace)', padding: '1px 7px', borderRadius: 4, background: 'color-mix(in srgb, var(--fl-purple) 10%, transparent)', color: 'var(--fl-purple)', border: '1px solid color-mix(in srgb, var(--fl-purple) 22%, transparent)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                                {TYPE_LABEL[ioc.ioc_type] || ioc.ioc_type}
+                              </span>
+                              {ioc.is_malicious && (
+                                <span style={{ fontSize: 10, fontFamily: 'var(--f-mono, monospace)', padding: '1px 7px', borderRadius: 4, background: 'color-mix(in srgb, var(--fl-danger) 10%, transparent)', color: 'var(--fl-danger)', border: '1px solid color-mix(in srgb, var(--fl-danger) 22%, transparent)', textTransform: 'uppercase', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                                  <AlertTriangle size={9} />{t('iocs.malicious_badge')}
+                                </span>
+                              )}
+                            </div>
+                            <div onClick={() => navigator.clipboard?.writeText(ioc.value)} title={t('casedetail.copy_value_title', { value: ioc.value })}
+                              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontFamily: 'var(--f-mono, monospace)', fontSize: 11.5, fontWeight: 600, cursor: 'pointer', wordBreak: 'break-all',
+                                color: ioc.is_malicious ? 'var(--fl-danger)' : 'var(--fl-text)' }}>
+                              {ioc.value}
+                              <Copy className="ioc-copy" size={11} style={{ color: 'var(--fl-muted)', flexShrink: 0 }} />
+                            </div>
+                          </td>
+
+                          {/* DESCRIPTION */}
+                          <td style={{ color: 'var(--fl-dim)', fontSize: 12, maxWidth: 240, lineHeight: 1.45 }} title={ioc.description || ''}>
+                            {ioc.description
+                              ? <span style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{ioc.description}</span>
+                              : <span style={{ color: 'var(--fl-subtle)' }}>—</span>}
+                          </td>
+
+                          {/* ENRICHMENT */}
+                          <td>
+                            {ioc.enriched_at ? (
+                              <span style={{ fontSize: 10.5, fontFamily: 'var(--f-mono, monospace)', color: 'var(--fl-ok)', display: 'inline-flex', alignItems: 'center', gap: 5, padding: '2px 8px', borderRadius: 5, background: 'color-mix(in srgb, var(--fl-ok) 9%, transparent)', border: '1px solid color-mix(in srgb, var(--fl-ok) 20%, transparent)' }}>
+                                <span style={{ width: 6, height: 6, borderRadius: 2, background: 'var(--fl-ok)', flexShrink: 0 }} />
+                                {ioc.vt_verdict || (ioc.vt_malicious != null ? `VT ${ioc.vt_malicious}/${ioc.vt_total}` : t('iocs.enriched'))}
+                              </span>
+                            ) : (
+                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 10.5, fontFamily: 'var(--f-mono, monospace)', color: 'var(--fl-subtle)' }}>
+                                <span style={{ width: 6, height: 6, borderRadius: 2, background: 'var(--fl-border3)', flexShrink: 0 }} />
+                                {t('iocs.not_enriched')}
+                              </span>
+                            )}
+                          </td>
+
+                          {/* TAGS */}
+                          <td>
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                              {(ioc.tags || []).length === 0
+                                ? <span style={{ color: 'var(--fl-subtle)', fontSize: 11 }}>—</span>
+                                : (ioc.tags || []).map(tag => (
+                                  <span key={tag} style={{ fontSize: 9.5, fontFamily: 'var(--f-mono, monospace)', padding: '2px 7px', borderRadius: 4, background: 'var(--fl-raised)', border: '1px solid var(--fl-border)', color: 'var(--fl-dim)' }}>{tag}</span>
+                                ))}
+                            </div>
+                          </td>
+
+                          {/* ACTIONS */}
+                          <td>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 4 }}>
+                              <button onClick={() => handleIocEnrich(ioc)} disabled={isEnriching} title={t('iocs.enrich_title')}
+                                style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 10px', borderRadius: 6, cursor: isEnriching ? 'wait' : 'pointer', fontFamily: 'var(--f-mono, monospace)', fontSize: 10.5, fontWeight: 600,
+                                  background: 'transparent', color: 'var(--fl-dim)', border: '1px solid var(--fl-border)', transition: 'color 0.12s, border-color 0.12s' }}
+                                onMouseEnter={e => { e.currentTarget.style.color = 'var(--fl-accent)'; e.currentTarget.style.borderColor = 'color-mix(in srgb, var(--fl-accent) 35%, transparent)'; }}
+                                onMouseLeave={e => { e.currentTarget.style.color = 'var(--fl-dim)'; e.currentTarget.style.borderColor = 'var(--fl-border)'; }}>
+                                {isEnriching ? <Loader2 size={11} style={{ animation: 'spin 1s linear infinite' }} /> : <Shield size={11} />}
+                                {ioc.enriched_at ? t('iocs.reenrich') : t('iocs.enrich')}
+                              </button>
+                              <button onClick={() => deleteIoc(ioc.id)} title={t('common.delete')}
+                                style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 28, height: 28, borderRadius: 6, cursor: 'pointer',
+                                  background: 'transparent', color: 'var(--fl-subtle)', border: '1px solid transparent', transition: 'color 0.12s, border-color 0.12s' }}
+                                onMouseEnter={e => { e.currentTarget.style.color = 'var(--fl-danger)'; e.currentTarget.style.borderColor = 'color-mix(in srgb, var(--fl-danger) 30%, transparent)'; }}
+                                onMouseLeave={e => { e.currentTarget.style.color = 'var(--fl-subtle)'; e.currentTarget.style.borderColor = 'transparent'; }}>
+                                <Trash2 size={11} />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {tab === 'evidence' && (
         <div style={{ maxWidth: 900, margin: '0 auto' }}>
+          {parseProg?.active && (
+            <ParsingMonitor
+              caseId={id}
+              parsers={Object.entries(parseProg.parsers || {}).map(([key, v]) => ({ key, name: v.name || key, color: ARTIFACT_COLORS[key] || 'var(--fl-muted)' }))}
+              states={parseProg.parsers || {}}
+              globalPct={parseProg.globalPct}
+              live={parseProg.live}
+            />
+          )}
+
+          <RightDrawer open={!!drawerEv} onClose={() => setDrawerEv(null)} title={drawerEv?.name}>
+            {drawerEv && (
+              <div style={{ padding: 14, display: 'flex', flexDirection: 'column', gap: 16, height: '100%', overflowY: 'auto' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '8px 14px' }}>
+                  {[
+                    [t('casedetail.col_type'), drawerEv.evidence_type || '—'],
+                    [t('casedetail.size'), fmtSize(drawerEv.file_size)],
+                    [t('casedetail.added_on'), drawerEv.created_at ? new Date(drawerEv.created_at).toLocaleString(i18n.language) : '—'],
+                    ['Scan', drawerEv.scan_status || '—'],
+                  ].map(([l, v]) => (
+                    <div key={l} style={{ display: 'contents' }}>
+                      <span style={{ fontSize: 10.5, fontFamily: 'var(--f-mono, monospace)', textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--fl-muted)', whiteSpace: 'nowrap' }}>{l}</span>
+                      <span style={{ fontSize: 12, color: 'var(--fl-text)', fontFamily: 'var(--f-mono, monospace)', wordBreak: 'break-word' }}>{v}</span>
+                    </div>
+                  ))}
+                </div>
+                <div>
+                  <div style={{ fontSize: 10, fontFamily: 'var(--f-mono, monospace)', textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--fl-muted)', marginBottom: 6 }}>{t('casedetail.hashes')}</div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    {[['MD5', drawerEv.hash_md5], ['SHA-1', drawerEv.hash_sha1], ['SHA-256', drawerEv.hash_sha256]].filter(([, v]) => v).map(([l, v]) => (
+                      <div key={l} onClick={() => navigator.clipboard?.writeText(v)} title={t('common.copy')}
+                        style={{ cursor: 'pointer', padding: '6px 8px', borderRadius: 6, background: 'var(--fl-card)', border: '1px solid var(--fl-border)' }}>
+                        <div style={{ fontSize: 9, fontFamily: 'var(--f-mono, monospace)', color: 'var(--fl-muted)', marginBottom: 2 }}>{l}</div>
+                        <div style={{ fontSize: 10.5, fontFamily: 'var(--f-mono, monospace)', color: 'var(--fl-dim)', wordBreak: 'break-all' }}>{v}</div>
+                      </div>
+                    ))}
+                    {![drawerEv.hash_md5, drawerEv.hash_sha1, drawerEv.hash_sha256].some(Boolean) && (
+                      <span style={{ fontSize: 11, color: 'var(--fl-subtle)', fontFamily: 'var(--f-mono, monospace)' }}>{t('casedetail.no_hashes')}</span>
+                    )}
+                  </div>
+                </div>
+                {drawerEv.notes && (
+                  <p style={{ fontSize: 11, fontStyle: 'italic', color: 'var(--fl-dim)', padding: '6px 8px', background: 'var(--fl-card)', borderRadius: 6, margin: 0 }}>{drawerEv.notes}</p>
+                )}
+                {drawerEv.additional_files?.length > 0 && (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                    {drawerEv.additional_files.map(f => (
+                      <span key={f.name} style={{ fontSize: 9, fontFamily: 'var(--f-mono, monospace)', background: 'color-mix(in srgb, var(--fl-accent) 8%, transparent)', border: '1px solid color-mix(in srgb, var(--fl-accent) 18%, transparent)', borderRadius: 3, padding: '1px 6px', color: 'var(--fl-dim)' }}>
+                        📎 {f.original_name} · {fmtSize(f.size)}
+                      </span>
+                    ))}
+                  </div>
+                )}
+                {(drawerEv.scan_status === 'alert' || drawerEv.scan_status === 'quarantined' || drawerEv.is_suspicious === true) ? (
+                  <HexStringsPreview evId={drawerEv.id} />
+                ) : (
+                  <div style={{ borderRadius: 8, padding: 12, textAlign: 'center', background: 'color-mix(in srgb, var(--fl-ok) 7%, transparent)', border: '1px solid color-mix(in srgb, var(--fl-ok) 22%, transparent)' }}>
+                    <div style={{ color: 'var(--fl-ok)', fontSize: 12 }}>{t('casedetail.clean_file')}</div>
+                    <div style={{ color: 'var(--fl-muted)', fontSize: 11, marginTop: 4 }}>{t('casedetail.clean_file_sub')}</div>
+                  </div>
+                )}
+                <button
+                  onClick={() => { const tid = drawerEv.id; setDrawerEv(null); navigate(`/cases/${id}/collections/${tid}`); }}
+                  style={{ marginTop: 'auto', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '8px 12px', borderRadius: 6, cursor: 'pointer', background: 'var(--fl-accent)', color: '#fff', border: 'none', fontFamily: 'var(--f-mono, monospace)', fontSize: 12, fontWeight: 600 }}>
+                  {t('casedetail.open_collection_arrow')}
+                </button>
+              </div>
+            )}
+          </RightDrawer>
+
           <div className="flex justify-between items-center mb-4">
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <FolderOpen size={14} style={{ color: 'var(--fl-accent)' }} />
-              <span style={{ fontSize: 11, fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--fl-dim)' }}>
+              <span style={{ fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--fl-dim)' }}>
                 {t('casedetail.evidence_header')}
               </span>
-              <span style={{ fontSize: 10, fontFamily: 'monospace', padding: '1px 6px', borderRadius: 4, background: '#4d82c018', color: 'var(--fl-accent)', border: '1px solid #4d82c030' }}>
+              <span style={{ fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', padding: '1px 6px', borderRadius: 4, background: 'color-mix(in srgb, var(--fl-accent) 9%, transparent)', color: 'var(--fl-accent)', border: '1px solid color-mix(in srgb, var(--fl-accent) 19%, transparent)' }}>
                 {evidence.length}
               </span>
             </div>
             <div style={{ display: 'flex', gap: 6 }}>
               <button
                 onClick={() => downloadCSV(evidence, [
-                  { key: 'name',          label: 'Nom' },
-                  { key: 'evidence_type', label: 'Type' },
-                  { key: 'file_size',     label: 'Taille (octets)' },
+                  { key: 'name',          label: t('casedetail.col_name') },
+                  { key: 'evidence_type', label: t('casedetail.col_type') },
+                  { key: 'file_size',     label: t('casedetail.col_size_bytes') },
                   { key: 'hash_sha256',   label: 'SHA-256' },
-                  { key: 'scan_status',   label: 'Statut scan' },
-                  { key: 'scan_threat',   label: 'Menace détectée' },
-                  { key: 'is_highlighted',label: 'Marquée' },
-                  { key: 'created_at',    label: 'Ajoutée le' },
-                ], `preuves_${caseData?.case_number || id}_${new Date().toISOString().slice(0,10)}.csv`)}
+                  { key: 'scan_status',   label: t('casedetail.col_scan_status') },
+                  { key: 'scan_threat',   label: t('casedetail.col_threat_detected') },
+                  { key: 'is_highlighted',label: t('casedetail.col_marked') },
+                  { key: 'created_at',    label: t('casedetail.added_on') },
+                ], `${t('casedetail.evidence_filename_prefix')}_${caseData?.case_number || id}_${new Date().toISOString().slice(0,10)}.csv`)}
                 disabled={evidence.length === 0}
                 className="fl-btn fl-btn-ghost fl-btn-sm"
                 title={t('casedetail.tooltip_export_csv')}
@@ -1165,7 +1337,7 @@ export default function CaseDetailPage({ user }) {
           {showImportPanel && (
             <div style={{ marginBottom: 16 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-                <span style={{ fontSize: 11, fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--fl-accent)' }}>{t('casedetail.import_forensic')}</span>
+                <span style={{ fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--fl-accent)' }}>{t('casedetail.import_forensic')}</span>
                 <span style={{ fontSize: 10, color: 'var(--fl-muted)' }}>Windows: Magnet RESPONSE · KAPE · Velociraptor · CyLR — Hayabusa &nbsp;|&nbsp; Linux: CatScale</span>
               </div>
               <CollectionImportPanel
@@ -1187,7 +1359,7 @@ export default function CaseDetailPage({ user }) {
               <p className="text-sm mb-1" style={{ color: 'var(--fl-text)' }}>{t('casedetail.no_evidence')}</p>
               <p className="text-xs mb-4" style={{ color: 'var(--fl-dim)' }}>{t('casedetail.no_evidence_sub')}</p>
               <button onClick={() => setShowImportPanel(true)} className="px-4 py-2 rounded-lg text-xs font-semibold"
-                style={{ background: '#4d82c015', color: 'var(--fl-accent)', border: '1px solid #4d82c030' }}>
+                style={{ background: 'color-mix(in srgb, var(--fl-accent) 8%, transparent)', color: 'var(--fl-accent)', border: '1px solid color-mix(in srgb, var(--fl-accent) 19%, transparent)' }}>
                 {t('casedetail.import_collection')}
               </button>
             </div>
@@ -1198,20 +1370,25 @@ export default function CaseDetailPage({ user }) {
               const evResult = evResultMap[ev.name];
               const resultId = evResult?.resultId;
               const recordCount = evResult?.recordCount ?? 0;
-              const isParsed = Boolean(resultId);
+              // "Analyzed" reflects ACTUAL parse completion (real records written at the
+              // end of the job), not the mere existence of a parser_results row — that row
+              // is created at import/start, which made the badge flip to "analyzed" too early.
+              const isParsed = recordCount > 0;
+              const isAnalyzing = !isParsed && Boolean(parseProg?.active);
               const isExpanded = selEv?.id === ev.id;
+              const vw = volwebVisual(ev, volwebProgress[ev.id]);
+              const isMemory = ev.evidence_type === 'memory' || /\.(raw|mem|vmem|lime|dmp)$/i.test(ev.original_filename || ev.name || '');
 
               return (
                 <div key={ev.id} style={{
-                  borderRadius: 10, overflow: 'hidden',
-                  border: `1px solid ${isExpanded ? '#4d82c040' : 'var(--fl-border)'}`,
-                  borderLeft: `3px solid ${ev.is_highlighted ? 'var(--fl-gold)' : isParsed ? '#22c55e40' : 'var(--fl-border)'}`,
-                  background: 'var(--fl-card)',
+                  borderRadius: 8, overflow: 'hidden',
+                  border: `1px solid ${isExpanded ? 'color-mix(in srgb, var(--fl-accent) 25%, transparent)' : 'var(--fl-border)'}`,
+                  background: 'var(--fl-panel)',
                   transition: 'border-color 0.15s',
                 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', cursor: 'pointer' }}
                     onClick={() => { if (isExpanded) navigate(`/cases/${id}`); else navigate(`/cases/${id}/collections/${ev.id}`); }}>
-                    <FolderOpen size={13} style={{ color: isParsed ? '#22c55e' : 'var(--fl-muted)', flexShrink: 0 }} />
+                    <FolderOpen size={13} style={{ color: isParsed ? 'var(--fl-ok)' : 'var(--fl-muted)', flexShrink: 0 }} />
                     <div style={{ flex: 1, overflow: 'hidden', minWidth: 0 }}>
                       <span style={{ fontWeight: 600, fontSize: 13, color: 'var(--fl-text)', display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {ev.name}
@@ -1233,28 +1410,48 @@ export default function CaseDetailPage({ user }) {
                       )}
                     </div>
                     {isParsed ? (
-                      <span style={{ fontSize: 10, fontFamily: 'monospace', padding: '2px 7px', borderRadius: 4, background: '#22c55e18', color: '#22c55e', border: '1px solid #22c55e30', flexShrink: 0 }}>
-                        ✓ {recordCount > 0 ? `${recordCount.toLocaleString()} ${t('casedetail.records_short')}` : t('casedetail.analyzed')}
+                      <span style={{ fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', padding: '2px 7px', borderRadius: 4, background: 'color-mix(in srgb, var(--fl-ok) 9%, transparent)', color: 'var(--fl-ok)', border: '1px solid color-mix(in srgb, var(--fl-ok) 19%, transparent)', flexShrink: 0 }}>
+                        ✓ {recordCount.toLocaleString()} {t('casedetail.records_short')}
+                      </span>
+                    ) : isAnalyzing ? (
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', padding: '2px 7px', borderRadius: 4, background: 'color-mix(in srgb, var(--fl-accent) 9%, transparent)', color: 'var(--fl-accent)', border: '1px solid color-mix(in srgb, var(--fl-accent) 22%, transparent)', flexShrink: 0 }}>
+                        <Loader2 size={9} style={{ animation: 'fl-spin 0.9s linear infinite' }} /> {t('casedetail.analyzing')}
                       </span>
                     ) : (
-                      <span style={{ fontSize: 10, fontFamily: 'monospace', padding: '2px 7px', borderRadius: 4, background: '#484f5818', color: 'var(--fl-muted)', border: '1px solid var(--fl-border)', flexShrink: 0 }}>
+                      <span style={{ fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', padding: '2px 7px', borderRadius: 4, background: 'color-mix(in srgb, var(--fl-muted) 9%, transparent)', color: 'var(--fl-muted)', border: '1px solid var(--fl-border)', flexShrink: 0 }}>
                         {t('casedetail.not_analyzed')}
                       </span>
                     )}
                     <ColorBadge color="var(--fl-accent)">{ev.evidence_type}</ColorBadge>
                     {ev.scan_status === 'quarantined' && (
-                      <span style={{ fontSize: 10, fontFamily: 'monospace', padding: '2px 6px', borderRadius: 4, background: 'rgba(218,54,51,0.15)', color: 'var(--fl-danger)', border: '1px solid rgba(218,54,51,0.3)', flexShrink: 0 }}>
+                      <span style={{ fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', padding: '2px 6px', borderRadius: 4, background: 'rgba(218,54,51,0.15)', color: 'var(--fl-danger)', border: '1px solid rgba(218,54,51,0.3)', flexShrink: 0 }}>
                         <AlertTriangle size={9} style={{ display: 'inline', marginRight: 3 }} />{t('casedetail.quarantine')}
                       </span>
                     )}
                     {ev.scan_status === 'clean' && <Shield size={12} style={{ color: 'var(--fl-ok)', flexShrink: 0 }} title="Clean" />}
                     {ev.is_highlighted && <Star size={12} style={{ color: 'var(--fl-gold)', flexShrink: 0 }} fill="var(--fl-gold)" />}
-                    <span style={{ fontSize: 11, color: 'var(--fl-muted)', fontFamily: 'monospace', flexShrink: 0 }}>{fmtSize(ev.file_size)}</span>
+                    <span style={{ fontSize: 11, color: 'var(--fl-muted)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', flexShrink: 0 }}>{fmtSize(ev.file_size)}</span>
                     <span style={{ fontSize: 11, color: 'var(--fl-subtle)', flexShrink: 0 }}>{new Date(ev.created_at).toLocaleDateString(i18n.language)}</span>
+                    <button
+                      onClick={e => { e.stopPropagation(); setDrawerEv(ev); }}
+                      title={t('casedetail.details_title')}
+                      style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 26, height: 26, borderRadius: 5, cursor: 'pointer', background: 'transparent', color: 'var(--fl-muted)', border: '1px solid var(--fl-border)', flexShrink: 0 }}
+                      onMouseEnter={e => { e.currentTarget.style.color = 'var(--fl-accent)'; e.currentTarget.style.borderColor = 'var(--fl-border3)'; }}
+                      onMouseLeave={e => { e.currentTarget.style.color = 'var(--fl-muted)'; e.currentTarget.style.borderColor = 'var(--fl-border)'; }}>
+                      <Icon name="Info" size={13} />
+                    </button>
+                    <button
+                      onClick={e => { e.stopPropagation(); collectionAPI.parse(id, { evidence_id: ev.id, socketId }).catch(() => {}); }}
+                      title={t('casedetail.reparse_title')}
+                      style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 9px', borderRadius: 5, fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', cursor: 'pointer', background: 'transparent', color: 'var(--fl-muted)', border: '1px solid var(--fl-border)', flexShrink: 0 }}
+                      onMouseEnter={e => { e.currentTarget.style.color = 'var(--fl-accent)'; e.currentTarget.style.borderColor = 'var(--fl-border3)'; }}
+                      onMouseLeave={e => { e.currentTarget.style.color = 'var(--fl-muted)'; e.currentTarget.style.borderColor = 'var(--fl-border)'; }}>
+                      <RefreshCw size={11} /> {t('casedetail.reparse')}
+                    </button>
                     {isParsed && (
                       <button
                         onClick={e => { e.stopPropagation(); navigate(`/cases/${id}/collections/${ev.id}/timeline`, { state: { evidenceName: ev.name, caseTitle: caseData?.title, caseNumber: caseData?.case_number } }); }}
-                        style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 10px', borderRadius: 5, fontSize: 11, fontFamily: 'monospace', cursor: 'pointer', background: '#4d82c020', color: 'var(--fl-accent)', border: '1px solid #4d82c050', flexShrink: 0, fontWeight: 700 }}
+                        style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 10px', borderRadius: 5, fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', cursor: 'pointer', background: 'color-mix(in srgb, var(--fl-accent) 13%, transparent)', color: 'var(--fl-accent)', border: '1px solid color-mix(in srgb, var(--fl-accent) 31%, transparent)', flexShrink: 0, fontWeight: 700 }}
                         title={t('casedetail.tooltip_isolated_timeline')}>
                         <Clock size={11} /> Timeline →
                       </button>
@@ -1277,7 +1474,7 @@ export default function CaseDetailPage({ user }) {
                                 const res = await pcapAPI.upload(id, file);
                                 setPcapState(prev => ({ ...prev, [ev.id]: { loading: false, result: res.data, error: null } }));
                               } catch (err) {
-                                const msg = err.response?.data?.error || err.message || 'Erreur PCAP';
+                                const msg = err.response?.data?.error || err.message || t('casedetail.pcap_error');
                                 setPcapState(prev => ({ ...prev, [ev.id]: { loading: false, result: null, error: msg } }));
                               }
                             }}
@@ -1287,133 +1484,109 @@ export default function CaseDetailPage({ user }) {
                             disabled={ps.loading}
                             style={{
                               display: 'flex', alignItems: 'center', gap: 4, padding: '4px 10px', borderRadius: 5,
-                              fontSize: 11, fontFamily: 'monospace', cursor: ps.loading ? 'wait' : 'pointer',
-                              background: ps.result ? '#22c55e14' : ps.error ? '#da363314' : '#4d82c010',
-                              color: ps.result ? '#22c55e' : ps.error ? 'var(--fl-danger)' : '#4d82c080',
-                              border: `1px solid ${ps.result ? '#22c55e35' : ps.error ? '#da363335' : '#4d82c025'}`,
+                              fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', cursor: ps.loading ? 'wait' : 'pointer',
+                              background: ps.result ? 'color-mix(in srgb, var(--fl-ok) 8%, transparent)' : ps.error ? 'color-mix(in srgb, var(--fl-danger) 8%, transparent)' : 'color-mix(in srgb, var(--fl-accent) 6%, transparent)',
+                              color: ps.result ? 'var(--fl-ok)' : ps.error ? 'var(--fl-danger)' : 'color-mix(in srgb, var(--fl-accent) 50%, transparent)',
+                              border: `1px solid ${ps.result ? 'color-mix(in srgb, var(--fl-ok) 21%, transparent)' : ps.error ? 'color-mix(in srgb, var(--fl-danger) 21%, transparent)' : 'color-mix(in srgb, var(--fl-accent) 15%, transparent)'}`,
                               flexShrink: 0, fontWeight: 600,
                             }}
                             title={ps.result ? t('casedetail.tooltip_network_result', { result: ps.result.inserted }) : ps.error || t('casedetail.tooltip_network_import')}
                           >
                             {ps.loading ? <Loader2 size={11} style={{ animation: 'spin 1s linear infinite' }} /> : <Wifi size={11} />}
-                            {ps.loading ? 'PCAP…' : ps.result ? `PCAP ✓ ${ps.result.inserted}` : 'Importer PCAP'}
+                            {ps.loading ? t('casedetail.pcap_loading') : ps.result ? t('casedetail.pcap_done', { count: ps.result.inserted }) : t('casedetail.import_pcap')}
                           </button>
                         </>
                       );
                     })()}
-                    {(ev.evidence_type === 'memory' || /\.(raw|mem|vmem|lime|dmp)$/i.test(ev.original_filename || ev.name || '')) && (
-                      <>
-                      <button
-                        onClick={e => { e.stopPropagation(); openVolWeb(id); }}
-                        disabled={volwebLoading}
-                        style={{
-                          display: 'flex', alignItems: 'center', gap: 4, padding: '4px 10px',
-                          borderRadius: 5, fontSize: 11, fontFamily: 'monospace',
-                          cursor: volwebLoading ? 'not-allowed' : 'pointer',
-                          background: (() => { const pct = volwebProgress[ev.id] ? (volwebProgress[ev.id].volweb_raw_status ?? volwebProgress[ev.id].pct) : null; const done = ev.volweb_status === 'ready' || (ev.volweb_status === 'processing' && pct === 100); return done ? 'rgba(34,197,94,0.10)' : ev.volweb_status === 'processing' ? 'rgba(200,157,29,0.10)' : ev.volweb_status === 'error' ? 'rgba(218,54,51,0.10)' : 'rgba(139,114,214,0.10)'; })(),
-                          color: (() => { const pct = volwebProgress[ev.id] ? (volwebProgress[ev.id].volweb_raw_status ?? volwebProgress[ev.id].pct) : null; const done = ev.volweb_status === 'ready' || (ev.volweb_status === 'processing' && pct === 100); return done ? '#22c55e' : ev.volweb_status === 'processing' ? 'var(--fl-gold)' : ev.volweb_status === 'error' ? 'var(--fl-danger)' : 'var(--fl-purple)'; })(),
-                          border: (() => { const pct = volwebProgress[ev.id] ? (volwebProgress[ev.id].volweb_raw_status ?? volwebProgress[ev.id].pct) : null; const done = ev.volweb_status === 'ready' || (ev.volweb_status === 'processing' && pct === 100); return `1px solid ${done ? 'rgba(34,197,94,0.30)' : ev.volweb_status === 'processing' ? 'rgba(200,157,29,0.30)' : ev.volweb_status === 'error' ? 'rgba(218,54,51,0.30)' : 'rgba(139,114,214,0.30)'}`; })(),
-                          flexShrink: 0, fontWeight: 700,
-                        }}
-                        title={
-                          (() => { const pct = volwebProgress[ev.id] ? (volwebProgress[ev.id].volweb_raw_status ?? volwebProgress[ev.id].pct) : null; const done = ev.volweb_status === 'ready' || (ev.volweb_status === 'processing' && pct === 100); return done ? 'Ouvrir dans VolWeb (SSO)' : ev.volweb_status === 'processing' ? 'Analyse VolWeb en cours — cliquer pour ouvrir VolWeb' : ev.volweb_status === 'error' ? 'Erreur VolWeb — cliquer pour réessayer' : 'Ouvrir dans VolWeb'; })()
-                        }
-                      >
-                        <Cpu size={11} />
-                        {(() => { const pct = volwebProgress[ev.id] ? (volwebProgress[ev.id].volweb_raw_status ?? volwebProgress[ev.id].pct) : null; const done = ev.volweb_status === 'ready' || (ev.volweb_status === 'processing' && pct === 100); return done ? 'VolWeb ✓' : ev.volweb_status === 'processing' ? `VolWeb… ${pct != null ? `${pct}%` : ''}` : ev.volweb_status === 'uploading' ? 'Envoi VolWeb…' : ev.volweb_status === 'error' ? 'VolWeb ✗' : 'VolWeb ↗'; })()}
-                      </button>
-                      {(ev.volweb_status === 'uploading' || (ev.volweb_status === 'processing' && volwebProgress[ev.id])) && (() => {
-                        const p = volwebProgress[ev.id];
-                        const pct = p ? (p.volweb_raw_status ?? p.pct) : null;
-                        const isUploading = ev.volweb_status === 'uploading';
-                        return (
-                          <div style={{
-                            display: 'flex', flexDirection: 'column', gap: 2,
-                            minWidth: 100, maxWidth: 160,
-                          }}>
-                            <div style={{
-                              height: 4, background: 'var(--fl-card)', borderRadius: 2, overflow: 'hidden',
-                            }}>
-                              {isUploading ? (
-                                <div style={{
-                                  height: '100%', borderRadius: 2, width: '40%',
-                                  background: 'linear-gradient(90deg, var(--fl-accent), #8b72d6)',
-                                  animation: 'volweb-slide 1.4s ease-in-out infinite',
-                                }} />
-                              ) : (
-                                <div style={{
-                                  height: '100%', borderRadius: 2,
-                                  width: `${pct}%`,
-                                  background: pct === 100 ? '#22c55e' : 'linear-gradient(90deg, var(--fl-accent), #8b72d6)',
-                                  transition: 'width 0.4s ease',
-                                }} />
-                              )}
-                            </div>
-                            <span style={{ fontSize: 9, fontFamily: 'monospace', color: pct === 100 ? '#22c55e' : 'var(--fl-dim)' }}>
-                              {isUploading
-                                ? 'Envoi vers VolWeb…'
-                                : pct === 100
-                                  ? 'VolWeb · Terminé ✓'
-                                  : p.tasks_total > 0
-                                    ? `VolWeb · ${p.tasks_done}/${p.tasks_total} plugins · ${pct}%`
-                                    : `VolWeb · ${pct}%`}
-                            </span>
-                          </div>
-                        );
-                      })()}
-                      {(ev.volweb_status === 'uploading' || ev.volweb_status === 'error') && (
-                        <button
-                          onClick={e => { e.stopPropagation(); retryVolWeb(ev.id); }}
-                          disabled={volwebRetrying === ev.id}
-                          style={{
-                            display: 'flex', alignItems: 'center', gap: 4, padding: '4px 8px',
-                            borderRadius: 5, fontSize: 11, fontFamily: 'monospace',
-                            cursor: volwebRetrying === ev.id ? 'wait' : 'pointer',
-                            background: 'rgba(77,130,192,0.10)',
-                            color: 'var(--fl-accent)',
-                            border: '1px solid rgba(77,130,192,0.30)',
-                            flexShrink: 0,
-                          }}
-                          title="Relancer le pipeline VolWeb (fichier déjà sur le disque)"
-                        >
-                          <RefreshCw size={10} style={{ animation: volwebRetrying === ev.id ? 'spin 1s linear infinite' : 'none' }} />
-                          {volwebRetrying === ev.id ? '…' : 'Retry'}
-                        </button>
-                      )}
-                      </>
-                    )}
                     <button onClick={e => { e.stopPropagation(); toggleHL(ev.id); }} style={{ color: ev.is_highlighted ? 'var(--fl-gold)' : 'var(--fl-subtle)', background: 'none', border: 'none', cursor: 'pointer', padding: '0 2px', flexShrink: 0 }}>
                       <Star size={13} fill={ev.is_highlighted ? 'var(--fl-gold)' : 'none'} />
                     </button>
-                    <button onClick={e => { e.stopPropagation(); setEvToDelete(ev); }} style={{ color: 'var(--fl-subtle)', background: 'none', border: 'none', cursor: 'pointer', padding: '0 2px', flexShrink: 0 }} title="Supprimer">
+                    <button onClick={e => { e.stopPropagation(); setEvToDelete(ev); }} style={{ color: 'var(--fl-subtle)', background: 'none', border: 'none', cursor: 'pointer', padding: '0 2px', flexShrink: 0 }} title={t('common.delete')}>
                       <Trash2 size={12} />
                     </button>
                   </div>
 
-                  {isExpanded && (
-                    <div style={{ padding: '0 14px 10px', borderTop: '1px solid var(--fl-sep)' }}>
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, paddingTop: 10 }}>
-                        {[['MD5', ev.hash_md5, 'var(--fl-dim)'], ['SHA-1', ev.hash_sha1, '#c89d1d80'], ['SHA-256', ev.hash_sha256, '#4d82c080']].map(([lbl, val, col]) => val ? (
-                          <div key={lbl} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '3px 8px', borderRadius: 5, background: 'var(--fl-bg)', border: '1px solid var(--fl-card)', maxWidth: '100%', overflow: 'hidden' }}>
-                            <span style={{ fontSize: 9, fontFamily: 'monospace', color: 'var(--fl-subtle)', flexShrink: 0 }}>{lbl}</span>
-                            <span style={{ fontSize: 10, fontFamily: 'monospace', color: col, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{val}</span>
-                            <button onClick={() => navigator.clipboard.writeText(val)} style={{ color: 'var(--fl-subtle)', background: 'none', border: 'none', cursor: 'pointer', padding: 0, flexShrink: 0 }} title="Copier"><Copy size={9} /></button>
-                          </div>
-                        ) : null)}
-                      </div>
-                      {ev.notes && <p style={{ fontSize: 11, fontStyle: 'italic', color: 'var(--fl-dim)', marginTop: 8, padding: '5px 8px', background: 'var(--fl-bg)', borderRadius: 5 }}>{ev.notes}</p>}
-                      <div style={{ marginTop: 10 }}>
-                        {(ev.scan_status === 'alert' || ev.scan_status === 'quarantined' || ev.is_suspicious === true) ? (
-                          <HexStringsPreview evId={ev.id} />
-                        ) : (
-                          <div className="rounded-lg p-4 text-center" style={{ background: '#1a2a1a', border: '1px solid #3fb95030' }}>
-                            <div style={{ color: 'var(--fl-ok)', fontSize: 12 }}>{t('casedetail.clean_file')}</div>
-                            <div style={{ color: 'var(--fl-muted)', fontSize: 11, marginTop: 4 }}>{t('casedetail.clean_file_sub')}</div>
+                  {/* VolWeb strip — separate row so it never crowds the name/metadata line */}
+                  {isMemory && (() => {
+                    const p       = volwebProgress[ev.id];
+                    const stepMsg = volwebSteps[ev.id];
+                    const pct = p ? (p.volweb_raw_status ?? p.pct) : null;
+                    const done         = ev.volweb_status === 'ready' || (ev.volweb_status === 'processing' && pct === 100);
+                    const uploading    = ev.volweb_status === 'uploading';
+                    const initializing = ev.volweb_status === 'processing' && !p;
+                    const processing   = ev.volweb_status === 'processing' && p;
+                    const showBar      = uploading || initializing || processing;
+                    return (
+                      <div
+                        onClick={e => e.stopPropagation()}
+                        style={{
+                          borderTop: '1px solid var(--fl-border)',
+                          padding: '6px 14px',
+                          display: 'flex', alignItems: 'center', gap: 8,
+                          background: ev.volweb_status === 'error'
+                            ? 'color-mix(in srgb, var(--fl-danger) 4%, transparent)'
+                            : uploading || processing
+                              ? 'color-mix(in srgb, var(--fl-accent) 3%, transparent)'
+                              : 'transparent',
+                        }}
+                      >
+                        <Cpu size={11} style={{ color: vw.fg, flexShrink: 0 }} />
+                        <button
+                          onClick={() => openVolWeb(id)}
+                          disabled={volwebLoading}
+                          style={{
+                            display: 'flex', alignItems: 'center', gap: 4, padding: '3px 9px',
+                            borderRadius: 5, fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
+                            cursor: volwebLoading ? 'not-allowed' : 'pointer',
+                            background: vw.bg, color: vw.fg, border: `1px solid ${vw.bd}`,
+                            flexShrink: 0, fontWeight: 700,
+                          }}
+                          title={done ? t('casedetail.volweb_open_sso') : ev.volweb_status === 'processing' ? t('casedetail.volweb_processing_title') : ev.volweb_status === 'error' ? t('casedetail.volweb_error_title') : t('casedetail.volweb_open')}
+                        >
+                          {done ? t('casedetail.volweb_done_short')
+                            : uploading ? t('casedetail.volweb_uploading')
+                            : ev.volweb_status === 'processing' ? t('casedetail.volweb_processing_short', { pct: pct != null ? `${pct}%` : '' })
+                            : ev.volweb_status === 'error' ? t('casedetail.volweb_failed_short')
+                            : t('casedetail.volweb_open_short')}
+                        </button>
+                        {showBar && (
+                          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 2, minWidth: 60, maxWidth: 220 }}>
+                            <div style={{ height: 3, background: 'var(--fl-card)', borderRadius: 2, overflow: 'hidden' }}>
+                              {(uploading || initializing) ? (
+                                <div style={{ height: '100%', borderRadius: 2, width: '40%', background: 'linear-gradient(90deg, var(--fl-accent), var(--fl-purple))', animation: 'volweb-slide 1.4s ease-in-out infinite' }} />
+                              ) : (
+                                <div style={{ height: '100%', borderRadius: 2, width: `${pct}%`, background: pct === 100 ? 'var(--fl-ok)' : 'linear-gradient(90deg, var(--fl-accent), var(--fl-purple))', transition: 'width 0.4s ease' }} />
+                              )}
+                            </div>
+                            <span style={{ fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: pct === 100 ? 'var(--fl-ok)' : 'var(--fl-dim)' }}>
+                              {uploading ? (stepMsg || t('casedetail.volweb_uploading_to'))
+                                : initializing ? (stepMsg || t('casedetail.volweb_processing_short', { pct: '' }))
+                                : pct === 100 ? t('casedetail.volweb_complete')
+                                : p.tasks_total > 0 ? `${p.tasks_done}/${p.tasks_total} plugins · ${pct}%`
+                                : `${pct}%`}
+                            </span>
                           </div>
                         )}
+                        {(uploading || ev.volweb_status === 'error') && (
+                          <button
+                            onClick={() => retryVolWeb(ev.id)}
+                            disabled={volwebRetrying === ev.id}
+                            style={{
+                              display: 'flex', alignItems: 'center', gap: 4, padding: '3px 8px',
+                              borderRadius: 5, fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
+                              cursor: volwebRetrying === ev.id ? 'wait' : 'pointer',
+                              background: 'rgba(77,130,192,0.10)', color: 'var(--fl-accent)',
+                              border: '1px solid rgba(77,130,192,0.30)', flexShrink: 0,
+                            }}
+                            title={t('casedetail.volweb_retry_title')}
+                          >
+                            <RefreshCw size={10} style={{ animation: volwebRetrying === ev.id ? 'spin 1s linear infinite' : 'none' }} />
+                            {volwebRetrying === ev.id ? '…' : 'Retry'}
+                          </button>
+                        )}
                       </div>
-                    </div>
-                  )}
+                    );
+                  })()}
 
                 </div>
               );
@@ -1421,71 +1594,76 @@ export default function CaseDetailPage({ user }) {
           </div>
 
           {evidence.length > 0 && (() => {
-            const totalRecords = Object.values(evResultMap).reduce((s, r) => s + (r.recordCount || 0), 0);
-            const parsedCount  = Object.values(evResultMap).filter(r => r.recordCount > 0).length;
-            const parsedEvNames = Object.keys(evResultMap).filter(n => evResultMap[n].recordCount > 0);
+            // Count only over the collections actually displayed — an orphan evidence_name
+            // (from a deleted/re-imported collection) must not inflate the count past evidence.length.
+            const recsFor = (ev) => evResultMap[ev.name]?.recordCount || 0;
+            const totalRecords = evidence.reduce((s, ev) => s + recsFor(ev), 0);
+            const parsedCount  = evidence.filter(ev => recsFor(ev) > 0).length;
+            const parsedEvNames = evidence.filter(ev => recsFor(ev) > 0).map(ev => ev.name);
             return (
-              <div style={{ marginTop: 20, borderTop: '1px solid var(--fl-card)', paddingTop: 16 }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-                    <FileDown size={13} style={{ color: 'var(--fl-accent)' }} />
-                    <span style={{ fontSize: 11, fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--fl-dim)' }}>
-                      {t('casedetail.report_title')}
-                    </span>
-                  </div>
-                  <span style={{ fontSize: 10, fontFamily: 'monospace', color: 'var(--fl-subtle)' }}>
+              <div style={{ marginTop: 20, background: 'var(--fl-panel)', border: '1px solid var(--fl-border)', borderRadius: 8, overflow: 'hidden' }}>
+                {/* Unified Summary & Report card */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 16px', borderBottom: '1px solid var(--fl-border2)' }}>
+                  <FileDown size={13} style={{ color: 'var(--fl-accent)' }} />
+                  <span style={{ fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--fl-dim)' }}>
+                    {t('casedetail.synthesis_report')}
+                  </span>
+                  <span style={{ flex: 1 }} />
+                  <span style={{ fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-subtle)' }}>
                     {parsedCount}/{evidence.length} {t('casedetail.collections_parsed')}
                   </span>
                 </div>
 
-                <div style={{ background: 'var(--fl-bg)', border: '1px solid var(--fl-card)', borderRadius: 8, padding: '12px 14px', marginBottom: 12 }}>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: parsedEvNames.length > 0 ? 12 : 0 }}>
+                <div style={{ padding: '14px 16px' }}>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'baseline', gap: 16, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}>
                     {[
-                      [t('casedetail.analyzed_collections'), parsedCount, '#22c55e'],
+                      [t('casedetail.analyzed_collections'), parsedCount, 'var(--fl-ok)'],
                       [t('casedetail.total_records'), totalRecords.toLocaleString(), 'var(--fl-accent)'],
                       [t('casedetail.iocs_detected'), caseIOCs.length, caseIOCs.length > 0 ? 'var(--fl-danger)' : 'var(--fl-subtle)'],
-                    ].map(([label, value, color]) => (
-                      <div key={label} style={{ textAlign: 'center', padding: '8px 0' }}>
-                        <div style={{ fontSize: 20, fontWeight: 700, color, fontFamily: 'monospace' }}>{value}</div>
-                        <div style={{ fontSize: 10, color: 'var(--fl-muted)', fontFamily: 'monospace', marginTop: 3 }}>{label}</div>
+                    ].map(([label, value, color], i) => (
+                      <div key={label} style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
+                        {i > 0 && <span style={{ color: 'var(--fl-subtle)', marginRight: 10 }}>·</span>}
+                        <span style={{ fontSize: 15, fontWeight: 700, color, fontFeatureSettings: '"tnum"' }}>{value}</span>
+                        <span style={{ fontSize: 10.5, color: 'var(--fl-muted)' }}>{label}</span>
                       </div>
                     ))}
                   </div>
                   {parsedEvNames.length > 0 && (
-                    <div style={{ borderTop: '1px solid var(--fl-card)', paddingTop: 10 }}>
-                      <div style={{ fontSize: 10, color: 'var(--fl-subtle)', fontFamily: 'monospace', marginBottom: 6 }}>{t('casedetail.included_collections')}</div>
+                    <div style={{ marginTop: 12 }}>
+                      <div style={{ fontSize: 10, color: 'var(--fl-subtle)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', marginBottom: 6 }}>{t('casedetail.included_collections')}</div>
                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
                         {parsedEvNames.map(name => (
-                          <span key={name} style={{ fontSize: 10, fontFamily: 'monospace', padding: '2px 7px', borderRadius: 4, background: '#22c55e12', color: '#22c55e', border: '1px solid #22c55e25' }}>
+                          <span key={name} style={{ fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', padding: '2px 7px', borderRadius: 4, background: 'color-mix(in srgb, var(--fl-ok) 7%, transparent)', color: 'var(--fl-ok)', border: '1px solid color-mix(in srgb, var(--fl-ok) 15%, transparent)' }}>
                             ✓ {name}
                           </span>
                         ))}
                         {evidence.filter(ev => !parsedEvNames.includes(ev.name)).map(ev => (
-                          <span key={ev.id} style={{ fontSize: 10, fontFamily: 'monospace', padding: '2px 7px', borderRadius: 4, background: '#30363d18', color: 'var(--fl-muted)', border: '1px solid var(--fl-border)' }}>
+                          <span key={ev.id} style={{ fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', padding: '2px 7px', borderRadius: 4, background: 'color-mix(in srgb, var(--fl-border) 9%, transparent)', color: 'var(--fl-muted)', border: '1px solid var(--fl-border)' }}>
                             ○ {ev.name}
                           </span>
                         ))}
                       </div>
                     </div>
                   )}
-                </div>
 
-                {parsedCount === 0 && (
-                  <div style={{ fontSize: 12, color: 'var(--fl-dim)', fontFamily: 'monospace', padding: '8px 0', textAlign: 'center', fontStyle: 'italic' }}>
-                    {t('casedetail.parse_first')}
-                  </div>
-                )}
+                  <div style={{ borderTop: '1px solid var(--fl-border2)', margin: '14px 0' }} />
 
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                  {parsedCount === 0 && (
+                    <div style={{ fontSize: 12, color: 'var(--fl-dim)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', padding: '0 0 10px', textAlign: 'center', fontStyle: 'italic' }}>
+                      {t('casedetail.parse_first')}
+                    </div>
+                  )}
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                   <div style={{
                     flex: 1, display: 'flex', alignItems: 'center', gap: 6,
                     padding: '5px 10px', borderRadius: 6,
-                    background: selectedTemplate ? '#4d82c010' : 'var(--fl-bg)',
-                    border: `1px solid ${selectedTemplate ? '#4d82c035' : 'var(--fl-card)'}`,
+                    background: selectedTemplate ? 'color-mix(in srgb, var(--fl-accent) 6%, transparent)' : 'var(--fl-bg)',
+                    border: `1px solid ${selectedTemplate ? 'color-mix(in srgb, var(--fl-accent) 21%, transparent)' : 'var(--fl-card)'}`,
                   }}>
                     <FileDown size={11} style={{ color: selectedTemplate ? 'var(--fl-accent)' : 'var(--fl-muted)', flexShrink: 0 }} />
-                    <span style={{ fontSize: 11, fontFamily: 'monospace', color: selectedTemplate ? 'var(--fl-dim)' : 'var(--fl-muted)', flex: 1 }}>
-                      {selectedTemplate ? selectedTemplate.name : 'Rapport standard (toutes sections)'}
+                    <span style={{ fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: selectedTemplate ? 'var(--fl-dim)' : 'var(--fl-muted)', flex: 1 }}>
+                      {selectedTemplate ? selectedTemplate.name : t('casedetail.standard_report_all_sections')}
                     </span>
                     {selectedTemplate && (
                       <button onClick={() => setSelectedTemplate(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--fl-muted)', padding: 0 }}>
@@ -1494,10 +1672,23 @@ export default function CaseDetailPage({ user }) {
                     )}
                   </div>
                   <button
+                    onClick={() => setShowComposer(v => !v)}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 5,
+                      padding: '5px 10px', borderRadius: 6, fontSize: 11,
+                      fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', cursor: 'pointer',
+                      background: showComposer ? 'color-mix(in srgb, var(--fl-accent) 12%, transparent)' : 'var(--fl-card)',
+                      border: `1px solid ${showComposer ? 'color-mix(in srgb, var(--fl-accent) 30%, transparent)' : 'var(--fl-card)'}`,
+                      color: showComposer ? 'var(--fl-accent)' : 'var(--fl-dim)',
+                    }}
+                  >
+                    <Pencil size={11} /> {t('casedetail.compose')}
+                  </button>
+                  <button
                     onClick={() => setShowTemplateModal(true)}
                     style={{
                       padding: '5px 10px', borderRadius: 6, fontSize: 11,
-                      fontFamily: 'monospace', cursor: 'pointer',
+                      fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', cursor: 'pointer',
                       background: 'var(--fl-card)', border: '1px solid var(--fl-card)', color: 'var(--fl-dim)',
                     }}
                   >
@@ -1505,14 +1696,84 @@ export default function CaseDetailPage({ user }) {
                   </button>
                 </div>
 
-                <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                {showComposer && !selectedTemplate && (
+                  <div style={{ marginBottom: 12, padding: '12px 14px', borderRadius: 8, background: 'var(--fl-bg)', border: '1px solid var(--fl-border2)' }}>
+                    <div style={{ fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--fl-subtle)', marginBottom: 8 }}>{t('casedetail.sections_to_include')}</div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 12 }}>
+                      {[['mitre', 'MITRE ATT&CK'], ['killchain', t('casedetail.report_section_killchain')], ['findings', t('casedetail.report_section_detections')], ['iocs', 'IOCs'], ['timeline', t('casedetail.report_section_timeline')], ['evidence', t('casedetail.report_section_evidence')]].map(([key, label]) => {
+                        const on = reportGroups.has(key);
+                        return (
+                          <button key={key}
+                            onClick={() => setReportGroups(prev => { const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n; })}
+                            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 10px', borderRadius: 6, cursor: 'pointer', fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
+                              background: on ? 'color-mix(in srgb, var(--fl-accent) 10%, transparent)' : 'transparent',
+                              border: `1px solid ${on ? 'color-mix(in srgb, var(--fl-accent) 30%, transparent)' : 'var(--fl-border)'}`,
+                              color: on ? 'var(--fl-accent)' : 'var(--fl-muted)' }}>
+                            <span style={{ width: 14, height: 14, borderRadius: 4, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                              border: `1.5px solid ${on ? 'var(--fl-accent)' : 'var(--fl-border3)'}`, background: on ? 'var(--fl-accent)' : 'transparent' }}>
+                              {on && <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="4"><polyline points="20 6 9 17 4 12" /></svg>}
+                            </span>
+                            {label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <div style={{ fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--fl-subtle)', marginBottom: 6 }}>{t('casedetail.analyst_note_optional')}</div>
+                    <textarea value={reportNote} onChange={e => setReportNote(e.target.value)}
+                      placeholder={t('casedetail.analyst_note_ph')} rows={3}
+                      style={{ width: '100%', boxSizing: 'border-box', resize: 'vertical', background: 'var(--fl-panel)', color: 'var(--fl-text)', border: '1px solid var(--fl-border)', borderRadius: 6, padding: '8px 10px', fontSize: 12, fontFamily: 'var(--f-ui, Inter, sans-serif)', outline: 'none', lineHeight: 1.5 }} />
+                    <div style={{ fontSize: 9.5, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-subtle)', marginTop: 6 }}>
+                      {t('casedetail.executive_summary_included')}{reportGroups.size === 0 ? <span style={{ color: 'var(--fl-warn)' }}>{' '}{t('casedetail.no_optional_section')}</span> : ''}
+                    </div>
+
+                    <div style={{ borderTop: '1px solid var(--fl-border2)', margin: '14px 0 12px' }} />
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                      <button onClick={() => setAiEnabled(v => !v)} style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
+                        <span style={{ width: 14, height: 14, borderRadius: 4, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          border: `1.5px solid ${aiEnabled ? 'var(--fl-accent)' : 'var(--fl-border3)'}`, background: aiEnabled ? 'var(--fl-accent)' : 'transparent' }}>
+                          {aiEnabled && <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="4"><polyline points="20 6 9 17 4 12" /></svg>}
+                        </span>
+                        <span style={{ fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: aiEnabled ? 'var(--fl-text)' : 'var(--fl-muted)' }}>{t('casedetail.enrich_with_ai')}</span>
+                      </button>
+                      {aiEnabled && (
+                        <button onClick={generateAiDraft} disabled={aiLoading || parsedCount === 0}
+                          title={t('casedetail.ai_draft_title')}
+                          style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 11px', borderRadius: 6, fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', cursor: aiLoading ? 'wait' : 'pointer',
+                            background: 'color-mix(in srgb, var(--fl-accent) 12%, transparent)', border: '1px solid color-mix(in srgb, var(--fl-accent) 30%, transparent)', color: 'var(--fl-accent)' }}>
+                          {aiLoading ? <Loader2 size={11} style={{ animation: 'fl-spin 0.9s linear infinite' }} /> : <Sparkles size={11} />}
+                          {aiDraft ? t('casedetail.regenerate_draft') : t('casedetail.generate_ai_draft')}
+                        </button>
+                      )}
+                      {aiError && <span style={{ fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-danger)' }}>{aiError}</span>}
+                    </div>
+                    {aiEnabled && !aiDraft && !aiLoading && (
+                      <div style={{ fontSize: 9.5, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-subtle)', marginTop: 6 }}>
+                        {t('casedetail.ai_auto_generate_hint')}
+                      </div>
+                    )}
+                    {aiEnabled && aiDraft && (
+                      <div style={{ marginTop: 12 }}>
+                        <ReportAiEditor value={aiDraft} loading={aiLoading}
+                          onChange={(k, v) => setAiDraft(prev => ({ ...(prev || {}), [k]: v }))}
+                          onRegenerate={generateAiDraft} />
+                      </div>
+                    )}
+                  </div>
+                )}
+                {showComposer && selectedTemplate && (
+                  <div style={{ marginBottom: 12, padding: '10px 12px', borderRadius: 8, background: 'color-mix(in srgb, var(--fl-warn) 6%, transparent)', border: '1px solid color-mix(in srgb, var(--fl-warn) 20%, transparent)', fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-warn)' }}>
+                    {t('casedetail.template_selected_hint')}
+                  </div>
+                )}
+
+                <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 14 }}>
                   <button
                     onClick={generateReport}
                     disabled={generating || parsedCount === 0}
                     style={{
                       display: 'flex', alignItems: 'center', gap: 6,
                       padding: '8px 16px', borderRadius: 7, fontSize: 12,
-                      fontFamily: 'monospace', fontWeight: 600, cursor: parsedCount === 0 ? 'not-allowed' : 'pointer',
+                      fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontWeight: 600, cursor: parsedCount === 0 ? 'not-allowed' : 'pointer',
                       background: parsedCount === 0 ? 'var(--fl-card)' : 'var(--fl-accent)',
                       border: `1px solid ${parsedCount === 0 ? 'var(--fl-border)' : 'var(--fl-accent)'}`,
                       color: parsedCount === 0 ? 'var(--fl-muted)' : '#fff',
@@ -1527,863 +1788,29 @@ export default function CaseDetailPage({ user }) {
                       style={{
                         display: 'flex', alignItems: 'center', gap: 6,
                         padding: '8px 14px', borderRadius: 7, fontSize: 12,
-                        fontFamily: 'monospace', fontWeight: 600, cursor: 'pointer',
-                        background: '#22c55e14', border: '1px solid #22c55e35', color: '#22c55e',
+                        fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontWeight: 600, cursor: 'pointer',
+                        background: 'color-mix(in srgb, var(--fl-ok) 8%, transparent)', border: '1px solid color-mix(in srgb, var(--fl-ok) 21%, transparent)', color: 'var(--fl-ok)',
                       }}>
                       <Download size={13} /> {t('casedetail.download_pdf')}
                     </button>
                   )}
                 </div>
                 {reportDone && (
-                  <div style={{ marginTop: 10, padding: '8px 12px', borderRadius: 7, background: '#22c55e08', border: '1px solid #22c55e25', fontSize: 11, fontFamily: 'monospace', color: '#22c55e', display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <div style={{ marginTop: 10, padding: '8px 12px', borderRadius: 7, background: 'color-mix(in srgb, var(--fl-ok) 3%, transparent)', border: '1px solid color-mix(in srgb, var(--fl-ok) 15%, transparent)', fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-ok)', display: 'flex', alignItems: 'center', gap: 6 }}>
                     {t('casedetail.report_done', { n: parsedCount, records: totalRecords.toLocaleString(), iocs: caseIOCs.length })}
                   </div>
                 )}
+                </div>
               </div>
             );
           })()}
 
-        </div>
-      )}
-
-      {tab === 'workbench' && (
-        <WorkbenchEvidenceTab caseId={id} />
-      )}
-
-      {tab === 'timeline' && (
-        <div>
-          <div style={{
-            display: 'flex', alignItems: 'center', gap: 10,
-            padding: '7px 14px', marginBottom: 6, borderRadius: 8,
-            background: 'var(--fl-bg)', border: '1px solid var(--fl-card)',
-          }}>
-            <div style={{
-              width: 8, height: 8, borderRadius: '50%', flexShrink: 0,
-              background: stTotal > 0 ? '#22c55e' : caseTL.length > 0 ? 'var(--fl-gold)' : 'var(--fl-muted)',
-              boxShadow: stTotal > 0 ? '0 0 6px #22c55e80' : 'none',
-            }} />
-            <span style={{ fontSize: 12, fontFamily: 'monospace', color: stTotal > 0 ? '#c8e6c9' : 'var(--fl-dim)', flex: 1 }}>
-              {stTotal > 0
-                ? `${evidence.filter(ev => Boolean(evResultMap[ev.name]?.resultId)).length} ${t('casedetail.collections_indexed')} — ${stTotal.toLocaleString()} ${t('casedetail.records')} au total`
-                : caseTL.length > 0
-                  ? `${caseTL.length} ${t('casedetail.timeline_events')}`
-                  : t('casedetail.no_parsed')}
-            </span>
-            {stTotal > 0 && (
-              <button
-                onClick={() => setShowDeleteCollect(true)}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 5, padding: '3px 9px',
-                  borderRadius: 5, fontSize: 11, fontFamily: 'monospace', cursor: 'pointer',
-                  background: '#da363308', color: 'var(--fl-danger)', border: '1px solid #da363325',
-                }}
-                title={t('casedetail.tooltip_free_data')}>
-                <Trash2 size={10} /> {t('casedetail.free_data')}
-              </button>
-            )}
-            {stTotal === 0 && (
-              <button
-                onClick={() => { navigate(`${base}/evidence`); setShowImportPanel(true); }}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 5, padding: '3px 9px',
-                  borderRadius: 5, fontSize: 11, fontFamily: 'monospace', cursor: 'pointer',
-                  background: '#4d82c008', color: 'var(--fl-accent)', border: '1px solid #4d82c025',
-                }}>
-                {t('casedetail.import_btn')}
-              </button>
-            )}
-          </div>
-
-          {stReparsing && stParseProgress && (
-            <div style={{
-              padding: '8px 14px', marginBottom: 6, borderRadius: 8,
-              background: '#0a0f1a', border: '1px solid var(--fl-card)',
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 5 }}>
-                <Loader2 size={10} className="animate-spin" style={{ color: 'var(--fl-accent)', flexShrink: 0 }} />
-                <span style={{ fontSize: 11, fontFamily: 'monospace', color: 'var(--fl-text)', flex: 1 }}>
-                  {stParseProgress.type === 'saving'
-                    ? t('casedetail.saving_db')
-                    : stParseProgress.name
-                      ? `[${stParseProgress.current}/${stParseProgress.total}] ${stParseProgress.name}`
-                      : t('casedetail.initializing')}
-                </span>
-                {stParseProgress.type !== 'saving' && stParseProgress.total > 0 && (
-                  <span style={{ fontSize: 10, fontFamily: 'monospace', color: 'var(--fl-accent)', fontWeight: 700 }}>
-                    {Math.round((stParseProgress.current / stParseProgress.total) * 100)}%
-                  </span>
-                )}
-              </div>
-              <div style={{ height: 3, background: 'var(--fl-card)', borderRadius: 2, overflow: 'hidden' }}>
-                <div style={{
-                  height: '100%', borderRadius: 2,
-                  width: `${stParseProgress.total ? Math.round((stParseProgress.current / stParseProgress.total) * 100) : 0}%`,
-                  background: stParseProgress.type === 'saving' ? '#22c55e' : 'linear-gradient(90deg, var(--fl-accent), #8b72d6)',
-                  transition: 'width 0.4s ease',
-                }} />
-              </div>
-              {stParseProgress.completed && stParseProgress.completed.length > 0 && (
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 6 }}>
-                  {stParseProgress.completed.map((e, i) => {
-                    const col = e.status === 'success' ? '#22c55e' : e.status === 'skipped' ? 'var(--fl-muted)' : 'var(--fl-danger)';
-                    const icon = e.status === 'success' ? '✓' : e.status === 'skipped' ? '–' : '✗';
-                    return (
-                      <span key={e.name ?? i} style={{
-                        fontSize: 10, fontFamily: 'monospace', padding: '1px 6px', borderRadius: 3,
-                        background: `${col}10`, color: col, border: `1px solid ${col}20`,
-                      }}>
-                        {icon} {e.name}{e.status === 'success' && e.records > 0 ? ` (${e.records.toLocaleString()})` : ''}
-                      </span>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          )}
-
-          <div style={{
-            display: 'flex', gap: 0, marginBottom: 10,
-            borderBottom: '1px solid var(--fl-sep)', alignItems: 'stretch',
-          }}>
-            {subTab && (
-              <button onClick={() => setSubTab(null)} style={{
-                padding: '7px 12px', fontSize: 11, fontFamily: 'monospace',
-                background: 'none', border: 'none', outline: 'none',
-                borderBottom: '2px solid transparent',
-                color: 'var(--fl-subtle)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4,
-                marginBottom: -1, flexShrink: 0,
-              }}>
-                {t('casedetail.back_collections')}
-              </button>
-            )}
-            {[
-              { key: 'hayabusa', label: 'Hayabusa',          count: hayCount > 0 ? hayCount.toLocaleString() : null, color: 'var(--fl-danger)' },
-              { key: 'catscale', label: 'CatScale',           count: catscaleCount > 0 ? catscaleCount.toLocaleString() : null, color: '#22c55e' },
-
-            ].map(({ key, label, count, color }) => {
-              const active = subTab === key;
-              return (
-                <button key={key} onClick={() => setSubTab(active ? null : key)} style={{
-                  padding: '7px 14px', fontSize: 12, fontFamily: 'monospace',
-                  background: 'none', border: 'none', outline: 'none',
-                  borderBottom: `2px solid ${active ? color : 'transparent'}`,
-                  color: active ? color : 'var(--fl-muted)',
-                  cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6,
-                  transition: 'color 0.1s', marginBottom: -1,
-                }}>
-                  {label}
-                  {count !== null && (
-                    <span style={{
-                      fontSize: 9, fontFamily: 'monospace', padding: '1px 5px', borderRadius: 3,
-                      background: active ? `${color}18` : 'var(--fl-sep)',
-                      color: active ? color : 'var(--fl-card)',
-                    }}>
-                      {count}
-                    </span>
-                  )}
-                </button>
-              );
-            })}
-          </div>
-
-          {!subTab && (
-            <div>
-              {(() => {
-                const parsedEvs = evidence.filter(ev => Boolean(evResultMap[ev.name]?.resultId));
-                const unparsedEvs = evidence.filter(ev => !evResultMap[ev.name]?.resultId);
-                return (
-                  <>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-                      <Clock size={13} style={{ color: 'var(--fl-accent)' }} />
-                      <span style={{ fontSize: 11, fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--fl-dim)' }}>
-                        {t('casedetail.choose_collection')}
-                      </span>
-                      {parsedEvs.length > 0 && (
-                        <span style={{ fontSize: 10, fontFamily: 'monospace', padding: '1px 7px', borderRadius: 10, background: '#22c55e14', color: '#22c55e', border: '1px solid #22c55e30' }}>
-                          {parsedEvs.length} {parsedEvs.length > 1 ? t('casedetail.ready_pl') : t('casedetail.ready')}
-                        </span>
-                      )}
-                    </div>
-
-                    {parsedEvs.length === 0 ? (
-                      <div style={{ padding: '20px 18px', borderRadius: 10, background: 'var(--fl-bg)', border: '1px dashed var(--fl-border)', textAlign: 'center' }}>
-                        <Clock size={28} style={{ color: 'var(--fl-border)', margin: '0 auto 10px' }} />
-                        <p style={{ fontSize: 12, color: 'var(--fl-dim)', fontFamily: 'monospace', marginBottom: 4 }}>
-                          {t('casedetail.no_parsed_collections')}
-                        </p>
-                        <p style={{ fontSize: 10, color: 'var(--fl-muted)', fontFamily: 'monospace' }}>
-                          {t('casedetail.parse_hint')}
-                        </p>
-                      </div>
-                    ) : (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 14 }}>
-                        {parsedEvs.map(ev => {
-                          const recordCount = evResultMap[ev.name]?.recordCount ?? 0;
-                          return (
-                            <div
-                              key={ev.id}
-                              onClick={() => navigate(`/cases/${id}/collections/${ev.id}/timeline`, { state: { evidenceName: ev.name, caseTitle: caseData?.title, caseNumber: caseData?.case_number } })}
-                              style={{
-                                display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px',
-                                borderRadius: 10, background: 'var(--fl-bg)',
-                                border: '1px solid #22c55e30', borderLeft: '3px solid #22c55e',
-                                cursor: 'pointer', transition: 'all 0.15s',
-                              }}
-                              onMouseEnter={e => { e.currentTarget.style.background = '#162032'; e.currentTarget.style.borderColor = '#22c55e60'; e.currentTarget.style.borderLeftColor = '#22c55e'; }}
-                              onMouseLeave={e => { e.currentTarget.style.background = 'var(--fl-bg)'; e.currentTarget.style.borderColor = '#22c55e30'; e.currentTarget.style.borderLeftColor = '#22c55e'; }}
-                            >
-                              <FolderOpen size={16} style={{ color: '#22c55e', flexShrink: 0 }} />
-                              <div style={{ flex: 1, overflow: 'hidden' }}>
-                                <div style={{ fontSize: 13, color: 'var(--fl-text)', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                  {ev.name}
-                                </div>
-                                <div style={{ fontSize: 10, fontFamily: 'monospace', color: 'var(--fl-dim)', marginTop: 2, display: 'flex', gap: 8 }}>
-                                  <span style={{ color: '#22c55e' }}>
-                                    {recordCount > 0 ? `${recordCount.toLocaleString()} ${t('casedetail.records')}` : t('casedetail.indexed')}
-                                  </span>
-                                  {ev.evidence_type && (
-                                    <span style={{ padding: '0 5px', borderRadius: 3, background: 'var(--fl-card)', color: 'var(--fl-muted)', border: '1px solid var(--fl-border)' }}>{ev.evidence_type}</span>
-                                  )}
-                                  {fmtSize(ev.file_size) !== '0 B' && (
-                                    <span>{fmtSize(ev.file_size)}</span>
-                                  )}
-                                </div>
-                              </div>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '7px 16px', borderRadius: 7,
-                                background: '#4d82c020', color: 'var(--fl-accent)', border: '1px solid #4d82c040',
-                                fontSize: 12, fontFamily: 'monospace', fontWeight: 600, flexShrink: 0, whiteSpace: 'nowrap' }}>
-                                <Clock size={12} /> {t('casedetail.open')} <ChevronRight size={13} />
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-
-                    {unparsedEvs.length > 0 && (
-                      <details style={{ marginBottom: 14 }}>
-                        <summary style={{
-                          fontSize: 10, fontFamily: 'monospace', color: 'var(--fl-muted)',
-                          cursor: 'pointer', padding: '4px 2px', userSelect: 'none',
-                          display: 'flex', alignItems: 'center', gap: 5,
-                        }}>
-                          <span>▸ {unparsedEvs.length > 1 ? t('casedetail.unparsed_count_pl', { n: unparsedEvs.length }) : t('casedetail.unparsed_count', { n: unparsedEvs.length })}</span>
-                        </summary>
-                        <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 4 }}>
-                          {unparsedEvs.map(ev => (
-                            <div key={ev.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 14px',
-                              borderRadius: 8, background: 'var(--fl-bg)', border: '1px solid var(--fl-card)' }}>
-                              <FolderOpen size={13} style={{ color: 'var(--fl-muted)', flexShrink: 0 }} />
-                              <span style={{ fontSize: 11, color: 'var(--fl-dim)', fontFamily: 'monospace', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                {ev.name}
-                              </span>
-                              <button
-                                onClick={async () => {
-                                  setStReparsing(true);
-                                  setStParseProgress(null);
-                                  stProgressRef.current = { completed: [] };
-                                  try {
-                                    await collectionAPI.parse(id, { artifact_types: 'all', socketId, evidence_id: ev.id });
-                                    await refreshEvResultMap();
-                                    setStReloadKey(k => k + 1);
-                                  } catch {}
-                                  setStReparsing(false);
-                                  setStParseProgress(null);
-                                }}
-                                disabled={stReparsing}
-                                style={{
-                                  display: 'flex', alignItems: 'center', gap: 4, padding: '3px 10px',
-                                  borderRadius: 5, fontSize: 10, fontFamily: 'monospace',
-                                  cursor: stReparsing ? 'not-allowed' : 'pointer', flexShrink: 0,
-                                  background: stReparsing ? 'var(--fl-sep)' : '#22c55e10',
-                                  color: stReparsing ? 'var(--fl-muted)' : '#22c55e',
-                                  border: `1px solid ${stReparsing ? 'var(--fl-card)' : '#22c55e30'}`,
-                                }}>
-                                {stReparsing ? <><Loader2 size={9} className="animate-spin" /> Parsing…</> : `▶ ${t('casedetail.parse_btn')}`}
-                              </button>
-                            </div>
-                          ))}
-                        </div>
-                      </details>
-                    )}
-
-                  </>
-                );
-              })()}
-            </div>
-          )}
-
-          {subTab === 'hayabusa' && (
-            <CaseHayabusaView
-              caseId={id}
-              reloadKey={stReloadKey}
-              onTotalChange={setHayCount}
-            />
-          )}
-
-          {subTab === 'catscale' && (
-            <CatScaleTimelineTab
-              caseId={id}
-              onTotalChange={setCatscaleCount}
-            />
-          )}
+          {!collectionId && <RdpCacheGallery caseId={id} />}
 
         </div>
       )}
 
-      {tab === 'iocs' && (
-        <div>
-          <div className="flex gap-3 mb-4">
-            <div className="fl-search flex-1">
-              <Search size={14} className="fl-search-icon" />
-              <input value={iocSearch} onChange={e => setIocSearch(e.target.value)} placeholder={t('casedetail.ioc_search_ph')}
-                className="fl-input pl-8 w-full font-mono" />
-            </div>
-            <button onClick={async () => {
-              try {
-                const resp = await iocsAPI.exportStix(id);
-                const blob = new Blob([resp.data], { type: 'application/json;charset=utf-8' });
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a'); a.href = url; a.download = `stix-${id}-${Date.now()}.json`; a.click();
-                URL.revokeObjectURL(url);
-              } catch {}
-            }} className="fl-btn fl-btn-ghost fl-btn-sm" style={{ color: 'var(--fl-purple)' }} title="Exporter les IOCs en bundle STIX 2.1">
-              <Download size={14} /> Exporter STIX
-            </button>
-            <button onClick={() => { setShowStixImport(true); setStixFiles([]); setStixResult(null); }}
-              className="fl-btn fl-btn-ghost fl-btn-sm" style={{ color: '#22c55e' }} title="Importer des indicateurs depuis un bundle STIX 2.1 (OpenCTI)">
-              <Upload size={14} /> Importer STIX
-            </button>
-            <button onClick={() => setShowIOCForm(!showIOCForm)} className="fl-btn fl-btn-primary fl-btn-sm"><Plus size={14} /> {t('casedetail.add_ioc')}</button>
-          </div>
-
-          {showStixImport && (
-            <div style={{
-              position: 'fixed', inset: 0, zIndex: 600,
-              background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center',
-            }} onClick={e => { if (e.target === e.currentTarget) setShowStixImport(false); }}>
-              <div style={{
-                background: 'var(--fl-panel)', border: '1px solid var(--fl-border)', borderRadius: 10,
-                width: 540, maxHeight: '80vh', display: 'flex', flexDirection: 'column',
-                boxShadow: '0 24px 64px rgba(0,0,0,0.7)',
-              }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                  padding: '14px 18px', borderBottom: '1px solid var(--fl-border)',
-                  background: 'linear-gradient(90deg, rgba(34,197,94,0.08) 0%, transparent 100%)' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <Upload size={14} style={{ color: '#22c55e' }} />
-                    <span style={{ fontFamily: 'monospace', fontSize: 12, fontWeight: 700, color: 'var(--fl-text)' }}>
-                      Importer IOCs depuis STIX 2.1
-                    </span>
-                    <span style={{ fontSize: 10, fontFamily: 'monospace', color: 'var(--fl-dim)', padding: '1px 6px',
-                      background: 'var(--fl-bg)', borderRadius: 4, border: '1px solid var(--fl-border)' }}>OpenCTI compatible</span>
-                  </div>
-                  <button onClick={() => setShowStixImport(false)}
-                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--fl-dim)', padding: 4 }}>
-                    <X size={14} />
-                  </button>
-                </div>
-
-                <div style={{ flex: 1, overflowY: 'auto', padding: '16px 18px' }}>
-                  {!stixResult && (
-                    <>
-                      <label style={{
-                        display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-                        gap: 8, padding: '28px 20px', borderRadius: 8, cursor: 'pointer',
-                        border: '2px dashed var(--fl-border)', background: 'var(--fl-bg)',
-                        transition: 'border-color 0.2s',
-                      }}
-                        onDragOver={e => { e.preventDefault(); e.currentTarget.style.borderColor = '#22c55e'; }}
-                        onDragLeave={e => { e.currentTarget.style.borderColor = 'var(--fl-border)'; }}
-                        onDrop={e => {
-                          e.preventDefault();
-                          e.currentTarget.style.borderColor = 'var(--fl-border)';
-                          const dropped = Array.from(e.dataTransfer.files).filter(f => f.name.endsWith('.json'));
-                          if (!dropped.length) return;
-                          Promise.all(dropped.map(f => f.text().then(txt => {
-                            try {
-                              const bundle = JSON.parse(txt);
-                              const count = (bundle.objects || []).filter(o => o.type === 'indicator').length;
-                              return { name: f.name, bundle, count };
-                            } catch { return null; }
-                          }))).then(results => setStixFiles(prev => [...prev, ...results.filter(Boolean)]));
-                        }}
-                      >
-                        <input type="file" multiple accept=".json" style={{ display: 'none' }}
-                          onChange={e => {
-                            const files = Array.from(e.target.files);
-                            Promise.all(files.map(f => f.text().then(txt => {
-                              try {
-                                const bundle = JSON.parse(txt);
-                                const count = (bundle.objects || []).filter(o => o.type === 'indicator').length;
-                                return { name: f.name, bundle, count };
-                              } catch { return null; }
-                            }))).then(results => setStixFiles(prev => [...prev, ...results.filter(Boolean)]));
-                            e.target.value = '';
-                          }}
-                        />
-                        <Upload size={22} style={{ color: '#22c55e', opacity: 0.7 }} />
-                        <span style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--fl-dim)', textAlign: 'center' }}>
-                          Glisser-déposer des fichiers JSON ici<br />
-                          <span style={{ color: 'var(--fl-accent)' }}>ou cliquer pour sélectionner</span>
-                        </span>
-                        <span style={{ fontSize: 10, color: 'var(--fl-muted)', fontFamily: 'monospace' }}>
-                          Bundles STIX 2.1 exportés depuis OpenCTI, MISP, ou tout serveur TAXII
-                        </span>
-                      </label>
-
-                      {stixFiles.length > 0 && (
-                        <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 6 }}>
-                          {stixFiles.map((f, i) => (
-                            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8,
-                              padding: '6px 10px', borderRadius: 6, background: 'var(--fl-bg)',
-                              border: '1px solid var(--fl-panel)' }}>
-                              <FileJson size={12} style={{ color: 'var(--fl-accent)', flexShrink: 0 }} />
-                              <span style={{ fontFamily: 'monospace', fontSize: 10, flex: 1,
-                                color: 'var(--fl-dim)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                {f.name}
-                              </span>
-                              <span style={{ fontFamily: 'monospace', fontSize: 10,
-                                color: f.count > 0 ? '#22c55e' : 'var(--fl-dim)', flexShrink: 0 }}>
-                                {f.count} indicateur{f.count !== 1 ? 's' : ''}
-                              </span>
-                              <button onClick={() => setStixFiles(prev => prev.filter((_, j) => j !== i))}
-                                style={{ background: 'none', border: 'none', cursor: 'pointer',
-                                  color: 'var(--fl-muted)', padding: 2, display: 'flex' }}>
-                                <X size={11} />
-                              </button>
-                            </div>
-                          ))}
-                          <div style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--fl-dim)',
-                            textAlign: 'right', paddingRight: 2 }}>
-                            Total : <strong style={{ color: 'var(--fl-text)' }}>
-                              {stixFiles.reduce((s, f) => s + f.count, 0)}
-                            </strong> indicateur(s) à importer
-                          </div>
-                        </div>
-                      )}
-                    </>
-                  )}
-
-                  {stixResult && (
-                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center',
-                      gap: 12, padding: '20px 0' }}>
-                      <CheckCircle size={32} style={{ color: '#22c55e' }} />
-                      <span style={{ fontFamily: 'monospace', fontSize: 12, color: 'var(--fl-text)', textAlign: 'center' }}>
-                        {stixResult.message}
-                      </span>
-                      <div style={{ display: 'flex', gap: 16 }}>
-                        {[
-                          { label: 'Créés', value: stixResult.created, color: '#22c55e' },
-                          { label: 'Ignorés', value: stixResult.skipped, color: 'var(--fl-dim)' },
-                          { label: 'Erreurs', value: stixResult.errors, color: 'var(--fl-danger)' },
-                        ].map(({ label, value, color }) => (
-                          <div key={label} style={{ textAlign: 'center' }}>
-                            <div style={{ fontFamily: 'monospace', fontSize: 20, fontWeight: 800, color }}>{value}</div>
-                            <div style={{ fontFamily: 'monospace', fontSize: 9, color: 'var(--fl-dim)', textTransform: 'uppercase' }}>{label}</div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8,
-                  padding: '12px 18px', borderTop: '1px solid var(--fl-panel)' }}>
-                  {stixResult ? (
-                    <button onClick={() => setShowStixImport(false)}
-                      className="fl-btn fl-btn-primary fl-btn-sm">Fermer</button>
-                  ) : (
-                    <>
-                      <button onClick={() => setShowStixImport(false)}
-                        className="fl-btn fl-btn-ghost fl-btn-sm">Annuler</button>
-                      <button
-                        disabled={stixFiles.length === 0 || stixImporting}
-                        onClick={async () => {
-                          setStixImporting(true);
-                          try {
-                            const resp = await iocsAPI.importStix(id, stixFiles.map(f => f.bundle));
-                            setStixResult(resp.data);
-                            const r = await iocsAPI.list(id);
-                            setIOCs(r.data);
-                          } catch {
-                            setStixResult({ created: 0, skipped: 0, errors: stixFiles.reduce((s,f)=>s+f.count,0), message: 'Erreur lors de l\'import.' });
-                          } finally {
-                            setStixImporting(false);
-                          }
-                        }}
-                        className="fl-btn fl-btn-primary fl-btn-sm"
-                        style={{ opacity: stixFiles.length === 0 ? 0.4 : 1 }}>
-                        {stixImporting
-                          ? <><Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> Import en cours...</>
-                          : <><Upload size={12} /> Importer {stixFiles.reduce((s,f)=>s+f.count,0)} IOC(s)</>}
-                      </button>
-                    </>
-                  )}
-                </div>
-              </div>
-            </div>
-          )}
-
-          {showIOCForm && (
-            <div className="rounded-lg p-4 mb-4" style={{ background: 'var(--fl-bg)', border: '1px solid var(--fl-border)' }}>
-              <h4 className="text-xs font-mono uppercase tracking-wider mb-3" style={{ color: 'var(--fl-accent)' }}>Nouvel Indicateur de Compromission</h4>
-              <div className="grid grid-cols-2 gap-3 mb-3">
-                <div>
-                  <label className="fl-label">Type</label>
-                  <select value={iocForm.ioc_type} onChange={e => setIocForm(p => ({ ...p, ioc_type: e.target.value }))}
-                    className="fl-select w-full">
-                    {['ip', 'domain', 'url', 'hash_md5', 'hash_sha1', 'hash_sha256', 'filename', 'registry_key', 'mutex', 'user_agent', 'email', 'other'].map(t => (
-                      <option key={t} value={t}>{t}</option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="fl-label">Valeur *</label>
-                  <input value={iocForm.value} onChange={e => setIocForm(p => ({ ...p, value: e.target.value }))}
-                    placeholder="Ex: 185.220.101.42, malware-c2.net..."
-                    className="fl-input w-full font-mono" />
-                </div>
-                <div>
-                  <label className="fl-label">Source</label>
-                  <input value={iocForm.source} onChange={e => setIocForm(p => ({ ...p, source: e.target.value }))}
-                    placeholder="DNS Logs, EDR, Firewall..."
-                    className="fl-input w-full" />
-                </div>
-                <div>
-                  <label className="fl-label">Sévérité (1-10)</label>
-                  <input type="number" min="1" max="10" value={iocForm.severity} onChange={e => setIocForm(p => ({ ...p, severity: e.target.value }))}
-                    className="fl-input w-full" />
-                </div>
-              </div>
-              <div className="mb-3">
-                <label className="fl-label">Description</label>
-                <input value={iocForm.description} onChange={e => setIocForm(p => ({ ...p, description: e.target.value }))}
-                  placeholder="Description de l'IOC..."
-                  className="fl-input w-full" />
-              </div>
-              <div className="grid grid-cols-2 gap-3 mb-3">
-                <div>
-                  <label className="fl-label">Tags (séparés par virgule)</label>
-                  <input value={iocForm.tags} onChange={e => setIocForm(p => ({ ...p, tags: e.target.value }))}
-                    placeholder="c2, malware, phishing..."
-                    className="fl-input w-full" />
-                </div>
-                <div className="flex items-end pb-1">
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input type="checkbox" checked={iocForm.is_malicious} onChange={e => setIocForm(p => ({ ...p, is_malicious: e.target.checked }))} />
-                    <span className="text-sm" style={{ color: iocForm.is_malicious ? 'var(--fl-danger)' : 'var(--fl-dim)' }}>⚠ Confirmé malveillant</span>
-                  </label>
-                </div>
-              </div>
-              <div className="flex gap-2">
-                <button onClick={createIOC} disabled={!iocForm.value || iocSaving}
-                  className="fl-btn fl-btn-primary fl-btn-sm"
-                  style={{ opacity: !iocForm.value ? 0.4 : 1 }}>
-                  {iocSaving ? '⏳ Enregistrement...' : '✓ Créer l\'IOC'}
-                </button>
-                <button onClick={() => setShowIOCForm(false)} className="fl-btn fl-btn-secondary fl-btn-sm">Annuler</button>
-              </div>
-            </div>
-          )}
-          <div className="space-y-2">
-            {filteredIOC.map(ioc => (
-              <div key={ioc.id} className="rounded-lg p-4 flex items-center gap-4" style={{ background: 'var(--fl-card)', border: `1px solid ${ioc.is_malicious ? '#da363320' : 'var(--fl-border)'}`, borderLeft: `3px solid ${ioc.is_malicious ? 'var(--fl-danger)' : 'var(--fl-dim)'}` }}>
-                <div className="w-10 h-10 rounded-lg flex items-center justify-center font-mono text-xs font-bold flex-shrink-0"
-                  style={{ background: `${ioc.severity >= 8 ? 'var(--fl-danger)' : ioc.severity >= 5 ? 'var(--fl-warn)' : 'var(--fl-gold)'}15`, color: ioc.severity >= 8 ? 'var(--fl-danger)' : ioc.severity >= 5 ? 'var(--fl-warn)' : 'var(--fl-gold)' }}>{ioc.severity}</div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-1">
-                    <ColorBadge color="var(--fl-accent)">{ioc.ioc_type}</ColorBadge>
-                    {ioc.is_malicious && <ColorBadge color="var(--fl-danger)">⚠ MALVEILLANT</ColorBadge>}
-                    <span className="text-xs" style={{ color: 'var(--fl-dim)' }}>via {ioc.source}</span>
-                  </div>
-                  <div className="font-mono text-sm font-semibold break-all" style={{ color: ioc.is_malicious ? 'var(--fl-danger)' : 'var(--fl-text)' }}>{ioc.value}</div>
-                  {ioc.description && <p className="text-xs mt-1" style={{ color: 'var(--fl-dim)' }}>{ioc.description}</p>}
-                </div>
-                <div className="flex gap-1 flex-shrink-0 flex-wrap justify-end">
-                  {(ioc.tags || []).map(t => <span key={t} className="px-2 py-0.5 rounded text-xs font-mono" style={{ background: 'var(--fl-bg)', color: 'var(--fl-dim)', border: '1px solid var(--fl-border)' }}>{t}</span>)}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {tab === 'detections' && (
-        <div>
-          {triageData && (
-            <MachineScorePanel
-              triageData={triageData}
-              loading={triageRunning}
-              onRefresh={runTriage}
-              caseId={id}
-              collectionId={collectionId}
-            />
-          )}
-          <DetectionsTab caseId={id} />
-        </div>
-      )}
-
-      {tab === 'network' && (
-        <div>
-          {networkStats && parseInt(networkStats.total_connections) > 0 && (
-            <div className="grid grid-cols-4 gap-3 mb-4">
-              {[
-                ['Connexions', networkStats.total_connections, 'var(--fl-accent)'],
-                ['Suspectes', networkStats.suspicious_connections, 'var(--fl-danger)'],
-                ['IPs Sources', networkStats.unique_src_ips, 'var(--fl-gold)'],
-                ['IPs Dest.', networkStats.unique_dst_ips, 'var(--fl-purple)'],
-              ].map(([l, v, c]) => (
-                <div key={l} className="rounded-lg p-3 border" style={{ background: 'var(--fl-card)', borderColor: 'var(--fl-border)', borderLeft: `3px solid ${c}` }}>
-                  <div className="font-mono text-2xl font-bold" style={{ color: c }}>{v || 0}</div>
-                  <div className="text-xs" style={{ color: 'var(--fl-dim)' }}>{l}</div>
-                </div>
-              ))}
-            </div>
-          )}
-          <div className="rounded-lg p-8 text-center" style={{ background: 'var(--fl-card)', border: '1px solid var(--fl-border)' }}>
-            <Network size={36} style={{ color: 'var(--fl-accent)', margin: '0 auto 12px', opacity: 0.7 }} />
-            <div className="text-sm font-semibold mb-1" style={{ color: 'var(--fl-text)' }}>Réseau & Kill Chain</div>
-            <div className="text-xs mb-4" style={{ color: 'var(--fl-dim)' }}>
-              Explorez la topologie réseau et la chaîne d'attaque MITRE ATT&CK du cas.
-            </div>
-            <button onClick={() => navigate(`/cases/${id}/graph`)} className="fl-btn fl-btn-primary">
-              Ouvrir la vue Intelligence <ChevronRight size={14} className="inline ml-1" />
-            </button>
-          </div>
-        </div>
-      )}
-
-      {tab === 'mitre' && <MitreAttackTab caseId={id} />}
-
-      {tab === 'playbooks' && <PlaybooksTab caseId={id} />}
-
-      {tab === 'hayabusa' && (
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, height: '100%' }}>
-          <CaseHayabusaView
-            caseId={id}
-            reloadKey={stReloadKey}
-            onTotalChange={setHayCount}
-          />
-        </div>
-      )}
-
-      {tab === 'cyberchef' && (
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, height: '100%' }}>
-          <CyberChefPage />
-        </div>
-      )}
-
-      {tab === 'audit' && (() => {
-        const AUDIT_COLORS = {
-          login: '#22c55e', login_failed: 'var(--fl-danger)', login_blocked: 'var(--fl-gold)',
-          import_collection: 'var(--fl-accent)', parse_collection: 'var(--fl-purple)', delete_collection_data: 'var(--fl-danger)',
-          create_case: 'var(--fl-warn)', update_case: 'var(--fl-warn)', hard_delete_case: 'var(--fl-danger)',
-          upload_evidence: 'var(--fl-ok)', delete_evidence: 'var(--fl-danger)',
-          add_mitre_technique: '#06b6d4', delete_mitre_technique: 'var(--fl-danger)',
-          create_user: '#06b6d4', update_user: 'var(--fl-warn)', delete_user: 'var(--fl-danger)', change_password: 'var(--fl-gold)',
-          generate_report: 'var(--fl-purple)', create_ioc: 'var(--fl-gold)', delete_ioc: 'var(--fl-danger)',
-          run_yara_scan: '#f472b6', run_sigma_hunt: '#8b5cf6', fetch_taxii: '#14b8a6', correlate_case: '#fb923c',
-        };
-        const AUDIT_LABELS = {
-          login: 'Connexion', login_failed: 'Échec connexion', login_blocked: 'Compte bloqué',
-          import_collection: 'Import collecte', parse_collection: 'Parsing', delete_collection_data: 'Suppression collecte',
-          create_case: 'Création cas', update_case: 'Modification cas', hard_delete_case: 'Purge RGPD',
-          upload_evidence: 'Ajout preuve', delete_evidence: 'Suppression preuve',
-          add_mitre_technique: 'Ajout MITRE', update_mitre_technique: 'Modif. MITRE', delete_mitre_technique: 'Suppression MITRE',
-          create_user: 'Création compte', update_user: 'Modification compte', delete_user: 'Suppression compte', change_password: 'Changement MDP',
-          generate_report: 'Génération rapport', create_ioc: 'Ajout IOC', delete_ioc: 'Suppression IOC',
-          run_yara_scan: 'Scan YARA', run_sigma_hunt: 'Chasse Sigma', fetch_taxii: 'Sync TAXII', correlate_case: 'Corrélation Intel',
-        };
-        const totalPages = Math.max(1, Math.ceil(auditTotal / AUDIT_PAGE_SIZE));
-        const applyFilters = () => {
-          setAuditPage(0);
-          fetchAuditLog(0, {
-            action: auditFilterAction,
-            username: auditFilterUser,
-            date_from: auditFilterFrom,
-            date_to: auditFilterTo,
-          });
-        };
-        const resetFilters = () => {
-          setAuditFilterAction('');
-          setAuditFilterUser('');
-          setAuditFilterFrom('');
-          setAuditFilterTo('');
-          setAuditPage(0);
-          fetchAuditLog(0, {});
-        };
-        return (
-          <div>
-              <div className="flex items-center justify-between mb-4">
-              <h3 className="text-xs font-mono uppercase tracking-wider flex items-center gap-2" style={{ color: 'var(--fl-dim)' }}>
-                <ScrollText size={14} /> Journal d'Audit — {c.case_number}
-              </h3>
-              <span className="text-xs font-mono" style={{ color: 'var(--fl-muted)' }}>
-                {auditTotal > 0 ? `${auditTotal} entrée${auditTotal > 1 ? 's' : ''}` : ''}
-              </span>
-            </div>
-
-            <div style={{
-              display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'flex-end',
-              padding: '10px 14px', borderRadius: 8, marginBottom: 12,
-              background: 'var(--fl-panel)', border: '1px solid var(--fl-border)',
-            }}>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-                <label style={{ fontSize: 10, fontFamily: 'monospace', color: 'var(--fl-dim)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{t('casedetail.audit_filter_action')}</label>
-                <select
-                  className="fl-select"
-                  value={auditFilterAction}
-                  onChange={e => setAuditFilterAction(e.target.value)}
-                  style={{ fontSize: 11, fontFamily: 'monospace', minWidth: 180, background: 'var(--fl-bg)', color: 'var(--fl-text)', border: '1px solid var(--fl-border)', borderRadius: 5, padding: '4px 8px' }}
-                >
-                  <option value="">Toutes</option>
-                  <option value="create_case">create_case</option>
-                  <option value="update_case">update_case</option>
-                  <option value="hard_delete_case">hard_delete_case</option>
-                  <option value="legal_hold_enable">legal_hold_enable</option>
-                  <option value="legal_hold_disable">legal_hold_disable</option>
-                  <option value="triage_compute">triage_compute</option>
-                  <option value="upload_evidence">upload_evidence</option>
-                  <option value="upload_evidence_chunked">upload_evidence_chunked</option>
-                  <option value="delete_evidence">delete_evidence</option>
-                  <option value="import_collection">import_collection</option>
-                  <option value="parse_collection">parse_collection</option>
-                  <option value="run_hayabusa">run_hayabusa</option>
-                  <option value="delete_collection_data">delete_collection_data</option>
-                  <option value="pcap_parse">pcap_parse</option>
-                  <option value="create_ioc">create_ioc</option>
-                  <option value="delete_ioc">delete_ioc</option>
-                  <option value="export_stix">export_stix</option>
-                  <option value="correlate_case">correlate_case</option>
-                  <option value="generate_report">generate_report</option>
-                  <option value="download_report">download_report</option>
-                  <option value="add_mitre_technique">add_mitre_technique</option>
-                  <option value="update_mitre_technique">update_mitre_technique</option>
-                  <option value="delete_mitre_technique">delete_mitre_technique</option>
-                  <option value="run_yara_scan">run_yara_scan</option>
-                  <option value="run_sigma_hunt">run_sigma_hunt</option>
-                  <option value="fetch_taxii">fetch_taxii</option>
-                  <option value="create_bookmark">create_bookmark</option>
-                  <option value="start_playbook">start_playbook</option>
-                  <option value="soar_run">soar_run</option>
-                </select>
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-                <label style={{ fontSize: 10, fontFamily: 'monospace', color: 'var(--fl-dim)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{t('casedetail.audit_filter_user')}</label>
-                <input
-                  className="fl-input"
-                  type="text"
-                  value={auditFilterUser}
-                  onChange={e => setAuditFilterUser(e.target.value)}
-                  placeholder="Filtrer par nom…"
-                  style={{ fontSize: 11, fontFamily: 'monospace', minWidth: 160, background: 'var(--fl-bg)', color: 'var(--fl-text)', border: '1px solid var(--fl-border)', borderRadius: 5, padding: '4px 8px' }}
-                  onKeyDown={e => { if (e.key === 'Enter') applyFilters(); }}
-                />
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-                <label style={{ fontSize: 10, fontFamily: 'monospace', color: 'var(--fl-dim)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{t('casedetail.audit_filter_from')}</label>
-                <input
-                  className="fl-input"
-                  type="date"
-                  value={auditFilterFrom}
-                  onChange={e => setAuditFilterFrom(e.target.value)}
-                  style={{ fontSize: 11, fontFamily: 'monospace', background: 'var(--fl-bg)', color: 'var(--fl-text)', border: '1px solid var(--fl-border)', borderRadius: 5, padding: '4px 8px' }}
-                />
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-                <label style={{ fontSize: 10, fontFamily: 'monospace', color: 'var(--fl-dim)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{t('casedetail.audit_filter_to')}</label>
-                <input
-                  className="fl-input"
-                  type="date"
-                  value={auditFilterTo}
-                  onChange={e => setAuditFilterTo(e.target.value)}
-                  style={{ fontSize: 11, fontFamily: 'monospace', background: 'var(--fl-bg)', color: 'var(--fl-text)', border: '1px solid var(--fl-border)', borderRadius: 5, padding: '4px 8px' }}
-                />
-              </div>
-              <div style={{ display: 'flex', gap: 6, alignSelf: 'flex-end' }}>
-                <button
-                  className="fl-btn fl-btn-primary fl-btn-sm"
-                  onClick={applyFilters}
-                  style={{ fontSize: 11, fontFamily: 'monospace' }}
-                >
-                  {t('casedetail.audit_apply')}
-                </button>
-                <button
-                  className="fl-btn fl-btn-ghost fl-btn-sm"
-                  onClick={resetFilters}
-                  style={{ fontSize: 11, fontFamily: 'monospace' }}
-                >
-                  {t('common.refresh')}
-                </button>
-              </div>
-            </div>
-
-            {loadingAudit ? (
-              <div className="flex items-center justify-center py-10">
-                <Spinner size={16} text={t('casedetail.audit_loading')} />
-              </div>
-            ) : auditEntries.length === 0 ? (
-              <div className="rounded-xl p-10 text-center border" style={{ background: 'var(--fl-bg)', borderColor: 'var(--fl-border)' }}>
-                <ScrollText size={32} style={{ color: 'var(--fl-muted)', margin: '0 auto 10px' }} />
-                <p className="text-sm" style={{ color: 'var(--fl-dim)' }}>{t('casedetail.audit_empty')}</p>
-              </div>
-            ) : (
-              <>
-                <div className="rounded-xl border overflow-hidden" style={{ background: 'var(--fl-bg)', borderColor: 'var(--fl-border)' }}>
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr style={{ borderBottom: '1px solid var(--fl-border)' }}>
-                        {['Horodatage', 'Utilisateur', 'Action', 'Objet', 'Détails', 'IP'].map(h => (
-                          <th key={h} className="text-left px-4 py-3 text-xs font-mono uppercase tracking-wider" style={{ color: 'var(--fl-dim)' }}>{h}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {auditEntries.map(a => {
-                        const color = AUDIT_COLORS[a.action] || 'var(--fl-dim)';
-                        const label = AUDIT_LABELS[a.action] || a.action;
-                        const details = a.details || {};
-                        const detailStr = details.filename || details.title || details.username || details.case_number || details.rule_name || details.reason || details.value || '';
-                        return (
-                          <tr key={a.id} style={{ borderBottom: '1px solid rgba(28,38,64,0.3)' }}>
-                            <td className="px-4 py-2.5 font-mono text-xs whitespace-nowrap" style={{ color: 'var(--fl-dim)' }}>
-                              {fmtLocal(a.created_at)}
-                            </td>
-                            <td className="px-4 py-2.5">
-                              <span className="px-2 py-0.5 rounded text-xs font-mono font-bold"
-                                style={{ background: '#4d82c014', color: 'var(--fl-accent)', border: '1px solid #4d82c028' }}>
-                                {a.username || a.user_name || '—'}
-                              </span>
-                            </td>
-                            <td className="px-4 py-2.5">
-                              <span className="px-2 py-0.5 rounded text-xs font-mono font-bold"
-                                style={{ background: `${color}14`, color, border: `1px solid ${color}28` }}>
-                                {label}
-                              </span>
-                            </td>
-                            <td className="px-4 py-2.5 text-xs font-mono" style={{ color: 'var(--fl-dim)' }}>{a.entity_type}</td>
-                            <td className="px-4 py-2.5 text-xs font-mono" style={{ color: 'var(--fl-text)', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
-                              title={detailStr}>{detailStr}</td>
-                            <td className="px-4 py-2.5 text-xs font-mono" style={{ color: 'var(--fl-muted)' }}>{a.ip_address || '—'}</td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-
-                <Pagination
-                  page={auditPage + 1}
-                  totalPages={totalPages}
-                  onChange={p => { setAuditPage(p - 1); fetchAuditLog(p - 1, { action: auditFilterAction, username: auditFilterUser, date_from: auditFilterFrom, date_to: auditFilterTo }); }}
-                  siblingCount={1}
-                />
-              </>
-            )}
-          </div>
-        );
-      })()}
+      </div>
 
       </div>
 
@@ -2441,20 +1868,19 @@ export default function CaseDetailPage({ user }) {
         accentColor="var(--fl-danger)"
       >
         <Modal.Body>
-          <div style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--fl-danger)', marginBottom: 14, letterSpacing: '0.04em' }}>
-            {hardDeleteResult ? 'VÉRIFICATION BASE DE DONNÉES' : 'ACTION IRRÉVERSIBLE · ADMIN UNIQUEMENT'}
+          <div style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10, color: 'var(--fl-danger)', marginBottom: 14, letterSpacing: '0.04em' }}>
+            {hardDeleteResult ? t('casedetail.db_verification') : t('casedetail.admin_irreversible_action')}
           </div>
 
           {!hardDeleting && !hardDeleteResult && (
             <>
               <div style={{ marginBottom: 16, padding: '10px 14px', borderRadius: 8, background: 'rgba(218,54,51,0.06)', border: '1px solid rgba(218,54,51,0.18)', fontSize: 12, color: 'var(--fl-muted)', lineHeight: 1.7 }}>
-                Détruira <strong style={{ color: 'var(--fl-text)' }}>{caseData?.case_number}</strong> ainsi que tous ses fichiers
-                (via <code style={{ color: 'var(--fl-danger)', fontFamily: 'monospace' }}>DoD 5220.22-M</code>), preuves, IOCs,
-                timeline, rapports et données MITRE.<br />
-                <span style={{ color: 'var(--fl-warn)', fontSize: 11 }}>Un enregistrement d'audit immutable sera conservé.</span>
+                {t('casedetail.hard_delete_intro', { caseNumber: caseData?.case_number })}{' '}
+                (<code style={{ color: 'var(--fl-danger)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}>DoD 5220.22-M</code>), {t('casedetail.hard_delete_scope')}<br />
+                <span style={{ color: 'var(--fl-warn)', fontSize: 11 }}>{t('casedetail.audit_record_kept')}</span>
               </div>
-              <div style={{ marginBottom: 6, fontSize: 11, fontFamily: 'monospace', color: 'var(--fl-dim)' }}>
-                Tapez <code style={{ color: 'var(--fl-danger)', letterSpacing: '0.05em' }}>{caseData?.case_number}</code> pour confirmer :
+              <div style={{ marginBottom: 6, fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-dim)' }}>
+                {t('casedetail.type_case_number_confirm_prefix')} <code style={{ color: 'var(--fl-danger)', letterSpacing: '0.05em' }}>{caseData?.case_number}</code> {t('casedetail.type_case_number_confirm_suffix')}
               </div>
               <input
                 value={hardDeleteConfirm}
@@ -2470,8 +1896,8 @@ export default function CaseDetailPage({ user }) {
           {hardDeleting && (
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '32px 0', gap: 14 }}>
               <Spinner size={32} color="var(--fl-danger)" />
-              <div style={{ fontFamily: 'monospace', fontSize: 13, color: 'var(--fl-muted)' }}>Destruction sécurisée en cours…</div>
-              <div style={{ fontSize: 11, color: 'var(--fl-dim)', fontFamily: 'monospace' }}>DoD 5220.22-M · cascade delete · audit log</div>
+              <div style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 13, color: 'var(--fl-muted)' }}>{t('casedetail.secure_delete_running')}</div>
+              <div style={{ fontSize: 11, color: 'var(--fl-dim)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}>DoD 5220.22-M · cascade delete · audit log</div>
             </div>
           )}
 
@@ -2487,38 +1913,38 @@ export default function CaseDetailPage({ user }) {
                     ? <span style={{ fontSize: 18 }}>✅</span>
                     : <span style={{ fontSize: 18 }}>❌</span>
                   }
-                  <span style={{ fontFamily: 'monospace', fontSize: 12, fontWeight: 700, color: hardDeleteResult.ok ? 'var(--fl-ok)' : 'var(--fl-danger)' }}>
-                    {hardDeleteResult.ok ? 'Destruction réussie' : 'Échec de la destruction'}
+                  <span style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 12, fontWeight: 700, color: hardDeleteResult.ok ? 'var(--fl-ok)' : 'var(--fl-danger)' }}>
+                    {hardDeleteResult.ok ? t('casedetail.hard_delete_success') : t('casedetail.hard_delete_failed')}
                   </span>
                 </div>
 
                 {hardDeleteResult.ok && (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginLeft: 26 }}>
-                    <div style={{ fontSize: 12, fontFamily: 'monospace', color: 'var(--fl-ok)' }}>
-                      ✓ {hardDeleteResult.files_destroyed} fichier{hardDeleteResult.files_destroyed !== 1 ? 's' : ''} détruit{hardDeleteResult.files_destroyed !== 1 ? 's' : ''} (DoD 5220.22-M)
+                    <div style={{ fontSize: 12, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-ok)' }}>
+                      {t(hardDeleteResult.files_destroyed === 1 ? 'casedetail.file_destroyed' : 'casedetail.files_destroyed', { count: hardDeleteResult.files_destroyed })}
                     </div>
-                    <div style={{ fontSize: 12, fontFamily: 'monospace', color: hardDeleteResult.verified ? 'var(--fl-ok)' : 'var(--fl-danger)' }}>
+                    <div style={{ fontSize: 12, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: hardDeleteResult.verified ? 'var(--fl-ok)' : 'var(--fl-danger)' }}>
                       {hardDeleteResult.verified
-                        ? '✓ Absence confirmée en base de données (HTTP 404)'
-                        : '⚠ Le cas semble toujours accessible en base de données'}
+                        ? t('casedetail.db_absence_confirmed')
+                        : t('casedetail.db_still_accessible')}
                     </div>
                     {hardDeleteResult.files_errors?.length > 0 && (
-                      <div style={{ fontSize: 11, fontFamily: 'monospace', color: 'var(--fl-warn)' }}>
-                        ⚠ {hardDeleteResult.files_errors.length} fichier(s) non écrasé(s) : {hardDeleteResult.files_errors.join(', ')}
+                      <div style={{ fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-warn)' }}>
+                        {t('casedetail.files_not_overwritten', { count: hardDeleteResult.files_errors.length, files: hardDeleteResult.files_errors.join(', ') })}
                       </div>
                     )}
                   </div>
                 )}
 
                 {!hardDeleteResult.ok && (
-                  <div style={{ marginLeft: 26, fontSize: 12, fontFamily: 'monospace', color: 'var(--fl-danger)' }}>
+                  <div style={{ marginLeft: 26, fontSize: 12, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-danger)' }}>
                     {hardDeleteResult.error}
                   </div>
                 )}
               </div>
 
-              <div style={{ padding: '8px 12px', borderRadius: 6, background: 'var(--fl-bg)', border: '1px solid var(--fl-border)', fontSize: 11, fontFamily: 'monospace', color: 'var(--fl-dim)' }}>
-                Un enregistrement d'audit a été conservé conformément à l'Art. 17(3) RGPD.
+              <div style={{ padding: '8px 12px', borderRadius: 6, background: 'var(--fl-bg)', border: '1px solid var(--fl-border)', fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-dim)' }}>
+                {t('casedetail.gdpr_audit_kept')}
               </div>
             </div>
           )}
@@ -2574,69 +2000,27 @@ export default function CaseDetailPage({ user }) {
       </Modal>
 
       <Modal
-        open={showDeleteCollect}
-        title={t('casedetail.delete_collect_title')}
-        onClose={() => !deletingCollect && setShowDeleteCollect(false)}
-        size="sm"
-        accentColor="var(--fl-danger)"
-      >
-        <Modal.Body>
-          <p className="text-xs mb-1" style={{ color: 'var(--fl-dim)' }}>{t('casedetail.hard_delete_warn1')}</p>
-          <p className="text-sm mb-2" style={{ color: 'var(--fl-muted)' }}>
-            {t('casedetail.delete_collect_sub')}
-          </p>
-        </Modal.Body>
-        <Modal.Footer>
-          <Button variant="secondary" size="sm" onClick={() => setShowDeleteCollect(false)} disabled={deletingCollect}>
-            {t('common.cancel')}
-          </Button>
-          <Button
-            variant="danger"
-            size="sm"
-            loading={deletingCollect}
-            icon={deletingCollect ? undefined : Trash2}
-            onClick={async () => {
-              setDeletingCollect(true);
-              try {
-                const res = await collectionAPI.deleteData(id);
-                setStTotal(0);
-                setStReloadKey(k => k + 1);
-                setShowDeleteCollect(false);
-                const mb = res.data?.freed_mb || 0;
-                alert(mb > 0 ? `Données supprimées — ${mb} Mo libérés.` : 'Données supprimées.');
-              } catch (e) {
-                alert(t('casedetail.err_deadline') + (e.response?.data?.error || e.message));
-              }
-              setDeletingCollect(false);
-            }}
-          >
-            {deletingCollect ? t('casedetail.deleting_collect') : t('casedetail.delete_collect_btn')}
-          </Button>
-        </Modal.Footer>
-      </Modal>
-
-      <Modal
         open={Boolean(statusModal) && Boolean(c)}
         title={t('casedetail.status_modal_title')}
         onClose={() => setStatusModal(null)}
         size="sm"
       >
         <Modal.Body>
-          <div style={{ fontSize: 12, color: 'var(--fl-dim)', marginBottom: 16, fontFamily: 'monospace' }}>
+          <div style={{ fontSize: 12, color: 'var(--fl-dim)', marginBottom: 16, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}>
             {c?.case_number} · {c?.title}
           </div>
 
           {statusModal === '_pick' ? (
             <>
               <div style={{ fontSize: 12, color: 'var(--fl-muted)', marginBottom: 12 }}>
-                Statut actuel : <span style={{ color: SM[c?.status]?.c, fontWeight: 600 }}>{SM[c?.status]?.l}</span>
+                {t('casedetail.current_status')} <span style={{ color: SM[c?.status]?.c, fontWeight: 600 }}>{SM[c?.status]?.l}</span>
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {Object.entries(SM).filter(([k]) => k !== c?.status).map(([key, { l, c: col }]) => (
                   <button key={key} onClick={() => setStatusModal(key)}
                     style={{
                       display: 'flex', alignItems: 'center', gap: 10, padding: '11px 14px',
-                      background: `${col}10`, border: `1px solid ${col}30`, borderRadius: 8,
+                      background: `color-mix(in srgb, ${col} 6%, transparent)`, border: `1px solid color-mix(in srgb, ${col} 19%, transparent)`, borderRadius: 8,
                       cursor: 'pointer', textAlign: 'left',
                     }}>
                     <span style={{ width: 8, height: 8, borderRadius: '50%', background: col, flexShrink: 0 }} />
@@ -2654,18 +2038,18 @@ export default function CaseDetailPage({ user }) {
               }}>
                 {statusModal === 'closed' ? (
                   <>
-                    Vous êtes sur le point de <strong style={{ color: 'var(--fl-danger)' }}>clôturer définitivement</strong> ce cas.<br />
-                    <span style={{ fontSize: 11, color: 'var(--fl-dim)' }}>Cette action est réversible — un admin peut rouvrir le cas si nécessaire.</span>
+                    {t('casedetail.close_case_confirm_prefix')} <strong style={{ color: 'var(--fl-danger)' }}>{t('casedetail.close_permanently')}</strong> {t('casedetail.close_case_confirm_suffix')}<br />
+                    <span style={{ fontSize: 11, color: 'var(--fl-dim)' }}>{t('casedetail.status_reversible_hint')}</span>
                   </>
                 ) : statusModal === 'pending' ? (
-                  <>Mettre le cas en <strong style={{ color: 'var(--fl-warn)' }}>attente</strong> — l'investigation sera suspendue.</>
+                  <>{t('casedetail.pending_case_prefix')} <strong style={{ color: 'var(--fl-warn)' }}>{t('casedetail.pending')}</strong> — {t('casedetail.pending_case_suffix')}</>
                 ) : (
-                  <>Rouvrir le cas et le passer <strong style={{ color: 'var(--fl-accent)' }}>en cours</strong>.</>
+                  <>{t('casedetail.reopen_case_prefix')} <strong style={{ color: 'var(--fl-accent)' }}>{t('casedetail.in_progress')}</strong>.</>
                 )}
               </div>
               <div style={{ fontSize: 12, color: 'var(--fl-muted)', marginBottom: 4 }}>
-                Nouveau statut : <span style={{ color: SM[statusModal]?.c, fontWeight: 700 }}>{SM[statusModal]?.l}</span>
-                {user && <span style={{ color: 'var(--fl-border)' }}> · par {user.full_name || user.username}</span>}
+                {t('casedetail.new_status')} <span style={{ color: SM[statusModal]?.c, fontWeight: 700 }}>{SM[statusModal]?.l}</span>
+                {user && <span style={{ color: 'var(--fl-border)' }}> · {t('casedetail.by_user', { user: user.full_name || user.username })}</span>}
               </div>
             </>
           )}
@@ -2704,11 +2088,11 @@ export default function CaseDetailPage({ user }) {
           {triageRunning && (
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '32px 0', gap: 14 }}>
               <Spinner size={28} color="var(--fl-gold)" />
-              <div style={{ fontFamily: 'monospace', fontSize: 13, color: 'var(--fl-dim)' }}>
+              <div style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 13, color: 'var(--fl-dim)' }}>
                 {t('casedetail.triage_running')}
               </div>
-              <div style={{ fontSize: 11, color: 'var(--fl-muted)', fontFamily: 'monospace' }}>
-                Requêtes SQL sur collection_timeline · scoring pondéré
+              <div style={{ fontSize: 11, color: 'var(--fl-muted)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}>
+                {t('casedetail.triage_sql_hint')}
               </div>
             </div>
           )}
@@ -2720,10 +2104,10 @@ export default function CaseDetailPage({ user }) {
                     ['YARA', triageData.case_indicators.yara_matches, 'var(--fl-danger)'],
                     ['Sigma', triageData.case_indicators.sigma_matches, 'var(--fl-warn)'],
                     ['Threat Intel', triageData.case_indicators.threat_intel_matches, 'var(--fl-purple)'],
-                    ['IOCs malveillants', triageData.case_indicators.malicious_iocs, 'var(--fl-gold)'],
+                    [t('casedetail.malicious_iocs'), triageData.case_indicators.malicious_iocs, 'var(--fl-gold)'],
                   ].map(([label, val, color]) => val > 0 ? (
-                    <span key={label} style={{ fontSize: 10, fontFamily: 'monospace', padding: '3px 10px',
-                      borderRadius: 4, background: `${color}18`, color, border: `1px solid ${color}30` }}>
+                    <span key={label} style={{ fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', padding: '3px 10px',
+                      borderRadius: 4, background: `color-mix(in srgb, ${color} 9%, transparent)`, color, border: `1px solid color-mix(in srgb, ${color} 19%, transparent)` }}>
                       {val} {label}
                     </span>
                   ) : null)}
@@ -2732,26 +2116,27 @@ export default function CaseDetailPage({ user }) {
 
               {triageData.scores?.length === 0 && (
                 <div style={{ padding: '24px', textAlign: 'center', color: 'var(--fl-muted)',
-                  fontFamily: 'monospace', fontSize: 11, borderRadius: 8,
+                  fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11, borderRadius: 8,
                   background: 'var(--fl-bg)', border: '1px solid var(--fl-border)' }}>
-                  Aucune donnée dans collection_timeline pour ce cas.<br />
-                  Importez des collectes et parsez-les avant de lancer le triage.
+                  {t('casedetail.no_collection_timeline')}<br />
+                  {t('casedetail.import_parse_before_triage')}
                 </div>
               )}
               {triageData.scores?.length > 0 && (
                 <div style={{ borderRadius: 8, border: '1px solid var(--fl-border)', background: 'var(--fl-bg)', overflow: 'hidden' }}>
                   {triageData.scores.map(m => {
-                    const riskColors = { CRITIQUE: 'var(--fl-danger)', 'ÉLEVÉ': 'var(--fl-warn)', MOYEN: 'var(--fl-gold)', FAIBLE: 'var(--fl-ok)' };
-                    const color = riskColors[m.risk_level] || 'var(--fl-dim)';
+                    const riskKey = (m.risk_level || '').normalize('NFD').replace(/\p{Diacritic}/gu, '').toUpperCase();
+                    const riskColors = { CRITIQUE: 'var(--fl-danger)', ELEVE: 'var(--fl-warn)', MOYEN: 'var(--fl-gold)', FAIBLE: 'var(--fl-ok)' };
+                    const color = riskColors[riskKey] || 'var(--fl-dim)';
                     const breakdown = m.breakdown || {};
                     return (
                       <div key={m.hostname} style={{ padding: '10px 14px', borderBottom: '1px solid #1c2a3a' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
-                          <span style={{ fontFamily: 'monospace', fontSize: 12, color: 'var(--fl-text)', flex: 1 }}>{m.hostname}</span>
-                          <span style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--fl-muted)' }}>{m.event_count?.toLocaleString()} evt</span>
-                          <span style={{ fontFamily: 'monospace', fontSize: 14, fontWeight: 700, color, width: 30, textAlign: 'right' }}>{m.score}</span>
-                          <span style={{ fontSize: 9, fontFamily: 'monospace', padding: '1px 6px', borderRadius: 3,
-                            background: `${color}18`, color, border: `1px solid ${color}35`, minWidth: 55, textAlign: 'center' }}>
+                          <span style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 12, color: 'var(--fl-text)', flex: 1 }}>{m.hostname}</span>
+                          <span style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10, color: 'var(--fl-muted)' }}>{m.event_count?.toLocaleString()} {t('casedetail.event_abbr')}</span>
+                          <span style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 14, fontWeight: 700, color, width: 30, textAlign: 'right' }}>{m.score}</span>
+                          <span style={{ fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', padding: '1px 6px', borderRadius: 3,
+                            background: `color-mix(in srgb, ${color} 9%, transparent)`, color, border: `1px solid color-mix(in srgb, ${color} 21%, transparent)`, minWidth: 55, textAlign: 'center' }}>
                             {m.risk_level}
                           </span>
                         </div>
@@ -2761,7 +2146,7 @@ export default function CaseDetailPage({ user }) {
                         {Object.keys(breakdown).length > 0 && (
                           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
                             {Object.entries(breakdown).map(([rule, pts]) => (
-                              <span key={rule} style={{ fontSize: 9, fontFamily: 'monospace', padding: '1px 5px',
+                              <span key={rule} style={{ fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', padding: '1px 5px',
                                 borderRadius: 3, background: '#1c2a3a', color: 'var(--fl-dim)', border: '1px solid var(--fl-border)' }}>
                                 +{pts} {rule.replace(/_/g, ' ')}
                               </span>
@@ -2775,8 +2160,8 @@ export default function CaseDetailPage({ user }) {
               )}
 
               {triageData.computed_at && (
-                <div style={{ marginTop: 10, fontSize: 10, fontFamily: 'monospace', color: 'var(--fl-muted)', textAlign: 'right' }}>
-                  Calculé le {fmtLocal(triageData.computed_at)}
+                <div style={{ marginTop: 10, fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-muted)', textAlign: 'right' }}>
+                  {t('casedetail.computed_on', { date: fmtLocal(triageData.computed_at) })}
                 </div>
               )}
             </div>
@@ -2797,7 +2182,7 @@ export default function CaseDetailPage({ user }) {
 
       <Modal
         open={legalHoldModal === 'enable'}
-        title="Activer le Legal Hold"
+        title={t('casedetail.legal_enable_title')}
         onClose={() => !legalHoldSaving && setLegalHoldModal(false)}
         size="sm"
         accentColor="var(--fl-danger)"
@@ -2806,15 +2191,13 @@ export default function CaseDetailPage({ user }) {
           <div style={{ marginBottom: 14, padding: '10px 14px', borderRadius: 8,
             background: 'rgba(218,54,51,0.06)', border: '1px solid rgba(218,54,51,0.18)',
             fontSize: 12, color: 'var(--fl-muted)', lineHeight: 1.7 }}>
-            Le cas <strong style={{ color: 'var(--fl-text)' }}>{c?.case_number}</strong> sera
-            scellé pour procédure judiciaire. Toutes les preuves seront protégées contre
-            la modification ou la suppression.
+            {t('casedetail.legal_enable_body_prefix')} <strong style={{ color: 'var(--fl-text)' }}>{c?.case_number}</strong> {t('casedetail.legal_enable_body_suffix')}
           </div>
-          <label className="fl-label">Motif (optionnel)</label>
+          <label className="fl-label">{t('casedetail.reason_optional')}</label>
           <input
             value={legalHoldReason}
             onChange={e => setLegalHoldReason(e.target.value)}
-            placeholder="Ex: Réquisition judiciaire n°2026-..., affaire pénale..."
+            placeholder={t('casedetail.legal_reason_ph')}
             className="fl-input w-full"
             autoFocus
           />
@@ -2822,18 +2205,18 @@ export default function CaseDetailPage({ user }) {
         <Modal.Footer>
           <Button variant="secondary" size="sm" disabled={legalHoldSaving}
             onClick={() => { setLegalHoldModal(false); setLegalHoldReason(''); }}>
-            Annuler
+            {t('common.cancel')}
           </Button>
           <Button variant="danger" size="sm" icon={Lock} loading={legalHoldSaving}
             onClick={enableLegalHold}>
-            Activer le Legal Hold
+            {t('casedetail.legal_enable_title')}
           </Button>
         </Modal.Footer>
       </Modal>
 
       <Modal
         open={legalHoldModal === 'disable'}
-        title="Lever le Legal Hold"
+        title={t('casedetail.legal_disable_title')}
         onClose={() => !legalHoldSaving && setLegalHoldModal(false)}
         size="sm"
         accentColor="var(--fl-warn)"
@@ -2842,22 +2225,22 @@ export default function CaseDetailPage({ user }) {
           <div style={{ marginBottom: 14, padding: '10px 14px', borderRadius: 8,
             background: 'rgba(217,124,32,0.06)', border: '1px solid rgba(217,124,32,0.18)',
             fontSize: 12, color: 'var(--fl-muted)', lineHeight: 1.7 }}>
-            Voulez-vous lever le Legal Hold sur le cas{' '}
+            {t('casedetail.legal_disable_body_prefix')}{' '}
             <strong style={{ color: 'var(--fl-text)' }}>{c?.case_number}</strong> ?<br />
             <span style={{ fontSize: 11, color: 'var(--fl-dim)' }}>
-              Les preuves seront à nouveau modifiables. L'action sera enregistrée dans l'audit.
+              {t('casedetail.legal_disable_body_hint')}
             </span>
           </div>
         </Modal.Body>
         <Modal.Footer>
           <Button variant="secondary" size="sm" disabled={legalHoldSaving}
             onClick={() => setLegalHoldModal(false)}>
-            Annuler
+            {t('common.cancel')}
           </Button>
           <Button variant="ghost" size="sm" loading={legalHoldSaving}
             onClick={disableLegalHold}
             style={{ color: 'var(--fl-warn)', borderColor: 'rgba(217,124,32,0.30)', background: 'rgba(217,124,32,0.08)' }}>
-            Lever le Legal Hold
+            {t('casedetail.legal_disable_title')}
           </Button>
         </Modal.Footer>
       </Modal>

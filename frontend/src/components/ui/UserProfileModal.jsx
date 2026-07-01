@@ -8,8 +8,8 @@ import i18n from '../../i18n/index.js';
 
 const CHAT_COLORS = [
   'var(--fl-accent)', 'var(--fl-ok)', 'var(--fl-warn)', 'var(--fl-danger)',
-  'var(--fl-purple)', 'var(--fl-pink)', '#06b6d4', 'var(--fl-gold)',
-  '#f43f5e', '#22c55e',
+  'var(--fl-purple)', 'var(--fl-pink)', 'var(--fl-purple)', 'var(--fl-gold)',
+  'var(--fl-danger)', 'var(--fl-ok)',
 ];
 
 function Section({ icon: Icon, title, children }) {
@@ -18,7 +18,7 @@ function Section({ icon: Icon, title, children }) {
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10,
         paddingBottom: 6, borderBottom: '1px solid var(--fl-border)' }}>
         <Icon size={12} style={{ color: 'var(--fl-accent)' }} />
-        <span style={{ fontFamily: 'monospace', fontSize: 10, fontWeight: 700,
+        <span style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10, fontWeight: 700,
           textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--fl-dim)' }}>
           {title}
         </span>
@@ -38,7 +38,7 @@ function ToggleGroup({ options, value, onChange }) {
           style={{
             flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
             gap: 5, padding: '5px 10px',
-            fontSize: 11, fontFamily: 'monospace', border: 'none', cursor: 'pointer',
+            fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', border: 'none', cursor: 'pointer',
             borderRight: i < options.length - 1 ? '1px solid var(--fl-border)' : 'none',
             background: value === opt.value ? 'rgba(77,130,192,0.15)' : 'transparent',
             color: value === opt.value ? 'var(--fl-accent)' : 'var(--fl-dim)',
@@ -96,17 +96,17 @@ export default function UserProfileModal({ user, onClose }) {
               width: 36, height: 36, borderRadius: '50%',
               background: draft.chat_color,
               display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontFamily: 'monospace', fontWeight: 700, fontSize: 13, color: '#fff',
+              fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontWeight: 700, fontSize: 13, color: '#fff',
               flexShrink: 0,
             }}>
               {initials}
             </div>
             <div>
-              <div style={{ fontFamily: 'monospace', fontSize: 13, fontWeight: 700,
+              <div style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 13, fontWeight: 700,
                 color: 'var(--fl-text)' }}>
                 {t('profile.title')}
               </div>
-              <div style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--fl-muted)' }}>
+              <div style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10, color: 'var(--fl-muted)' }}>
                 {user?.username} · {user?.role?.toUpperCase()}
               </div>
             </div>
@@ -126,7 +126,7 @@ export default function UserProfileModal({ user, onClose }) {
               placeholder={t('profile.display_name_ph')}
               style={{
                 width: '100%', padding: '7px 10px', borderRadius: 6,
-                fontSize: 12, fontFamily: 'monospace',
+                fontSize: 12, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
                 background: 'var(--fl-bg)', color: 'var(--fl-text)',
                 border: '1px solid var(--fl-border)', outline: 'none',
               }}
@@ -153,7 +153,7 @@ export default function UserProfileModal({ user, onClose }) {
                 { value: 'local', label: '🕐 ' + t('profile.tz_local') },
               ]}
             />
-            <div style={{ marginTop: 6, fontSize: 10, fontFamily: 'monospace',
+            <div style={{ marginTop: 6, fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
               color: 'var(--fl-muted)', lineHeight: 1.5 }}>
               {draft.timezone === 'utc'
                 ? t('profile.tz_utc_desc')
@@ -215,7 +215,7 @@ export default function UserProfileModal({ user, onClose }) {
         }}>
           <button onClick={onClose}
             style={{
-              padding: '5px 14px', borderRadius: 6, fontSize: 11, fontFamily: 'monospace',
+              padding: '5px 14px', borderRadius: 6, fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
               background: 'transparent', color: 'var(--fl-dim)',
               border: '1px solid var(--fl-border)', cursor: 'pointer',
             }}>
@@ -223,7 +223,7 @@ export default function UserProfileModal({ user, onClose }) {
           </button>
           <button onClick={handleSave}
             style={{
-              padding: '5px 14px', borderRadius: 6, fontSize: 11, fontFamily: 'monospace',
+              padding: '5px 14px', borderRadius: 6, fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
               background: 'var(--fl-accent)', color: '#fff', border: 'none', cursor: 'pointer',
             }}>
             {t('common.save')}

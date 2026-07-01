@@ -30,8 +30,8 @@ router.get('/ai/models', authenticate, async (_req: AuthRequest, res: Response) 
 });
 
 router.get('/cases/:caseId/ai/history', authenticate, async (req: AuthRequest, res: Response) => {
-  const caseId = parseInt(req.params.caseId, 10);
-  if (isNaN(caseId)) return res.status(400).json({ error: 'caseId invalide' });
+  const caseId = req.params.caseId;
+  if (!caseId) return res.status(400).json({ error: 'caseId requis' });
 
   try {
     const history = await aiService.getConversationHistory(pool(res), caseId);
@@ -42,8 +42,8 @@ router.get('/cases/:caseId/ai/history', authenticate, async (req: AuthRequest, r
 });
 
 router.post('/cases/:caseId/ai/chat', authenticate, async (req: AuthRequest, res: Response) => {
-  const caseId = parseInt(req.params.caseId, 10);
-  if (isNaN(caseId)) return res.status(400).json({ error: 'caseId invalide' });
+  const caseId = req.params.caseId;
+  if (!caseId) return res.status(400).json({ error: 'caseId requis' });
 
   const { message, model, thinkingMode, agentType } = req.body;
   if (!message?.trim()) return res.status(400).json({ error: 'message requis' });
@@ -51,7 +51,7 @@ router.post('/cases/:caseId/ai/chat', authenticate, async (req: AuthRequest, res
 
   try {
     const response = await aiService.chat(
-      pool(res), caseId, parseInt(req.user.id, 10), message.trim(), model, thinkingMode, agentType
+      pool(res), caseId, req.user.id, message.trim(), model, thinkingMode, agentType
     );
     res.json({ response });
   } catch (err: any) {
@@ -60,8 +60,8 @@ router.post('/cases/:caseId/ai/chat', authenticate, async (req: AuthRequest, res
 });
 
 router.post('/cases/:caseId/ai/stream', authenticate, async (req: AuthRequest, res: Response) => {
-  const caseId = parseInt(req.params.caseId, 10);
-  if (isNaN(caseId)) return res.status(400).json({ error: 'caseId invalide' });
+  const caseId = req.params.caseId;
+  if (!caseId) return res.status(400).json({ error: 'caseId requis' });
 
   const { message, model, thinkingMode, agentType } = req.body;
   if (!message?.trim()) return res.status(400).json({ error: 'message requis' });
@@ -69,7 +69,7 @@ router.post('/cases/:caseId/ai/stream', authenticate, async (req: AuthRequest, r
 
   try {
     await aiService.chatStream(
-      pool(res), caseId, parseInt(req.user.id, 10), message.trim(), res, model, thinkingMode, agentType
+      pool(res), caseId, req.user.id, message.trim(), res, model, thinkingMode, agentType
     );
   } catch (err: any) {
     if (!res.headersSent) res.status(502).json({ error: err.message });
@@ -99,8 +99,8 @@ router.post('/cases/:caseId/ai/feedback', authenticate, async (req: AuthRequest,
 });
 
 router.delete('/cases/:caseId/ai/history', authenticate, async (req: AuthRequest, res: Response) => {
-  const caseId = parseInt(req.params.caseId, 10);
-  if (isNaN(caseId)) return res.status(400).json({ error: 'caseId invalide' });
+  const caseId = req.params.caseId;
+  if (!caseId) return res.status(400).json({ error: 'caseId requis' });
 
   try {
     await aiService.clearConversationHistory(pool(res), caseId);
@@ -111,8 +111,8 @@ router.delete('/cases/:caseId/ai/history', authenticate, async (req: AuthRequest
 });
 
 router.get('/cases/:caseId/ai/context', authenticate, async (req: AuthRequest, res: Response) => {
-  const caseId = parseInt(req.params.caseId, 10);
-  if (isNaN(caseId)) return res.status(400).json({ error: 'caseId invalide' });
+  const caseId = req.params.caseId;
+  if (!caseId) return res.status(400).json({ error: 'caseId requis' });
 
   try {
     const ctx = await aiService.getInvestigatorContext(pool(res), caseId);
@@ -123,8 +123,8 @@ router.get('/cases/:caseId/ai/context', authenticate, async (req: AuthRequest, r
 });
 
 router.put('/cases/:caseId/ai/context', authenticate, async (req: AuthRequest, res: Response) => {
-  const caseId = parseInt(req.params.caseId, 10);
-  if (isNaN(caseId)) return res.status(400).json({ error: 'caseId invalide' });
+  const caseId = req.params.caseId;
+  if (!caseId) return res.status(400).json({ error: 'caseId requis' });
 
   const rawText: string = req.body.freeText ?? '';
   const freeText = sanitizeFreeText(rawText);
@@ -134,7 +134,7 @@ router.put('/cases/:caseId/ai/context', authenticate, async (req: AuthRequest, r
   }
 
   try {
-    await aiService.saveInvestigatorContext(pool(res), caseId, parseInt(req.user.id, 10), freeText);
+    await aiService.saveInvestigatorContext(pool(res), caseId, req.user.id, freeText);
 
     io(res).to(`case:${caseId}`).emit('ai:context:updated', {
       caseId,
@@ -149,8 +149,8 @@ router.put('/cases/:caseId/ai/context', authenticate, async (req: AuthRequest, r
 });
 
 router.delete('/cases/:caseId/ai/context', authenticate, async (req: AuthRequest, res: Response) => {
-  const caseId = parseInt(req.params.caseId, 10);
-  if (isNaN(caseId)) return res.status(400).json({ error: 'caseId invalide' });
+  const caseId = req.params.caseId;
+  if (!caseId) return res.status(400).json({ error: 'caseId requis' });
 
   try {
     await aiService.clearInvestigatorContext(pool(res), caseId);

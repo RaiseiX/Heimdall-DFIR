@@ -27,7 +27,7 @@ const COLS = [
   { key: 'level',      label: 'Level',           width: 82              },
   { key: 'event_id',   label: 'EID',              width: 54,  mono: true },
   { key: 'channel',    label: 'Channel',          width: 148, mono: true },
-  { key: 'rule_title', label: 'Règle Sigma',      flex: true             },
+  { key: 'rule_title', label: 'Sigma rule',      flex: true             },
   { key: 'mitre',      label: 'MITRE',            width: 96,  mono: true },
   { key: 'tactic',     label: 'Tactic',           width: 118             },
 ];
@@ -46,7 +46,7 @@ function Highlight({ text, term }) {
   if (idx === -1) return <>{str}</>;
   return (
     <>{str.slice(0, idx)}
-      <mark style={{ background: '#f59e0b35', color: '#f59e0b', borderRadius: 2, padding: '0 1px' }}>
+      <mark style={{ background: 'color-mix(in srgb, var(--fl-warn) 21%, transparent)', color: 'var(--fl-warn)', borderRadius: 2, padding: '0 1px' }}>
         {str.slice(idx, idx + term.length)}
       </mark>
       {str.slice(idx + term.length)}</>
@@ -124,7 +124,7 @@ export default function CaseHayabusaView({ caseId, reloadKey = 0, onTotalChange 
       setHasData(true);
       if (onTotalChange) onTotalChange(data.total_detections || mapped.length);
     } catch (err) {
-      setError(err.response?.data?.error || 'Erreur lors de l\'exécution de Hayabusa');
+      setError(err.response?.data?.error || 'Hayabusa execution error');
     } finally {
       setRunning(false);
     }
@@ -189,7 +189,7 @@ export default function CaseHayabusaView({ caseId, reloadKey = 0, onTotalChange 
   }, [selId, filtered, rowVirtualizer]);
 
   const exportCSV = useCallback(() => {
-    const header = 'Timestamp,Level,EventID,Channel,Règle Sigma,MITRE,Tactique,Détails,Computer';
+    const header = 'Timestamp,Level,EventID,Channel,Sigma rule,MITRE,Tactic,Details,Computer';
     const rows = filtered.map(d => [
       fmtTs(d.timestamp), d.level,
       getF(d, 'event_id', 'eventId'), d.channel || '',
@@ -223,14 +223,14 @@ export default function CaseHayabusaView({ caseId, reloadKey = 0, onTotalChange 
           className="fl-btn fl-btn-danger fl-btn-sm"
           style={{ opacity: (running || loading) ? 0.6 : 1 }}>
           {running
-            ? <><Loader2 size={12} className="animate-spin" /> Analyse…</>
-            : <><Play size={12} /> {hasData ? 'Relancer Hayabusa' : 'Lancer Hayabusa'}</>}
+            ? <><Loader2 size={12} className="animate-spin" /> Analyzing…</>
+            : <><Play size={12} /> {hasData ? 'Rerun Hayabusa' : 'Run Hayabusa'}</>}
         </button>
 
         {hasData && !running && (
           <>
             <button onClick={() => loadData(caseId)} disabled={loading}
-              className="fl-btn fl-btn-ghost fl-btn-sm" title="Recharger les résultats">
+              className="fl-btn fl-btn-ghost fl-btn-sm" title="Refresh results">
               <RefreshCw size={12} />
             </button>
             <button onClick={exportCSV} className="fl-btn fl-btn-ghost fl-btn-sm">
@@ -240,8 +240,8 @@ export default function CaseHayabusaView({ caseId, reloadKey = 0, onTotalChange 
         )}
 
         {generatedAt && (
-          <span style={{ marginLeft: 'auto', fontSize: 10, fontFamily: 'monospace', color: 'var(--fl-muted)' }}>
-            Analyse : {fmtDateTime(generatedAt)}
+          <span style={{ marginLeft: 'auto', fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-muted)' }}>
+            Analysis: {fmtDateTime(generatedAt)}
           </span>
         )}
 
@@ -252,20 +252,20 @@ export default function CaseHayabusaView({ caseId, reloadKey = 0, onTotalChange 
               const cnt = stats[lvl] ?? 0;
               return (
                 <span key={lvl} style={{ display: 'inline-flex', alignItems: 'center', gap: 4,
-                  padding: '1px 8px', borderRadius: 4, fontSize: 10, fontFamily: 'monospace', fontWeight: 700,
-                  background: `${col}14`, color: col, border: `1px solid ${col}30` }}>
+                  padding: '1px 8px', borderRadius: 4, fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontWeight: 700,
+                  background: `color-mix(in srgb, ${col} 8%, transparent)`, color: col, border: `1px solid color-mix(in srgb, ${col} 19%, transparent)` }}>
                   {lvl === 'critical' && <AlertTriangle size={8} />}
                   {lvl.toUpperCase()} <span style={{ fontWeight: 400, opacity: 0.7 }}>{cnt}</span>
                 </span>
               );
             })}
-            <span style={{ padding: '1px 8px', borderRadius: 4, fontSize: 10, fontFamily: 'monospace',
+            <span style={{ padding: '1px 8px', borderRadius: 4, fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
               background: 'var(--fl-card)', color: 'var(--fl-dim)', border: '1px solid var(--fl-border)' }}>
               {evtxCount} EVTX
             </span>
             {starCount > 0 && (
-              <span style={{ padding: '1px 8px', borderRadius: 4, fontSize: 10, fontFamily: 'monospace',
-                background: '#f59e0b14', color: '#f59e0b', border: '1px solid #f59e0b30' }}>
+              <span style={{ padding: '1px 8px', borderRadius: 4, fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
+                background: 'color-mix(in srgb, var(--fl-warn) 8%, transparent)', color: 'var(--fl-warn)', border: '1px solid color-mix(in srgb, var(--fl-warn) 19%, transparent)' }}>
                 ★ {starCount}
               </span>
             )}
@@ -288,13 +288,13 @@ export default function CaseHayabusaView({ caseId, reloadKey = 0, onTotalChange 
       {/* ── Empty / Loading ── */}
       {!hasData && !loading && !running && (
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 10 }}>
-          <Shield size={44} style={{ color: '#da363320' }} />
-          <div style={{ fontFamily: 'monospace', fontSize: 12, fontWeight: 600, color: 'var(--fl-text)' }}>
-            Aucune analyse Hayabusa
+          <Shield size={44} style={{ color: 'color-mix(in srgb, var(--fl-danger) 13%, transparent)' }} />
+          <div style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 12, fontWeight: 600, color: 'var(--fl-text)' }}>
+            No Hayabusa analysis
           </div>
-          <div style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--fl-dim)', textAlign: 'center', maxWidth: 380 }}>
-            Importez une collecte avec des fichiers EVTX,<br />
-            puis cliquez sur <strong style={{ color: 'var(--fl-danger)' }}>Lancer Hayabusa</strong>.
+          <div style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11, color: 'var(--fl-dim)', textAlign: 'center', maxWidth: 380 }}>
+            Import a collection with EVTX files,<br />
+            then click <strong style={{ color: 'var(--fl-danger)' }}>Run Hayabusa</strong>.
           </div>
         </div>
       )}
@@ -302,7 +302,7 @@ export default function CaseHayabusaView({ caseId, reloadKey = 0, onTotalChange 
       {loading && (
         <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10 }}>
           <Loader2 size={20} className="animate-spin" style={{ color: 'var(--fl-danger)' }} />
-          <span style={{ fontFamily: 'monospace', fontSize: 12, color: 'var(--fl-dim)' }}>Chargement Hayabusa…</span>
+          <span style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 12, color: 'var(--fl-dim)' }}>Loading Hayabusa…</span>
         </div>
       )}
 
@@ -317,7 +317,7 @@ export default function CaseHayabusaView({ caseId, reloadKey = 0, onTotalChange 
               <input
                 value={search}
                 onChange={e => setSearch(e.target.value)}
-                placeholder="Règle, MITRE, EID, channel, tactic, computer…"
+                placeholder="Rule, MITRE, EID, channel, tactic, computer…"
                 className="fl-input"
                 style={{ paddingLeft: 27, width: '100%', fontSize: 11 }}
               />
@@ -338,12 +338,12 @@ export default function CaseHayabusaView({ caseId, reloadKey = 0, onTotalChange 
               const active = levelFilter === l;
               return (
                 <button key={l} onClick={() => setLevelFilter(l)}
-                  style={{ padding: '2px 8px', borderRadius: 4, fontSize: 10, fontFamily: 'monospace', fontWeight: 700,
+                  style={{ padding: '2px 8px', borderRadius: 4, fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontWeight: 700,
                     cursor: 'pointer', textTransform: 'uppercase',
-                    background: active ? `${col}18` : 'transparent',
+                    background: active ? `color-mix(in srgb, ${col} 9%, transparent)` : 'transparent',
                     color: active ? col : 'var(--fl-dim)',
                     border: `1px solid ${active ? col + '40' : 'var(--fl-border)'}` }}>
-                  {l === 'all' ? 'Tous' : l}
+                  {l === 'all' ? 'All' : l}
                   {l !== 'all' && <span style={{ marginLeft: 4, opacity: 0.65, fontWeight: 400 }}>({stats[l] || 0})</span>}
                 </button>
               );
@@ -355,18 +355,18 @@ export default function CaseHayabusaView({ caseId, reloadKey = 0, onTotalChange 
                 <select value={tacticFilter} onChange={e => setTacticFilter(e.target.value)}
                   className="fl-select"
                   style={{ fontSize: 10, padding: '2px 7px' }}>
-                  <option value="all">Toutes tactiques</option>
+                  <option value="all">All tactics</option>
                   {tactics.map(t => <option key={t} value={t}>{t}</option>)}
                 </select>
               </>
             )}
 
-            <span style={{ marginLeft: 'auto', fontFamily: 'monospace', fontSize: 10, color: 'var(--fl-dim)', whiteSpace: 'nowrap' }}>
+            <span style={{ marginLeft: 'auto', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10, color: 'var(--fl-dim)', whiteSpace: 'nowrap' }}>
               {filtered.length !== totalCount
                 ? <>{filtered.length} <span style={{ opacity: 0.5 }}>/ {totalCount}</span></>
-                : <>{totalCount} résultats</>
+                : <>{totalCount} results</>
               }
-              {starCount > 0 && <span style={{ color: '#f59e0b', marginLeft: 6 }}>★ {starCount}</span>}
+              {starCount > 0 && <span style={{ color: 'var(--fl-warn)', marginLeft: 6 }}>★ {starCount}</span>}
             </span>
           </div>
 
@@ -386,13 +386,13 @@ export default function CaseHayabusaView({ caseId, reloadKey = 0, onTotalChange 
                   </colgroup>
                   <thead>
                     <tr style={{ background: 'var(--fl-card)' }}>
-                      <th style={{ padding: '4px 6px', fontSize: 9, fontFamily: 'monospace',
+                      <th style={{ padding: '4px 6px', fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
                         color: 'var(--fl-muted)', fontWeight: 600, textAlign: 'center',
                         borderBottom: '1px solid var(--fl-sep)' }}>★</th>
                       <th style={{ padding: '4px 0', borderBottom: '1px solid var(--fl-sep)' }} />
                       {COLS.map(c => (
                         <th key={c.key} style={{
-                          padding: '4px 8px', fontSize: 9, fontFamily: 'monospace', fontWeight: 600,
+                          padding: '4px 8px', fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontWeight: 600,
                           color: 'var(--fl-muted)', textAlign: 'left', textTransform: 'uppercase',
                           letterSpacing: '0.06em', borderBottom: '1px solid var(--fl-sep)',
                           overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
@@ -409,8 +409,8 @@ export default function CaseHayabusaView({ caseId, reloadKey = 0, onTotalChange 
               <div ref={tableContainerRef} style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden' }}>
                 {filtered.length === 0 ? (
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    height: 200, fontFamily: 'monospace', fontSize: 11, color: 'var(--fl-dim)' }}>
-                    Aucune détection pour ces filtres
+                    height: 200, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11, color: 'var(--fl-dim)' }}>
+                    No detections for these filters
                   </div>
                 ) : (
                   <div style={{ height: totalH, position: 'relative' }}>
@@ -432,7 +432,7 @@ export default function CaseHayabusaView({ caseId, reloadKey = 0, onTotalChange 
                           const isStar   = starred.has(d._id);
                           const isCrit   = d.level === 'critical';
                           const rowBg    = isSel
-                            ? `${levelCol}12`
+                            ? `color-mix(in srgb, ${levelCol} 7%, transparent)`
                             : HAY_SEVERITY_BG[d.level] || 'transparent';
 
                           return (
@@ -444,15 +444,15 @@ export default function CaseHayabusaView({ caseId, reloadKey = 0, onTotalChange 
                                 background: rowBg,
                                 borderLeft: isSel
                                   ? `3px solid ${levelCol}`
-                                  : isCrit ? `3px solid ${levelCol}60`
-                                  : isStar  ? '3px solid #f59e0b50'
+                                  : isCrit ? `3px solid color-mix(in srgb, ${levelCol} 38%, transparent)`
+                                  : isStar  ? '3px solid color-mix(in srgb, var(--fl-warn) 31%, transparent)'
                                   : '3px solid transparent',
                               }}
                             >
                               {/* Star */}
                               <td onClick={e => toggleStar(d._id, e)}
                                 style={{ textAlign: 'center', fontSize: 12, cursor: 'pointer',
-                                  color: isStar ? '#f59e0b' : 'var(--fl-panel)', padding: '2px 4px' }}>
+                                  color: isStar ? 'var(--fl-warn)' : 'var(--fl-panel)', padding: '2px 4px' }}>
                                 {isStar ? '★' : '☆'}
                               </td>
 
@@ -463,7 +463,7 @@ export default function CaseHayabusaView({ caseId, reloadKey = 0, onTotalChange 
                               </td>
 
                               {/* Timestamp */}
-                              <td style={{ padding: '2px 8px', fontFamily: 'monospace', fontSize: 10,
+                              <td style={{ padding: '2px 8px', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10,
                                 color: 'var(--fl-accent)', whiteSpace: 'nowrap', overflow: 'hidden' }}>
                                 {fmtTs(d.timestamp)}
                               </td>
@@ -471,22 +471,22 @@ export default function CaseHayabusaView({ caseId, reloadKey = 0, onTotalChange 
                               {/* Level */}
                               <td style={{ padding: '2px 8px', overflow: 'hidden' }}>
                                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3,
-                                  padding: '1px 6px', borderRadius: 3, fontSize: 9, fontFamily: 'monospace',
+                                  padding: '1px 6px', borderRadius: 3, fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
                                   fontWeight: 700, textTransform: 'uppercase',
-                                  background: `${levelCol}18`, color: levelCol, border: `1px solid ${levelCol}28` }}>
+                                  background: `color-mix(in srgb, ${levelCol} 9%, transparent)`, color: levelCol, border: `1px solid color-mix(in srgb, ${levelCol} 16%, transparent)` }}>
                                   {isCrit && <AlertTriangle size={8} />}
                                   {d.level}
                                 </span>
                               </td>
 
                               {/* EID */}
-                              <td style={{ padding: '2px 8px', fontFamily: 'monospace', fontSize: 10,
+                              <td style={{ padding: '2px 8px', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10,
                                 fontWeight: 700, color: 'var(--fl-warn)', overflow: 'hidden' }}>
                                 <Highlight text={eid} term={search} />
                               </td>
 
                               {/* Channel */}
-                              <td style={{ padding: '2px 8px', fontFamily: 'monospace', fontSize: 10,
+                              <td style={{ padding: '2px 8px', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10,
                                 color: 'var(--fl-dim)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                 <Highlight text={d.channel || ''} term={search} />
                               </td>
@@ -501,9 +501,9 @@ export default function CaseHayabusaView({ caseId, reloadKey = 0, onTotalChange 
                               {/* MITRE */}
                               <td style={{ padding: '2px 8px', overflow: 'hidden' }}>
                                 {mitre && (
-                                  <span style={{ fontFamily: 'monospace', fontSize: 9, fontWeight: 600,
+                                  <span style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 9, fontWeight: 600,
                                     padding: '1px 5px', borderRadius: 3, whiteSpace: 'nowrap',
-                                    background: '#4d82c014', color: 'var(--fl-accent)', border: '1px solid #4d82c028' }}>
+                                    background: 'color-mix(in srgb, var(--fl-accent) 8%, transparent)', color: 'var(--fl-accent)', border: '1px solid color-mix(in srgb, var(--fl-accent) 16%, transparent)' }}>
                                     <Highlight text={mitre} term={search} />
                                   </span>
                                 )}
@@ -531,9 +531,11 @@ export default function CaseHayabusaView({ caseId, reloadKey = 0, onTotalChange 
               const eid      = getF(selRow, 'event_id', 'eventId');
               const mitre    = getF(selRow, 'mitre_attack', 'mitre');
               const tactic   = getF(selRow, 'tactic');
-              const details  = getF(selRow, 'details');
-              const computer = getF(selRow, 'computer');
-              const source   = getF(selRow, 'source');
+              const details     = getF(selRow, 'details');
+              const computer    = getF(selRow, 'computer');
+              const channel     = getF(selRow, 'channel', 'source');
+              const userName    = getF(selRow, 'user_name');
+              const processName = getF(selRow, 'process_name');
               const levelCol = LEVEL_COLORS[selRow.level] || 'var(--fl-dim)';
 
               return (
@@ -545,15 +547,15 @@ export default function CaseHayabusaView({ caseId, reloadKey = 0, onTotalChange 
                   display: 'flex', flexDirection: 'column',
                 }}>
                   {/* Panel header */}
-                  <div style={{ padding: '8px 12px 6px', borderBottom: `1px solid ${levelCol}25`,
-                    background: `${levelCol}08`, flexShrink: 0 }}>
+                  <div style={{ padding: '8px 12px 6px', borderBottom: `1px solid color-mix(in srgb, ${levelCol} 15%, transparent)`,
+                    background: `color-mix(in srgb, ${levelCol} 3%, transparent)`, flexShrink: 0 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
                       <button onClick={() => setSelId(null)}
                         style={{ background: 'none', border: 'none', cursor: 'pointer',
                           color: 'var(--fl-dim)', padding: 0, display: 'flex', alignItems: 'center' }}>
                         <X size={13} />
                       </button>
-                      <span style={{ fontFamily: 'monospace', fontSize: 9, color: 'var(--fl-muted)' }}>
+                      <span style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 9, color: 'var(--fl-muted)' }}>
                         {selIdx + 1} / {filtered.length}
                       </span>
                       <div style={{ marginLeft: 'auto', display: 'flex', gap: 4 }}>
@@ -571,7 +573,7 @@ export default function CaseHayabusaView({ caseId, reloadKey = 0, onTotalChange 
                         </button>
                         <button onClick={e => toggleStar(selRow._id, e)}
                           style={{ background: 'none', border: 'none', cursor: 'pointer',
-                            padding: 2, fontSize: 14, color: starred.has(selRow._id) ? '#f59e0b' : 'var(--fl-dim)' }}>
+                            padding: 2, fontSize: 14, color: starred.has(selRow._id) ? 'var(--fl-warn)' : 'var(--fl-dim)' }}>
                           {starred.has(selRow._id) ? '★' : '☆'}
                         </button>
                       </div>
@@ -579,20 +581,20 @@ export default function CaseHayabusaView({ caseId, reloadKey = 0, onTotalChange 
 
                     {/* Badges */}
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                      <span style={{ padding: '2px 8px', borderRadius: 4, fontSize: 9, fontFamily: 'monospace', fontWeight: 700,
-                        background: `${levelCol}18`, color: levelCol, border: `1px solid ${levelCol}35`,
+                      <span style={{ padding: '2px 8px', borderRadius: 4, fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontWeight: 700,
+                        background: `color-mix(in srgb, ${levelCol} 9%, transparent)`, color: levelCol, border: `1px solid color-mix(in srgb, ${levelCol} 21%, transparent)`,
                         textTransform: 'uppercase', display: 'inline-flex', alignItems: 'center', gap: 3 }}>
                         {selRow.level === 'critical' && <AlertTriangle size={8} />}
                         {selRow.level?.toUpperCase()}
                       </span>
                       {mitre && (
-                        <span style={{ padding: '2px 8px', borderRadius: 4, fontSize: 9, fontFamily: 'monospace', fontWeight: 600,
-                          background: '#4d82c018', color: 'var(--fl-accent)', border: '1px solid #4d82c030' }}>
+                        <span style={{ padding: '2px 8px', borderRadius: 4, fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontWeight: 600,
+                          background: 'color-mix(in srgb, var(--fl-accent) 9%, transparent)', color: 'var(--fl-accent)', border: '1px solid color-mix(in srgb, var(--fl-accent) 19%, transparent)' }}>
                           ATT&CK {mitre}
                         </span>
                       )}
                       {tactic && (
-                        <span style={{ padding: '2px 8px', borderRadius: 4, fontSize: 9, fontFamily: 'monospace',
+                        <span style={{ padding: '2px 8px', borderRadius: 4, fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
                           background: 'var(--fl-card)', color: 'var(--fl-dim)', border: '1px solid var(--fl-border)' }}>
                           {tactic}
                         </span>
@@ -602,16 +604,16 @@ export default function CaseHayabusaView({ caseId, reloadKey = 0, onTotalChange 
 
                   {/* Panel body */}
                   <div style={{ padding: '10px 12px', flex: 1 }}>
-                    <div style={{ fontFamily: 'monospace', fontSize: 12, fontWeight: 600,
+                    <div style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 12, fontWeight: 600,
                       color: selRow.level === 'critical' ? 'var(--fl-danger)' : 'var(--fl-text)',
                       marginBottom: 8, lineHeight: 1.4 }}>
                       {rTitle}
                     </div>
 
                     {details && (
-                      <div style={{ padding: '6px 9px', fontFamily: 'monospace', fontSize: 10,
-                        color: 'var(--fl-on-dark)', background: `${levelCol}0c`, borderRadius: 5,
-                        border: `1px solid ${levelCol}30`, marginBottom: 10, lineHeight: 1.6,
+                      <div style={{ padding: '6px 9px', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10,
+                        color: 'var(--fl-on-dark)', background: `color-mix(in srgb, ${levelCol} 5%, transparent)`, borderRadius: 5,
+                        border: `1px solid color-mix(in srgb, ${levelCol} 19%, transparent)`, marginBottom: 10, lineHeight: 1.6,
                         wordBreak: 'break-word' }}>
                         {details}
                       </div>
@@ -621,19 +623,20 @@ export default function CaseHayabusaView({ caseId, reloadKey = 0, onTotalChange 
                       {[
                         ['Timestamp', fmtTs(selRow.timestamp)],
                         ['Event ID',  eid],
-                        ['Channel',   selRow.channel],
+                        ['Channel',   channel],
                         ['Computer',  computer],
-                        ['Source',    source],
+                        ['User',      userName],
+                        ['Process',   processName],
                       ].filter(([, v]) => v).map(([label, value]) => (
-                        <div key={label} style={{ borderRadius: 4, overflow: 'hidden', border: `1px solid ${levelCol}22` }}>
-                          <div style={{ fontFamily: 'monospace', fontSize: 9, color: levelCol,
-                            padding: '2px 7px', background: `${levelCol}14`,
+                        <div key={label} style={{ borderRadius: 4, overflow: 'hidden', border: `1px solid color-mix(in srgb, ${levelCol} 13%, transparent)` }}>
+                          <div style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 9, color: levelCol,
+                            padding: '2px 7px', background: `color-mix(in srgb, ${levelCol} 8%, transparent)`,
                             textTransform: 'uppercase', letterSpacing: '0.07em', fontWeight: 600 }}>
                             {label}
                           </div>
-                          <div style={{ fontFamily: 'monospace', fontSize: 10, color: '#c0cfe0',
+                          <div style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10, color: '#c0cfe0',
                             padding: '4px 7px', wordBreak: 'break-all', lineHeight: 1.5,
-                            background: '#0b101a', borderTop: `1px solid ${levelCol}14` }}>
+                            background: '#0b101a', borderTop: `1px solid color-mix(in srgb, ${levelCol} 8%, transparent)` }}>
                             {String(value).substring(0, 300)}
                           </div>
                         </div>
@@ -642,21 +645,21 @@ export default function CaseHayabusaView({ caseId, reloadKey = 0, onTotalChange 
 
                     {selRow.raw && Object.keys(selRow.raw).length > 0 && (
                       <details style={{ marginTop: 10 }}>
-                        <summary style={{ fontSize: 10, fontFamily: 'monospace', cursor: 'pointer',
+                        <summary style={{ fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', cursor: 'pointer',
                           color: 'var(--fl-dim)', padding: '3px 0' }}>
-                          Données brutes EVTX
+                          Raw EVTX data
                         </summary>
                         <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 3 }}>
                           {Object.entries(selRow.raw).filter(([, v]) => v !== '' && v != null).map(([k, v]) => (
-                            <div key={k} style={{ borderRadius: 3, overflow: 'hidden', border: `1px solid ${levelCol}18` }}>
-                              <div style={{ fontFamily: 'monospace', fontSize: 9, color: levelCol,
-                                padding: '2px 6px', background: `${levelCol}14`,
+                            <div key={k} style={{ borderRadius: 3, overflow: 'hidden', border: `1px solid color-mix(in srgb, ${levelCol} 9%, transparent)` }}>
+                              <div style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 9, color: levelCol,
+                                padding: '2px 6px', background: `color-mix(in srgb, ${levelCol} 8%, transparent)`,
                                 textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 600 }}>
                                 {k}
                               </div>
-                              <div style={{ fontFamily: 'monospace', fontSize: 10, color: '#b0c0d8',
+                              <div style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10, color: '#b0c0d8',
                                 padding: '3px 6px', wordBreak: 'break-all', lineHeight: 1.4,
-                                background: '#0b101a', borderTop: `1px solid ${levelCol}12` }}>
+                                background: '#0b101a', borderTop: `1px solid color-mix(in srgb, ${levelCol} 7%, transparent)` }}>
                                 {String(v).substring(0, 400)}
                               </div>
                             </div>
@@ -674,11 +677,11 @@ export default function CaseHayabusaView({ caseId, reloadKey = 0, onTotalChange 
           <div style={{ borderTop: '1px solid var(--fl-sep)', padding: '3px 12px',
             display: 'flex', alignItems: 'center', justifyContent: 'space-between',
             flexShrink: 0, background: 'var(--fl-bg)' }}>
-            <span style={{ fontFamily: 'monospace', fontSize: 9, color: 'var(--fl-muted)' }}>
+            <span style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 9, color: 'var(--fl-muted)' }}>
               Hayabusa · Sigma · JPCERT/CC · <span style={{ color: 'var(--fl-danger)' }}>yamato-security/hayabusa</span>
             </span>
-            <span style={{ fontFamily: 'monospace', fontSize: 9, color: 'var(--fl-dim)' }}>
-              {evtxCount} EVTX · {totalCount} détections
+            <span style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 9, color: 'var(--fl-dim)' }}>
+              {evtxCount} EVTX · {totalCount} detections
             </span>
           </div>
         </>

@@ -1,6 +1,8 @@
 import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 export default function Pagination({ page, totalPages, onChange, siblingCount = 1 }) {
+  const { t } = useTranslation();
   if (totalPages <= 1) return null;
 
   const pages = buildPageRange(page, totalPages, siblingCount);
@@ -14,7 +16,7 @@ export default function Pagination({ page, totalPages, onChange, siblingCount = 
       <PageBtn
         disabled={page <= 1}
         onClick={() => onChange(page - 1)}
-        title="Page précédente"
+        title={t('common.previous_page')}
       >
         <ChevronLeft size={14} />
       </PageBtn>
@@ -36,7 +38,7 @@ export default function Pagination({ page, totalPages, onChange, siblingCount = 
       <PageBtn
         disabled={page >= totalPages}
         onClick={() => onChange(page + 1)}
-        title="Page suivante"
+        title={t('common.next_page')}
       >
         <ChevronRight size={14} />
       </PageBtn>
@@ -54,7 +56,7 @@ function PageBtn({ children, active, disabled, onClick, title }) {
         display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
         minWidth: 30, height: 30, padding: '0 6px',
         borderRadius: 6,
-        fontSize: 13, fontFamily: 'monospace', fontWeight: active ? 700 : 500,
+        fontSize: 13, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontWeight: active ? 700 : 500,
         background: active ? 'color-mix(in srgb, var(--fl-accent) 15%, transparent)' : 'transparent',
         color: active ? 'var(--fl-accent)' : disabled ? 'var(--fl-muted)' : 'var(--fl-dim)',
         border: active ? '1px solid color-mix(in srgb, var(--fl-accent) 30%, transparent)' : '1px solid transparent',

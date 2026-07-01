@@ -468,4 +468,134 @@ router.post('/ollama/stop', authenticate, requireRole('admin'), async (req, res)
   }
 });
 
+router.get('/access-logs', authenticate, requireRole('admin'), async (req, res) => {
+  try {
+    const {
+      limit      = 10000,
+      cursor,               // BIGSERIAL id cursor for keyset pagination — avoids OFFSET scan
+      method,
+      user_id,
+      date_from,
+      date_to,
+      path: pathFilter,
+    } = req.query;
+
+    const ALLOWED_METHODS = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'];
+    const pageLimit = Math.min(parseInt(limit) || 10000, 100000);
+
+    let query = `SELECT id, user_id, username, method, path, status_code, response_ms, ip_address, created_at
+                 FROM access_log WHERE 1=1`;
+    const params = [];
+
+    // Keyset: fetch rows with id < cursor (older rows), keeps ORDER BY id DESC efficient
+    if (cursor) {
+      params.push(cursor);
+      query += ` AND id < $${params.length}`;
+    }
+    if (method && ALLOWED_METHODS.includes(method.toUpperCase())) {
+      params.push(method.toUpperCase());
+      query += ` AND method = $${params.length}`;
+    }
+    if (user_id) {
+      params.push(user_id);
+      query += ` AND user_id = $${params.length}`;
+    }
+    if (date_from) {
+      params.push(date_from);
+      query += ` AND created_at >= $${params.length}`;
+    }
+    if (date_to) {
+      params.push(date_to + 'T23:59:59Z');
+      query += ` AND created_at <= $${params.length}`;
+    }
+    if (pathFilter) {
+      params.push('%' + pathFilter.replace(/[%_]/g, '\\$&') + '%');
+      query += ` AND path ILIKE $${params.length}`;
+    }
+
+    // COUNT only on first page — avoids expensive COUNT(*) on every paginated request
+    let total = null;
+    if (!cursor) {
+      const countParams = [...params];
+      const countQuery  = query.replace(
+        'SELECT id, user_id, username, method, path, status_code, response_ms, ip_address, created_at',
+        'SELECT COUNT(*)'
+      );
+      const countResult = await pool.query(countQuery, countParams);
+      total = parseInt(countResult.rows[0].count);
+    }
+
+    params.push(pageLimit);
+    query += ` ORDER BY id DESC LIMIT $${params.length}`;
+
+    const result     = await pool.query(query, params);
+    const rows       = result.rows;
+    const nextCursor = rows.length === pageLimit ? rows[rows.length - 1].id : null;
+
+    res.json({ total, rows, next_cursor: nextCursor });
+  } catch (err) {
+    logger.error('[admin/access-logs]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Read the last N lines from a large log file without loading it entirely into memory.
+// Reads 64KB chunks from the end of the file, returns lines newest-first.
+function tailFile(filePath, maxLines) {
+  const CHUNK = 65536;
+  const fd    = fs.openSync(filePath, 'r');
+  const size  = fs.fstatSync(fd).size;
+  let pos       = size;
+  const lines   = [];
+  let remainder = '';
+
+  while (pos > 0 && lines.length < maxLines) {
+    const readSize = Math.min(CHUNK, pos);
+    pos -= readSize;
+    const buf = Buffer.alloc(readSize);
+    fs.readSync(fd, buf, 0, readSize, pos);
+    const chunk = buf.toString('utf8') + remainder;
+    const parts = chunk.split('\n');
+    remainder   = parts.shift(); // potentially incomplete line at chunk boundary
+    for (let i = parts.length - 1; i >= 0; i--) {
+      if (parts[i]) {
+        lines.push(parts[i]); // push newest-first
+        if (lines.length >= maxLines) break;
+      }
+    }
+  }
+  if (remainder && lines.length < maxLines) lines.push(remainder);
+  fs.closeSync(fd);
+  return lines; // newest-first, up to maxLines
+}
+
+router.get('/logs', authenticate, requireRole('admin'), async (req, res) => {
+  const LOG_PATH = path.join('/app/logs', 'heimdall.log');
+  const limit    = Math.min(parseInt(req.query.limit) || 10000, 100000);
+  const search   = (req.query.search || '').toLowerCase();
+  const level    = (req.query.level  || '').toLowerCase();
+
+  try {
+    if (!fs.existsSync(LOG_PATH)) {
+      return res.json({ lines: [], total: 0, note: 'Fichier log introuvable — vérifiez que LOG_FILE=true est défini' });
+    }
+
+    // Fetch extra lines to account for post-filter reduction
+    const fetchN   = search || level ? Math.min(limit * 5, 100000) : limit;
+    const rawLines = tailFile(LOG_PATH, fetchN);
+
+    let parsed = rawLines.map(l => {
+      try { return JSON.parse(l); } catch { return { message: l, level: 'raw', timestamp: '' }; }
+    });
+
+    if (level)  parsed = parsed.filter(e => (e.level || '').toLowerCase() === level);
+    if (search) parsed = parsed.filter(e => JSON.stringify(e).toLowerCase().includes(search));
+
+    res.json({ lines: parsed.slice(0, limit), total: rawLines.length });
+  } catch (err) {
+    logger.error('[admin/logs]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;

@@ -2,18 +2,18 @@ import { createContext, useContext, useState, useEffect } from 'react';
 
 const themes = {
   dark: {
-    bg: '#0d1117', panel: '#161b22', card: '#1c2333', border: '#30363d',
-    accent: '#4d82c0', accentDark: '#3a6aaa', warn: '#d97c20', danger: '#da3633',
-    ok: '#3fb950', gold: '#c89d1d', purple: '#8b72d6', pink: '#c96898',
-    text: '#e6edf3', dim: '#8b9ab4', muted: '#6b7a8a',
-    inputBg: '#0d1117', tableBg: '#161b22', headerBg: '#0d1117',
+    bg: '#0a0c11', panel: '#0e1118', card: '#131722', border: '#1c2334',
+    accent: '#8b7fff', accentDark: '#6c5be8', warn: '#e69654', danger: '#e0556d',
+    ok: '#6abf8e', gold: '#c9a86a', purple: '#8b7fff', pink: '#c96898',
+    text: '#dde0e8', dim: '#a5acba', muted: '#6e7689',
+    inputBg: '#0a0c11', tableBg: '#0e1118', headerBg: '#0a0c11',
   },
   light: {
-    bg: '#f6f8fa', panel: '#ffffff', card: '#ffffff', border: '#d0d7de',
-    accent: '#0969da', accentDark: '#0550ae', warn: '#bf8700', danger: '#cf222e',
-    ok: '#1a7f37', gold: '#9a6700', purple: '#6639ba', pink: '#bf3989',
-    text: '#1f2328', dim: '#57606a', muted: '#818b98',
-    inputBg: '#f6f8fa', tableBg: '#f6f8fa', headerBg: '#f6f8fa',
+    bg: '#f4f6fb', panel: '#ffffff', card: '#f8fafd', border: '#d4dae8',
+    accent: '#6c5df5', accentDark: '#5246e8', warn: '#c4721e', danger: '#cc3355',
+    ok: '#2d9e6e', gold: '#9a7a30', purple: '#6c5df5', pink: '#a63878',
+    text: '#111827', dim: '#4a5568', muted: '#718096',
+    inputBg: '#f4f6fb', tableBg: '#f8fafd', headerBg: '#f4f6fb',
   },
 };
 

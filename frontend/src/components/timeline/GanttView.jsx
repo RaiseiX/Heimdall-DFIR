@@ -138,8 +138,8 @@ export default function GanttView({ records, onSelectRecord }) {
   const handleReset = () => { setZoom(1); setPan(0); };
 
   if (!records?.length) return (
-    <div style={{ padding: 20, textAlign: 'center', fontFamily: 'monospace', fontSize: 11, color: '#2a5a8a' }}>
-      Aucune donnée — chargez des événements pour afficher le Gantt
+    <div style={{ padding: 20, textAlign: 'center', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11, color: '#2a5a8a' }}>
+      No data — load events to display the Gantt chart
     </div>
   );
 
@@ -151,17 +151,17 @@ export default function GanttView({ records, onSelectRecord }) {
       <div style={{
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
         padding: '3px 10px 3px 10px', flexShrink: 0,
-        fontFamily: 'monospace', fontSize: 9, color: '#2a5a8a',
+        fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 9, color: '#2a5a8a',
         textTransform: 'uppercase', letterSpacing: '0.1em',
         borderBottom: '1px solid #0d1f30',
       }}>
-        <span>Vue Gantt · {lanes} pistes · {records.length} événements · molette : zoom · glisser : défilement</span>
+        <span>Gantt view · {lanes} lanes · {records.length} events · wheel: zoom · drag: scroll</span>
         <button
           onClick={handleReset}
           style={{
             background: 'none', border: '1px solid #1a3a5c', borderRadius: 3,
             color: '#2a5a8a', cursor: 'pointer', fontSize: 9, padding: '1px 8px',
-            fontFamily: 'monospace', textTransform: 'uppercase',
+            fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', textTransform: 'uppercase',
           }}
         >Reset</button>
       </div>
@@ -190,7 +190,7 @@ export default function GanttView({ records, onSelectRecord }) {
         
         {zoom !== 1 && (
           <text x={dim.w - 6} y={TICK_H - 8} textAnchor="end" fontSize={8} fill="#1a4a70" fontFamily="monospace">
-            ×{zoom.toFixed(1)}
+            x{zoom.toFixed(1)}
           </text>
         )}
       </svg>

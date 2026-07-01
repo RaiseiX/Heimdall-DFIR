@@ -8,12 +8,19 @@ import { spawnSync } from 'child_process';
 import { v4 as uuidv4 } from 'uuid';
 import logger from '../config/logger';
 import type { Pool } from 'pg';
-import { authenticate, requireRole, auditLog } from '../middleware/auth';
+import { authenticate, requireRole, auditLog, JWT_SECRET } from '../middleware/auth';
+import jwt from 'jsonwebtoken';
+import axios from 'axios';
 import type { AuthRequest } from '../types/index';
 import { validateRule, scanEvidence } from '../services/yaraService';
 import { parseRule, buildQuery } from '../services/sigmaService';
 
 const router = express.Router();
+
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const { caseAccessParam } = require('../middleware/caseAccess');
+router.use(authenticate as any);
+router.param('caseId', caseAccessParam);
 
 function getPool(req: express.Request): Pool {
   return (req as any).app.locals.pool as Pool;
@@ -73,6 +80,19 @@ async function ensureTables(pool: Pool): Promise<void> {
     )
   `);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_sigma_hunt_case ON sigma_hunt_results(case_id)`);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS sysmon_library (
+      config_key   VARCHAR(80) PRIMARY KEY,
+      name         VARCHAR(200) NOT NULL,
+      author       VARCHAR(120),
+      license      VARCHAR(120),
+      source_url   TEXT,
+      content      TEXT NOT NULL,
+      imported_by  UUID REFERENCES users(id) ON DELETE SET NULL,
+      imported_at  TIMESTAMPTZ DEFAULT NOW(),
+      updated_at   TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
 }
 
 let migrationDone = false;
@@ -110,7 +130,7 @@ router.post('/yara/rules', authenticate, (requireRole as any)('analyst', 'admin'
     const { name, description, content, tags } = req.body;
     if (!name || !content) return res.status(400).json({ error: 'name et content sont requis' });
 
-    const validation = validateRule(content);
+    const validation = await validateRule(content);
     if (!validation.valid) return res.status(400).json({ error: validation.error });
 
     const userId = (req as AuthRequest).user?.id;
@@ -133,7 +153,7 @@ router.put('/yara/rules/:id', authenticate, (requireRole as any)('analyst', 'adm
     const { name, description, content, tags, is_active } = req.body;
 
     if (content !== undefined) {
-      const validation = validateRule(content);
+      const validation = await validateRule(content);
       if (!validation.valid) return res.status(400).json({ error: validation.error });
     }
 
@@ -199,7 +219,7 @@ router.post('/yara/scan/:evidenceId', authenticate, (requireRole as any)('analys
 
     const matches: any[] = [];
     for (const rule of rulesResult.rows) {
-      const scanResult = scanEvidence(ev.file_path, rule.content);
+      const scanResult = await scanEvidence(ev.file_path, rule.content);
       if (scanResult.error) {
         logger.warn(`[YARA] Scan error (${rule.name}): ${scanResult.error}`);
         continue;
@@ -691,7 +711,7 @@ router.get('/github/tree', authenticate, async (req, res) => {
   }
 });
 
-router.post('/github/import', authenticate, (requireRole as any)('analyst', 'admin'),
+router.post('/github/import', authenticate, (requireRole as any)('admin'),
   async (req: express.Request, res: express.Response) => {
   try {
     const { owner, repo, type } = req.body as Record<string, any>;
@@ -800,7 +820,7 @@ function walkFiles(dir: string, exts: string[]): string[] {
   return results;
 }
 
-router.post('/github/import-zip', authenticate, (requireRole as any)('analyst', 'admin'),
+router.post('/github/import-zip', authenticate, (requireRole as any)('admin'),
   async (req: express.Request, res: express.Response) => {
     const { owner, repo, type } = req.body as Record<string, any>;
     const branch: string = req.body.branch ?? 'master';
@@ -886,5 +906,105 @@ router.post('/github/import-zip', authenticate, (requireRole as any)('analyst', 
     }
   },
 );
+
+// ── Sysmon community config proxy (avoids browser CORS/CSP to github.com) ────
+// Server-side fetch with a strict allowlist (no arbitrary URL → no SSRF).
+const SYSMON_CATALOG: Record<string, { url: string; filename: string; name: string; author: string; license: string }> = {
+  'swiftonsecurity':           { url: 'https://raw.githubusercontent.com/SwiftOnSecurity/sysmon-config/master/sysmonconfig-export.xml',       filename: 'swiftonsecurity-sysmonconfig.xml',          name: 'SwiftOnSecurity · sysmon-config',            author: '@SwiftOnSecurity',    license: 'Domaine public (CC0-like)' },
+  'sysmon-modular':            { url: 'https://raw.githubusercontent.com/olafhartong/sysmon-modular/master/sysmonconfig.xml',                  filename: 'sysmon-modular-sysmonconfig.xml',           name: 'Olaf Hartong · sysmon-modular',              author: '@olafhartong',        license: 'GPL-3.0' },
+  'neo23x0':                   { url: 'https://raw.githubusercontent.com/Neo23x0/sysmon-config/master/sysmonconfig-export.xml',                filename: 'neo23x0-sysmonconfig.xml',                  name: 'Florian Roth · Neo23x0/sysmon-config',       author: '@Neo23x0 (Nextron)',  license: 'Fork SwiftOnSecurity' },
+  'ion-storm':                 { url: 'https://raw.githubusercontent.com/ion-storm/sysmon-config/master/sysmonconfig-export.xml',              filename: 'ion-storm-sysmonconfig.xml',                name: 'ion-storm · sysmon-config',                  author: '@ion-storm',          license: 'CC BY 4.0' },
+  'sysmon-modular-filedelete': { url: 'https://raw.githubusercontent.com/olafhartong/sysmon-modular/master/sysmonconfig-with-filedelete.xml', filename: 'sysmon-modular-filedelete-sysmonconfig.xml', name: 'Olaf Hartong · sysmon-modular (file-delete)', author: '@olafhartong',       license: 'GPL-3.0' },
+};
+
+function httpsGetText(url: string, redirects = 0): Promise<string> {
+  return new Promise((resolve, reject) => {
+    nodeHttps.get(url, { headers: { 'User-Agent': 'Heimdall-DFIR' } }, (resp) => {
+      const sc = resp.statusCode || 0;
+      if (sc >= 300 && sc < 400 && resp.headers.location && redirects < 3) {
+        resp.resume();
+        return httpsGetText(resp.headers.location, redirects + 1).then(resolve, reject);
+      }
+      if (sc !== 200) { resp.resume(); return reject(new Error('HTTP ' + sc)); }
+      let data = '';
+      resp.setEncoding('utf8');
+      resp.on('data', (c) => { data += c; });
+      resp.on('end', () => resolve(data));
+    }).on('error', reject);
+  });
+}
+
+// Import a community Sysmon config INTO the platform library (server-side store).
+router.post('/sysmon/configs/:key/import', authenticate, (requireRole as any)('admin'), async (req: AuthRequest, res: any) => {
+  const cfg = SYSMON_CATALOG[req.params.key];
+  if (!cfg) return res.status(404).json({ error: 'Configuration Sysmon inconnue' });
+  try {
+    const pool = getPool(req);
+    await ensureTables(pool);
+    const xml = await httpsGetText(cfg.url);
+    if (!xml || !xml.toLowerCase().includes('<sysmon')) throw new Error('Contenu inattendu (XML Sysmon non détecté)');
+    await pool.query(
+      `INSERT INTO sysmon_library (config_key, name, author, license, source_url, content, imported_by, imported_at, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,NOW(),NOW())
+       ON CONFLICT (config_key) DO UPDATE SET content = $6, source_url = $5, imported_by = $7, updated_at = NOW()`,
+      [req.params.key, cfg.name, cfg.author, cfg.license, cfg.url, xml, req.user!.id]
+    );
+    await auditLog(req.user!.id, 'download_sysmon_config', 'sysmon', req.params.key, { url: cfg.url, action: 'import', bytes: xml.length }, req.ip);
+    res.json({ ok: true, key: req.params.key, bytes: xml.length });
+  } catch (e: any) {
+    logger.error('[sysmon import]', e.message);
+    res.status(502).json({ error: 'Import impossible depuis github.com : ' + e.message });
+  }
+});
+
+// List imported Sysmon configs (platform library).
+router.get('/sysmon/library', authenticate, async (req: AuthRequest, res: any) => {
+  try {
+    const r = await getPool(req).query(
+      `SELECT config_key, name, author, license, source_url, length(content) AS size, imported_at, updated_at
+       FROM sysmon_library ORDER BY imported_at DESC`
+    );
+    res.json({ configs: r.rows });
+  } catch (e: any) {
+    logger.error('[sysmon library]', e.message);
+    res.json({ configs: [] });
+  }
+});
+
+// Download the STORED content (e.g. to deploy on an endpoint).
+router.get('/sysmon/library/:key/content', authenticate, async (req: AuthRequest, res: any) => {
+  try {
+    const r = await getPool(req).query('SELECT name, content FROM sysmon_library WHERE config_key = $1', [req.params.key]);
+    if (!r.rows.length) return res.status(404).json({ error: 'Non importé' });
+    res.setHeader('Content-Type', 'application/xml; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${req.params.key}-sysmonconfig.xml"`);
+    res.send(r.rows[0].content);
+  } catch (e: any) { res.status(500).json({ error: 'Erreur serveur' }); }
+});
+
+router.delete('/sysmon/library/:key', authenticate, (requireRole as any)('admin'), async (req: AuthRequest, res: any) => {
+  try { await getPool(req).query('DELETE FROM sysmon_library WHERE config_key = $1', [req.params.key]); res.json({ ok: true }); }
+  catch (e: any) { res.status(500).json({ error: 'Erreur serveur' }); }
+});
+
+// ── "Run all" — background orchestration of every engine on one case ─────────
+// Orchestrator lives in services/runAllService so the parsing pipeline can also
+// auto-launch it (shared job state). Detached server-side job; survives leaving
+// the page; reuses existing endpoints via internal HTTP with a short-lived JWT.
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const { startRunAll, getRunAllJob } = require('../services/runAllService');
+
+router.post('/run-all/:caseId', authenticate, (requireRole as any)('analyst', 'admin'), async (req: AuthRequest, res: any) => {
+  const { caseId } = req.params;
+  const existing = getRunAllJob(caseId);
+  if (existing && existing.status === 'running') return res.json(existing);
+  const job = startRunAll(caseId, req.user, 'manual');
+  await auditLog(req.user!.id, 'run_yara_scan', 'case', caseId, { action: 'run_all_engines' }, req.ip);
+  res.status(202).json(job);
+});
+
+router.get('/run-all/:caseId/status', authenticate, async (req: AuthRequest, res: any) => {
+  res.json(getRunAllJob(req.params.caseId));
+});
 
 export = router;

@@ -38,7 +38,7 @@ export function useSocket(): SocketHookReturn {
     });
 
     socket.on('connect_error', (err: Error) => {
-      console.warn('[Socket.io] Erreur connexion:', err.message);
+      console.warn('[Socket.io] Connection error:', err.message);
     });
 
     return () => {

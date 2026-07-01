@@ -77,7 +77,7 @@ router.get('/feeds', authenticate as any, async (req, res) => {
   }
 });
 
-router.post('/feeds', authenticate as any, (requireRole as any)('admin', 'analyst'), async (req: AuthRequest, res: any) => {
+router.post('/feeds', authenticate as any, (requireRole as any)('admin'), async (req: AuthRequest, res: any) => {
   const pool: Pool = res.app.locals.pool;
   const { name, url, api_root, collection_id, auth_type = 'none', auth_value } = req.body;
 
@@ -102,7 +102,7 @@ router.post('/feeds', authenticate as any, (requireRole as any)('admin', 'analys
   }
 });
 
-router.delete('/feeds/:id', authenticate as any, (requireRole as any)('admin', 'analyst'), async (req: AuthRequest, res: any) => {
+router.delete('/feeds/:id', authenticate as any, (requireRole as any)('admin'), async (req: AuthRequest, res: any) => {
   const pool: Pool = res.app.locals.pool;
   try {
     const { rowCount } = await pool.query(`DELETE FROM taxii_feeds WHERE id = $1`, [req.params.id]);
@@ -113,7 +113,7 @@ router.delete('/feeds/:id', authenticate as any, (requireRole as any)('admin', '
   }
 });
 
-router.post('/feeds/:id/fetch', authenticate as any, (requireRole as any)('admin', 'analyst'), async (req: AuthRequest, res: any) => {
+router.post('/feeds/:id/fetch', authenticate as any, (requireRole as any)('admin'), async (req: AuthRequest, res: any) => {
   const pool: Pool = res.app.locals.pool;
 
   let feed: Record<string, any>;

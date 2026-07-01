@@ -38,7 +38,10 @@ export async function streamAnalysis(
   }, 5000);
 
   const ollamaUrl = new URL('/api/generate', OLLAMA_URL);
-  const body = JSON.stringify({ model, prompt, stream: true });
+  // Thinking models (qwen3.x) otherwise emit a long hidden reasoning trace in a separate
+  // `thinking` field we don't forward → the chat looked frozen on CPU. think:false is the
+  // API switch (recent Ollama); the `/no_think` prompt token is the qwen-native fallback.
+  const body = JSON.stringify({ model, prompt: `${prompt} /no_think`, stream: true, think: false });
 
   return new Promise((resolve, reject) => {
     const req = http.request(

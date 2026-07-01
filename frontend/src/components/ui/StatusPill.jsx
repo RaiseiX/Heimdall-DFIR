@@ -1,16 +1,17 @@
 import { AlertTriangle, ShieldAlert } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 const STATUS_MAP = {
-  active:  { label: 'Actif',        color: 'var(--fl-accent)' },
-  pending: { label: 'En attente',   color: 'var(--fl-warn)'   },
-  closed:  { label: 'Fermé',        color: 'var(--fl-dim)'    },
+  active:  { key: 'case.status_active',  color: 'var(--fl-accent)' },
+  pending: { key: 'case.status_pending', color: 'var(--fl-warn)'   },
+  closed:  { key: 'case.status_closed',  color: 'var(--fl-dim)'    },
 };
 
 const PRIORITY_MAP = {
-  critical: { label: 'Critique', color: 'var(--fl-danger)', Icon: AlertTriangle },
-  high:     { label: 'Haut',     color: 'var(--fl-warn)',   Icon: null          },
-  medium:   { label: 'Moyen',    color: 'var(--fl-gold)',   Icon: null          },
-  low:      { label: 'Faible',   color: 'var(--fl-ok)',     Icon: null          },
+  critical: { key: 'cases.prio_critical', color: 'var(--fl-danger)', Icon: AlertTriangle },
+  high:     { key: 'cases.prio_high',     color: 'var(--fl-warn)',   Icon: null          },
+  medium:   { key: 'cases.prio_medium',   color: 'var(--fl-gold)',   Icon: null          },
+  low:      { key: 'cases.prio_low',      color: 'var(--fl-ok)',     Icon: null          },
 };
 
 const RISK_MAP = {
@@ -21,31 +22,35 @@ const RISK_MAP = {
 };
 
 export function StatusPill({ status }) {
-  const m = STATUS_MAP[status] || { label: status, color: 'var(--fl-dim)' };
+  const { t } = useTranslation();
+  const m = STATUS_MAP[status] || { color: 'var(--fl-dim)' };
   return (
     <span style={{
       display: 'inline-flex', alignItems: 'center',
       padding: '2px 8px', borderRadius: 4,
-      fontSize: 10, fontFamily: 'monospace', fontWeight: 600,
-      background: `${m.color}18`, color: m.color, border: `1px solid ${m.color}35`,
+      fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontWeight: 600,
+      background: `color-mix(in srgb, ${m.color} 9%, transparent)`, color: m.color,
+      border: `1px solid color-mix(in srgb, ${m.color} 21%, transparent)`,
     }}>
-      {m.label}
+      {m.key ? t(m.key) : status}
     </span>
   );
 }
 
 export function PriorityPill({ priority }) {
-  const m = PRIORITY_MAP[priority] || { label: priority, color: 'var(--fl-dim)', Icon: null };
+  const { t } = useTranslation();
+  const m = PRIORITY_MAP[priority] || { color: 'var(--fl-dim)', Icon: null };
   return (
     <span style={{
       display: 'inline-flex', alignItems: 'center', gap: 3,
       padding: '2px 8px', borderRadius: 4,
-      fontSize: 10, fontFamily: 'monospace', fontWeight: 700,
-      background: `${m.color}18`, color: m.color, border: `1px solid ${m.color}35`,
+      fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontWeight: 700,
+      background: `color-mix(in srgb, ${m.color} 9%, transparent)`, color: m.color,
+      border: `1px solid color-mix(in srgb, ${m.color} 21%, transparent)`,
       textTransform: 'uppercase',
     }}>
       {m.Icon && <m.Icon size={9} />}
-      {m.label}
+      {m.key ? t(m.key) : priority}
     </span>
   );
 }
@@ -57,8 +62,9 @@ export function RiskPill({ riskLevel, riskScore }) {
     <span style={{
       display: 'inline-flex', alignItems: 'center', gap: 4,
       padding: '2px 7px', borderRadius: 4,
-      fontSize: 11, fontFamily: 'monospace', fontWeight: 700,
-      background: `${m.color}15`, color: m.color, border: `1px solid ${m.color}30`,
+      fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontWeight: 700,
+      background: `color-mix(in srgb, ${m.color} 8%, transparent)`, color: m.color,
+      border: `1px solid color-mix(in srgb, ${m.color} 19%, transparent)`,
     }}>
       {m.Icon && <m.Icon size={9} />}
       {riskLevel}{riskScore != null ? ` ${riskScore}` : ''}
@@ -75,13 +81,15 @@ export function fmtDuration(seconds) {
 }
 
 export function TimePill({ totalSeconds, analystCount, compact = false }) {
+  const { t } = useTranslation();
   if (!totalSeconds) return null;
+  const analystLabel = t((analystCount || 1) > 1 ? 'common.analyst_count_pl' : 'common.analyst_count', { count: analystCount || 1 });
   return (
-    <span title={`${analystCount || 1} analyste${analystCount > 1 ? 's' : ''} · ${fmtDuration(totalSeconds)}`}
+    <span title={`${analystLabel} · ${fmtDuration(totalSeconds)}`}
       style={{
         display: 'inline-flex', alignItems: 'center', gap: 4,
         padding: '2px 7px', borderRadius: 4,
-        fontSize: 10, fontFamily: 'monospace',
+        fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
         background: 'var(--fl-card)', color: 'var(--fl-dim)',
         border: '1px solid var(--fl-border)',
       }}>

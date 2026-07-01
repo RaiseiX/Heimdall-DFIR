@@ -16,15 +16,15 @@ function fmtBytes(b) {
 }
 
 function nodeColor(n) {
-  if (n.is_suspicious) return '#da3633';
-  if (n.type === 'domain') return '#3fb950';
-  if (n.type === 'url')    return '#a371f7';
-  return n.type === 'internal' ? '#4d82c0' : '#f0883e';
+  if (n.is_suspicious) return 'var(--fl-danger)';
+  if (n.type === 'domain') return 'var(--fl-ok)';
+  if (n.type === 'url')    return 'var(--fl-accent)';
+  return n.type === 'internal' ? 'var(--fl-accent)' : '#f0883e';
 }
 
 const ARTIFACT_COLORS = {
-  evtx: '#4d82c0', hayabusa: '#da3633', mft: '#8b72d6', prefetch: '#22c55e',
-  network: '#f0883e', dns: '#06b6d4', other: '#7d8590',
+  evtx: 'var(--fl-accent)', hayabusa: 'var(--fl-danger)', mft: 'var(--fl-purple)', prefetch: 'var(--fl-ok)',
+  network: '#f0883e', dns: 'var(--fl-purple)', other: '#7d8590',
 };
 
 function fmtTs(ts) {
@@ -157,11 +157,11 @@ export default function NetworkGraphD3({
       grid.append('line').attr('x1', 0).attr('y1', y).attr('x2', width).attr('y2', y).attr('stroke', gridColor).attr('stroke-width', 0.5);
 
     const defs = svg.append('defs');
-    defs.append('radialGradient').attr('id', 'ngBlueN').html('<stop offset="0%" stop-color="#4d82c0" stop-opacity="0.3"/><stop offset="100%" stop-color="#4d82c0" stop-opacity="0"/>');
+    defs.append('radialGradient').attr('id', 'ngBlueN').html('<stop offset="0%" stop-color="var(--fl-accent)" stop-opacity="0.3"/><stop offset="100%" stop-color="var(--fl-accent)" stop-opacity="0"/>');
     defs.append('radialGradient').attr('id', 'ngOrangeN').html('<stop offset="0%" stop-color="#f0883e" stop-opacity="0.3"/><stop offset="100%" stop-color="#f0883e" stop-opacity="0"/>');
-    defs.append('radialGradient').attr('id', 'ngRedN').html('<stop offset="0%" stop-color="#da3633" stop-opacity="0.3"/><stop offset="100%" stop-color="#da3633" stop-opacity="0"/>');
-    defs.append('radialGradient').attr('id', 'ngGreenN').html('<stop offset="0%" stop-color="#3fb950" stop-opacity="0.3"/><stop offset="100%" stop-color="#3fb950" stop-opacity="0"/>');
-    defs.append('radialGradient').attr('id', 'ngPurpleN').html('<stop offset="0%" stop-color="#a371f7" stop-opacity="0.3"/><stop offset="100%" stop-color="#a371f7" stop-opacity="0"/>');
+    defs.append('radialGradient').attr('id', 'ngRedN').html('<stop offset="0%" stop-color="var(--fl-danger)" stop-opacity="0.3"/><stop offset="100%" stop-color="var(--fl-danger)" stop-opacity="0"/>');
+    defs.append('radialGradient').attr('id', 'ngGreenN').html('<stop offset="0%" stop-color="var(--fl-ok)" stop-opacity="0.3"/><stop offset="100%" stop-color="var(--fl-ok)" stop-opacity="0"/>');
+    defs.append('radialGradient').attr('id', 'ngPurpleN').html('<stop offset="0%" stop-color="var(--fl-accent)" stop-opacity="0.3"/><stop offset="100%" stop-color="var(--fl-accent)" stop-opacity="0"/>');
 
     const linkDistance = Math.max(120, width * 0.15);
     const chargeStrength = Math.max(-400, -width * 0.5);
@@ -182,9 +182,9 @@ export default function NetworkGraphD3({
       return beaconEdgeKeys.has(`${src}||${dst}`);
     };
     const edgeColor = (d) => {
-      if (edgeIsBeacon(d)) return '#f97316aa';   // orange — beacon
-      if (d.has_suspicious) return '#da363360';  // red — flagged
-      return '#4d82c050';                         // blue — normal
+      if (edgeIsBeacon(d)) return 'color-mix(in srgb, var(--fl-warn) 67%, transparent)';   // orange — beacon
+      if (d.has_suspicious) return 'color-mix(in srgb, var(--fl-danger) 38%, transparent)';  // red — flagged
+      return 'color-mix(in srgb, var(--fl-accent) 31%, transparent)';                         // blue — normal
     };
     const edgeDash = (d) => {
       if (edgeIsBeacon(d)) return '12,4';
@@ -199,7 +199,7 @@ export default function NetworkGraphD3({
       .style('cursor', 'pointer')
       .on('mouseenter', function(event, d) {
         d3.select(this)
-          .attr('stroke', edgeIsBeacon(d) ? '#f97316ee' : d.has_suspicious ? '#da3633cc' : '#4d82c0cc')
+          .attr('stroke', edgeIsBeacon(d) ? 'color-mix(in srgb, var(--fl-warn) 93%, transparent)' : d.has_suspicious ? 'color-mix(in srgb, var(--fl-danger) 80%, transparent)' : 'color-mix(in srgb, var(--fl-accent) 80%, transparent)')
           .attr('stroke-width', Math.max(2, Math.min(12, Math.log2((d.connection_count || 1) + 1) * 2 + 2)));
       })
       .on('mouseleave', function(event, d) {
@@ -215,7 +215,7 @@ export default function NetworkGraphD3({
         if (port) return `port ${port}`;
         return proto || '';
       })
-      .attr('fill', dimColor).attr('font-size', 8).attr('font-family', 'monospace')
+      .attr('fill', dimColor).attr('font-size', 8).attr('font-family', 'var(--f-mono, "JetBrains Mono", monospace)')
       .attr('text-anchor', 'middle').style('pointer-events', 'none');
 
     g.append('g').selectAll('circle').data(nodesCopy).join('circle')
@@ -234,7 +234,7 @@ export default function NetworkGraphD3({
       .attr('class', 'beacon-ring')
       .attr('r', d => 12 + Math.sqrt(d.connection_count || 1) * 2.5 + 6)
       .attr('fill', 'none')
-      .attr('stroke', '#f9731680')
+      .attr('stroke', 'color-mix(in srgb, var(--fl-warn) 50%, transparent)')
       .attr('stroke-width', 1.5)
       .attr('stroke-dasharray', '6,3');
 
@@ -245,7 +245,7 @@ export default function NetworkGraphD3({
       .attr('class', 'dga-ring')
       .attr('r', d => 12 + Math.sqrt(d.connection_count || 1) * 2.5 + 12)
       .attr('fill', 'none')
-      .attr('stroke', '#da363340')
+      .attr('stroke', 'color-mix(in srgb, var(--fl-danger) 25%, transparent)')
       .attr('stroke-width', 1)
       .attr('stroke-dasharray', '3,3');
 
@@ -285,7 +285,7 @@ export default function NetworkGraphD3({
         }
         return id.length > 30 ? id.substring(0, 28) + '…' : id;
       })
-      .attr('fill', textColor).attr('font-size', 10).attr('font-family', 'monospace')
+      .attr('fill', textColor).attr('font-size', 10).attr('font-family', 'var(--f-mono, "JetBrains Mono", monospace)')
       .attr('text-anchor', 'middle').attr('dy', -18).style('pointer-events', 'none');
 
     simulation.on('tick', () => {
@@ -314,7 +314,7 @@ export default function NetworkGraphD3({
         backdropFilter: 'blur(4px)',
       }}>
 
-        <span style={{ fontSize: 9, fontFamily: 'monospace', color: dimColor, textTransform: 'uppercase', letterSpacing: '0.05em', flexShrink: 0 }}>Vue</span>
+        <span style={{ fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: dimColor, textTransform: 'uppercase', letterSpacing: '0.05em', flexShrink: 0 }}>Vue</span>
         {[
           { id: 'all',     label: 'Tout',     Icon: Network },
           { id: 'ips',     label: 'IPs',      Icon: Globe   },
@@ -329,10 +329,10 @@ export default function NetworkGraphD3({
           return (
             <button key={id} onClick={() => applyPreset(id)} style={{
               display: 'flex', alignItems: 'center', gap: 3,
-              padding: '2px 8px', fontSize: 10, fontFamily: 'monospace', borderRadius: 4, cursor: 'pointer',
+              padding: '2px 8px', fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', borderRadius: 4, cursor: 'pointer',
               background: isActive ? '#1c2d3f' : 'transparent',
-              border: `1px solid ${isActive ? '#4d82c060' : borderColor}`,
-              color: isActive ? '#4d82c0' : dimColor,
+              border: `1px solid ${isActive ? 'color-mix(in srgb, var(--fl-accent) 38%, transparent)' : borderColor}`,
+              color: isActive ? 'var(--fl-accent)' : dimColor,
             }}>
               <Icon size={9} /> {label}
             </button>
@@ -342,16 +342,16 @@ export default function NetworkGraphD3({
         <div style={{ width: 1, height: 14, background: borderColor, flexShrink: 0 }} />
 
         {[
-          { key: 'internal', label: 'Interne',  color: '#4d82c0' },
+          { key: 'internal', label: 'Interne',  color: 'var(--fl-accent)' },
           { key: 'external', label: 'Externe',  color: '#f0883e' },
-          { key: 'domain',   label: 'Domaine',  color: '#3fb950' },
-          { key: 'url',      label: 'URL',      color: '#a371f7' },
+          { key: 'domain',   label: 'Domaine',  color: 'var(--fl-ok)' },
+          { key: 'url',      label: 'URL',      color: 'var(--fl-accent)' },
         ].map(({ key, label, color }) => (
           <button key={key} onClick={() => toggleType(key)} style={{
             display: 'flex', alignItems: 'center', gap: 4,
-            padding: '2px 7px', fontSize: 10, fontFamily: 'monospace', borderRadius: 4, cursor: 'pointer',
-            background: typeFilters[key] ? `${color}15` : 'transparent',
-            border: `1px solid ${typeFilters[key] ? `${color}40` : borderColor}`,
+            padding: '2px 7px', fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', borderRadius: 4, cursor: 'pointer',
+            background: typeFilters[key] ? `color-mix(in srgb, ${color} 8%, transparent)` : 'transparent',
+            border: `1px solid color-mix(in srgb, ${typeFilters[key] ? `${color} 25%, transparent)` : borderColor}`,
             color: typeFilters[key] ? color : dimColor,
             opacity: typeFilters[key] ? 1 : 0.45,
           }}>
@@ -364,19 +364,19 @@ export default function NetworkGraphD3({
 
         <button onClick={() => setSuspiciousOnly(v => !v)} style={{
           display: 'flex', alignItems: 'center', gap: 4,
-          padding: '2px 8px', fontSize: 10, fontFamily: 'monospace', borderRadius: 4, cursor: 'pointer',
-          background: suspiciousOnly ? '#da363315' : 'transparent',
-          color: suspiciousOnly ? '#da3633' : dimColor,
-          border: `1px solid ${suspiciousOnly ? '#da363340' : borderColor}`,
+          padding: '2px 8px', fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', borderRadius: 4, cursor: 'pointer',
+          background: suspiciousOnly ? 'color-mix(in srgb, var(--fl-danger) 8%, transparent)' : 'transparent',
+          color: suspiciousOnly ? 'var(--fl-danger)' : dimColor,
+          border: `1px solid ${suspiciousOnly ? 'color-mix(in srgb, var(--fl-danger) 25%, transparent)' : borderColor}`,
         }}>
           <AlertTriangle size={9} /> Suspects
         </button>
         <button onClick={() => setHideLocalIPs(v => !v)} style={{
           display: 'flex', alignItems: 'center', gap: 4,
-          padding: '2px 8px', fontSize: 10, fontFamily: 'monospace', borderRadius: 4, cursor: 'pointer',
-          background: hideLocalIPs ? '#4d82c015' : 'transparent',
-          color: hideLocalIPs ? '#4d82c0' : dimColor,
-          border: `1px solid ${hideLocalIPs ? '#4d82c040' : borderColor}`,
+          padding: '2px 8px', fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', borderRadius: 4, cursor: 'pointer',
+          background: hideLocalIPs ? 'color-mix(in srgb, var(--fl-accent) 8%, transparent)' : 'transparent',
+          color: hideLocalIPs ? 'var(--fl-accent)' : dimColor,
+          border: `1px solid ${hideLocalIPs ? 'color-mix(in srgb, var(--fl-accent) 25%, transparent)' : borderColor}`,
         }}>
           Masquer RFC1918
         </button>
@@ -387,10 +387,10 @@ export default function NetworkGraphD3({
           <input
             value={nodeSearch}
             onChange={e => setNodeSearch(e.target.value)}
-            placeholder="Rechercher un nœud…"
+            placeholder="Search for a node…"
             style={{
               background: bgColor, border: `1px solid ${borderColor}`, borderRadius: 4,
-              padding: '2px 22px 2px 8px', fontSize: 10, fontFamily: 'monospace',
+              padding: '2px 22px 2px 8px', fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
               color: textColor, width: 180, outline: 'none',
             }}
           />
@@ -415,13 +415,13 @@ export default function NetworkGraphD3({
                     onEvidenceFilter(next);
                   }}
                   style={{
-                    padding: '2px 8px', fontSize: 10, fontFamily: 'monospace', borderRadius: 10, cursor: 'pointer',
-                    background: active ? '#4d82c018' : panelColor,
-                    color: active ? '#4d82c0' : dimColor,
-                    border: `1px solid ${active ? '#4d82c040' : borderColor}`,
+                    padding: '2px 8px', fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', borderRadius: 10, cursor: 'pointer',
+                    background: active ? 'color-mix(in srgb, var(--fl-accent) 9%, transparent)' : panelColor,
+                    color: active ? 'var(--fl-accent)' : dimColor,
+                    border: `1px solid ${active ? 'color-mix(in srgb, var(--fl-accent) 25%, transparent)' : borderColor}`,
                   }}
                 >
-                  Collecte: {label} {active ? '×' : '+'}
+                  Collection: {label} {active ? 'x' : '+'}
                 </button>
               );
             })}
@@ -437,10 +437,10 @@ export default function NetworkGraphD3({
               type="datetime-local"
               value={fromTs}
               onChange={e => onTimeFilter(e.target.value, toTs)}
-              title="Début de la fenêtre temporelle"
+              title="Start of the time window"
               style={{
                 background: bgColor, border: `1px solid ${borderColor}`, borderRadius: 3,
-                color: fromTs ? textColor : dimColor, fontSize: 9, fontFamily: 'monospace',
+                color: fromTs ? textColor : dimColor, fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
                 padding: '1px 4px', maxWidth: 148,
               }}
             />
@@ -449,17 +449,17 @@ export default function NetworkGraphD3({
               type="datetime-local"
               value={toTs}
               onChange={e => onTimeFilter(fromTs, e.target.value)}
-              title="Fin de la fenêtre temporelle"
+              title="End of the time window"
               style={{
                 background: bgColor, border: `1px solid ${borderColor}`, borderRadius: 3,
-                color: toTs ? textColor : dimColor, fontSize: 9, fontFamily: 'monospace',
+                color: toTs ? textColor : dimColor, fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
                 padding: '1px 4px', maxWidth: 148,
               }}
             />
             {(fromTs || toTs) && (
               <button
                 onClick={() => onTimeFilter('', '')}
-                title="Effacer le filtre temporel"
+                title="Clear the time filter"
                 style={{ background: 'none', border: 'none', cursor: 'pointer', color: dimColor, fontSize: 9, padding: '0 2px' }}
               >✕</button>
             )}
@@ -472,18 +472,18 @@ export default function NetworkGraphD3({
             <div style={{ width: 1, height: 14, background: borderColor, flexShrink: 0 }} />
             <span style={{
               display: 'flex', alignItems: 'center', gap: 3, fontSize: 9,
-              fontFamily: 'monospace', padding: '1px 7px', borderRadius: 3,
-              background: '#f9731618', color: '#f97316',
-              border: '1px solid #f9731630',
+              fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', padding: '1px 7px', borderRadius: 3,
+              background: 'color-mix(in srgb, var(--fl-warn) 9%, transparent)', color: 'var(--fl-warn)',
+              border: '1px solid color-mix(in srgb, var(--fl-warn) 19%, transparent)',
             }}>
-              <Radio size={8} /> {beacons.length} beacon{beacons.length > 1 ? 's' : ''} détecté{beacons.length > 1 ? 's' : ''}
+              <Radio size={8} /> {beacons.length} beacon{beacons.length > 1 ? 's' : ''} detected{beacons.length > 1 ? 's' : ''}
             </span>
           </>
         )}
 
-        <span style={{ marginLeft: 'auto', fontSize: 9, fontFamily: 'monospace', color: dimColor, flexShrink: 0 }}>
-          {filteredNodes.length}/{nodes.length} nœuds · {filteredEdges.length} arêtes
-          {susCount > 0 && <span style={{ color: '#da3633' }}> · {susCount} suspectes</span>}
+        <span style={{ marginLeft: 'auto', fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: dimColor, flexShrink: 0 }}>
+          {filteredNodes.length}/{nodes.length} nodes · {filteredEdges.length} edges
+          {susCount > 0 && <span style={{ color: 'var(--fl-danger)' }}> · {susCount} suspicious</span>}
         </span>
       </div>
 
@@ -493,10 +493,10 @@ export default function NetworkGraphD3({
           flexShrink: 0, padding: '4px 12px', background: '#f0883e10',
           borderBottom: `1px solid #f0883e30`,
           display: 'flex', alignItems: 'center', gap: 6,
-          fontSize: 10, fontFamily: 'monospace', color: '#f0883e',
+          fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: '#f0883e',
         }}>
           <AlertTriangle size={11} />
-          Affichage limité à {truncatedLimit} connexions — utilisez le filtre temporel ou le filtre par collecte pour isoler une fenêtre.
+          Display limited to {truncatedLimit} connections — use the time filter or collection filter to isolate a window.
         </div>
       )}
 
@@ -514,8 +514,8 @@ export default function NetworkGraphD3({
           pointerEvents: 'none',
         }}>
           <div style={{ textAlign: 'center', color: dimColor }}>
-            <div style={{ fontSize: 13, marginBottom: 4 }}>Aucune donnee reseau</div>
-            <div style={{ fontSize: 11 }}>Parsez des logs reseau via la page Collection</div>
+            <div style={{ fontSize: 13, marginBottom: 4 }}>No network data</div>
+            <div style={{ fontSize: 11 }}>Parse network logs via the Collection page</div>
           </div>
         </div>
       )}
@@ -535,27 +535,27 @@ export default function NetworkGraphD3({
           }}>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap', marginBottom: 3 }}>
-                {selectedNode.is_suspicious && <AlertTriangle size={12} style={{ color: '#da3633', flexShrink: 0 }} />}
-                {beaconNodeIds.has(selectedNode.id) && <Radio size={12} style={{ color: '#f97316', flexShrink: 0 }} />}
-                <span style={{ fontSize: 11, fontWeight: 700, color: textColor, fontFamily: 'monospace', wordBreak: 'break-all' }}>
+                {selectedNode.is_suspicious && <AlertTriangle size={12} style={{ color: 'var(--fl-danger)', flexShrink: 0 }} />}
+                {beaconNodeIds.has(selectedNode.id) && <Radio size={12} style={{ color: 'var(--fl-warn)', flexShrink: 0 }} />}
+                <span style={{ fontSize: 11, fontWeight: 700, color: textColor, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', wordBreak: 'break-all' }}>
                   {selectedNode.id}
                 </span>
               </div>
               <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
                 <span style={{
-                  fontSize: 9, fontFamily: 'monospace', padding: '1px 5px', borderRadius: 3,
-                  background: '#4d82c018', color: '#4d82c0', border: '1px solid #4d82c030',
+                  fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', padding: '1px 5px', borderRadius: 3,
+                  background: 'color-mix(in srgb, var(--fl-accent) 9%, transparent)', color: 'var(--fl-accent)', border: '1px solid color-mix(in srgb, var(--fl-accent) 19%, transparent)',
                 }}>{selectedNode.type}</span>
                 {beaconNodeIds.has(selectedNode.id) && (() => {
                   const b = beaconByDst[selectedNode.id];
                   return b ? (
-                    <span style={{ fontSize: 9, fontFamily: 'monospace', padding: '1px 5px', borderRadius: 3, background: '#f9731618', color: '#f97316', border: '1px solid #f9731630' }}>
+                    <span style={{ fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', padding: '1px 5px', borderRadius: 3, background: 'color-mix(in srgb, var(--fl-warn) 9%, transparent)', color: 'var(--fl-warn)', border: '1px solid color-mix(in srgb, var(--fl-warn) 19%, transparent)' }}>
                       📡 beacon {b.beacon_score}% · ∅{b.interval_avg_sec}s
                     </span>
                   ) : null;
                 })()}
                 {selectedNode.dga_score >= 60 && (
-                  <span style={{ fontSize: 9, fontFamily: 'monospace', padding: '1px 5px', borderRadius: 3, background: '#da363318', color: '#da3633', border: '1px solid #da363330' }}>
+                  <span style={{ fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', padding: '1px 5px', borderRadius: 3, background: 'color-mix(in srgb, var(--fl-danger) 9%, transparent)', color: 'var(--fl-danger)', border: '1px solid color-mix(in srgb, var(--fl-danger) 19%, transparent)' }}>
                     DGA {selectedNode.dga_score}%
                   </span>
                 )}
@@ -575,21 +575,21 @@ export default function NetworkGraphD3({
               style={{
                 display: 'flex', alignItems: 'center', gap: 5,
                 width: '100%', padding: '6px 10px', fontSize: 11, borderRadius: 4, cursor: 'pointer',
-                background: bgColor, color: '#4d82c0', border: `1px solid ${borderColor}`,
+                background: bgColor, color: 'var(--fl-accent)', border: `1px solid ${borderColor}`,
               }}
             >
-              <ExternalLink size={11} /> Voir dans Super Timeline
+              <ExternalLink size={11} /> View in Super Timeline
             </button>
           </div>
 
           <div style={{ flex: 1, overflowY: 'auto', padding: '10px 14px' }}>
             <div style={{ fontSize: 11, color: dimColor, marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-              Evenements timeline ({loadingEvents ? '...' : nodeEvents.length})
+              Timeline events ({loadingEvents ? '...' : nodeEvents.length})
             </div>
             {loadingEvents ? (
-              <div style={{ color: dimColor, fontSize: 11, textAlign: 'center', padding: 20 }}>Chargement...</div>
+              <div style={{ color: dimColor, fontSize: 11, textAlign: 'center', padding: 20 }}>Loading...</div>
             ) : nodeEvents.length === 0 ? (
-              <div style={{ color: dimColor, fontSize: 11, textAlign: 'center', padding: 20 }}>Aucun evenement trouve</div>
+              <div style={{ color: dimColor, fontSize: 11, textAlign: 'center', padding: 20 }}>No events found</div>
             ) : (
               nodeEvents.map((ev, i) => (
                 <div key={i} style={{
@@ -598,18 +598,18 @@ export default function NetworkGraphD3({
                 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 3, flexWrap: 'wrap' }}>
                     <span style={{
-                      padding: '1px 6px', borderRadius: 3, fontSize: 9, fontFamily: 'monospace',
-                      background: `${ARTIFACT_COLORS[ev.artifact_type] || '#7d8590'}20`,
+                      padding: '1px 6px', borderRadius: 3, fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
+                      background: `color-mix(in srgb, ${ARTIFACT_COLORS[ev.artifact_type] || '#7d8590'} 13%, transparent)`,
                       color: ARTIFACT_COLORS[ev.artifact_type] || '#7d8590',
-                      border: `1px solid ${ARTIFACT_COLORS[ev.artifact_type] || '#7d8590'}30`,
+                      border: `1px solid color-mix(in srgb, ${ARTIFACT_COLORS[ev.artifact_type] || '#7d8590'} 19%, transparent)`,
                     }}>{ev.artifact_type || 'other'}</span>
                     {ev.dst_port && (
-                      <span style={{ fontSize: 9, color: dimColor, fontFamily: 'monospace' }}>
+                      <span style={{ fontSize: 9, color: dimColor, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}>
                         :{ev.dst_port}{ev.protocol ? `/${ev.protocol}` : ''}
                       </span>
                     )}
                     {ev.evidence_name && (
-                      <span style={{ fontSize: 9, color: dimColor, fontFamily: 'monospace' }}>
+                      <span style={{ fontSize: 9, color: dimColor, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}>
                         {ev.evidence_name.split('_')[0] || ev.evidence_name}
                       </span>
                     )}
@@ -617,10 +617,10 @@ export default function NetworkGraphD3({
                   {/* Process name — the "who made this connection" field from Sysmon Image */}
                   {ev.process_name && (
                     <div style={{
-                      fontFamily: 'monospace', fontSize: 9, color: '#a371f7',
+                      fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 9, color: 'var(--fl-accent)',
                       marginBottom: 4, wordBreak: 'break-all',
                       padding: '2px 6px', borderRadius: 3,
-                      background: '#a371f710', border: '1px solid #a371f720',
+                      background: 'color-mix(in srgb, var(--fl-accent) 6%, transparent)', border: '1px solid color-mix(in srgb, var(--fl-accent) 13%, transparent)',
                     }}>
                       ⚙ {ev.process_name.split('\\').pop()}
                     </div>
@@ -628,7 +628,7 @@ export default function NetworkGraphD3({
                   <div style={{ color: textColor, marginBottom: 3, lineHeight: 1.4 }}>
                     {ev.description ? ev.description.slice(0, 120) + (ev.description.length > 120 ? '...' : '') : '—'}
                   </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 4, color: dimColor, fontSize: 9, fontFamily: 'monospace' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 4, color: dimColor, fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}>
                     <Clock size={9} /> {fmtTs(ev.timestamp)}
                   </div>
                 </div>

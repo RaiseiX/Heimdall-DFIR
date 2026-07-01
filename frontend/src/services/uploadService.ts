@@ -6,6 +6,7 @@ import type {
   UploadState,
   ChunkState,
 } from '../types/forensic';
+import i18n from '../i18n/index.js';
 
 const CHUNK_SIZE = 50 * 1024 * 1024;
 const MAX_RETRIES = 3;
@@ -16,6 +17,10 @@ const API_BASE = '/api';
 function authHeaders(): Record<string, string> {
   const token = localStorage.getItem('token');
   return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+function isFrench(): boolean {
+  return String(i18n.language || '').toLowerCase().startsWith('fr');
 }
 
 async function sleep(ms: number): Promise<void> {
@@ -96,7 +101,7 @@ export async function uploadFile(
     onProgress(state);
   }
 
-  onPhaseChange('initializing', 'Initialisation de la session…');
+  onPhaseChange('initializing', i18n.t('upload.init_session'));
 
   let initData: InitUploadResponse;
   try {
@@ -112,12 +117,12 @@ export async function uploadFile(
     initData = (await res.json()) as InitUploadResponse;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    onError(`Échec initialisation: ${msg}`);
+    onError(i18n.t('upload.error_init', { msg }));
     return;
   }
 
   updateState({ uploadId: initData.uploadId, phase: 'uploading' });
-  onPhaseChange('uploading', `${totalChunks} chunks à envoyer`);
+  onPhaseChange('uploading', i18n.t('upload.chunks_to_send', { count: totalChunks }));
 
   let alreadyReceived = new Set<number>();
   try {
@@ -129,7 +134,7 @@ export async function uploadFile(
       const resumeData = await resumeRes.json();
       alreadyReceived = new Set<number>(resumeData.receivedChunks || []);
       if (alreadyReceived.size > 0) {
-        onPhaseChange('uploading', `Reprise — ${alreadyReceived.size}/${totalChunks} chunks déjà reçus`);
+        onPhaseChange('uploading', i18n.t('upload.resume_received', { received: alreadyReceived.size, total: totalChunks }));
       }
     }
   } catch {
@@ -160,7 +165,7 @@ export async function uploadFile(
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
       if (attempt > 0) {
         const delay = RETRY_BASE_DELAY_MS * Math.pow(2, attempt - 1);
-        onPhaseChange('uploading', `Chunk ${idx} — tentative ${attempt + 1}/${MAX_RETRIES + 1} (attente ${delay}ms)…`);
+        onPhaseChange('uploading', i18n.t('upload.chunk_retry', { index: idx, attempt: attempt + 1, max: MAX_RETRIES + 1, delay }));
         await sleep(delay);
       }
 
@@ -208,7 +213,7 @@ export async function uploadFile(
     }
 
     if (!success) {
-      const msg = `Échec chunk ${idx} après ${MAX_RETRIES + 1} tentatives: ${lastError}`;
+      const msg = i18n.t('upload.error_chunk', { index: idx, attempts: MAX_RETRIES + 1, msg: lastError });
       updateState({ phase: 'error', errorMessage: msg });
       onError(msg);
       return;
@@ -216,7 +221,7 @@ export async function uploadFile(
   }
 
   updateState({ phase: 'assembling', progress: 100 });
-  onPhaseChange('assembling', 'Finalisation et calcul des hashes…');
+  onPhaseChange('assembling', i18n.t('upload.finalizing'));
 
   try {
     const res = await fetch(`${API_BASE}/upload/complete`, {
@@ -242,7 +247,7 @@ export async function uploadFile(
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     updateState({ phase: 'error', errorMessage: msg });
-    onError(`Échec finalisation: ${msg}`);
+    onError(i18n.t('upload.error_finalize', { msg }));
   }
 }
 
@@ -254,7 +259,7 @@ function getChunkSize(file: File, index: number, chunkSize: number): number {
 export function formatBytes(bytes: number): string {
   if (bytes === 0) return '0 o';
   const k = 1024;
-  const sizes = ['o', 'Ko', 'Mo', 'Go', 'To'];
+  const sizes = isFrench() ? ['o', 'Ko', 'Mo', 'Go', 'To'] : ['B', 'KB', 'MB', 'GB', 'TB'];
   const i = Math.floor(Math.log(bytes) / Math.log(k));
   return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
 }
