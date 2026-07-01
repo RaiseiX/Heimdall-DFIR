@@ -10,9 +10,9 @@ function CopyBtn({ text }) {
       style={{
         display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
         width: 20, height: 20, borderRadius: 4, cursor: 'pointer', flexShrink: 0,
-        background: ok ? '#22c55e18' : 'var(--fl-card)',
-        color: ok ? '#22c55e' : 'var(--fl-dim)',
-        border: `1px solid ${ok ? '#22c55e40' : 'var(--fl-border)'}`,
+        background: ok ? 'color-mix(in srgb, var(--fl-ok) 9%, transparent)' : 'var(--fl-card)',
+        color: ok ? 'var(--fl-ok)' : 'var(--fl-dim)',
+        border: `1px solid ${ok ? 'color-mix(in srgb, var(--fl-ok) 25%, transparent)' : 'var(--fl-border)'}`,
       }}>
       {ok ? <CheckCheck size={10} /> : <Copy size={10} />}
     </button>
@@ -23,7 +23,7 @@ function MitreBadge({ id }) {
   if (!id) return null;
   return (
     <span style={{
-      fontFamily: 'monospace', fontSize: 9, fontWeight: 700, whiteSpace: 'nowrap',
+      fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 9, fontWeight: 700, whiteSpace: 'nowrap',
       padding: '1px 5px', borderRadius: 3,
       background: 'color-mix(in srgb, var(--fl-accent) 15%, transparent)',
       color: 'var(--fl-accent)',
@@ -36,14 +36,14 @@ const SEV_COLORS = {
   '🔴 CRITICAL': { bg: 'color-mix(in srgb, var(--fl-danger) 12%, transparent)', color: 'var(--fl-danger)', border: 'color-mix(in srgb, var(--fl-danger) 30%, transparent)' },
   '🟠 HIGH':     { bg: 'color-mix(in srgb, var(--fl-warn) 10%, transparent)',   color: 'var(--fl-warn)',   border: 'color-mix(in srgb, var(--fl-warn) 30%, transparent)' },
   '🟡 MEDIUM':   { bg: 'color-mix(in srgb, var(--fl-gold) 10%, transparent)',   color: 'var(--fl-gold)',   border: 'color-mix(in srgb, var(--fl-gold) 30%, transparent)' },
-  '🟢 INFO':     { bg: 'color-mix(in srgb, #22c55e 8%, transparent)',           color: '#22c55e',          border: 'color-mix(in srgb, #22c55e 25%, transparent)' },
+  '🟢 INFO':     { bg: 'color-mix(in srgb, var(--fl-ok) 8%, transparent)',           color: 'var(--fl-ok)',          border: 'color-mix(in srgb, var(--fl-ok) 25%, transparent)' },
 };
 
 function SevBadge({ level }) {
   const c = SEV_COLORS[level] || SEV_COLORS['🟢 INFO'];
   return (
     <span style={{
-      fontSize: 9, fontFamily: 'monospace', fontWeight: 700, whiteSpace: 'nowrap',
+      fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontWeight: 700, whiteSpace: 'nowrap',
       padding: '2px 6px', borderRadius: 3,
       background: c.bg, color: c.color, border: `1px solid ${c.border}`,
     }}>{level}</span>
@@ -177,21 +177,21 @@ function EventTable({ events, search, showCanal }) {
     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
       <thead>
         <tr style={{ background: 'var(--fl-card)' }}>
-          <th style={{ padding: '8px 10px', textAlign: 'left', fontFamily: 'monospace', fontSize: 10,
+          <th style={{ padding: '8px 10px', textAlign: 'left', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10,
             color: T.muted, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em',
             borderBottom: `1px solid ${T.border}`, width: 90 }}>Event ID</th>
           {showCanal && (
-            <th style={{ padding: '8px 10px', textAlign: 'left', fontFamily: 'monospace', fontSize: 10,
+            <th style={{ padding: '8px 10px', textAlign: 'left', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10,
               color: T.muted, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em',
               borderBottom: `1px solid ${T.border}`, width: 180 }}>Canal</th>
           )}
-          <th style={{ padding: '8px 10px', textAlign: 'left', fontFamily: 'monospace', fontSize: 10,
+          <th style={{ padding: '8px 10px', textAlign: 'left', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10,
             color: T.muted, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em',
             borderBottom: `1px solid ${T.border}` }}>Description</th>
-          <th style={{ padding: '8px 10px', textAlign: 'left', fontFamily: 'monospace', fontSize: 10,
+          <th style={{ padding: '8px 10px', textAlign: 'left', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10,
             color: T.muted, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em',
             borderBottom: `1px solid ${T.border}`, width: 100 }}>MITRE</th>
-          <th style={{ padding: '8px 10px', textAlign: 'left', fontFamily: 'monospace', fontSize: 10,
+          <th style={{ padding: '8px 10px', textAlign: 'left', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10,
             color: T.muted, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em',
             borderBottom: `1px solid ${T.border}`, width: 120 }}>Criticité</th>
         </tr>
@@ -199,18 +199,18 @@ function EventTable({ events, search, showCanal }) {
       <tbody>
         {filtered.map((e, i) => (
           <tr key={e.id}
-            style={{ background: i % 2 === 0 ? 'transparent' : `${T.panel}88`,
-              borderBottom: `1px solid ${T.border}22` }}>
+            style={{ background: i % 2 === 0 ? 'transparent' : `color-mix(in srgb, ${T.panel} 53%, transparent)`,
+              borderBottom: `1px solid color-mix(in srgb, ${T.border} 13%, transparent)` }}>
             <td style={{ padding: '8px 10px' }}>
               <div className="flex items-center gap-2">
-                <code style={{ fontFamily: 'monospace', fontSize: 12, fontWeight: 700,
+                <code style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 12, fontWeight: 700,
                   color: T.accent }}>{e.id}</code>
                 <CopyBtn text={e.id} />
               </div>
             </td>
             {showCanal && (
               <td style={{ padding: '8px 10px' }}>
-                <code style={{ fontFamily: 'monospace', fontSize: 10, color: T.muted }}>{e.canal}</code>
+                <code style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10, color: T.muted }}>{e.canal}</code>
               </td>
             )}
             <td style={{ padding: '8px 10px', color: T.text }}>{e.desc}</td>
@@ -250,16 +250,20 @@ function Section({ title, subtitle, children, defaultOpen = true }) {
   );
 }
 
+export const DOC_INDEX = [
+  ...EVTX_FILES, ...SECURITY_EVENTS, ...SYSTEM_EVENTS, ...PS_EVENTS, ...TASK_EVENTS, ...RDP_EVENTS, ...LOGON_TYPES,
+].map(x => ({ title: String(x.id || x.file || x.type || ''), sub: x.desc || x.name || '' })).filter(x => x.title);
+
 export default function EventIdsDoc({ search }) {
   const T = useTheme();
 
   return (
-    <div style={{ padding: '24px 32px', maxWidth: 1000 }}>
-      <div className="mb-6">
-        <h1 className="text-lg font-mono font-bold mb-1" style={{ color: T.text }}>
+    <div style={{ padding: '26px 34px', maxWidth: 1000 }}>
+      <div style={{ marginBottom: 22 }}>
+        <h1 style={{ fontFamily: 'var(--f-display, "Space Grotesk", "Inter", sans-serif)', fontSize: 26, fontWeight: 600, letterSpacing: '-0.02em', color: 'var(--fl-text)', margin: 0 }}>
           Event IDs Windows
         </h1>
-        <p className="text-sm" style={{ color: T.muted }}>
+        <p style={{ fontFamily: 'var(--f-ui, "Inter", sans-serif)', fontSize: 13, color: 'var(--fl-dim)', marginTop: 5 }}>
           Référence complète des Event IDs forensiques · 5 sources EVTX
         </p>
       </div>
@@ -269,22 +273,22 @@ export default function EventIdsDoc({ search }) {
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
             <thead>
               <tr>
-                <th style={{ padding: '6px 10px', textAlign: 'left', fontFamily: 'monospace', fontSize: 10,
+                <th style={{ padding: '6px 10px', textAlign: 'left', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10,
                   color: T.muted, fontWeight: 700, textTransform: 'uppercase',
                   borderBottom: `1px solid ${T.border}` }}>Description</th>
-                <th style={{ padding: '6px 10px', textAlign: 'left', fontFamily: 'monospace', fontSize: 10,
+                <th style={{ padding: '6px 10px', textAlign: 'left', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10,
                   color: T.muted, fontWeight: 700, textTransform: 'uppercase',
                   borderBottom: `1px solid ${T.border}` }}>Fichier EVTX</th>
               </tr>
             </thead>
             <tbody>
               {EVTX_FILES.filter(f => !search || f.file.toLowerCase().includes(search.toLowerCase()) || f.desc.toLowerCase().includes(search.toLowerCase())).map((f, i) => (
-                <tr key={f.file} style={{ background: i % 2 === 0 ? 'transparent' : `${T.panel}88`,
-                  borderBottom: `1px solid ${T.border}22` }}>
+                <tr key={f.file} style={{ background: i % 2 === 0 ? 'transparent' : `color-mix(in srgb, ${T.panel} 53%, transparent)`,
+                  borderBottom: `1px solid color-mix(in srgb, ${T.border} 13%, transparent)` }}>
                   <td style={{ padding: '8px 10px', color: T.text }}>{f.desc}</td>
                   <td style={{ padding: '8px 10px' }}>
                     <div className="flex items-center gap-2">
-                      <code style={{ fontFamily: 'monospace', fontSize: 11, color: T.dim,
+                      <code style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11, color: T.dim,
                         wordBreak: 'break-all' }}>{f.file}</code>
                       <CopyBtn text={f.file} />
                     </div>
@@ -308,7 +312,7 @@ export default function EventIdsDoc({ search }) {
             <thead>
               <tr style={{ background: 'var(--fl-card)' }}>
                 {['Type', 'Nom', 'Description', 'Signal'].map(h => (
-                  <th key={h} style={{ padding: '6px 10px', textAlign: 'left', fontFamily: 'monospace',
+                  <th key={h} style={{ padding: '6px 10px', textAlign: 'left', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
                     fontSize: 10, color: T.muted, fontWeight: 700, textTransform: 'uppercase',
                     borderBottom: `1px solid ${T.border}` }}>{h}</th>
                 ))}
@@ -320,17 +324,17 @@ export default function EventIdsDoc({ search }) {
                 lt.name.toLowerCase().includes(search.toLowerCase()) ||
                 lt.desc.toLowerCase().includes(search.toLowerCase())
               ).map((lt, i) => (
-                <tr key={lt.type} style={{ background: i % 2 === 0 ? 'transparent' : `${T.panel}88`,
-                  borderBottom: `1px solid ${T.border}22` }}>
+                <tr key={lt.type} style={{ background: i % 2 === 0 ? 'transparent' : `color-mix(in srgb, ${T.panel} 53%, transparent)`,
+                  borderBottom: `1px solid color-mix(in srgb, ${T.border} 13%, transparent)` }}>
                   <td style={{ padding: '7px 10px' }}>
                     <div className="flex items-center gap-2">
-                      <code style={{ fontFamily: 'monospace', fontWeight: 700, color: T.accent }}>
+                      <code style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontWeight: 700, color: T.accent }}>
                         Type {lt.type}
                       </code>
                       <CopyBtn text={lt.type} />
                     </div>
                   </td>
-                  <td style={{ padding: '7px 10px', fontFamily: 'monospace', fontSize: 11, color: T.text }}>{lt.name}</td>
+                  <td style={{ padding: '7px 10px', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11, color: T.text }}>{lt.name}</td>
                   <td style={{ padding: '7px 10px', color: T.text }}>{lt.desc}</td>
                   <td style={{ padding: '7px 10px', color: lt.signal.includes('🔴') ? 'var(--fl-danger)' : lt.signal.includes('⚠️') ? 'var(--fl-warn)' : T.muted, fontSize: 11 }}>{lt.signal}</td>
                 </tr>

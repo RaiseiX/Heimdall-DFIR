@@ -1,10 +1,23 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
+const crypto = require('crypto');
 const { pool } = require('../config/database');
-const { authenticate, requireRole, auditLog } = require('../middleware/auth');
+const { authenticate, requireRole, auditLog, computeAuditHmac, computeAuditHmacLegacy } = require('../middleware/auth');
 
 const logger = require('../config/logger').default;
 const router = express.Router();
+
+// Personal API tokens — idempotent DDL at module load (project convention).
+pool.query(`
+  CREATE TABLE IF NOT EXISTS api_tokens (
+    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name        VARCHAR(120) NOT NULL,
+    token_hash  VARCHAR(64) NOT NULL UNIQUE,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    last_used   TIMESTAMPTZ
+  )
+`).catch(err => logger.error('api_tokens DDL:', err.message));
 
 const DEFAULT_PREFERENCES = {
   language: 'fr',
@@ -30,7 +43,8 @@ router.get('/me', authenticate, async (req, res) => {
 
 router.patch('/me/preferences', authenticate, async (req, res) => {
   try {
-    const allowed = ['language', 'timezone', 'theme', 'chat_color', 'table_density', 'display_name'];
+    const allowed = ['language', 'timezone', 'theme', 'chat_color', 'table_density', 'display_name',
+      'notif_desktop', 'notif_critical', 'notif_mentions', 'notif_oncall'];
     const patch = {};
     for (const key of allowed) {
       if (req.body[key] !== undefined) patch[key] = req.body[key];
@@ -47,6 +61,76 @@ router.patch('/me/preferences', authenticate, async (req, res) => {
     const merged = { ...DEFAULT_PREFERENCES, ...(result.rows[0].preferences || {}) };
     res.json({ preferences: merged });
   } catch (err) {
+    res.status(500).json({ error: 'Erreur serveur' });
+  }
+});
+
+// ── Personal API tokens ──────────────────────────────────────────────────────
+router.get('/me/tokens', authenticate, async (req, res) => {
+  try {
+    const r = await pool.query(
+      'SELECT id, name, created_at, last_used FROM api_tokens WHERE user_id = $1 ORDER BY created_at DESC',
+      [req.user.id]
+    );
+    res.json({ tokens: r.rows });
+  } catch (err) {
+    logger.error('tokens list:', err.message);
+    res.status(500).json({ error: 'Erreur serveur' });
+  }
+});
+
+router.post('/me/tokens', authenticate, async (req, res) => {
+  try {
+    const name = String(req.body?.name || '').trim().slice(0, 120);
+    if (!name) return res.status(400).json({ error: 'Nom requis' });
+    const raw  = `hmd_${crypto.randomBytes(32).toString('hex')}`;
+    const hash = crypto.createHash('sha256').update(raw).digest('hex');
+    const r = await pool.query(
+      'INSERT INTO api_tokens (user_id, name, token_hash) VALUES ($1, $2, $3) RETURNING id, name, created_at',
+      [req.user.id, name, hash]
+    );
+    // The raw token is returned ONCE — only the hash is stored.
+    res.status(201).json({ token: raw, ...r.rows[0] });
+  } catch (err) {
+    logger.error('token create:', err.message);
+    res.status(500).json({ error: 'Erreur serveur' });
+  }
+});
+
+router.delete('/me/tokens/:id', authenticate, async (req, res) => {
+  try {
+    await pool.query('DELETE FROM api_tokens WHERE id = $1 AND user_id = $2', [req.params.id, req.user.id]);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Erreur serveur' });
+  }
+});
+
+// ── Active sessions (refresh tokens) ─────────────────────────────────────────
+router.get('/me/sessions', authenticate, async (req, res) => {
+  try {
+    const r = await pool.query(
+      `SELECT id, created_at, expires_at FROM refresh_tokens
+       WHERE user_id = $1 AND revoked = FALSE AND expires_at > NOW()
+       ORDER BY created_at DESC`,
+      [req.user.id]
+    );
+    res.json({ sessions: r.rows });
+  } catch (err) {
+    logger.error('sessions list:', err.message);
+    res.status(500).json({ error: 'Erreur serveur' });
+  }
+});
+
+router.post('/me/sessions/revoke-all', authenticate, async (req, res) => {
+  try {
+    const r = await pool.query(
+      'UPDATE refresh_tokens SET revoked = TRUE WHERE user_id = $1 AND revoked = FALSE',
+      [req.user.id]
+    );
+    res.json({ revoked: r.rowCount });
+  } catch (err) {
+    logger.error('sessions revoke-all:', err.message);
     res.status(500).json({ error: 'Erreur serveur' });
   }
 });
@@ -85,7 +169,9 @@ router.put('/:id/password', authenticate, async (req, res) => {
       return res.status(403).json({ error: 'Non autorisé' });
     }
     const { password } = req.body;
-    if (!password || password.length < 8) return res.status(400).json({ error: 'Min 8 caractères' });
+    const { getSecurityPolicy } = require('../services/securityPolicy');
+    const minLen = (await getSecurityPolicy()).passwordMinLength;
+    if (!password || password.length < minLen) return res.status(400).json({ error: `Min ${minLen} caractères` });
     const hash = await bcrypt.hash(password, 12);
     await pool.query('UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2', [hash, req.params.id]);
     await auditLog(req.user.id, 'change_password', 'user', req.params.id, {}, req.ip);
@@ -103,6 +189,44 @@ router.delete('/:id', authenticate, requireRole('admin'), async (req, res) => {
     await auditLog(req.user.id, 'delete_user', 'user', req.params.id, { deleted: result.rows[0].username }, req.ip);
     res.json({ message: 'Utilisateur supprimé' });
   } catch (err) {
+    res.status(500).json({ error: 'Erreur serveur' });
+  }
+});
+
+// ── Audit log integrity verification (HMAC recompute) ───────────────────────
+// Classifies each entry: verified | tampered | legacy_unverifiable | missing.
+// Legacy rows (pre-canonicalization) whose JSONB details lost key order cannot
+// be distinguished from tampering — reported honestly as "legacy_unverifiable"
+// unless details is trivial (≤1 key), where order is irrelevant → tampered.
+router.get('/audit/verify', authenticate, requireRole('admin'), async (req, res) => {
+  try {
+    const cap = Math.min(parseInt(req.query.limit) || 5000, 20000);
+    const r = await pool.query(
+      `SELECT id, user_id, action, entity_type, entity_id, details, created_at, hmac
+       FROM audit_log ORDER BY created_at DESC LIMIT $1`, [cap]
+    );
+    let verified = 0, tampered = 0, legacy = 0, missing = 0;
+    const tamperedIds = [];
+    for (const row of r.rows) {
+      if (!row.hmac) { missing++; continue; }
+      const fields = {
+        user_id: row.user_id, action: row.action, entity_type: row.entity_type,
+        entity_id: row.entity_id, details: row.details ?? {},
+        ts: new Date(row.created_at).toISOString(),
+      };
+      if (computeAuditHmac(fields) === row.hmac || computeAuditHmacLegacy(fields) === row.hmac) {
+        verified++;
+      } else {
+        const keys = row.details && typeof row.details === 'object' ? Object.keys(row.details) : [];
+        if (keys.length <= 1) { tampered++; if (tamperedIds.length < 20) tamperedIds.push(row.id); }
+        else legacy++;
+      }
+    }
+    await auditLog(req.user.id, 'verify_audit_integrity', 'system', null,
+      { checked: r.rows.length, verified, tampered, legacy_unverifiable: legacy, missing }, req.ip);
+    res.json({ checked: r.rows.length, verified, tampered, legacy_unverifiable: legacy, missing, tampered_ids: tamperedIds });
+  } catch (err) {
+    logger.error('audit verify error:', err.message);
     res.status(500).json({ error: 'Erreur serveur' });
   }
 });
@@ -130,6 +254,8 @@ router.get('/audit', authenticate, requireRole('admin'), async (req, res) => {
       'create_bookmark',
       'download_sysmon_config', 'deploy_sysmon_config',
       'run_parser',
+      'verify_audit_integrity', 'update_settings',
+      'retention_auto_purge', 'retention_run_manual',
     ];
 
     let query = `

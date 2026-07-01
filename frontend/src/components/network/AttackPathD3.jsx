@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { X, Clock, Shield, BookmarkIcon, Cpu } from 'lucide-react';
+import { X, Clock, Shield, BookmarkIcon, Cpu, GitBranch } from 'lucide-react';
 import * as d3 from 'd3';
 
 const TACTIC_ORDER = [
@@ -11,18 +11,18 @@ const TACTIC_ORDER = [
 
 const TACTIC_COLORS = {
   'Reconnaissance':          'var(--fl-accent)',
-  'Resource Development':    '#0ea5e9',
+  'Resource Development':    'var(--fl-purple)',
   'Initial Access':          'var(--fl-gold)',
   'Execution':               'var(--fl-warn)',
   'Persistence':             'var(--fl-pink)',
-  'Privilege Escalation':    '#8b5cf6',
+  'Privilege Escalation':    'var(--fl-accent)',
   'Defense Evasion':         '#64748b',
-  'Credential Access':       '#06b6d4',
-  'Discovery':               '#22c55e',
-  'Lateral Movement':        '#f97316',
-  'Collection':              '#84cc16',
+  'Credential Access':       'var(--fl-purple)',
+  'Discovery':               'var(--fl-ok)',
+  'Lateral Movement':        'var(--fl-warn)',
+  'Collection':              'var(--fl-ok)',
   'Command and Control':     'var(--fl-purple)',
-  'Exfiltration':            '#f43f5e',
+  'Exfiltration':            'var(--fl-danger)',
   'Impact':                  'var(--fl-danger)',
 };
 
@@ -30,7 +30,7 @@ const CONF_COLORS = {
   confirmed: 'var(--fl-danger)',
   high:      'var(--fl-warn)',
   medium:    'var(--fl-gold)',
-  low:       '#22c55e',
+  low:       'var(--fl-ok)',
 };
 
 function fmtTs(ts) {
@@ -106,7 +106,9 @@ export default function AttackPathD3({ svgRef: externalSvgRef, caseId, nodes, ed
     const nodePos = new Map();
 
     const allCols = [...TACTIC_ORDER, ...(unknownNodes.length > 0 ? ['Autres'] : [])];
-    allCols.forEach((tactic, colIdx) => {
+    // Only draw the kill-chain scaffold when there's data — an empty grid of 14 hollow
+    // columns reads as unfinished. The empty state is a clean HTML overlay instead.
+    if (nodes.length > 0) allCols.forEach((tactic, colIdx) => {
       const colNodes = tactic === 'Autres' ? unknownNodes : (tacticNodes[tactic] || []);
       const color = TACTIC_COLORS[tactic] || 'var(--fl-muted)';
       const colX = PADDING_LEFT + colIdx * (COL_W + COL_GAP);
@@ -119,8 +121,8 @@ export default function AttackPathD3({ svgRef: externalSvgRef, caseId, nodes, ed
         .attr('width', COL_W)
         .attr('height', Math.max(colTotalH, 80))
         .attr('rx', 6)
-        .attr('fill', isActive ? `${color}08` : inactiveColBg)
-        .attr('stroke', isActive ? `${color}30` : inactiveColHdr)
+        .attr('fill', isActive ? `color-mix(in srgb, ${color} 3%, transparent)` : inactiveColBg)
+        .attr('stroke', isActive ? `color-mix(in srgb, ${color} 19%, transparent)` : inactiveColHdr)
         .attr('stroke-width', 1);
 
       g.append('rect')
@@ -129,7 +131,7 @@ export default function AttackPathD3({ svgRef: externalSvgRef, caseId, nodes, ed
         .attr('width', COL_W)
         .attr('height', COL_H_HEADER)
         .attr('rx', 6)
-        .attr('fill', isActive ? `${color}20` : inactiveColHdr);
+        .attr('fill', isActive ? `color-mix(in srgb, ${color} 13%, transparent)` : inactiveColHdr);
 
       g.append('text')
         .attr('x', colX + COL_W / 2)
@@ -137,7 +139,7 @@ export default function AttackPathD3({ svgRef: externalSvgRef, caseId, nodes, ed
         .attr('text-anchor', 'middle')
         .attr('dominant-baseline', 'middle')
         .attr('font-size', 9)
-        .attr('font-family', 'monospace')
+        .attr('font-family', 'var(--f-mono, "JetBrains Mono", monospace)')
         .attr('font-weight', isActive ? 700 : 400)
         .attr('fill', isActive ? color : inactiveColTxt)
         .text(tactic)
@@ -148,14 +150,14 @@ export default function AttackPathD3({ svgRef: externalSvgRef, caseId, nodes, ed
           .attr('cx', colX + COL_W - 12)
           .attr('cy', 10 + 12)
           .attr('r', 9)
-          .attr('fill', `${color}40`);
+          .attr('fill', `color-mix(in srgb, ${color} 25%, transparent)`);
         g.append('text')
           .attr('x', colX + COL_W - 12)
           .attr('y', 10 + 12)
           .attr('text-anchor', 'middle')
           .attr('dominant-baseline', 'middle')
           .attr('font-size', 9)
-          .attr('font-family', 'monospace')
+          .attr('font-family', 'var(--f-mono, "JetBrains Mono", monospace)')
           .attr('fill', color)
           .text(colNodes.length);
       }
@@ -183,20 +185,20 @@ export default function AttackPathD3({ svgRef: externalSvgRef, caseId, nodes, ed
             else hex.lineTo(nx + r * Math.cos(angle), ny + r * Math.sin(angle));
           }
           hex.closePath();
-          nodeG.append('path').attr('d', hex).attr('fill', `${color}25`).attr('stroke', color).attr('stroke-width', 1.5);
+          nodeG.append('path').attr('d', hex).attr('fill', `color-mix(in srgb, ${color} 15%, transparent)`).attr('stroke', color).attr('stroke-width', 1.5);
         } else if (node.type === 'technique') {
 
           nodeG.append('polygon')
             .attr('points', `${nx},${ny - 18} ${nx + 14},${ny} ${nx},${ny + 18} ${nx - 14},${ny}`)
-            .attr('fill', `${color}25`).attr('stroke', color).attr('stroke-width', 1.5);
+            .attr('fill', `color-mix(in srgb, ${color} 15%, transparent)`).attr('stroke', color).attr('stroke-width', 1.5);
         } else {
 
           nodeG.append('circle').attr('cx', nx).attr('cy', ny).attr('r', 16)
-            .attr('fill', `${color}25`).attr('stroke', color).attr('stroke-width', 1.5);
+            .attr('fill', `color-mix(in srgb, ${color} 15%, transparent)`).attr('stroke', color).attr('stroke-width', 1.5);
 
           if (node.confidence === 'high' || node.confidence === 'confirmed') {
             nodeG.append('circle').attr('cx', nx).attr('cy', ny).attr('r', 22)
-              .attr('fill', 'none').attr('stroke', `${color}40`).attr('stroke-width', 1);
+              .attr('fill', 'none').attr('stroke', `color-mix(in srgb, ${color} 25%, transparent)`).attr('stroke-width', 1);
           }
         }
 
@@ -211,7 +213,7 @@ export default function AttackPathD3({ svgRef: externalSvgRef, caseId, nodes, ed
           .attr('y', ny + 26)
           .attr('text-anchor', 'middle')
           .attr('font-size', 8)
-          .attr('font-family', 'monospace')
+          .attr('font-family', 'var(--f-mono, "JetBrains Mono", monospace)')
           .attr('fill', dimColor)
           .text((node.technique_id || '').toUpperCase());
 
@@ -229,7 +231,7 @@ export default function AttackPathD3({ svgRef: externalSvgRef, caseId, nodes, ed
       edgeG.append('path')
         .attr('d', `M${src.x},${src.y} C${midX},${src.y} ${midX},${dst.y} ${dst.x},${dst.y}`)
         .attr('fill', 'none')
-        .attr('stroke', '#4d82c030')
+        .attr('stroke', 'color-mix(in srgb, var(--fl-accent) 19%, transparent)')
         .attr('stroke-width', 1.5)
         .attr('marker-end', 'url(#arrow-dn)');
     }
@@ -241,20 +243,7 @@ export default function AttackPathD3({ svgRef: externalSvgRef, caseId, nodes, ed
       .attr('refX', 10).attr('refY', 0)
       .attr('markerWidth', 6).attr('markerHeight', 6)
       .attr('orient', 'auto')
-      .append('path').attr('d', 'M0,-5L10,0L0,5').attr('fill', '#4d82c060');
-
-    if (nodes.length === 0) {
-      g.append('text')
-        .attr('x', svgWidth / 2).attr('y', svgHeight / 2)
-        .attr('text-anchor', 'middle').attr('font-size', 14)
-        .attr('fill', emptyPrimary).attr('font-family', 'monospace')
-        .text('Aucune donnee MITRE ATT&CK disponible');
-      g.append('text')
-        .attr('x', svgWidth / 2).attr('y', svgHeight / 2 + 22)
-        .attr('text-anchor', 'middle').attr('font-size', 11)
-        .attr('fill', emptySecondary).attr('font-family', 'monospace')
-        .text('Ajoutez des techniques MITRE, des bookmarks ou lancez une chasse Sigma');
-    }
+      .append('path').attr('d', 'M0,-5L10,0L0,5').attr('fill', 'color-mix(in srgb, var(--fl-accent) 38%, transparent)');
 
   }, [nodes, edges, dims]);
 
@@ -295,6 +284,29 @@ export default function AttackPathD3({ svgRef: externalSvgRef, caseId, nodes, ed
         onClick={() => setSelectedNode(null)}
       />
 
+      {nodes.length === 0 && (
+        <div style={{
+          position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
+          pointerEvents: 'none',
+        }}>
+          <div style={{ textAlign: 'center', maxWidth: 360, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}>
+            <div style={{
+              width: 44, height: 44, margin: '0 auto 14px', borderRadius: 12,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              background: 'var(--fl-raised)', border: '1px solid var(--fl-border)',
+            }}>
+              <GitBranch size={20} style={{ color: 'var(--fl-muted)' }} strokeWidth={1.5} />
+            </div>
+            <div style={{ fontFamily: 'var(--f-display, var(--f-sans))', fontSize: 14, fontWeight: 700, color: 'var(--fl-text)', marginBottom: 6, letterSpacing: '-0.01em' }}>
+              Aucune donnée MITRE ATT&amp;CK
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--fl-dim)', lineHeight: 1.5 }}>
+              Ajoutez des techniques MITRE, des bookmarks ou lancez une chasse Sigma pour construire la kill chain
+            </div>
+          </div>
+        </div>
+      )}
+
       {selectedNode && (
         <div
           style={{
@@ -309,7 +321,7 @@ export default function AttackPathD3({ svgRef: externalSvgRef, caseId, nodes, ed
             display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between',
           }}>
             <div>
-              <div style={{ fontSize: 12, fontWeight: 700, color: theme?.text || 'var(--fl-text)', fontFamily: 'monospace' }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: theme?.text || 'var(--fl-text)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}>
                 {selectedNode.technique_id || '—'}
               </div>
               <div style={{ fontSize: 11, color: dimColor, marginTop: 2 }}>
@@ -327,8 +339,8 @@ export default function AttackPathD3({ svgRef: externalSvgRef, caseId, nodes, ed
                 <div>
                   <div style={{ color: dimColor, fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 3 }}>Tactique</div>
                   <span style={{
-                    padding: '2px 8px', borderRadius: 4, fontSize: 11, fontFamily: 'monospace',
-                    background: `${TACTIC_COLORS[selectedNode.tactic] || 'var(--fl-muted)'}20`,
+                    padding: '2px 8px', borderRadius: 4, fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
+                    background: `color-mix(in srgb, ${TACTIC_COLORS[selectedNode.tactic] || 'var(--fl-muted)'} 13%, transparent)`,
                     color: TACTIC_COLORS[selectedNode.tactic] || 'var(--fl-dim)',
                   }}>
                     {selectedNode.tactic}
@@ -345,7 +357,7 @@ export default function AttackPathD3({ svgRef: externalSvgRef, caseId, nodes, ed
                   {selectedNode.source === 'bookmark' ? 'Bookmark Timeline' : selectedNode.source === 'technique' ? 'Technique manuelle' : 'Detection Sigma/Hayabusa'}
                 </div>
                 {selectedNode.rule_name && (
-                  <div style={{ color: dimColor, fontSize: 10, marginTop: 2, fontFamily: 'monospace' }}>
+                  <div style={{ color: dimColor, fontSize: 10, marginTop: 2, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}>
                     Regle: {selectedNode.rule_name}
                   </div>
                 )}
@@ -354,8 +366,8 @@ export default function AttackPathD3({ svgRef: externalSvgRef, caseId, nodes, ed
               <div>
                 <div style={{ color: dimColor, fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 3 }}>Confiance</div>
                 <span style={{
-                  padding: '1px 7px', borderRadius: 4, fontSize: 10, fontFamily: 'monospace',
-                  background: `${CONF_COLORS[selectedNode.confidence] || 'var(--fl-muted)'}20`,
+                  padding: '1px 7px', borderRadius: 4, fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
+                  background: `color-mix(in srgb, ${CONF_COLORS[selectedNode.confidence] || 'var(--fl-muted)'} 13%, transparent)`,
                   color: CONF_COLORS[selectedNode.confidence] || 'var(--fl-dim)',
                 }}>
                   {selectedNode.confidence}
@@ -365,7 +377,7 @@ export default function AttackPathD3({ svgRef: externalSvgRef, caseId, nodes, ed
               {selectedNode.timestamp && (
                 <div>
                   <div style={{ color: dimColor, fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 3 }}>Horodatage</div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 4, color: theme?.text || 'var(--fl-text)', fontFamily: 'monospace', fontSize: 11 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 4, color: theme?.text || 'var(--fl-text)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11 }}>
                     <Clock size={11} style={{ color: dimColor }} /> {fmtTs(selectedNode.timestamp)}
                   </div>
                 </div>
@@ -381,7 +393,7 @@ export default function AttackPathD3({ svgRef: externalSvgRef, caseId, nodes, ed
               {selectedNode.artifact_ref && (
                 <div>
                   <div style={{ color: 'var(--fl-muted)', fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 3 }}>Artefact source</div>
-                  <div style={{ color: 'var(--fl-accent)', fontSize: 10, fontFamily: 'monospace' }}>{selectedNode.artifact_ref}</div>
+                  <div style={{ color: 'var(--fl-accent)', fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}>{selectedNode.artifact_ref}</div>
                 </div>
               )}
             </div>

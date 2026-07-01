@@ -2,23 +2,60 @@ const express = require('express');
 const bcrypt  = require('bcryptjs');
 const jwt     = require('jsonwebtoken');
 const crypto  = require('crypto');
+const rateLimit = require('express-rate-limit');
 const { pool } = require('../config/database');
 const { authenticate, requireRole, auditLog, JWT_SECRET } = require('../middleware/auth');
+const { getSecurityPolicy } = require('../services/securityPolicy');
 
 const logger = require('../config/logger').default;
 const router = express.Router();
 
-const REFRESH_TOKEN_EXPIRY_DAYS = 30;
+// IP-based throttle on the public auth endpoints. Complements the per-username
+// account lockout: stops credential stuffing / password spraying and volumetric
+// abuse from a single source (the lockout only protects one account at a time).
+// Successful logins don't count, so legitimate users are never throttled.
+const authLimiter = rateLimit({
+  windowMs:                15 * 60 * 1000,                       // 15 minutes
+  limit:                   Number(process.env.AUTH_RATE_LIMIT || 30),
+  standardHeaders:         'draft-7',
+  legacyHeaders:           false,
+  skipSuccessfulRequests:  true,
+  message:                 { error: 'Trop de tentatives depuis cette adresse. Réessayez plus tard.' },
+});
+
+const REFRESH_TOKEN_EXPIRY_DAYS = 30;   // fallback if policy unset
 const ACCESS_TOKEN_EXPIRY       = '8h';
+
+// ── Account lockout (Redis-backed; gracefully no-ops if Redis is unavailable) ─
+async function isLockedOut(username, redis, policy) {
+  if (!redis || !policy.lockoutThreshold) return false;
+  try {
+    const n = parseInt((await redis.get(`login_fail:${username}`)) || '0', 10);
+    return n >= policy.lockoutThreshold;
+  } catch { return false; }
+}
+async function recordLoginFailure(username, redis, policy) {
+  if (!redis || !policy.lockoutThreshold) return;
+  try {
+    const key = `login_fail:${username}`;
+    const n = await redis.incr(key);
+    if (n === 1) await redis.expire(key, policy.lockoutWindowMin * 60);
+  } catch { /* ignore */ }
+}
+async function clearLoginFailures(username, redis) {
+  if (!redis) return;
+  try { await redis.del(`login_fail:${username}`); } catch { /* ignore */ }
+}
 
 function hashToken(token) {
   return crypto.createHash('sha256').update(token).digest('hex');
 }
 
-async function issueRefreshToken(userId, pool) {
+async function issueRefreshToken(userId, pool, sessionHours) {
+  const hours    = Number(sessionHours) > 0 ? Number(sessionHours) : REFRESH_TOKEN_EXPIRY_DAYS * 24;
   const raw      = crypto.randomBytes(48).toString('hex');
   const hash     = hashToken(raw);
-  const expiresAt = new Date(Date.now() + REFRESH_TOKEN_EXPIRY_DAYS * 86400_000);
+  const expiresAt = new Date(Date.now() + hours * 3600_000);
   await pool.query(
     'INSERT INTO refresh_tokens (user_id, token_hash, expires_at) VALUES ($1, $2, $3)',
     [userId, hash, expiresAt]
@@ -58,11 +95,20 @@ async function clearActiveSession(userId, redis) {
   } catch (_e) {}
 }
 
-router.post('/login', async (req, res) => {
+router.post('/login', authLimiter, async (req, res) => {
   try {
     const { username, password } = req.body;
     if (!username || !password) {
       return res.status(400).json({ error: 'Username et password requis' });
+    }
+
+    const policy = await getSecurityPolicy();
+    const redis  = await getRedis();
+
+    // Account lockout — keyed by username (also throttles user enumeration).
+    if (await isLockedOut(username, redis, policy)) {
+      await auditLog(null, 'login_blocked', 'user', null, { username, reason: 'lockout' }, req.ip);
+      return res.status(429).json({ error: `Compte temporairement verrouillé après trop de tentatives. Réessayez dans ${policy.lockoutWindowMin} min.` });
     }
 
     const result = await pool.query(
@@ -71,6 +117,7 @@ router.post('/login', async (req, res) => {
     );
 
     if (result.rows.length === 0) {
+      await recordLoginFailure(username, redis, policy);
       await auditLog(null, 'login_failed', 'user', null, { username, reason: 'user_not_found' }, req.ip);
       return res.status(401).json({ error: 'Identifiants invalides' });
     }
@@ -83,11 +130,12 @@ router.post('/login', async (req, res) => {
 
     const valid = await bcrypt.compare(password, user.password_hash);
     if (!valid) {
+      await recordLoginFailure(username, redis, policy);
       await auditLog(user.id, 'login_failed', 'user', user.id, { username, reason: 'wrong_password' }, req.ip);
       return res.status(401).json({ error: 'Identifiants invalides' });
     }
 
-    const redis = await getRedis();
+    await clearLoginFailures(username, redis);
 
     await evictOldSession(user.id, redis);
 
@@ -105,7 +153,7 @@ router.post('/login', async (req, res) => {
       { expiresIn: ACCESS_TOKEN_EXPIRY }
     );
 
-    const refreshToken = await issueRefreshToken(user.id, pool);
+    const refreshToken = await issueRefreshToken(user.id, pool, policy.sessionDurationH);
 
     await storeActiveSession(user.id, jti, redis);
 
@@ -142,7 +190,7 @@ router.get('/me', authenticate, async (req, res) => {
   }
 });
 
-router.post('/refresh', async (req, res) => {
+router.post('/refresh', authLimiter, async (req, res) => {
   try {
     const { refreshToken } = req.body;
     if (!refreshToken) return res.status(400).json({ error: 'refreshToken requis' });
@@ -216,6 +264,10 @@ router.post('/register', authenticate, requireRole('admin'), async (req, res) =>
     const { username, password, full_name, role } = req.body;
     if (!username || !password || !full_name) {
       return res.status(400).json({ error: 'username, password et full_name requis' });
+    }
+    const policy = await getSecurityPolicy();
+    if (password.length < policy.passwordMinLength) {
+      return res.status(400).json({ error: `Mot de passe : ${policy.passwordMinLength} caractères minimum` });
     }
     const password_hash = await bcrypt.hash(password, 12);
 

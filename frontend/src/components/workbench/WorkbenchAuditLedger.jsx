@@ -3,10 +3,10 @@ import { ShieldCheck, ShieldAlert, RefreshCw, ChevronRight, ChevronDown, FileSea
 import { workbenchPinsAPI } from '../../utils/api';
 
 const ACTION_COLORS = {
-  pin:    { bg: '#22c55e20', fg: 'var(--fl-ok, #22c55e)' },
-  update: { bg: '#1c6ef220', fg: 'var(--fl-accent)' },
-  unpin:  { bg: '#ef444420', fg: 'var(--fl-danger)' },
-  clear:  { bg: '#ef444430', fg: 'var(--fl-danger)' },
+  pin:    { bg: 'color-mix(in srgb, var(--fl-ok) 13%, transparent)', fg: 'var(--fl-ok, var(--fl-ok))' },
+  update: { bg: 'var(--fl-accent)20', fg: 'var(--fl-accent)' },
+  unpin:  { bg: 'color-mix(in srgb, var(--fl-danger) 13%, transparent)', fg: 'var(--fl-danger)' },
+  clear:  { bg: 'color-mix(in srgb, var(--fl-danger) 19%, transparent)', fg: 'var(--fl-danger)' },
   import: { bg: '#c9689820', fg: 'var(--fl-purple, #c96898)' },
 };
 
@@ -32,7 +32,7 @@ export default function WorkbenchAuditLedger({ caseId }) {
       const body = res?.data || res;
       setData(body);
     } catch (e) {
-      setErr(e?.response?.data?.error || e?.message || 'Erreur de chargement');
+      setErr(e?.response?.data?.error || e?.message || 'Loading error');
     } finally {
       setLoading(false);
     }
@@ -40,7 +40,7 @@ export default function WorkbenchAuditLedger({ caseId }) {
 
   useEffect(() => { load(); }, [caseId]);
 
-  const verifyColor = !data ? 'var(--fl-dim)' : data.verified ? 'var(--fl-ok, #22c55e)' : 'var(--fl-danger)';
+  const verifyColor = !data ? 'var(--fl-dim)' : data.verified ? 'var(--fl-ok, var(--fl-ok))' : 'var(--fl-danger)';
   const VerifyIcon = data?.verified ? ShieldCheck : ShieldAlert;
 
   const actorCount = useMemo(() => {
@@ -49,31 +49,31 @@ export default function WorkbenchAuditLedger({ caseId }) {
   }, [data]);
 
   return (
-    <div style={{ fontFamily: 'monospace' }}>
+    <div style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}>
       <div style={{
         display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', marginBottom: 10,
-        background: 'var(--fl-bg)', border: `1px solid ${verifyColor}60`, borderLeft: `3px solid ${verifyColor}`, borderRadius: 6,
+        background: 'var(--fl-bg)', border: `1px solid color-mix(in srgb, ${verifyColor} 38%, transparent)`, borderLeft: `3px solid ${verifyColor}`, borderRadius: 6,
       }}>
         <VerifyIcon size={16} style={{ color: verifyColor }} />
         <div style={{ flex: 1 }}>
           <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--fl-on-dark)', marginBottom: 2 }}>
-            {loading ? 'Vérification de la chaîne…' : data?.verified ? 'Chaîne de preuve vérifiée' : (err ? 'Erreur de chargement' : 'CHAÎNE ALTÉRÉE')}
+            {loading ? 'Verifying chain…' : data?.verified ? 'Evidence chain verified' : (err ? 'Loading error' : 'CHAIN TAMPERED')}
           </div>
           <div style={{ fontSize: 10, color: 'var(--fl-dim)' }}>
             {err ? err : data ? (
               data.verified
-                ? `${data.count} opération(s) · ${actorCount} analyste(s) · hash chain SHA-256 intact`
-                : `Rupture détectée au seq #${data.broken_at} — exportez immédiatement le ledger pour investigation`
+                ? `${data.count} operation(s) · ${actorCount} analyst(s) · SHA-256 hash chain intact`
+                : `Break detected at seq #${data.broken_at} - export the ledger immediately for investigation`
             ) : '…'}
           </div>
         </div>
-        <button onClick={load} disabled={loading} title="Rafraîchir le ledger"
+        <button onClick={load} disabled={loading} title="Refresh ledger"
           style={{
             display: 'flex', alignItems: 'center', gap: 4, padding: '4px 10px', fontSize: 10,
             background: 'var(--fl-card)', border: '1px solid var(--fl-sep)', color: 'var(--fl-on-dark)',
-            borderRadius: 4, cursor: loading ? 'wait' : 'pointer', fontFamily: 'monospace', opacity: loading ? 0.6 : 1,
+            borderRadius: 4, cursor: loading ? 'wait' : 'pointer', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', opacity: loading ? 0.6 : 1,
           }}>
-          <RefreshCw size={11} style={{ transform: loading ? 'rotate(180deg)' : 'none', transition: 'transform 0.3s' }} /> Vérifier
+          <RefreshCw size={11} style={{ transform: loading ? 'rotate(180deg)' : 'none', transition: 'transform 0.3s' }} /> Verify
         </button>
         <button onClick={() => {
             if (!data) return;
@@ -84,19 +84,19 @@ export default function WorkbenchAuditLedger({ caseId }) {
             a.click(); URL.revokeObjectURL(url);
           }}
           disabled={!data || loading}
-          title="Exporter le ledger complet (JSON)"
+          title="Export full ledger (JSON)"
           style={{
             display: 'flex', alignItems: 'center', gap: 4, padding: '4px 10px', fontSize: 10,
             background: 'var(--fl-card)', border: '1px solid var(--fl-sep)', color: 'var(--fl-on-dark)',
-            borderRadius: 4, cursor: 'pointer', fontFamily: 'monospace',
+            borderRadius: 4, cursor: 'pointer', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
           }}>
-          <FileSearch size={11} /> Exporter
+          <FileSearch size={11} /> Export
         </button>
       </div>
 
       {data?.entries?.length === 0 && (
         <div style={{ padding: '32px 20px', textAlign: 'center', color: 'var(--fl-dim)', fontSize: 11, border: '1px dashed var(--fl-sep)', borderRadius: 8 }}>
-          Aucune opération enregistrée. Chaque pin / modification sera horodatée et liée par hash ici.
+          No recorded operations. Every pin / modification will be timestamped and linked by hash here.
         </div>
       )}
 
@@ -124,7 +124,7 @@ export default function WorkbenchAuditLedger({ caseId }) {
                   <span style={{ color: 'var(--fl-on-dark)' }}>{e.actor_name || `user ${e.actor_id || '?'}`}</span>
                   <span style={{ marginLeft: 'auto', color: 'var(--fl-dim)' }}>{fmtUtc(e.created_at)}</span>
                   <span title={e.content_hash} style={{
-                    fontFamily: 'monospace', color: isBroken ? 'var(--fl-danger)' : 'var(--fl-gold)',
+                    fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: isBroken ? 'var(--fl-danger)' : 'var(--fl-gold)',
                     fontSize: 9,
                   }}>
                     {String(e.content_hash || '').slice(0, 12)}…

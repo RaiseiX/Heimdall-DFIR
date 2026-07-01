@@ -578,7 +578,13 @@ router.post('/memory/:caseId/retry/:evidenceId', authenticate, async (req: any, 
     if (!evRes.rows.length) return res.status(404).json({ error: 'Evidence non trouvée' });
     const ev = evRes.rows[0];
 
-    if (!fs.existsSync(ev.file_path)) {
+    // file_path is either minio://bucket/key (streaming upload) or a local path (legacy)
+    const isMinioPath = ev.file_path?.startsWith('minio://');
+    let s3ObjectKey: string | undefined;
+    if (isMinioPath) {
+      // strip "minio://<bucket>/" prefix to get the object key
+      s3ObjectKey = ev.file_path.replace(/^minio:\/\/[^/]+\//, '');
+    } else if (!fs.existsSync(ev.file_path)) {
       return res.status(410).json({ error: `Fichier introuvable sur le disque : ${ev.file_path}` });
     }
 
@@ -591,7 +597,7 @@ router.post('/memory/:caseId/retry/:evidenceId', authenticate, async (req: any, 
 
     const io = req.app.locals.io;
     processMemoryDump({
-      filePath:       ev.file_path,
+      ...(s3ObjectKey ? { s3ObjectKey } : { filePath: ev.file_path }),
       caseTitle:      title,
       caseNumber:     case_number,
       os:             'windows',

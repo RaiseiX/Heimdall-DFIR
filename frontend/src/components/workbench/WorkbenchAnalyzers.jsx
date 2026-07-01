@@ -39,25 +39,25 @@ export function PersistenceSweep({ pins, caseId, navigate }) {
   const scoreColor = score === 0 ? 'var(--fl-dim)' : score < 6 ? 'var(--fl-gold)' : score < 15 ? 'var(--fl-warn)' : 'var(--fl-danger)';
 
   if (pins.length === 0) {
-    return <EmptyHint icon={<Shield size={22} />} text="Épinglez des événements depuis la Super Timeline pour lancer l'analyse de persistance." />;
+    return <EmptyHint icon={<Shield size={22} />} text="Pin events from the Super Timeline to run the persistence analysis." />;
   }
 
   return (
-    <div style={{ fontFamily: 'monospace' }}>
+    <div style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}>
       <div style={{
         display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', marginBottom: 10,
-        background: 'var(--fl-bg)', border: `1px solid ${scoreColor}60`, borderLeft: `3px solid ${scoreColor}`, borderRadius: 6,
+        background: 'var(--fl-bg)', border: `1px solid color-mix(in srgb, ${scoreColor} 38%, transparent)`, borderLeft: `3px solid ${scoreColor}`, borderRadius: 6,
       }}>
         <Shield size={14} style={{ color: scoreColor }} />
         <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--fl-on-dark)' }}>Persistence Score</span>
         <span style={{ fontSize: 18, fontWeight: 700, color: scoreColor }}>{score}</span>
         <span style={{ fontSize: 10, color: 'var(--fl-dim)' }}>
-          {score === 0 ? 'Aucun signal de persistance détecté.' : `${hits.length} technique(s) MITRE touchée(s) sur ${pins.length} preuve(s)`}
+          {score === 0 ? 'No persistence signal detected.' : `${hits.length} MITRE technique(s) triggered across ${pins.length} evidence item(s)`}
         </span>
       </div>
 
       {hits.length === 0 ? (
-        <EmptyHint icon={<Shield size={22} />} text="Aucune règle de persistance n'a déclenché sur les preuves épinglées." subtle />
+        <EmptyHint icon={<Shield size={22} />} text="No persistence rule triggered on the pinned evidence." subtle />
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {hits.map(({ rule, matches }) => (
@@ -68,7 +68,7 @@ export function PersistenceSweep({ pins, caseId, navigate }) {
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
                 <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 3, background: '#c9689825', color: 'var(--fl-purple, #c96898)', fontWeight: 700 }}>{rule.mitre}</span>
                 <span style={{ fontSize: 12, color: 'var(--fl-on-dark)', fontWeight: 600 }}>{rule.name}</span>
-                <span style={{ marginLeft: 'auto', fontSize: 10, color: 'var(--fl-dim)' }}>{matches.length} hit(s) × poids {rule.weight}</span>
+                <span style={{ marginLeft: 'auto', fontSize: 10, color: 'var(--fl-dim)' }}>{matches.length} hit(s) x weight {rule.weight}</span>
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
                 {matches.slice(0, 20).map(m => (
@@ -78,7 +78,7 @@ export function PersistenceSweep({ pins, caseId, navigate }) {
                       navigate(`/super-timeline?${qs.toString()}`);
                     }}
                     style={{ fontSize: 10, color: 'var(--fl-on-dark)', padding: '3px 6px', background: 'var(--fl-card)', borderRadius: 3, cursor: 'pointer', wordBreak: 'break-all' }}
-                    title="Ouvrir dans la Super Timeline">
+                    title="Open in Super Timeline">
                     <span style={{ color: 'var(--fl-accent)' }}>{m.timestamp ? String(m.timestamp).slice(0, 19).replace('T', ' ') : '—'}</span>
                     {' · '}
                     <span style={{ color: 'var(--fl-dim)' }}>{m.artifact_type || '—'}</span>
@@ -89,7 +89,7 @@ export function PersistenceSweep({ pins, caseId, navigate }) {
                 ))}
                 {matches.length > 20 && (
                   <div style={{ fontSize: 10, color: 'var(--fl-dim)', fontStyle: 'italic', padding: '2px 6px' }}>
-                    +{matches.length - 20} autres hit(s) masqué(s)
+                    +{matches.length - 20} other hit(s) hidden
                   </div>
                 )}
               </div>
@@ -162,10 +162,10 @@ export function LogonSessions({ pins, caseId, navigate }) {
   }, [pins]);
 
   if (pins.length === 0) {
-    return <EmptyHint icon={<LogIn size={22} />} text="Épinglez des événements 4624/4625/4634/4648 pour reconstruire les sessions de logon." />;
+    return <EmptyHint icon={<LogIn size={22} />} text="Pin 4624/4625/4634/4648 events to reconstruct logon sessions." />;
   }
   if (sessions.length === 0) {
-    return <EmptyHint icon={<LogIn size={22} />} text="Aucun événement de logon (4624/4625/4634/4647/4648) dans les preuves épinglées." subtle />;
+    return <EmptyHint icon={<LogIn size={22} />} text="No logon events (4624/4625/4634/4647/4648) in the pinned evidence." subtle />;
   }
 
   const fmtDur = (s) => {
@@ -174,19 +174,19 @@ export function LogonSessions({ pins, caseId, navigate }) {
     if (s < 3600) return `${Math.floor(s / 60)}m ${s % 60}s`;
     return `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`;
   };
-  const statusColor = (s) => s === 'failed' ? 'var(--fl-danger)' : s === 'open' ? 'var(--fl-warn)' : s === 'closed' ? 'var(--fl-ok, #22c55e)' : 'var(--fl-dim)';
+  const statusColor = (s) => s === 'failed' ? 'var(--fl-danger)' : s === 'open' ? 'var(--fl-warn)' : s === 'closed' ? 'var(--fl-ok, var(--fl-ok))' : 'var(--fl-dim)';
 
   return (
-    <div style={{ fontFamily: 'monospace' }}>
+    <div style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}>
       <div style={{
         display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', marginBottom: 10,
         background: 'var(--fl-bg)', border: '1px solid var(--fl-card)', borderLeft: '3px solid var(--fl-accent)', borderRadius: 6,
       }}>
         <LogIn size={14} style={{ color: 'var(--fl-accent)' }} />
-        <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--fl-on-dark)' }}>Sessions reconstruites</span>
+        <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--fl-on-dark)' }}>Reconstructed sessions</span>
         <span style={{ fontSize: 18, fontWeight: 700, color: 'var(--fl-accent)' }}>{sessions.length}</span>
         <span style={{ fontSize: 10, color: 'var(--fl-dim)' }}>
-          {sessions.filter(s => s.status === 'open').length} ouverte(s) · {sessions.filter(s => s.status === 'failed').length} échec(s)
+          {sessions.filter(s => s.status === 'open').length} open · {sessions.filter(s => s.status === 'failed').length} failed
         </span>
       </div>
 
@@ -197,7 +197,7 @@ export function LogonSessions({ pins, caseId, navigate }) {
             borderLeft: `3px solid ${statusColor(s.status)}`, borderRadius: 5, padding: '7px 12px',
           }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4, flexWrap: 'wrap' }}>
-              <span style={{ fontSize: 9, padding: '1px 6px', borderRadius: 3, background: `${statusColor(s.status)}25`, color: statusColor(s.status), textTransform: 'uppercase', fontWeight: 700 }}>{s.status}</span>
+              <span style={{ fontSize: 9, padding: '1px 6px', borderRadius: 3, background: `color-mix(in srgb, ${statusColor(s.status)} 15%, transparent)`, color: statusColor(s.status), textTransform: 'uppercase', fontWeight: 700 }}>{s.status}</span>
               <span style={{ fontSize: 10, color: 'var(--fl-accent)' }}>{s.id}</span>
               {s.user && <span style={{ fontSize: 10, color: 'var(--fl-on-dark)' }}>👤 {s.user}</span>}
               {s.host && <span style={{ fontSize: 10, color: 'var(--fl-on-dark)' }}>⚙ {s.host}</span>}
@@ -225,8 +225,8 @@ export function LogonSessions({ pins, caseId, navigate }) {
                   title={e.description || ''}
                   style={{
                     fontSize: 9, padding: '2px 6px', borderRadius: 3, cursor: 'pointer',
-                    background: Number(e.event_id) === 4625 ? '#ef444420' : Number(e.event_id) === 4624 ? '#22c55e20' : 'var(--fl-card)',
-                    color: Number(e.event_id) === 4625 ? 'var(--fl-danger)' : Number(e.event_id) === 4624 ? 'var(--fl-ok, #22c55e)' : 'var(--fl-dim)',
+                    background: Number(e.event_id) === 4625 ? 'color-mix(in srgb, var(--fl-danger) 13%, transparent)' : Number(e.event_id) === 4624 ? 'color-mix(in srgb, var(--fl-ok) 13%, transparent)' : 'var(--fl-card)',
+                    color: Number(e.event_id) === 4625 ? 'var(--fl-danger)' : Number(e.event_id) === 4624 ? 'var(--fl-ok, var(--fl-ok))' : 'var(--fl-dim)',
                     border: '1px solid var(--fl-sep)',
                   }}>
                   {e.event_id} · {String(e.timestamp || '').slice(11, 19)}
@@ -245,7 +245,7 @@ function EmptyHint({ icon, text, subtle }) {
     <div style={{
       padding: '32px 20px', textAlign: 'center', color: 'var(--fl-dim)',
       border: `1px ${subtle ? 'solid' : 'dashed'} var(--fl-sep)`, borderRadius: 8, background: 'var(--fl-bg)',
-      fontFamily: 'monospace',
+      fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
     }}>
       <div style={{ opacity: 0.5, marginBottom: 10 }}>{icon}</div>
       <div style={{ fontSize: 11 }}>{text}</div>

@@ -108,7 +108,7 @@ function ColumnPrefsEditor({
       >
         {items.length === 0 ? (
           <div className="flex items-center justify-center h-full text-[#8b949e] text-xs">
-            Glissez colonnes ici
+            Drop columns here
           </div>
         ) : (
           items.map((col) => renderColumnItem(col, zoneKey))
@@ -133,7 +133,7 @@ function ColumnPrefsEditor({
         
         <div className="px-6 py-4 border-b border-[var(--fl-border)]">
           <div className="flex items-center justify-between mb-2">
-            <h2 className="text-lg font-bold text-[var(--fl-dim)]">Personnaliser colonnes</h2>
+            <h2 className="text-lg font-bold text-[var(--fl-dim)]">Customize columns</h2>
             <button
               onClick={onClose}
               className="p-1 hover:bg-[#161b22] rounded text-[#8b949e] transition-colors"
@@ -143,7 +143,7 @@ function ColumnPrefsEditor({
           </div>
           {artifactType && (
             <div className="text-xs text-[#8b949e]">
-              Profil: <span className="text-[var(--fl-accent)] font-medium">{artifactType}</span>
+              Profile: <span className="text-[var(--fl-accent)] font-medium">{artifactType}</span>
             </div>
           )}
         </div>
@@ -184,7 +184,7 @@ function ColumnPrefsEditor({
               className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-[#238636] hover:bg-[#2ea043] text-white text-sm font-medium rounded transition-colors"
             >
               <Briefcase size={16} />
-              Cas
+              Case
             </button>
             <button
               onClick={() => handleSave('global')}
@@ -199,7 +199,7 @@ function ColumnPrefsEditor({
             className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-[#161b22] hover:bg-[var(--fl-panel)] border border-[var(--fl-border)] text-[var(--fl-dim)] text-sm font-medium rounded transition-colors"
           >
             <RotateCcw size={16} />
-            Réinitialiser
+            Reset
           </button>
         </div>
       </div>

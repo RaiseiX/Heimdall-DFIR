@@ -34,7 +34,7 @@ export default function Alert({ variant = 'danger', message, dismissible = false
       {dismissible && (
         <button
           onClick={onDismiss}
-          aria-label="Fermer l'alerte"
+          aria-label="Close alert"
           style={{
             background: 'none', border: 'none', cursor: 'pointer',
             color: 'var(--fl-muted)', padding: 0,

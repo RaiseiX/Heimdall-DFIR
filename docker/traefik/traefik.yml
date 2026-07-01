@@ -25,22 +25,17 @@ entryPoints:
     address: ":443"
     transport:
       respondingTimeouts:
-        readTimeout: "7200s"    # 2h pour lire le body (gros uploads)
-        writeTimeout: "7200s"   # 2h pour écrire la réponse
-        idleTimeout: "3600s"    # 1h pour les connexions idle
+        readTimeout:  "7200s"
+        writeTimeout: "7200s"
+        idleTimeout:  "3600s"
 
   # Internal management port (healthcheck, optional dashboard)
   traefik:
     address: ":8080"
 
 providers:
-  docker:
-    endpoint: "unix:///var/run/docker.sock"
-    exposedByDefault: false  # Only services with traefik.enable=true are routed
-    # No global network — each service declares traefik.docker.network=<net> in its labels
-    # so Traefik picks the correct IP across the multi-network topology.
   file:
-    directory: /etc/traefik/dynamic  # middlewares, serversTransports
+    directory: /etc/traefik/dynamic
     watch: true
 
 # Let's Encrypt — TLS challenge (works on public domains with ports 80/443 reachable)

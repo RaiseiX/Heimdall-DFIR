@@ -70,9 +70,9 @@ export default function ArtifactColumnEditor({ artifactType, open, onClose, onAp
   const BADGE = {
     background: 'var(--fl-card)',
     color: 'var(--fl-accent)',
-    border: '1px solid #4d82c040',
+    border: '1px solid color-mix(in srgb, var(--fl-accent) 25%, transparent)',
     borderRadius: 4,
-    fontFamily: 'monospace',
+    fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
     fontSize: 9,
     padding: '1px 5px',
     flexShrink: 0,
@@ -101,11 +101,11 @@ export default function ArtifactColumnEditor({ artifactType, open, onClose, onAp
           background: 'var(--fl-panel)', flexShrink: 0,
         }}>
           <div>
-            <div style={{ fontFamily: 'monospace', fontSize: 13, fontWeight: 700, color: 'var(--fl-text)' }}>
+            <div style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 13, fontWeight: 700, color: 'var(--fl-text)' }}>
               Colonnes — <span style={{ color: 'var(--fl-accent)' }}>{artifactType}</span>
             </div>
-            <div style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--fl-muted)', marginTop: 2 }}>
-              Choisissez les champs du premier plan
+            <div style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10, color: 'var(--fl-muted)', marginTop: 2 }}>
+              Choose the foreground columns
             </div>
           </div>
           <button
@@ -121,20 +121,20 @@ export default function ArtifactColumnEditor({ artifactType, open, onClose, onAp
           <div style={{ marginBottom: 18 }}>
             <div style={{
               display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8,
-              fontFamily: 'monospace', fontSize: 10, fontWeight: 700,
+              fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10, fontWeight: 700,
               color: 'var(--fl-accent)', textTransform: 'uppercase', letterSpacing: '0.08em',
             }}>
               <Eye size={11} />
-              Premier plan
+              Foreground
               <span style={{ ...BADGE, marginLeft: 2 }}>{activeItems.length}</span>
             </div>
 
             {activeItems.length === 0 && (
               <div style={{
-                padding: '14px', textAlign: 'center', fontFamily: 'monospace', fontSize: 10,
+                padding: '14px', textAlign: 'center', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10,
                 color: 'var(--fl-muted)', border: '1px dashed var(--fl-card)', borderRadius: 6,
               }}>
-                Aucun champ actif — cliquez sur un champ ci-dessous
+                No active fields — click a field below
               </div>
             )}
 
@@ -146,17 +146,17 @@ export default function ArtifactColumnEditor({ artifactType, open, onClose, onAp
               }}>
                 
                 <span style={{
-                  fontFamily: 'monospace', fontSize: 9, color: 'var(--fl-muted)',
+                  fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 9, color: 'var(--fl-muted)',
                   width: 14, textAlign: 'right', flexShrink: 0,
                 }}>
                   {idx + 1}
                 </span>
 
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--fl-dim)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  <div style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11, color: 'var(--fl-dim)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {item.label}
                   </div>
-                  <div style={{ fontFamily: 'monospace', fontSize: 9, color: 'var(--fl-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  <div style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 9, color: 'var(--fl-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {item.key}
                   </div>
                 </div>
@@ -165,7 +165,7 @@ export default function ArtifactColumnEditor({ artifactType, open, onClose, onAp
                   <button
                     onClick={() => moveUp(idx)}
                     disabled={idx === 0}
-                    title="Monter"
+                    title="Move up"
                     style={{
                       background: 'none', border: 'none', padding: '2px 3px', cursor: idx === 0 ? 'default' : 'pointer',
                       color: idx === 0 ? 'var(--fl-card)' : 'var(--fl-accent)', borderRadius: 3,
@@ -176,7 +176,7 @@ export default function ArtifactColumnEditor({ artifactType, open, onClose, onAp
                   <button
                     onClick={() => moveDown(idx)}
                     disabled={idx === activeItems.length - 1}
-                    title="Descendre"
+                    title="Move down"
                     style={{
                       background: 'none', border: 'none', padding: '2px 3px',
                       cursor: idx === activeItems.length - 1 ? 'default' : 'pointer',
@@ -187,7 +187,7 @@ export default function ArtifactColumnEditor({ artifactType, open, onClose, onAp
                   </button>
                   <button
                     onClick={() => toggleToAvailable(item)}
-                    title="Déplacer en second plan"
+                    title="Move to background"
                     style={{
                       background: 'none', border: 'none', padding: '2px 4px',
                       cursor: 'pointer', color: 'var(--fl-subtle)', borderRadius: 3,
@@ -205,11 +205,11 @@ export default function ArtifactColumnEditor({ artifactType, open, onClose, onAp
           <div>
             <div style={{
               display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8,
-              fontFamily: 'monospace', fontSize: 10, fontWeight: 700,
+              fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10, fontWeight: 700,
               color: 'var(--fl-subtle)', textTransform: 'uppercase', letterSpacing: '0.08em',
             }}>
               <EyeOff size={11} />
-              Second plan
+              Background
               <span style={{ ...BADGE, color: 'var(--fl-muted)', background: 'var(--fl-bg)', borderColor: 'var(--fl-sep)', marginLeft: 2 }}>
                 {availableItems.length}
               </span>
@@ -217,9 +217,9 @@ export default function ArtifactColumnEditor({ artifactType, open, onClose, onAp
 
             {availableItems.length === 0 && (
               <div style={{
-                padding: '14px', textAlign: 'center', fontFamily: 'monospace', fontSize: 10, color: 'var(--fl-muted)',
+                padding: '14px', textAlign: 'center', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10, color: 'var(--fl-muted)',
               }}>
-                Tous les champs sont en premier plan
+                All fields are in the foreground
               </div>
             )}
 
@@ -227,7 +227,7 @@ export default function ArtifactColumnEditor({ artifactType, open, onClose, onAp
               <div
                 key={item.key}
                 onClick={() => toggleToActive(item)}
-                title="Ajouter au premier plan"
+                title="Add to foreground"
                 style={{
                   display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4,
                   padding: '6px 8px 6px 10px', background: '#090d13',
@@ -238,10 +238,10 @@ export default function ArtifactColumnEditor({ artifactType, open, onClose, onAp
                 onMouseLeave={e => e.currentTarget.style.borderColor = '#0f1921'}
               >
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--fl-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  <div style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11, color: 'var(--fl-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {item.label}
                   </div>
-                  <div style={{ fontFamily: 'monospace', fontSize: 9, color: '#1e2d3d', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  <div style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 9, color: '#1e2d3d', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {item.key}
                   </div>
                 </div>
@@ -260,10 +260,10 @@ export default function ArtifactColumnEditor({ artifactType, open, onClose, onAp
             style={{
               display: 'flex', alignItems: 'center', gap: 5, padding: '6px 12px',
               background: 'none', border: '1px solid var(--fl-border)', borderRadius: 5,
-              cursor: 'pointer', color: 'var(--fl-dim)', fontFamily: 'monospace', fontSize: 11,
+              cursor: 'pointer', color: 'var(--fl-dim)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11,
             }}
           >
-            <RotateCcw size={11} /> Réinitialiser
+            <RotateCcw size={11} /> Reset
           </button>
           <button
             onClick={handleApply}
@@ -271,7 +271,7 @@ export default function ArtifactColumnEditor({ artifactType, open, onClose, onAp
               flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
               padding: '6px 12px', background: '#1f6feb', border: '1px solid #388bfd40',
               borderRadius: 5, cursor: 'pointer', color: '#ffffff',
-              fontFamily: 'monospace', fontSize: 11, fontWeight: 700,
+              fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11, fontWeight: 700,
             }}
           >
             <Check size={12} /> Appliquer

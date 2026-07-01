@@ -33,7 +33,7 @@ function LiveThinking({ content, isActive, collapsed, onToggle }) {
       marginBottom: 5, borderRadius: 5,
       border: `1px solid ${isActive ? '#1a4a2a' : '#0d2a1a'}`,
       background: 'rgba(2,8,4,0.85)', overflow: 'hidden',
-      fontSize: 9, fontFamily: 'monospace',
+      fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
     }}>
       <div onClick={onToggle} style={{
         display: 'flex', alignItems: 'center', gap: 5,
@@ -43,10 +43,10 @@ function LiveThinking({ content, isActive, collapsed, onToggle }) {
         userSelect: 'none',
       }}>
         {isActive
-          ? <span style={{ color: '#22c55e', fontSize: 8, animation: 'blink 1s step-end infinite' }}>●</span>
+          ? <span style={{ color: 'var(--fl-ok)', fontSize: 8, animation: 'blink 1s step-end infinite' }}>●</span>
           : <span style={{ color: '#3a8a5a', fontSize: 8 }}>✓</span>}
-        <span style={{ color: isActive ? '#22c55e' : '#2a6a3a' }}>
-          {isActive ? 'Raisonnement en cours…' : 'Raisonnement terminé'}
+        <span style={{ color: isActive ? 'var(--fl-ok)' : '#2a6a3a' }}>
+          {isActive ? 'Thinking…' : 'Thinking complete'}
         </span>
         <span style={{ marginLeft: 'auto', color: '#0d3a1a', fontSize: 8 }}>
           {collapsed ? '▶' : '▼'}
@@ -59,17 +59,17 @@ function LiveThinking({ content, isActive, collapsed, onToggle }) {
           whiteSpace: 'pre-wrap', wordBreak: 'break-word',
         }}>
           {content}
-          {isActive && <span style={{ color: '#22c55e', animation: 'blink 1s step-end infinite' }}>▌</span>}
+          {isActive && <span style={{ color: 'var(--fl-ok)', animation: 'blink 1s step-end infinite' }}>▌</span>}
         </div>
       )}
     </div>
   );
 }
 
-const DEFAULT_MODELS = ['qwen2.5:7b', 'qwen2.5:14b', 'deepseek-r1:8b', 'llama3.2:3b', 'mistral:7b'];
-const SYSTEM_PROMPT = `Tu es un analyste forensique senior en DFIR (Digital Forensics and Incident Response).
-Tu analyses des événements de timeline forensique (Windows artifacts: EVTX, MFT, Prefetch, Registry, etc.).
-Réponds en français. Sois concis et précis. Identifie les comportements suspects, les IOCs, et les techniques MITRE ATT&CK.`;
+const DEFAULT_MODELS = ['qwen3.5:4b', 'qwen2.5:7b', 'qwen2.5:14b', 'deepseek-r1:8b', 'llama3.2:3b', 'mistral:7b'];
+const SYSTEM_PROMPT = `You are a senior DFIR (Digital Forensics and Incident Response) analyst.
+You analyze forensic timeline events (Windows artifacts: EVTX, MFT, Prefetch, Registry, etc.).
+Respond in English. Be concise and precise. Identify suspicious behavior, IOCs, and MITRE ATT&CK techniques.`;
 
 const ARTIFACT_ICONS = {
   evtx:        '📋', winevt: '📋', event: '📋',
@@ -103,11 +103,11 @@ function ThinkingSteps({ steps, collapsed, onToggle }) {
     <div style={{
       marginBottom: 6,
       borderRadius: 5,
-      border: '1px solid #0d2035',
+      border: '1px solid #131722',
       background: 'rgba(4,10,20,0.8)',
       overflow: 'hidden',
       fontSize: 9,
-      fontFamily: 'monospace',
+      fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
     }}>
       
       <div
@@ -116,18 +116,18 @@ function ThinkingSteps({ steps, collapsed, onToggle }) {
           display: 'flex', alignItems: 'center', gap: 5,
           padding: '4px 8px', cursor: 'pointer',
           background: 'rgba(4,14,28,0.95)',
-          borderBottom: collapsed ? 'none' : '1px solid #0d2035',
+          borderBottom: collapsed ? 'none' : '1px solid #131722',
           userSelect: 'none',
         }}
       >
-        <span style={{ color: '#2a5a8a', flexShrink: 0 }}>{collapsed ? '▶' : '▼'}</span>
+        <span style={{ color: 'var(--fl-subtle)', flexShrink: 0 }}>{collapsed ? '▶' : '▼'}</span>
         <span style={{ color: '#1a4a6a' }}>
           {isGenerating
-            ? <><span style={{ color: 'var(--fl-accent)' }}>🤖</span> Génération en cours…</>
-            : `Contexte lu — ${doneCount}/${total} sources`}
+            ? <><span style={{ color: 'var(--fl-accent)' }}>🤖</span> Generating…</>
+            : `Context read — ${doneCount}/${total} sources`}
         </span>
         {!collapsed && (
-          <span style={{ marginLeft: 'auto', color: '#0d2a40', fontSize: 8 }}>cliquer pour replier</span>
+          <span style={{ marginLeft: 'auto', color: '#131722', fontSize: 8 }}>click to collapse</span>
         )}
       </div>
 
@@ -137,9 +137,9 @@ function ThinkingSteps({ steps, collapsed, onToggle }) {
             <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               <span style={{
                 flexShrink: 0, fontSize: 8,
-                color: step.status === 'done' ? '#22c55e'
+                color: step.status === 'done' ? 'var(--fl-ok)'
                   : step.status === 'generating' ? 'var(--fl-accent)'
-                  : '#3a6a9a',
+                  : 'var(--fl-muted)',
               }}>
                 {step.status === 'done' ? '✓'
                   : step.status === 'generating' ? '▌'
@@ -148,7 +148,7 @@ function ThinkingSteps({ steps, collapsed, onToggle }) {
               <span style={{
                 color: step.status === 'done' ? '#3a8a5a'
                   : step.status === 'generating' ? 'var(--fl-accent)'
-                  : '#2a5a8a',
+                  : 'var(--fl-subtle)',
               }}>
                 {step.icon} {step.label}
               </span>
@@ -210,7 +210,7 @@ export default function AiAnalystPanel({ records, caseId, totalEvents = 0 }) {
       label: 'Super Timeline',
       status: 'done',
       count: totalEvents || recs.length,
-      detail: `${recs.length} chargés · analyse intelligente`,
+      detail: `${recs.length} loaded · intelligent analysis`,
     });
 
     for (const [type, count] of Object.entries(byType).sort((a, b) => b[1] - a[1])) {
@@ -230,7 +230,7 @@ export default function AiAnalystPanel({ records, caseId, totalEvents = 0 }) {
     if (mitreSet.size > 0)
       steps.push({ icon: '🛡️', label: 'Techniques MITRE ATT&CK', status: 'done', count: mitreSet.size, detail: [...mitreSet].slice(0, 4).join(', ') + (mitreSet.size > 4 ? '…' : '') });
 
-    steps.push({ icon: '🤖', label: "Génération de l'analyse", status: 'generating' });
+    steps.push({ icon: '🤖', label: "Generating analysis", status: 'generating' });
 
     return steps;
   }
@@ -264,14 +264,14 @@ export default function AiAnalystPanel({ records, caseId, totalEvents = 0 }) {
     }
 
     const statsBlock = [
-      `ÉVÉNEMENTS : ${totalEvents ? `${totalEvents.toLocaleString()} au total dans la base` : `${n} chargés`}${totalEvents && totalEvents > n ? ` (${n} analysés ici — appliquer des filtres pour affiner)` : ''}`,
-      `FENÊTRE TEMPORELLE : ${earliest || '?'} → ${latest || '?'}`,
-      `PAR TYPE : ${Object.entries(byType).sort((a,b) => b[1]-a[1]).map(([t,c]) => `${t}(${c})`).join(', ')}`,
-      `PAR NIVEAU : ${Object.entries(byLevel).sort((a,b) => b[1]-a[1]).map(([l,c]) => `${l}(${c})`).join(', ')}`,
-      `MACHINES (${hosts.size}) : ${[...hosts].slice(0, 10).join(', ')}${hosts.size > 10 ? '…' : ''}`,
-      `UTILISATEURS (${users.size}) : ${[...users].slice(0, 10).join(', ')}${users.size > 10 ? '…' : ''}`,
-      `PROCESSUS UNIQUES (${procs.size}) : ${[...procs].slice(0, 15).join(', ')}${procs.size > 15 ? '…' : ''}`,
-      `TECHNIQUES MITRE (${mitres.size}) : ${[...mitres].join(', ')}`,
+      `EVENTS : ${totalEvents ? `${totalEvents.toLocaleString()} total in the database` : `${n} loaded`}${totalEvents && totalEvents > n ? ` (${n} analyzed here — apply filters to narrow it down)` : ''}`,
+      `TIME WINDOW : ${earliest || '?'} → ${latest || '?'}`,
+      `BY TYPE : ${Object.entries(byType).sort((a,b) => b[1]-a[1]).map(([t,c]) => `${t}(${c})`).join(', ')}`,
+      `BY LEVEL : ${Object.entries(byLevel).sort((a,b) => b[1]-a[1]).map(([l,c]) => `${l}(${c})`).join(', ')}`,
+      `HOSTS (${hosts.size}) : ${[...hosts].slice(0, 10).join(', ')}${hosts.size > 10 ? '…' : ''}`,
+      `USERS (${users.size}) : ${[...users].slice(0, 10).join(', ')}${users.size > 10 ? '…' : ''}`,
+      `UNIQUE PROCESSES (${procs.size}) : ${[...procs].slice(0, 15).join(', ')}${procs.size > 15 ? '…' : ''}`,
+      `MITRE TECHNIQUES (${mitres.size}) : ${[...mitres].join(', ')}`,
     ].join('\n');
 
     const LEVEL_ORDER = { critical: 0, high: 1, medium: 2, low: 3, info: 4 };
@@ -305,11 +305,11 @@ export default function AiAnalystPanel({ records, caseId, totalEvents = 0 }) {
     }
 
     return [
-      `=== STATISTIQUES GLOBALES ===\n${statsBlock}`,
+      `=== GLOBAL STATISTICS ===\n${statsBlock}`,
       topEvents.length
-        ? `\n=== TOP ${topEvents.length} ÉVÉNEMENTS CRITIQUES/HIGH ===\n${JSON.stringify(topEvents, null, 1)}`
-        : '\n(Aucun événement critique ou high dans les records chargés)',
-      `\n=== EXEMPLES PAR TYPE D'ARTIFACT ===\n${JSON.stringify(byTypeSample, null, 1)}`,
+        ? `\n=== TOP ${topEvents.length} CRITICAL/HIGH EVENTS ===\n${JSON.stringify(topEvents, null, 1)}`
+        : '\n(No critical or high events in the loaded records)',
+      `\n=== EXAMPLES BY ARTIFACT TYPE ===\n${JSON.stringify(byTypeSample, null, 1)}`,
     ].join('\n');
   }
 
@@ -434,7 +434,7 @@ export default function AiAnalystPanel({ records, caseId, totalEvents = 0 }) {
     } catch (e) {
       if (e.name !== 'AbortError') {
         setMessages(prev => prev.map(m => m.id !== msgId ? m : {
-          ...m, content: `Erreur: ${e.message}`, loading: false,
+          ...m, content: `Error: ${e.message}`, loading: false,
         }));
       }
     } finally {
@@ -444,18 +444,18 @@ export default function AiAnalystPanel({ records, caseId, totalEvents = 0 }) {
   }
 
   if (available === null) return (
-    <div style={{ padding: 16, fontFamily: 'monospace', fontSize: 10, color: '#2a5a8a' }}>
-      Vérification disponibilité Ollama…
+    <div style={{ padding: 16, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10, color: 'var(--fl-subtle)' }}>
+      Checking Ollama availability…
     </div>
   );
 
   if (!available) return (
     <div style={{ padding: '16px 20px' }}>
-      <div style={{ fontFamily: 'monospace', fontSize: 11, color: '#2a5a8a', marginBottom: 8 }}>
+      <div style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11, color: 'var(--fl-subtle)', marginBottom: 8 }}>
         IA Locale (Ollama) — non disponible
       </div>
-      <div style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--fl-accent)', lineHeight: 1.6 }}>
-        Pour activer : démarrez le service Docker avec le profil <code style={{ color: 'var(--fl-accent)' }}>ai</code>
+      <div style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10, color: 'var(--fl-accent)', lineHeight: 1.6 }}>
+        To enable it: start the Docker service with the <code style={{ color: 'var(--fl-accent)' }}>ai</code> profile
         <br />
         <code style={{ color: 'var(--fl-accent)' }}>docker compose --profile ai up -d</code>
         <br />
@@ -465,35 +465,35 @@ export default function AiAnalystPanel({ records, caseId, totalEvents = 0 }) {
   );
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: '#04080f' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: '#0a0c11' }}>
       
       <div style={{ flexShrink: 0, padding: '6px 12px', borderBottom: '1px solid var(--fl-bg)', display: 'flex', alignItems: 'center', gap: 8 }}>
-        <span style={{ fontSize: 9, fontFamily: 'monospace', color: '#22c55e', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+        <span style={{ fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-ok)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
           ⚡ IA Locale
         </span>
         <select value={model} onChange={e => setModel(e.target.value)}
-          style={{ background: '#0a1520', border: '1px solid var(--fl-bg)', borderRadius: 4, color: '#7abfff', fontSize: 9, fontFamily: 'monospace', padding: '1px 4px' }}>
+          style={{ background: '#0e1118', border: '1px solid var(--fl-bg)', borderRadius: 4, color: 'var(--fl-dim)', fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', padding: '1px 4px' }}>
           {models.map(m => <option key={m} value={m}>{m}</option>)}
         </select>
         {messages.length > 0 && (
           <button onClick={() => { setMessages([]); setCollapsedMap({}); }}
-            style={{ marginLeft: 'auto', fontSize: 9, fontFamily: 'monospace', color: '#2a5a8a', background: 'none', border: 'none', cursor: 'pointer' }}>
-            ✕ Effacer
+            style={{ marginLeft: 'auto', fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-subtle)', background: 'none', border: 'none', cursor: 'pointer' }}>
+            ✕ Clear
           </button>
         )}
       </div>
 
       <div style={{ flex: 1, overflow: 'auto', padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 10 }}>
         {messages.length === 0 && (
-          <div style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--fl-accent)', lineHeight: 1.7 }}>
-            Posez une question sur les <strong style={{ color: '#2a5a8a' }}>{records?.length ?? 0} événements</strong> chargés.
+          <div style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10, color: 'var(--fl-accent)', lineHeight: 1.7 }}>
+            Ask a question about the <strong style={{ color: 'var(--fl-subtle)' }}>{records?.length ?? 0} loaded events</strong>.
             <br />
-            <span style={{ fontSize: 9, color: 'var(--fl-muted)' }}>Modèle: {model} · CPU uniquement</span>
+            <span style={{ fontSize: 9, color: 'var(--fl-muted)' }}>Model: {model} · CPU only</span>
             <br /><br />
-            Exemples :
-            <br />• Quels sont les processus les plus suspects ?
-            <br />• Y a-t-il des signes de persistence ?
-            <br />• Résume la chronologie des événements critiques.
+            Examples:
+            <br />• Which processes look most suspicious?
+            <br />• Are there signs of persistence?
+            <br />• Summarize the timeline of critical events.
           </div>
         )}
 
@@ -521,22 +521,22 @@ export default function AiAnalystPanel({ records, caseId, totalEvents = 0 }) {
             )}
 
             <div style={{
-              background: msg.role === 'user' ? 'rgba(77,130,192,0.15)' : 'rgba(6,17,31,0.8)',
-              border: `1px solid ${msg.role === 'user' ? 'rgba(77,130,192,0.3)' : 'var(--fl-bg)'}`,
+              background: msg.role === 'user' ? 'color-mix(in srgb, var(--fl-accent) 15%, transparent)' : 'rgba(6,17,31,0.8)',
+              border: `1px solid ${msg.role === 'user' ? 'color-mix(in srgb, var(--fl-accent) 30%, transparent)' : 'var(--fl-bg)'}`,
               borderRadius: msg.role === 'user' ? '8px 8px 2px 8px' : '2px 8px 8px 8px',
               padding: '7px 10px',
             }}>
               <div style={{
-                fontFamily: 'monospace', fontSize: 10,
-                color: msg.role === 'user' ? '#7abfff' : 'var(--fl-on-dark)',
+                fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10,
+                color: msg.role === 'user' ? 'var(--fl-dim)' : 'var(--fl-on-dark)',
                 lineHeight: 1.65, whiteSpace: 'pre-wrap',
               }}>
                 {msg.content
                   ? msg.content
                   : msg.isThinking
-                    ? <span style={{ color: '#1a5a2a', fontSize: 9 }}>Raisonnement…</span>
+                    ? <span style={{ color: '#1a5a2a', fontSize: 9 }}>Thinking…</span>
                     : msg.loading
-                      ? <span style={{ color: '#1a4060', fontSize: 9 }}>Lecture des artifacts…</span>
+                      ? <span style={{ color: '#1a4060', fontSize: 9 }}>Reading artifacts…</span>
                       : streaming && i === messages.length - 1
                         ? '▌'
                         : ''}
@@ -552,23 +552,23 @@ export default function AiAnalystPanel({ records, caseId, totalEvents = 0 }) {
           value={prompt}
           onChange={e => setPrompt(e.target.value)}
           onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
-          placeholder="Question (Entrée pour envoyer, Shift+Entrée saut de ligne)…"
+          placeholder="Question (Enter to send, Shift+Enter for newline)…"
           rows={2}
           disabled={streaming}
           style={{
             flex: 1, background: '#06111f', border: '1px solid var(--fl-bg)', borderRadius: 5,
-            color: 'var(--fl-on-dark)', fontSize: 10, fontFamily: 'monospace', padding: '6px 8px',
+            color: 'var(--fl-on-dark)', fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', padding: '6px 8px',
             resize: 'none', outline: 'none',
           }}
         />
         {streaming ? (
           <button onClick={() => abortRef.current?.abort()}
-            style={{ padding: '6px 10px', borderRadius: 5, background: 'rgba(239,68,68,0.15)', color: 'var(--fl-danger)', border: '1px solid rgba(239,68,68,0.3)', cursor: 'pointer', fontSize: 10, fontFamily: 'monospace' }}>
+            style={{ padding: '6px 10px', borderRadius: 5, background: 'color-mix(in srgb, var(--fl-danger) 15%, transparent)', color: 'var(--fl-danger)', border: '1px solid color-mix(in srgb, var(--fl-danger) 30%, transparent)', cursor: 'pointer', fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}>
             ⏹
           </button>
         ) : (
           <button onClick={sendMessage} disabled={!prompt.trim()}
-            style={{ padding: '6px 10px', borderRadius: 5, background: prompt.trim() ? 'rgba(77,130,192,0.2)' : 'transparent', color: prompt.trim() ? 'var(--fl-accent)' : 'var(--fl-accent)', border: '1px solid var(--fl-bg)', cursor: prompt.trim() ? 'pointer' : 'default', fontSize: 10, fontFamily: 'monospace' }}>
+            style={{ padding: '6px 10px', borderRadius: 5, background: prompt.trim() ? 'color-mix(in srgb, var(--fl-accent) 20%, transparent)' : 'transparent', color: prompt.trim() ? 'var(--fl-accent)' : 'var(--fl-accent)', border: '1px solid var(--fl-bg)', cursor: prompt.trim() ? 'pointer' : 'default', fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}>
             ↵
           </button>
         )}

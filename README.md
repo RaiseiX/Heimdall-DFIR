@@ -1,178 +1,120 @@
-```
-╔╦══════════════════════════════════════════════════════════════════════╦╗
-║║                                                                      ║║
-╠╬══  H  E  I  M  D  A  L  L  ═════════════════════════════  v 0 . 9  ══╬╣
-║║                                                                      ║║
-║║   ██╗  ██╗███████╗██╗███╗   ███╗██████╗  █████╗ ██╗     ██╗          ║║
-║║   ██║  ██║██╔════╝██║████╗ ████║██╔══██╗██╔══██╗██║     ██║          ║║
-║║   ███████║█████╗  ██║██╔████╔██║██║  ██║███████║██║     ██║          ║║
-║║   ██╔══██║██╔══╝  ██║██║╚██╔╝██║██║  ██║██╔══██║██║     ██║          ║║
-║║   ██║  ██║███████╗██║██║ ╚═╝ ██║██████╔╝██║  ██║███████╗███████╗     ║║
-║║   ╚═╝  ╚═╝╚══════╝╚═╝╚═╝     ╚═╝╚═════╝ ╚═╝  ╚═╝╚══════╝╚══════╝     ║║
-║║                                                                      ║║
-╠╬══════════════════  DFIR & THREAT HUNTING WORKBENCH  ═════════════════╬╣
-║║                                                                      ║║
-╚╩══════════════════════════════════════════════════════════════════════╩╝
-```
-
 # Heimdall DFIR
 
-> *Guardian of the Nine Worlds — See the unseen.*
+Self-hosted DFIR and threat-hunting workbench for case-driven investigations, forensic artifact ingestion, collaborative analysis, and report generation.
 
-[![EN](https://img.shields.io/badge/lang-EN-blue)](README.md)
 [![FR](https://img.shields.io/badge/lang-FR-blueviolet)](README.fr.md)
-![Version](https://img.shields.io/badge/version-0.9.9-blue)
-![Docker](https://img.shields.io/badge/docker-compose-2496ED)
-![Node](https://img.shields.io/badge/node-18+-339933)
-![React](https://img.shields.io/badge/react-18-61DAFB)
-![Elasticsearch](https://img.shields.io/badge/elasticsearch-8.13-005571)
-![License](https://img.shields.io/badge/license-MIT-green)
+[![Docker Compose](https://img.shields.io/badge/runtime-Docker%20Compose-2496ED)](docker-compose.yml)
+[![Node.js](https://img.shields.io/badge/backend-Node.js%2020-339933)](backend/package.json)
+[![React](https://img.shields.io/badge/frontend-React%2018-61DAFB)](frontend/package.json)
+[![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 Heimdall DFIR is a **unified investigation cockpit** built for CSIRT / SOC / DFIR teams.
 It ingests, correlates and visualises any forensic source — Windows/Linux artifacts,
 network captures, RAM dumps — in a single, collaborative, real-time interface.
 Discord link : https://discord.gg/sx7DnNYMNF
 
-> ⚠️ **BETA NOTICE:** Heimdall DFIR is currently in beta. Not all features are fully functional yet, and you may encounter bugs. Use in production environments at your own risk.
+> Heimdall is in active development. Validate the full workflow in a controlled environment before using it for production investigations.
 
-> 📍 **[Roadmap →](ROADMAP.md)**
+## Table of Contents
 
----
+- [What Heimdall Does](#what-heimdall-does)
+- [Core Capabilities](#core-capabilities)
+- [Architecture](#architecture)
+- [Repository Layout](#repository-layout)
+- [Quick Start](#quick-start)
+- [Configuration](#configuration)
+- [Operations](#operations)
+- [Developer Workflow](#developer-workflow)
+- [Forensic Tooling](#forensic-tooling)
+- [Documentation](#documentation)
+- [Security Notes](#security-notes)
+- [Credits](#credits)
+- [License](#license)
 
-## Features
+## What Heimdall Does
 
-### 🔬 Forensic Analysis
-- **Super Timeline** — multi-source ingestion via Elasticsearch, histogram, advanced host/user/type filters, pagination, CSV export
-- **Collection isolation** — each source (Hayabusa, MFT, PCAP…) has its own timeline view with zero data spillage
-- **Hayabusa** — Sigma detections on EVTX, colour-coded severity levels, direct IOC pivot
-- **Zimmerman Parsers** — PECmd (Prefetch), MFTECmd ($MFT), LECmd (LNK), SBECmd (Shellbags)
-- **PCAP Parser** — DNS/HTTP/TLS/TCP extraction via tshark → Super Timeline
-- **Memory Forensics** — chunked upload up to 256 GB, automatic resume, VolWeb + Volatility 3
+Heimdall gives CSIRT, SOC, and DFIR teams a single cockpit to:
 
-### 🛡️ Threat Hunting
-- **YARA Engine** — CRUD rules, per-file or per-case scan, results with offsets and matched strings
-- **Sigma Engine** — hunt on the Super Timeline, `contains/startswith/re` modifiers, MITRE mapping
-- **GitHub Import** — bulk import from Neo23x0/signature-base, Yara-Rules/rules, SigmaHQ/sigma
-- **TAXII/STIX Threat Intel** — TAXII 2.1 connector, Elasticsearch `threat_intel` index, automatic post-ingestion correlation
+- manage investigations and evidence by case;
+- upload and parse forensic artifacts;
+- build searchable timelines;
+- run YARA, Sigma, threat-intelligence, and rule-based detections;
+- collaborate through notes, pins, chat, and analyst workbench views;
+- analyze memory dumps through VolWeb and Volatility 3;
+- generate investigation reports and preserve evidence context.
 
-### 🎯 Automatic Detections
-- **Threat Engine v2.26** *(new in 0.9.9)* — YAML-driven hot-path rule engine (≤ 5 µs/record, mtime hot-reload), 5 rule packs / 61 rules: **RMM/Greyware** (AnyDesk, TeamViewer, Atera, ScreenConnect, Splashtop, AeroAdmin, ConnectWise, RemotePC — T1219), **Anti-Forensics** (1102/104 log clear, vssadmin/wbadmin delete, wevtutil cl, fsutil USN, cipher /w, bcdedit recovery, timestomp — T1070/T1490), **LOLBIN** (20 rules — certutil, bitsadmin, regsvr32 Squiblydoo, mshta, rundll32 script, wmic, installutil, cmstp, msbuild, msiexec_remote, forfiles, pcalua, odbcconf, ieexec, hh, xwizard, presentationhost, pubprn vbs, mavinject, powershell encoded — T1218), **Credential Access** (mimikatz, lsass EID 10, dcsync, shadow creds, SAM/NTDS dump, secretsdump, lazagne, kerberoasting burst, skeleton key — T1003), **Persistence** (15 rules — Run keys, Startup LNK, schtasks, service 7045, WMI event sub, BITS, logon scripts, IFEO accessibility, COM hijack, Winlogon tamper, Active Setup, DLL search order, Domain Admins add 4732/4728/4756, At legacy, service binpath shell — T1547/T1546/T1053/T1543/T1574/T1098)
-- **Timestomping** — `$SIA` vs `$FN` comparison (NTFS timestamps) on MFT artifacts
-- **Double extension** — detects `.pdf.exe`, `.docx.scr`, etc. on MFT / LNK / Prefetch
-- **C2 Beaconing** — coefficient of variation of connection intervals (beacon score 0–100)
-- **Persistence** — Registry Run Keys, LNK Startup, BITS Jobs, Sigma Hayabusa (T1547/T1053)
+The project is designed for self-hosted and sovereignty-sensitive environments where evidence should remain under operator control.
 
-### 📊 Triage & Investigation
-- **Machine triage score** — 0–100, 16 rules (EVTX + Sysmon), CRITICAL/HIGH/MEDIUM/LOW levels
-- **Lateral movement graph** — D3.js force-directed, Event IDs 4624/4648/4768/4769/4776/Sysmon 3
-- **Attack Chain** — MITRE ATT&CK bookmarks, 14-phase kill chain, compact/full view
-- **IOC Enrichment** — VirusTotal API v3 + AbuseIPDB, Redis 24h cache, inline badges
-- **Threat Intel Correlations** — automatic IOC matching vs Super Timeline per case
+## Core Capabilities
 
-### ⚡ SOAR & Automation
-- **SOAR Engine** — YARA + Sigma + Threat Intel + Triage in parallel post-ingestion
-- **Automatic alerts** — critical/high/medium/low severity, acknowledgement, real-time badge
-- **DFIR Playbooks** — Ransomware (11 steps), RDP Compromise (10), Phishing (9), MITRE mapping per step
-- **Legal Hold** — evidence freeze, HMAC-SHA256 signed downloadable manifest
-- **Sysmon Configs** — SwiftOnSecurity, Neo23x0, olafhartong_modular, ion-storm bundled
-
-### 🔒 Security & Administration
-- **ClamAV** — mandatory AV scan post-upload, quarantine, live status per evidence item
-- **Hard Delete DoD 5220.22-M** — 7-pass shred + Node.js fallback, DB cascade + ES index deletion
-- **JWT Rotation** — 15-min access token + refresh token, Redis blacklist, logout revocation
-- **Automatic Backup** — pg_dump | gzip, list + download from the admin interface
-- **Health Dashboard** — live status of PostgreSQL / Elasticsearch / Redis / ClamAV / BullMQ
-- **Docker Infrastructure** — CPU/RAM monitoring of all containers (dockerode), 5s auto-refresh
-- **Audit Log** — all actions tracked with HMAC, admin export
-
-### 🤖 Local AI (Ollama) — *functional beta*
-
-> Requires [Ollama](https://ollama.com) — enabled via `OLLAMA_URL` in `.env`. Silently disabled if absent.
-
-- **Global AI Chat** — floating button accessible from all pages, real-time SSE streaming, pre-built DFIR prompts by category (Windows artifacts, MITRE ATT&CK, network, memory…)
-- **Case Copilot** — AI panel docked in each case, context automatically injected (IOCs, SOAR alerts, timeline artifacts, evidence, notes) for precise answers about the ongoing investigation
-- **Persistence** — conversation history stored in DB per case, reloaded each session
-- **Supported models** — `qwen3:14b` (default), `qwen2.5:7b/14b`, `deepseek-r1:8b`, `llama3.2:3b`, `mistral:7b`
-- **No-think mode** — strips `<think>…</think>` tags for clean output (configurable)
-
-### 🧰 Workbench *(new in 0.9.8 / 0.9.9)*
-- **Evidence Bridge** — pin forensic rows from Super Timeline into a dedicated Workbench tab (Zustand + localStorage, 500 pins/case, dedup, auto-sync to Postgres `workbench_evidence_pins`)
-- **Findings Board** — kanban view with Triage / Confirmé / Rapporté columns, native HTML5 drag-and-drop status update, per-case view persistence
-- **Tamper-evident Ledger** — append-only `workbench_evidence_audit` table with SHA-256 hash chain (`content_hash = sha256(prev_hash || action || canonical_payload)`), verification banner, JSON export for legal defensibility
-- **Live multi-analyst sync** — WebSocket `workbench:pin:{added,updated,removed,cleared}` broadcast on `case:<id>` room, no echo loop
-- **Persistence Sweep analyzer** — 11 MITRE rules against pinned rows (T1547/T1543/T1053/T1546/T1197/T1037/T1574…), weighted Persistence Score
-- **Logon Session Reconstruction** — groups EID 4624/4625/4634/4647/4648 by `LogonId`, decodes LogonType, extracts source IP, classifies status
-- **Detection Engine integration** *(0.9.9)* — `🎯 Detections` column with severity pills (CRIT/HIGH/MED/GREY), 3px left-border row accent (No-Christmas-Tree rule), `🎯 Hits uniquement` filter + sévérité-min dropdown, Workbench summary banner with per-severity chips and top-3 rules
-- **Pin → Rapport** — printable forensic findings document with cover page, summary counters, status-grouped findings, full chain-of-custody table per finding
-- **Super Timeline Workbench** — 6 curated tabs (Timeline, MITRE, Persistance, IoA, Kill Chain, Export) — pruned from 13 in 0.9.8 to match real DFIR workflows
-
-### 👥 Collaboration
-- **Live case chat** — Socket.io, DB persistence, message bubbles, deletion, unread badge
-- **Real-time presence** — list of analysts connected to a case
-- **Investigation notes** — CRUD on every timeline artifact, XSS sanitisation
-- **Enriched PDF report** — machine triage, YARA results, Threat Intel correlations, kill chain
-
----
+| Area | Capabilities |
+| --- | --- |
+| Case management | Case records, evidence inventory, comments, notes, pins, reports |
+| Timeline analysis | Super Timeline, artifact filters, column preferences, grouping, search, CSV export |
+| Evidence ingestion | Standard uploads, chunked memory uploads, collection imports, parser streaming |
+| Windows forensics | EVTX, Hayabusa, MFT, Prefetch, LNK, Shellbags, registry-oriented workflows |
+| Network analysis | PCAP-derived flows, network map, beaconing indicators, global graph views |
+| Memory forensics | VolWeb integration, MinIO storage, Volatility 3 worker stack |
+| Threat hunting | YARA, Sigma, TAXII/STIX, IOC enrichment, detection summaries |
+| Automation | BullMQ workers, SOAR alerts, triage scoring, playbooks |
+| Collaboration | Socket.io presence, case chat, workbench pins, audit ledger |
+| Local AI | Optional Ollama-backed copilot and case-aware assistant workflows |
+| Administration | Users, backups, service health, Docker container visibility, access logs |
 
 ## Architecture
 
-```
- Browser
-    │
-    ▼
-[bifrost / nginx :80/:443]       ← rate-limit, security headers, SSL
-    │
-    ├──▶ [asgard / frontend :3000]    React 18 · Vite · D3.js · TanStack Table
-    │
-    └──▶ [odin / backend :4000]       Node.js · Express · TypeScript (ts-node)
-              │
-              ├──▶ [yggdrasil / postgres :5432]    full DFIR schema (18 migrations)
-              ├──▶ [hermod / redis :6379]           BullMQ queues · sessions · JWT blacklist
-              ├──▶ [mimir / elasticsearch :9200]    Super Timeline (per-case index)
-              ├──▶ [tyr / clamav :3310]             real-time AV analysis
-              └──▶ [huginn / worker]                BullMQ consumer (concurrency=2)
-                        │
-                        ├── Zimmerman Tools  (PECmd · MFTECmd · LECmd · SBECmd)
-                        ├── Hayabusa
-                        └── tshark (PCAP)
-
-RAM analysis branch:
-    ├──▶ [njord / minio :9000]        S3 dump storage (console :9001)
-    ├──▶ [hel-api / hel-worker]       VolWeb Django + Celery + Volatility 3
-    └──▶ [hel-proxy :8888]            VolWeb Nginx (SSO Magic Link from Heimdall)
+```text
+Browser
+  |
+  v
+bifrost / Traefik :80/:443
+  |
+  +--> asgard / frontend :3000
+  |      React 18, Vite, Tailwind, D3, TanStack Table
+  |
+  +--> odin / backend :4000
+         Node.js, Express, TypeScript, Socket.io
+         |
+         +--> yggdrasil / PostgreSQL 16
+         +--> hermod / Redis 7
+         +--> mimir / Elasticsearch 8.13
+         +--> tyr / ClamAV
+         +--> huginn / BullMQ worker
+         +--> njord / MinIO
+         +--> hel-api, hel-worker, hel-ui / VolWeb + Volatility 3
+         +--> ollama / optional local LLM
 ```
 
----
+The runtime topology is defined in [docker-compose.yml](docker-compose.yml). Traefik handles external routing and TLS. Internal services are split across frontend, Heimdall, and VolWeb networks.
 
-## Tech Stack
+## Repository Layout
 
-| Layer | Technology |
-|-------|-----------|
-| Frontend | React 18, Vite, D3.js, Recharts, TanStack Table, socket.io-client, react-resizable-panels |
-| Backend | Node.js 18+, Express, TypeScript (ts-node transpileOnly), socket.io |
-| Queue | BullMQ, ioredis |
-| Database | PostgreSQL 16 |
-| Cache / Sessions | Redis 7 |
-| Full-text search | Elasticsearch 8.13 |
-| Object storage | MinIO (S3 API) |
-| Memory analysis | VolWeb + Volatility 3 |
-| Antivirus | ClamAV 1.4.3 |
-| Threat Hunting | YARA (libyara), Sigma (js-yaml), TAXII 2.1 / STIX 2.1 |
-| Network | tshark (PCAP parsing) |
-| Containerisation | Docker Compose v2 |
-| Reverse proxy | Nginx (rate-limit, CSP, HSTS, SSL) |
+```text
+.
+├── backend/              Node.js API, services, middleware, workers, parsers
+├── frontend/             React/Vite application and UI modules
+├── db/                   Initial schema, migrations, migration runners
+├── docker/               Traefik and VolWeb support configuration
+├── docs/                 Architecture, backend, UI, infra, workflow notes
+├── nginx/                VolWeb proxy configuration and legacy nginx files
+├── prompts/              Agent prompts for scoped audits and implementation
+├── tasks/                Engineering decisions, backlog, lessons, active notes
+├── templates/            Delivery templates for audits, bugs, features, redesigns
+├── docker-compose.yml    Main runtime stack
+├── start.sh              Linux/macOS bootstrap script
+└── start.ps1             Windows bootstrap script
+```
 
----
-
-## Getting Started
+## Quick Start
 
 ### Prerequisites
 
-- Docker ≥ 24 + Docker Compose v2
-- `openssl` (secret generation)
-- 8 GB RAM minimum recommended (Elasticsearch + VolWeb)
+- Docker 24+ with Docker Compose v2
+- `openssl` for secret generation on Linux/macOS
+- 16 GB RAM recommended for a full local stack, especially with Elasticsearch, VolWeb, ClamAV, and Ollama
+- 50 GB free disk recommended for test evidence and Docker volumes
 
-### Installation
+### Linux / macOS
 
 ```bash
 git clone https://github.com/RaiseiX/Heimdall-DFIR.git
@@ -180,166 +122,143 @@ cd Heimdall-DFIR
 bash start.sh
 ```
 
-The script handles everything automatically:
-- Checks prerequisites (Docker, openssl)
-- Generates all secrets (JWT, DB, Redis, MinIO…) via `openssl rand`
-- Builds and starts all containers
-- Waits for PostgreSQL to be ready
-- Applies all SQL migrations (v2.7 → v2.22)
+### Windows PowerShell
 
-**Access after install:**
-
-| Service | URL |
-|---------|-----|
-| Heimdall UI | http://localhost |
-| API | http://localhost:4000 |
-| VolWeb (RAM) | http://localhost:8888 |
-| MinIO console | http://localhost:9001 |
-
-### Post-startup configuration
-
-```bash
-# Create the VolWeb superuser (RAM forensics)
-docker exec -it hel-api python manage.py createsuperuser
-# Then create a bucket named "volweb" at http://localhost:9001
-
-# Local AI (optional)
-# Set OLLAMA_URL=http://ollama:11434 in .env, then:
-docker exec ollama ollama pull qwen3:14b
+```powershell
+Set-ExecutionPolicy -Scope Process Bypass
+.\start.ps1
 ```
 
-### Environment variables
+The bootstrap scripts create `.env` from [.env.example](.env.example), generate secrets, build images, start services, wait for PostgreSQL, and apply database migrations.
 
-| Variable | Required | Description |
-|----------|:--------:|-------------|
-| `DB_PASSWORD` | ✅ | PostgreSQL password |
-| `REDIS_PASSWORD` | ✅ | Redis password |
-| `JWT_SECRET` | ✅ | `openssl rand -hex 64` |
-| `ALLOWED_ORIGINS` | ✅ | Frontend URL (CORS), e.g. `http://localhost:3000` |
-| `MINIO_ROOT_USER` | ✅ | MinIO / VolWeb access key |
-| `MINIO_ROOT_PASSWORD` | ✅ | MinIO / VolWeb secret key |
-| `VOLWEB_DJANGO_SECRET` | ✅ | `openssl rand -hex 50` |
-| `DOCKER_GID` | ✅ | Docker socket GID — `stat -c %g /var/run/docker.sock` |
-| `VIRUSTOTAL_API_KEY` | ⬜ | IOC enrichment VirusTotal (optional) |
-| `ABUSEIPDB_API_KEY` | ⬜ | IOC enrichment AbuseIPDB (optional) |
-| `GITHUB_TOKEN` | ⬜ | GitHub rules import — rate limit 60 → 5,000 req/h (optional) |
-| `OLLAMA_URL` | ⬜ | Local AI Ollama, e.g. `http://ollama:11434` (optional) |
+### Access
 
-### Default credentials *(change in production)*
+| Service | URL |
+| --- | --- |
+| Heimdall UI | `https://localhost` or `http://localhost` depending on local browser/TLS handling |
+| API health | `https://localhost/api/health` |
+| MinIO console | `http://localhost:9001` |
+| VolWeb proxy | `http://localhost:8888` |
 
-| Role | Login | Password |
-|------|-------|----------|
-| Admin | `admin` | `Admin2026!` |
-| Analyst | `analyst` | `Analyst2026!` |
+Default accounts are initialized from `.env` on first database creation:
 
----
+| Role | Username | Default password source |
+| --- | --- | --- |
+| Admin | `admin` | `ADMIN_DEFAULT_PASSWORD` |
+| Analyst | `analyst` | `ANALYST_DEFAULT_PASSWORD` |
 
-## Data Sources & Parsers
+Change these values before exposing the platform outside a local lab.
 
-### Zimmerman Tools (Windows Artifacts)
+## Configuration
 
-| Parser | Artifact | Description |
-|--------|----------|-------------|
-| **Hayabusa** | EVTX (`.evtx`) | Sigma detections — critical/high/medium/low levels |
-| **EvtxECmd** | EVTX (`.evtx`) | Raw Windows event logs |
-| **MFTECmd** | `$MFT` | Master File Table — timestamps, paths, sizes |
-| **PECmd** | Prefetch (`.pf`) | Execution history, DLL dependencies |
-| **LECmd** | LNK (`.lnk`) | Recent files, volumes, target machines |
-| **SBECmd** | Shellbags | Folder navigation history (NTUSER.DAT / UsrClass.dat) |
-| **AmcacheParser** | `Amcache.hve` | Installed/executed programs |
-| **AppCompatCacheParser** | ShimCache (SYSTEM) | Application execution (Shimcache) |
-| **RECmd** | Registry hives (SAM, SYSTEM, NTUSER.DAT) | Forensic registry keys |
-| **JLECmd** | Jump Lists (`.automaticDestinations-ms`) | Recent files per application |
-| **SrumECmd** | SRUM (`SRUDB.dat`) | Network & CPU usage per process |
-| **SQLECmd** | SQLite (`.sqlite`, `.db`) | Chrome / Firefox / Edge history (cookies, history) |
-| **RBCmd** | Recycle Bin (`$I*`) | Deleted files — original path, size, date |
-| **BitsParser** | BITS (`qmgr*.dat`) | BITS transfers (persistence, downloads) |
+The main configuration file is `.env`, created from [.env.example](.env.example).
 
-### Other sources
+| Variable | Purpose |
+| --- | --- |
+| `DOMAIN` | Hostname routed by Traefik |
+| `ACME_EMAIL` | Let's Encrypt registration email for public deployments |
+| `DB_PASSWORD` | PostgreSQL application password |
+| `REDIS_PASSWORD` | Redis password |
+| `JWT_SECRET` | JWT signing secret |
+| `ALLOWED_ORIGINS` | CORS allow-list |
+| `MINIO_ROOT_USER`, `MINIO_ROOT_PASSWORD` | MinIO and VolWeb object-storage credentials |
+| `VOLWEB_*` | VolWeb integration and public URL settings |
+| `DOCKER_GID` | Host Docker socket group for the admin infrastructure panel |
+| `VIRUSTOTAL_API_KEY`, `ABUSEIPDB_API_KEY` | Optional IOC enrichment providers |
+| `GITHUB_TOKEN` | Optional GitHub API token for rule imports |
+| `OLLAMA_URL`, `AI_*` | Optional local AI configuration |
 
-| Source | Parser | Output |
-|--------|--------|--------|
-| PCAP (`.pcap`, `.pcapng`) | tshark | DNS / HTTP / TLS ClientHello / TCP flows → Timeline |
-| RAM dumps (`.raw`, `.vmem`, `.mem`, `.dmp`) | Volatility 3 via VolWeb | Processes, network connections, memory artifacts |
-| Any file (< 5 GB) | ClamAV | AV scan, quarantine, live status |
-| TAXII 2.1 feeds | Internal TAXII client | Elasticsearch `threat_intel` index |
+For public deployments, update `DOMAIN`, `ACME_EMAIL`, `ALLOWED_ORIGINS`, and all secrets before first start.
 
----
+## Operations
 
-## CyberChef Forensic
-
-Native React implementation of a decoder/deobfuscator — **no external dependency**.
-
-**Available operations:**
-
-| Category | Operations |
-|----------|-----------|
-| Specialised | PowerShell `-EncodedCommand` (Base64 + UTF-16LE) |
-| Encoding | Base64 (standard / URL-safe), Hex (↔), URL (↔), HTML Entities, Char codes (dec/hex/oct), UTF-16LE → Text |
-| Cipher | ROT13 / Caesar (configurable shift), XOR (1-byte hex key) |
-| Transform | Reverse (char / line / word), Remove Null Bytes |
-| Extract | Strings (configurable min length), URLs, IP Addresses, Regex |
-| Analyse | Statistics + Shannon entropy |
-
-**Automatic obfuscation detection:** heuristic analysis that detects encoded PowerShell, Base64, `\xAB` hex, URL-encoding, decimal charcode, HTML entities, high entropy — and suggests the corresponding decoding operations with a confidence score.
-
----
-
-## Memory Forensics — VolWeb
-
-VolWeb is a collaborative platform built on Volatility 3. It is natively integrated into Heimdall via an **SSO Magic Link** (one click from the evidence tab → automatic login with no re-authentication).
-
-**Volatility plugins available in VolWeb:**
-- `windows.pslist` / `windows.pstree` — process list and tree
-- `windows.cmdline` — command-line arguments
-- `windows.netscan` / `windows.netstat` — active network connections
-- `windows.dlllist` — DLLs loaded by process
-- `windows.handles` — open handles
-- `windows.malfind` — memory injection detection
-- `windows.svcscan` — Windows services
-- `windows.registry.hivelist` / `printkey` — in-memory registry artifacts
-- And more depending on the installed VolWeb version
-
-**RAM upload:**
-- Chunked upload (50 MB/chunk, configurable) up to **256 GB**
-- Automatic resume (localStorage + status endpoint)
-- Zero corruption: positional writes on pre-allocated sparse file
-- Async streaming to VolWeb (zero RAM buffering)
-
----
-
-## Required third-party tools (not included)
-
-The following tools must be placed in the Docker volumes:
-
-| Tool | Volume | Path |
-|------|--------|------|
-| [Zimmerman Tools](https://ericzimmerman.github.io/) (.NET DLLs) | `zimmerman_tools` | `/app/zimmerman-tools/` |
-| [Hayabusa](https://github.com/Yamato-Security/hayabusa) (Linux binary) | `uploads_data` | `/app/hayabusa/hayabusa` |
+Common commands:
 
 ```bash
-# Example — copy Hayabusa into the backend container
+docker compose ps
+docker compose logs -f backend
+docker compose logs -f worker
+docker compose logs -f traefik
+docker compose restart backend worker
+bash db/migrate.sh
+```
+
+Resetting the stack with `docker compose down -v` deletes persistent case data, evidence metadata, queues, Elasticsearch indexes, MinIO objects, and application state. Use it only for disposable labs.
+
+Persistent Docker volumes include PostgreSQL, Redis, Elasticsearch, uploaded evidence, collections, MinIO data, ClamAV signatures, backups, Ollama models, and Let's Encrypt certificates.
+
+## Developer Workflow
+
+Backend:
+
+```bash
+cd backend
+npm install
+npm run dev
+npm run typecheck
+npm test
+```
+
+Frontend:
+
+```bash
+cd frontend
+npm install
+npm run dev
+npm run typecheck
+npm run i18n:check
+npm run build
+```
+
+The production stack is container-first. When changing runtime behavior, validate against Docker Compose because service names, mounted volumes, networks, proxy timeouts, and healthchecks are part of the application contract.
+
+## Forensic Tooling
+
+Some third-party tools are downloaded into the backend image during Docker build when network access is available. Check their upstream licenses before packaging or redistributing images.
+
+| Tool | Use |
+| --- | --- |
+| Zimmerman Tools | Windows artifacts such as MFT, Prefetch, LNK, Shellbags, registry-oriented data |
+| Hayabusa | Sigma-driven EVTX detection |
+| tshark | PCAP parsing |
+| VolWeb / Volatility 3 | Memory analysis |
+| ClamAV | Antivirus scanning of uploaded evidence |
+| SigmaHQ / YARA rule sources | Threat-hunting rules |
+
+Manual Hayabusa repair, if the build-time download failed:
+
+```bash
 docker cp hayabusa odin:/app/hayabusa/hayabusa
 docker exec odin chmod +x /app/hayabusa/hayabusa
 ```
 
----
+## Documentation
+
+- [French README](README.fr.md)
+- [Documentation index](docs/README.md)
+- [Architecture](docs/architecture.md)
+- [Backend architecture](docs/backend.md)
+- [Infrastructure](docs/infra.md)
+- [UI architecture](docs/ui.md)
+- [Design system](docs/design-system.md)
+- [Delivery workflows](docs/workflows.md)
+- [Roadmap](ROADMAP.md)
+- [Changelog](CHANGELOG.md)
+- [User tutorial](TUTORIAL.md)
+
+## Security Notes
+
+- Do not commit `.env` or real investigation data.
+- Rotate generated secrets for any shared or production deployment.
+- Keep Heimdall behind trusted network controls when handling sensitive evidence.
+- Review Traefik, CORS, TLS, upload limits, and Docker socket access before exposing the service.
+- Treat evidence deletion, reset commands, and Docker volume removal as destructive operations.
+- Validate third-party parser binaries and rule packs before use in a sensitive environment.
 
 ## Credits
 
-- [Zimmerman Tools](https://ericzimmerman.github.io/) — Windows forensic parsers
-- [Hayabusa](https://github.com/Yamato-Security/hayabusa) — Sigma EVTX scanner (Yamato Security)
-- [VolWeb](https://github.com/k1nd0ne/VolWeb) — collaborative Volatility 3 platform
-- [Volatility Foundation](https://www.volatilityfoundation.org/) — memory analysis
-- [ClamAV](https://www.clamav.net/) — open-source antivirus engine
-- [Elastic](https://www.elastic.co/) — search & analytics engine
-- [SigmaHQ](https://github.com/SigmaHQ/sigma) — official Sigma rules
-- [Neo23x0 / signature-base](https://github.com/Neo23x0/signature-base) — reference YARA rules
-- [Yara-Rules](https://github.com/Yara-Rules/rules) — community YARA collection
-- [MITRE ATT&CK](https://attack.mitre.org/) — tactics and techniques framework
-
----
+Heimdall builds on open-source DFIR and infrastructure projects including Zimmerman Tools, Hayabusa, VolWeb, Volatility 3, ClamAV, Elasticsearch, SigmaHQ, YARA rule communities, Redis, PostgreSQL, React, Node.js, and MITRE ATT&CK.
 
 ## License
 
-MIT © Heimdall DFIR Contributors
+[MIT](LICENSE) © Heimdall DFIR Contributors

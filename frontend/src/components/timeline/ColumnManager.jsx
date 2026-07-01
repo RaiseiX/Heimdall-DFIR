@@ -174,7 +174,7 @@ export default function ColumnManager({
         zIndex: 10000,
         display: 'flex',
         flexDirection: 'column',
-        fontFamily: 'monospace',
+        fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
         color: 'var(--fl-text)',
       }}
     >
@@ -199,16 +199,16 @@ export default function ColumnManager({
               letterSpacing: '0.06em',
             }}
           >
-            Colonnes
+            Columns
           </span>
           <span style={{ fontSize: 11, color: 'var(--fl-dim)' }}>
-            ({visibleCount} visibles)
+            ({visibleCount} visible)
           </span>
         </div>
-        <button
-          onClick={onClose}
-          style={{
-            background: 'none',
+          <button
+            onClick={onClose}
+            style={{
+              background: 'none',
             border: 'none',
             cursor: 'pointer',
             color: 'var(--fl-dim)',
@@ -236,7 +236,7 @@ export default function ColumnManager({
             padding: '4px 10px',
             borderRadius: 4,
             fontSize: 10,
-            fontFamily: 'monospace',
+            fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
             background: 'var(--fl-panel)',
             border: '1px solid var(--fl-border)',
             color: 'var(--fl-dim)',
@@ -252,7 +252,7 @@ export default function ColumnManager({
             padding: '4px 10px',
             borderRadius: 4,
             fontSize: 10,
-            fontFamily: 'monospace',
+            fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
             background: 'var(--fl-panel)',
             border: '1px solid var(--fl-border)',
             color: 'var(--fl-dim)',
@@ -268,7 +268,7 @@ export default function ColumnManager({
             padding: '4px 10px',
             borderRadius: 4,
             fontSize: 10,
-            fontFamily: 'monospace',
+            fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
             background: 'var(--fl-panel)',
             border: '1px solid var(--fl-border)',
             color: 'var(--fl-dim)',
@@ -368,7 +368,7 @@ export default function ColumnManager({
                   background: isFlex ? '#0a0f18' : 'var(--fl-panel)',
                   color: isFlex ? '#2a3a4a' : 'var(--fl-on-dark)',
                   fontSize: 10,
-                  fontFamily: 'monospace',
+                  fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
                   cursor: isFlex ? 'not-allowed' : 'text',
                   textAlign: 'center',
                 }}
@@ -393,7 +393,7 @@ export default function ColumnManager({
             padding: '6px 10px',
             borderRadius: 4,
             fontSize: 11,
-            fontFamily: 'monospace',
+            fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
             background: 'var(--fl-panel)',
             border: '1px solid var(--fl-border)',
             color: 'var(--fl-dim)',
@@ -404,8 +404,8 @@ export default function ColumnManager({
             gap: 4,
           }}
         >
-          <RotateCcw size={12} /> Réinitialiser
-        </button>
+            <RotateCcw size={12} /> Reset
+          </button>
         <button
           onClick={onClose}
           style={{
@@ -413,15 +413,15 @@ export default function ColumnManager({
             padding: '6px 10px',
             borderRadius: 4,
             fontSize: 11,
-            fontFamily: 'monospace',
-            background: '#1a3a5a',
+            fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
+            background: '#1a1f2c',
             border: '1px solid #2a5080',
             color: 'var(--fl-accent)',
             cursor: 'pointer',
           }}
-        >
-          Fermer
-        </button>
+          >
+          Close
+          </button>
       </div>
     </div>
   );

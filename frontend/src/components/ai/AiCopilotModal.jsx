@@ -3,14 +3,17 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { Sparkles, X, Maximize2, Minimize2, Send, Trash2, Users, Save, AlertCircle, ChevronDown, ChevronRight } from 'lucide-react';
 import { useResizable } from '../../hooks/useResizable';
 import { useDraggable } from '../../hooks/useDraggable';
+import { useDateFormat } from '../../hooks/useDateFormat';
 import api from '../../utils/api';
 
+const FULL_ANALYSIS_PROMPT = "Perform a COMPLETE forensic analysis of all evidence and artifacts in this case. Structure: 1) Incident summary (vector, impact, status); 2) Key artifacts per host; 3) IOCs and their meaning; 4) Observed ATT&CK techniques and attack-chain reconstruction; 5) Attack timeline; 6) Prioritized recommendations. Rely only on the case data; do not invent anything.";
+
 const QUICK_ACTIONS = [
-  'Résume les alertes critiques',
-  'Quels artifacts suggèrent une persistance ?',
-  'Technique ATT&CK la plus probable ?',
-  'Prochaines étapes d\'investigation ?',
-  'Génère un résumé d\'incident',
+  'Summarize the critical alerts',
+  'Which artifacts suggest persistence?',
+  'Most likely ATT&CK technique?',
+  'Next investigation steps?',
+  'Generate an incident summary',
 ];
 
 function parseThink(raw) {
@@ -45,7 +48,7 @@ function LiveThinking({ content, isActive, collapsed, onToggle }) {
       marginBottom: 5, borderRadius: 5,
       border: `1px solid ${isActive ? '#1a4a2a' : '#0d2a1a'}`,
       background: 'rgba(2,8,4,0.85)', overflow: 'hidden',
-      fontSize: 9, fontFamily: 'monospace',
+      fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
     }}>
       <div onClick={onToggle} style={{
         display: 'flex', alignItems: 'center', gap: 5,
@@ -55,10 +58,10 @@ function LiveThinking({ content, isActive, collapsed, onToggle }) {
         userSelect: 'none',
       }}>
         {isActive
-          ? <span style={{ color: '#22c55e', fontSize: 8 }}>●</span>
+          ? <span style={{ color: 'var(--fl-ok)', fontSize: 8 }}>●</span>
           : <span style={{ color: '#3a8a5a', fontSize: 8 }}>✓</span>}
-        <span style={{ color: isActive ? '#22c55e' : '#2a6a3a' }}>
-          {isActive ? 'Raisonnement en cours…' : 'Raisonnement terminé'}
+        <span style={{ color: isActive ? 'var(--fl-ok)' : '#2a6a3a' }}>
+          {isActive ? 'Thinking in progress…' : 'Thinking complete'}
         </span>
         <span style={{ marginLeft: 'auto', color: '#0d3a1a', fontSize: 8 }}>
           {collapsed ? '▶' : '▼'}
@@ -71,7 +74,7 @@ function LiveThinking({ content, isActive, collapsed, onToggle }) {
           whiteSpace: 'pre-wrap', wordBreak: 'break-word',
         }}>
           {content}
-          {isActive && <span style={{ color: '#22c55e' }}>▌</span>}
+          {isActive && <span style={{ color: 'var(--fl-ok)' }}>▌</span>}
         </div>
       )}
     </div>
@@ -92,11 +95,11 @@ function ThinkingSteps({ steps, collapsed, onToggle }) {
     <div style={{
       marginBottom: 6,
       borderRadius: 5,
-      border: '1px solid #0d2035',
+      border: '1px solid #131722',
       background: 'rgba(4,10,20,0.7)',
       overflow: 'hidden',
       fontSize: 9,
-      fontFamily: 'monospace',
+      fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
     }}>
       
       <div
@@ -105,22 +108,22 @@ function ThinkingSteps({ steps, collapsed, onToggle }) {
           display: 'flex', alignItems: 'center', gap: 5,
           padding: '4px 8px', cursor: 'pointer',
           background: 'rgba(4,14,28,0.9)',
-          borderBottom: collapsed ? 'none' : '1px solid #0d2035',
+          borderBottom: collapsed ? 'none' : '1px solid #131722',
           userSelect: 'none',
         }}
       >
         {collapsed
-          ? <ChevronRight size={9} style={{ color: '#2a5a8a', flexShrink: 0 }} />
-          : <ChevronDown  size={9} style={{ color: '#2a5a8a', flexShrink: 0 }} />
+          ? <ChevronRight size={9} style={{ color: 'var(--fl-subtle)', flexShrink: 0 }} />
+          : <ChevronDown  size={9} style={{ color: 'var(--fl-subtle)', flexShrink: 0 }} />
         }
         <span style={{ color: '#1a4a6a' }}>
           {isGenerating
-            ? <><span style={{ color: 'var(--fl-accent)' }}>🤖</span> Génération en cours…</>
-            : `Contexte lu — ${doneCount}/${total} sources`
+            ? <><span style={{ color: 'var(--fl-accent)' }}>🤖</span> Generating…</>
+            : `Context read — ${doneCount}/${total} sources`
           }
         </span>
         {!collapsed && (
-          <span style={{ marginLeft: 'auto', color: '#0d2a40', fontSize: 8 }}>cliquer pour replier</span>
+          <span style={{ marginLeft: 'auto', color: '#131722', fontSize: 8 }}>cliquer pour replier</span>
         )}
       </div>
 
@@ -130,10 +133,10 @@ function ThinkingSteps({ steps, collapsed, onToggle }) {
             <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               
               {step.status === 'loading' && (
-                <span style={{ color: '#3a6a9a', flexShrink: 0 }}>⟳</span>
+                <span style={{ color: 'var(--fl-muted)', flexShrink: 0 }}>⟳</span>
               )}
               {step.status === 'done' && (
-                <span style={{ color: '#22c55e', flexShrink: 0, fontSize: 8 }}>✓</span>
+                <span style={{ color: 'var(--fl-ok)', flexShrink: 0, fontSize: 8 }}>✓</span>
               )}
               {step.status === 'generating' && (
                 <span style={{ color: 'var(--fl-accent)', flexShrink: 0, animation: 'blink 1s step-end infinite' }}>▌</span>
@@ -144,7 +147,7 @@ function ThinkingSteps({ steps, collapsed, onToggle }) {
                   ? '#3a8a5a'
                   : step.status === 'generating'
                     ? 'var(--fl-accent)'
-                    : '#2a5a8a',
+                    : 'var(--fl-subtle)',
               }}>
                 {step.icon} {step.label}
               </span>
@@ -170,10 +173,10 @@ function ThinkingSteps({ steps, collapsed, onToggle }) {
 function MitreTag({ id }) {
   return (
     <span style={{
-      display: 'inline-block', fontSize: 8, fontFamily: 'monospace',
+      display: 'inline-block', fontSize: 8, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
       padding: '0 5px', borderRadius: 3, margin: '0 2px',
-      background: 'rgba(139,114,214,0.15)', color: 'var(--fl-purple)',
-      border: '1px solid rgba(139,114,214,0.3)',
+      background: 'color-mix(in srgb, var(--fl-accent) 15%, transparent)', color: 'var(--fl-purple)',
+      border: '1px solid color-mix(in srgb, var(--fl-accent) 30%, transparent)',
       lineHeight: '16px',
     }}
     title={`MITRE ATT&CK — ${id}`}
@@ -199,15 +202,15 @@ function MessageContent({ content, hasContext }) {
   return (
     <div>
       <div style={{
-        fontFamily: 'monospace', fontSize: 10.5, lineHeight: 1.7,
+        fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10.5, lineHeight: 1.7,
         color: 'var(--fl-on-dark)', whiteSpace: 'pre-wrap', wordBreak: 'break-word',
       }}>
         {parts}
       </div>
       {hasContext && (
-        <div style={{ marginTop: 6, fontSize: 8, fontFamily: 'monospace', color: '#2a5a8a', display: 'flex', alignItems: 'center', gap: 3 }}>
-          <span style={{ width: 5, height: 5, borderRadius: '50%', background: '#22c55e', display: 'inline-block', flexShrink: 0 }} />
-          Contexte investigateur actif au moment de cette réponse
+        <div style={{ marginTop: 6, fontSize: 8, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-subtle)', display: 'flex', alignItems: 'center', gap: 3 }}>
+          <span style={{ width: 5, height: 5, borderRadius: '50%', background: 'var(--fl-ok)', display: 'inline-block', flexShrink: 0 }} />
+          Investigator context active when this response was generated
         </div>
       )}
     </div>
@@ -215,6 +218,7 @@ function MessageContent({ content, hasContext }) {
 }
 
 export default function AiCopilotModal({ caseId, caseName, isOpen, onClose, socket }) {
+  const { fmtDateTime } = useDateFormat();
   const { size, isFullscreen, toggleFullscreen, getResizeHandleProps } = useResizable(
     `ai-modal-size-${caseId}`,
     { width: 520, height: 640 }
@@ -502,10 +506,6 @@ export default function AiCopilotModal({ caseId, caseName, isOpen, onClose, sock
     ? getDragHandleProps(size.width, size.height)
     : { style: {} };
 
-  const fmtDate = (iso) => iso
-    ? new Date(iso).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', timeZone: 'UTC' }) + ' UTC'
-    : null;
-
   return (
     <div style={{
       ...modalStyle,
@@ -535,35 +535,35 @@ export default function AiCopilotModal({ caseId, caseName, isOpen, onClose, sock
           ...dragStyle,
         }}
       >
-        <Sparkles size={14} style={{ color: '#7abfff', flexShrink: 0 }} />
+        <Sparkles size={14} style={{ color: 'var(--fl-dim)', flexShrink: 0 }} />
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontFamily: 'monospace', fontSize: 11, fontWeight: 700, color: '#7abfff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          <div style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11, fontWeight: 700, color: 'var(--fl-dim)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             IA Copilot — {caseName}
           </div>
-          {model && <div style={{ fontFamily: 'monospace', fontSize: 8, color: '#2a5a8a' }}>{model}</div>}
+          {model && <div style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 8, color: 'var(--fl-subtle)' }}>{model}</div>}
         </div>
 
         <div style={{ display: 'flex', gap: 2 }}>
-          {[{ id: 'chat', label: 'Chat' }, { id: 'context', label: 'Contexte' }].map(t => (
+          {[{ id: 'chat', label: 'Chat' }, { id: 'context', label: 'Context' }].map(t => (
             <button key={t.id} onClick={() => setTab(t.id)} style={{
-              padding: '3px 10px', borderRadius: 4, fontSize: 9, fontFamily: 'monospace',
-              background: tab === t.id ? 'rgba(77,130,192,0.2)' : 'transparent',
-              border: `1px solid ${tab === t.id ? 'rgba(77,130,192,0.4)' : 'var(--fl-bg)'}`,
-              color: tab === t.id ? '#7abfff' : '#2a5a8a',
+              padding: '3px 10px', borderRadius: 4, fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
+              background: tab === t.id ? 'color-mix(in srgb, var(--fl-accent) 20%, transparent)' : 'transparent',
+              border: `1px solid ${tab === t.id ? 'color-mix(in srgb, var(--fl-accent) 40%, transparent)' : 'var(--fl-bg)'}`,
+              color: tab === t.id ? 'var(--fl-dim)' : 'var(--fl-subtle)',
               cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4,
             }}>
               {t.label}
               {t.id === 'chat' && hasContext && (
-                <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#22c55e', display: 'inline-block' }} title="Contexte actif" />
+                <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--fl-ok)', display: 'inline-block' }} title="Active context" />
               )}
             </button>
           ))}
         </div>
 
-        <button onClick={toggleFullscreen} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 3, color: '#2a5a8a' }}>
+        <button onClick={toggleFullscreen} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 3, color: 'var(--fl-subtle)' }}>
           {isFullscreen ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
         </button>
-        <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 3, color: '#2a5a8a' }}>
+        <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 3, color: 'var(--fl-subtle)' }}>
           <X size={14} />
         </button>
       </div>
@@ -572,13 +572,13 @@ export default function AiCopilotModal({ caseId, caseName, isOpen, onClose, sock
         <>
           <div style={{ flex: 1, overflowY: 'auto', padding: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
             {loadingHistory ? (
-              <div style={{ fontFamily: 'monospace', fontSize: 10, color: '#2a5a8a', textAlign: 'center', paddingTop: 40 }}>Chargement…</div>
+            <div style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10, color: 'var(--fl-subtle)', textAlign: 'center', paddingTop: 40 }}>Loading…</div>
             ) : messages.length === 0 ? (
-              <div style={{ fontFamily: 'monospace', fontSize: 10, color: '#2a5a8a', lineHeight: 1.8 }}>
-                Analyste IA pour le cas <strong style={{ color: 'var(--fl-accent)' }}>{caseName}</strong>.
+              <div style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10, color: 'var(--fl-subtle)', lineHeight: 1.8 }}>
+                AI analyst for case <strong style={{ color: 'var(--fl-accent)' }}>{caseName}</strong>.
                 {hasContext && (
-                  <div style={{ marginTop: 6, padding: '5px 8px', borderRadius: 4, background: 'rgba(34,197,94,0.06)', border: '1px solid rgba(34,197,94,0.15)', fontSize: 9, color: '#22c55e' }}>
-                    ✓ Contexte investigateur actif
+                  <div style={{ marginTop: 6, padding: '5px 8px', borderRadius: 4, background: 'color-mix(in srgb, var(--fl-ok) 6%, transparent)', border: '1px solid color-mix(in srgb, var(--fl-ok) 15%, transparent)', fontSize: 9, color: 'var(--fl-ok)' }}>
+                    ✓ Investigator context active
                   </div>
                 )}
                 <div style={{ marginTop: 8, fontSize: 9 }}>Posez une question ou utilisez les suggestions ci-dessous.</div>
@@ -588,8 +588,8 @@ export default function AiCopilotModal({ caseId, caseName, isOpen, onClose, sock
                 <div key={msg.id || i} style={{ alignSelf: msg.role === 'user' ? 'flex-end' : 'flex-start', maxWidth: '92%' }}>
                   {msg.role === 'assistant' && (
                     <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 3 }}>
-                      <div style={{ width: 5, height: 5, borderRadius: '50%', background: '#22c55e' }} />
-                      <span style={{ fontFamily: 'monospace', fontSize: 8, color: '#1a5a2a' }}>IA Copilot</span>
+                      <div style={{ width: 5, height: 5, borderRadius: '50%', background: 'var(--fl-ok)' }} />
+                      <span style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 8, color: '#1a5a2a' }}>AI Copilot</span>
                     </div>
                   )}
                   
@@ -612,19 +612,19 @@ export default function AiCopilotModal({ caseId, caseName, isOpen, onClose, sock
                   <div style={{
                     padding: '8px 11px',
                     borderRadius: msg.role === 'user' ? '8px 8px 2px 8px' : '2px 8px 8px 8px',
-                    background: msg.role === 'user' ? 'rgba(77,130,192,0.15)' : msg.error ? 'rgba(239,68,68,0.06)' : 'rgba(6,17,31,0.95)',
-                    border: `1px solid ${msg.role === 'user' ? 'rgba(77,130,192,0.25)' : msg.error ? 'rgba(239,68,68,0.2)' : 'var(--fl-bg)'}`,
+                    background: msg.role === 'user' ? 'color-mix(in srgb, var(--fl-accent) 15%, transparent)' : msg.error ? 'color-mix(in srgb, var(--fl-danger) 6%, transparent)' : 'rgba(6,17,31,0.95)',
+                    border: `1px solid ${msg.role === 'user' ? 'color-mix(in srgb, var(--fl-accent) 25%, transparent)' : msg.error ? 'color-mix(in srgb, var(--fl-danger) 20%, transparent)' : 'var(--fl-bg)'}`,
                   }}>
                     {msg.role === 'user' ? (
-                      <div style={{ fontFamily: 'monospace', fontSize: 10.5, color: '#7abfff', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{msg.content}</div>
+                      <div style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10.5, color: 'var(--fl-dim)', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{msg.content}</div>
                     ) : msg.isThinking ? (
-                      <span style={{ fontFamily: 'monospace', fontSize: 9, color: '#1a5a2a' }}>Raisonnement…</span>
+                      <span style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 9, color: '#1a5a2a' }}>Thinking…</span>
                     ) : msg.loading && !msg.thinkingSteps?.length ? (
-                      <span style={{ fontFamily: 'monospace', fontSize: 12, color: 'var(--fl-accent)', animation: 'blink 1s step-end infinite' }}>▌</span>
+                      <span style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 12, color: 'var(--fl-accent)', animation: 'blink 1s step-end infinite' }}>▌</span>
                     ) : msg.loading && msg.thinkingSteps?.length > 0 ? (
-                      <span style={{ fontFamily: 'monospace', fontSize: 9, color: '#1a4060' }}>Lecture du contexte…</span>
+                      <span style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 9, color: '#1a4060' }}>Reading context…</span>
                     ) : msg.error ? (
-                      <div style={{ fontFamily: 'monospace', fontSize: 10.5, color: 'var(--fl-danger)', display: 'flex', alignItems: 'center', gap: 4 }}>
+                      <div style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10.5, color: 'var(--fl-danger)', display: 'flex', alignItems: 'center', gap: 4 }}>
                         <AlertCircle size={12} /> {msg.content}
                       </div>
                     ) : (
@@ -655,7 +655,7 @@ export default function AiCopilotModal({ caseId, caseName, isOpen, onClose, sock
                             fontSize: 11, opacity: feedback[msg.id] === r ? 1 : 0.3,
                             transition: 'opacity 0.15s', padding: '0 2px',
                           }}
-                          title={r === 1 ? 'Réponse utile' : 'Réponse à améliorer'}
+                          title={r === 1 ? 'Helpful response' : 'Needs improvement'}
                         >{icon}</button>
                       ))}
                     </div>
@@ -666,12 +666,25 @@ export default function AiCopilotModal({ caseId, caseName, isOpen, onClose, sock
             <div ref={endRef} />
           </div>
 
+          <div style={{ flexShrink: 0, padding: '8px 12px 0' }}>
+            <button onClick={() => send(FULL_ANALYSIS_PROMPT)} disabled={streaming} title="Complete forensic analysis of all case evidence and artifacts"
+              style={{
+                width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                padding: '7px 10px', borderRadius: 6, fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontWeight: 600,
+                background: streaming ? 'var(--fl-bg)' : 'color-mix(in srgb, var(--fl-accent) 14%, transparent)',
+                border: '1px solid color-mix(in srgb, var(--fl-accent) 32%, transparent)',
+                color: 'var(--fl-accent)', cursor: streaming ? 'not-allowed' : 'pointer', opacity: streaming ? 0.5 : 1,
+              }}>
+              📊 Analyze all case evidence
+            </button>
+          </div>
+
           <div style={{ flexShrink: 0, padding: '6px 12px 0', display: 'flex', flexWrap: 'wrap', gap: 4 }}>
             {QUICK_ACTIONS.map((qa, i) => (
               <button key={i} onClick={() => send(qa)} disabled={streaming} style={{
-                padding: '3px 8px', fontSize: 8.5, fontFamily: 'monospace',
-                background: 'rgba(77,130,192,0.06)', border: '1px solid var(--fl-bg)',
-                borderRadius: 4, color: '#3a6a9a', cursor: streaming ? 'not-allowed' : 'pointer',
+                padding: '3px 8px', fontSize: 8.5, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
+                background: 'color-mix(in srgb, var(--fl-accent) 6%, transparent)', border: '1px solid var(--fl-bg)',
+                borderRadius: 4, color: 'var(--fl-muted)', cursor: streaming ? 'not-allowed' : 'pointer',
                 whiteSpace: 'nowrap', opacity: streaming ? 0.5 : 1,
               }}>{qa}</button>
             ))}
@@ -679,11 +692,12 @@ export default function AiCopilotModal({ caseId, caseName, isOpen, onClose, sock
 
           {/* Agent selector */}
           <div style={{ flexShrink: 0, padding: '6px 10px 0', display: 'flex', gap: 4, alignItems: 'center' }}>
-            <span style={{ fontSize: 8, fontFamily: 'monospace', color: 'var(--fl-muted)', marginRight: 2 }}>Agent :</span>
+            <span style={{ fontSize: 8, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-muted)', marginRight: 2 }}>Agent:</span>
             {[
               { id: 'triage',   label: '⚡ Triage',   title: 'Verdict rapide · temp 0.1' },
-              { id: 'analysis', label: '🔍 Analyse',  title: 'Analyse approfondie · temp 0.3' },
-              { id: 'narrative',label: '📄 Rapport',  title: 'Prose rapport · temp 0.5' },
+              { id: 'analysis', label: '🔍 Analysis',  title: 'Deep analysis · temp 0.3' },
+              { id: 'narrative',label: '📄 Report',    title: 'Report prose · temp 0.5' },
+              { id: 'agentic',  label: '🔧 Agent',      title: 'Query the case (accounts, distributions, searches) · slower' },
             ].map(a => (
               <button
                 key={a.id}
@@ -691,20 +705,20 @@ export default function AiCopilotModal({ caseId, caseName, isOpen, onClose, sock
                 disabled={streaming}
                 title={a.title}
                 style={{
-                  padding: '2px 7px', fontSize: 8, fontFamily: 'monospace',
+                  padding: '2px 7px', fontSize: 8, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
                   borderRadius: 4, cursor: streaming ? 'not-allowed' : 'pointer',
-                  background: agentType === a.id ? 'rgba(77,130,192,0.18)' : 'rgba(77,130,192,0.04)',
-                  border: `1px solid ${agentType === a.id ? 'rgba(77,130,192,0.4)' : 'var(--fl-bg)'}`,
-                  color: agentType === a.id ? 'var(--fl-accent)' : '#3a6a9a',
+                  background: agentType === a.id ? 'color-mix(in srgb, var(--fl-accent) 18%, transparent)' : 'color-mix(in srgb, var(--fl-accent) 4%, transparent)',
+                  border: `1px solid ${agentType === a.id ? 'color-mix(in srgb, var(--fl-accent) 40%, transparent)' : 'var(--fl-bg)'}`,
+                  color: agentType === a.id ? 'var(--fl-accent)' : 'var(--fl-muted)',
                   transition: 'all 0.12s',
                 }}
               >{a.label}</button>
             ))}
           </div>
 
-          <div style={{ flexShrink: 0, padding: '8px 10px', borderTop: '1px solid var(--fl-bg)', background: '#060c15', display: 'flex', gap: 6, alignItems: 'flex-end' }}>
+          <div style={{ flexShrink: 0, padding: '8px 10px', borderTop: '1px solid var(--fl-bg)', background: '#0a0c11', display: 'flex', gap: 6, alignItems: 'flex-end' }}>
             {models.length > 0 && (
-              <select value={model} onChange={e => setModel(e.target.value)} style={{ background: '#06111f', border: '1px solid var(--fl-bg)', borderRadius: 4, color: '#3a6a9a', fontSize: 8, fontFamily: 'monospace', padding: '2px 4px', maxWidth: 100, flexShrink: 0, alignSelf: 'center' }}>
+              <select value={model} onChange={e => setModel(e.target.value)} style={{ background: '#06111f', border: '1px solid var(--fl-bg)', borderRadius: 4, color: 'var(--fl-muted)', fontSize: 8, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', padding: '2px 4px', maxWidth: 100, flexShrink: 0, alignSelf: 'center' }}>
                 {models.map(m => <option key={m} value={m}>{m}</option>)}
               </select>
             )}
@@ -714,33 +728,33 @@ export default function AiCopilotModal({ caseId, caseName, isOpen, onClose, sock
               onChange={e => setInput(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}
               disabled={streaming}
-              placeholder="Message… (Entrée = envoyer, Maj+Entrée = saut de ligne)"
+              placeholder="Message… (Enter = send, Shift+Enter = new line)"
               rows={2}
-              style={{ flex: 1, background: '#06111f', border: '1px solid var(--fl-bg)', borderRadius: 6, color: 'var(--fl-on-dark)', fontSize: 10.5, fontFamily: 'monospace', padding: '6px 8px', resize: 'none', outline: 'none', lineHeight: 1.5 }}
+              style={{ flex: 1, background: '#06111f', border: '1px solid var(--fl-bg)', borderRadius: 6, color: 'var(--fl-on-dark)', fontSize: 10.5, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', padding: '6px 8px', resize: 'none', outline: 'none', lineHeight: 1.5 }}
             />
             {streaming ? (
-              <button onClick={() => abortRef.current?.abort()} style={{ padding: '0 10px', borderRadius: 6, alignSelf: 'stretch', background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.25)', color: 'var(--fl-danger)', cursor: 'pointer', fontSize: 14, display: 'flex', alignItems: 'center' }}>⏹</button>
+              <button onClick={() => abortRef.current?.abort()} style={{ padding: '0 10px', borderRadius: 6, alignSelf: 'stretch', background: 'color-mix(in srgb, var(--fl-danger) 12%, transparent)', border: '1px solid color-mix(in srgb, var(--fl-danger) 25%, transparent)', color: 'var(--fl-danger)', cursor: 'pointer', fontSize: 14, display: 'flex', alignItems: 'center' }}>⏹</button>
             ) : (
-              <button onClick={() => send()} disabled={!input.trim()} style={{ padding: '0 10px', borderRadius: 6, alignSelf: 'stretch', background: input.trim() ? 'rgba(77,130,192,0.2)' : 'transparent', border: `1px solid ${input.trim() ? 'rgba(77,130,192,0.3)' : 'var(--fl-bg)'}`, color: input.trim() ? 'var(--fl-accent)' : 'var(--fl-accent)', cursor: input.trim() ? 'pointer' : 'default', display: 'flex', alignItems: 'center' }}>
+              <button onClick={() => send()} disabled={!input.trim()} style={{ padding: '0 10px', borderRadius: 6, alignSelf: 'stretch', background: input.trim() ? 'color-mix(in srgb, var(--fl-accent) 20%, transparent)' : 'transparent', border: `1px solid ${input.trim() ? 'color-mix(in srgb, var(--fl-accent) 30%, transparent)' : 'var(--fl-bg)'}`, color: input.trim() ? 'var(--fl-accent)' : 'var(--fl-accent)', cursor: input.trim() ? 'pointer' : 'default', display: 'flex', alignItems: 'center' }}>
                 <Send size={13} />
               </button>
             )}
           </div>
 
           <div style={{ flexShrink: 0, padding: '4px 10px 6px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <span style={{ fontSize: 8, fontFamily: 'monospace', color: 'var(--fl-muted)' }}>
-              {messages.filter(m => m.role === 'user').length} échanges · contexte isolé cas #{caseId}
+            <span style={{ fontSize: 8, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-muted)' }}>
+              {messages.filter(m => m.role === 'user').length} exchanges · isolated context for case #{caseId}
             </span>
             {messages.length > 0 && !clearConfirm && (
-              <button onClick={() => setClearConfirm(true)} style={{ fontSize: 8, fontFamily: 'monospace', color: 'var(--fl-accent)', background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 3 }}>
-                <Trash2 size={9} /> Effacer l'historique
+              <button onClick={() => setClearConfirm(true)} style={{ fontSize: 8, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-accent)', background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 3 }}>
+                <Trash2 size={9} /> Clear history
               </button>
             )}
             {clearConfirm && (
               <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                <span style={{ fontSize: 8, fontFamily: 'monospace', color: 'var(--fl-warn)' }}>Confirmer ?</span>
-                <button onClick={clearHistory} style={{ fontSize: 8, fontFamily: 'monospace', padding: '1px 6px', borderRadius: 3, background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)', color: 'var(--fl-danger)', cursor: 'pointer' }}>Oui</button>
-                <button onClick={() => setClearConfirm(false)} style={{ fontSize: 8, fontFamily: 'monospace', padding: '1px 6px', borderRadius: 3, background: 'transparent', border: '1px solid var(--fl-bg)', color: 'var(--fl-subtle)', cursor: 'pointer' }}>Non</button>
+                <span style={{ fontSize: 8, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-warn)' }}>Confirmer ?</span>
+                <button onClick={clearHistory} style={{ fontSize: 8, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', padding: '1px 6px', borderRadius: 3, background: 'color-mix(in srgb, var(--fl-danger) 10%, transparent)', border: '1px solid color-mix(in srgb, var(--fl-danger) 20%, transparent)', color: 'var(--fl-danger)', cursor: 'pointer' }}>Yes</button>
+                <button onClick={() => setClearConfirm(false)} style={{ fontSize: 8, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', padding: '1px 6px', borderRadius: 3, background: 'transparent', border: '1px solid var(--fl-bg)', color: 'var(--fl-subtle)', cursor: 'pointer' }}>No</button>
               </div>
             )}
           </div>
@@ -751,16 +765,16 @@ export default function AiCopilotModal({ caseId, caseName, isOpen, onClose, sock
       {tab === 'context' && (
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', padding: 14, gap: 10 }}>
           <div>
-            <div style={{ fontFamily: 'monospace', fontSize: 12, fontWeight: 700, color: 'var(--fl-on-dark)', marginBottom: 3 }}>Contexte de l'investigation</div>
-            <div style={{ fontFamily: 'monospace', fontSize: 9, color: '#2a5a8a', marginBottom: 6 }}>Ce contexte est injecté dans chaque réponse IA. Il oriente toute l'analyse.</div>
-            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 8px', borderRadius: 4, background: 'rgba(77,130,192,0.08)', border: '1px solid var(--fl-bg)', fontSize: 8, fontFamily: 'monospace', color: '#3a6a9a' }}>
-              <Users size={9} /> Partagé entre analystes
+            <div style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 12, fontWeight: 700, color: 'var(--fl-on-dark)', marginBottom: 3 }}>Investigation context</div>
+            <div style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 9, color: 'var(--fl-subtle)', marginBottom: 6 }}>This context is injected into every AI response. It guides the analysis.</div>
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 8px', borderRadius: 4, background: 'color-mix(in srgb, var(--fl-accent) 8%, transparent)', border: '1px solid var(--fl-bg)', fontSize: 8, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-muted)' }}>
+              <Users size={9} /> Shared between analysts
             </div>
           </div>
 
           {rtNotif && (
-            <div style={{ padding: '6px 10px', borderRadius: 6, background: 'rgba(77,130,192,0.08)', border: '1px solid rgba(77,130,192,0.2)', fontSize: 9, fontFamily: 'monospace', color: 'var(--fl-accent)' }}>
-              ⚡ Contexte mis à jour par <strong>{rtNotif.updatedBy}</strong> — «{rtNotif.preview}»
+            <div style={{ padding: '6px 10px', borderRadius: 6, background: 'color-mix(in srgb, var(--fl-accent) 8%, transparent)', border: '1px solid color-mix(in srgb, var(--fl-accent) 20%, transparent)', fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-accent)' }}>
+              ⚡ Context updated by <strong>{rtNotif.updatedBy}</strong> — "{rtNotif.preview}"
             </div>
           )}
 
@@ -768,41 +782,41 @@ export default function AiCopilotModal({ caseId, caseName, isOpen, onClose, sock
             value={freeText}
             onChange={handleFreeTextChange}
             maxLength={4000}
-            placeholder={`Décris ici ce que tu sais déjà sur cet incident :
-• Hypothèse principale (ex: ransomware LockBit)
-• Patient zéro identifié (ex: PC-COMPTA-03 / marie.dupont)
-• Fenêtre temporelle suspecte (ex: 14-16 mars 2026, 02h-05h)
-• Vecteur d'entrée suspecté (ex: phishing reçu le 13/03)
-• Périmètre compromis connu (ex: 3 serveurs, 12 postes)
-• Objectif de l'attaquant supposé (ex: exfiltration RH)`}
-            style={{ flex: 1, background: '#06111f', border: '1px solid var(--fl-card)', borderRadius: 6, color: 'var(--fl-on-dark)', fontSize: 10.5, fontFamily: 'monospace', padding: '10px 12px', resize: 'none', outline: 'none', lineHeight: 1.7, minHeight: 200 }}
+            placeholder={`Describe what you already know about this incident:
+• Main hypothesis (e.g. LockBit ransomware)
+• Identified patient zero (e.g. PC-ACCOUNTING-03 / marie.dupont)
+• Suspicious time window (e.g. Mar 14-16, 2026, 02:00-05:00)
+• Suspected entry vector (e.g. phishing received on 03/13)
+• Known compromised scope (e.g. 3 servers, 12 workstations)
+• Suspected attacker objective (e.g. HR exfiltration)`}
+            style={{ flex: 1, background: '#06111f', border: '1px solid var(--fl-card)', borderRadius: 6, color: 'var(--fl-on-dark)', fontSize: 10.5, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', padding: '10px 12px', resize: 'none', outline: 'none', lineHeight: 1.7, minHeight: 200 }}
           />
 
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <span style={{ fontFamily: 'monospace', fontSize: 9, color: freeText.length > 3800 ? 'var(--fl-warn)' : '#2a5a8a' }}>{freeText.length} / 4000</span>
-            {saveStatus === 'saving' && <span style={{ fontFamily: 'monospace', fontSize: 9, color: '#3a6a9a' }}>Sauvegarde…</span>}
-            {saveStatus === 'saved'  && <span style={{ fontFamily: 'monospace', fontSize: 9, color: '#22c55e' }}>✓ Sauvegardé</span>}
-            {saveStatus === 'error'  && <span style={{ fontFamily: 'monospace', fontSize: 9, color: 'var(--fl-danger)' }}>⚠ Erreur</span>}
+            <span style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 9, color: freeText.length > 3800 ? 'var(--fl-warn)' : 'var(--fl-subtle)' }}>{freeText.length} / 4000</span>
+            {saveStatus === 'saving' && <span style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 9, color: 'var(--fl-muted)' }}>Saving…</span>}
+            {saveStatus === 'saved'  && <span style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 9, color: 'var(--fl-ok)' }}>✓ Saved</span>}
+            {saveStatus === 'error'  && <span style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 9, color: 'var(--fl-danger)' }}>⚠ Error</span>}
           </div>
 
           {ctxMeta.updatedAt && (
-            <div style={{ fontFamily: 'monospace', fontSize: 8, color: 'var(--fl-accent)' }}>
-              Dernière modif. : {fmtDate(ctxMeta.updatedAt)}{ctxMeta.updatedBy ? ` par ${ctxMeta.updatedBy}` : ''}
+            <div style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 8, color: 'var(--fl-accent)' }}>
+              Last modified: {fmtDateTime(ctxMeta.updatedAt)} UTC{ctxMeta.updatedBy ? ` by ${ctxMeta.updatedBy}` : ''}
             </div>
           )}
 
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', flexShrink: 0 }}>
             {!clearCtxConfirm ? (
-              <button onClick={() => setClearCtxConfirm(true)} disabled={!freeText && !savedText} style={{ padding: '5px 12px', borderRadius: 5, fontSize: 9, fontFamily: 'monospace', background: 'transparent', border: '1px solid rgba(239,68,68,0.2)', color: '#ef444450', cursor: (freeText || savedText) ? 'pointer' : 'not-allowed' }}>Effacer</button>
+              <button onClick={() => setClearCtxConfirm(true)} disabled={!freeText && !savedText} style={{ padding: '5px 12px', borderRadius: 5, fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', background: 'transparent', border: '1px solid color-mix(in srgb, var(--fl-danger) 20%, transparent)', color: 'color-mix(in srgb, var(--fl-danger) 31%, transparent)', cursor: (freeText || savedText) ? 'pointer' : 'not-allowed' }}>Clear</button>
             ) : (
               <div style={{ display: 'flex', gap: 5, alignItems: 'center' }}>
-                <span style={{ fontSize: 8, fontFamily: 'monospace', color: 'var(--fl-warn)' }}>Effacer le contexte ?</span>
-                <button onClick={clearContext} style={{ padding: '3px 8px', borderRadius: 3, fontSize: 8, fontFamily: 'monospace', background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.25)', color: 'var(--fl-danger)', cursor: 'pointer' }}>Oui</button>
-                <button onClick={() => setClearCtxConfirm(false)} style={{ padding: '3px 8px', borderRadius: 3, fontSize: 8, fontFamily: 'monospace', background: 'transparent', border: '1px solid var(--fl-bg)', color: 'var(--fl-subtle)', cursor: 'pointer' }}>Non</button>
+                <span style={{ fontSize: 8, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-warn)' }}>Clear context?</span>
+                <button onClick={clearContext} style={{ padding: '3px 8px', borderRadius: 3, fontSize: 8, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', background: 'color-mix(in srgb, var(--fl-danger) 12%, transparent)', border: '1px solid color-mix(in srgb, var(--fl-danger) 25%, transparent)', color: 'var(--fl-danger)', cursor: 'pointer' }}>Yes</button>
+                <button onClick={() => setClearCtxConfirm(false)} style={{ padding: '3px 8px', borderRadius: 3, fontSize: 8, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', background: 'transparent', border: '1px solid var(--fl-bg)', color: 'var(--fl-subtle)', cursor: 'pointer' }}>No</button>
               </div>
             )}
-            <button onClick={saveContextNow} style={{ padding: '5px 14px', borderRadius: 5, fontSize: 9, fontFamily: 'monospace', background: 'rgba(77,130,192,0.2)', border: '1px solid rgba(77,130,192,0.3)', color: '#7abfff', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}>
-              <Save size={11} /> Sauvegarder
+            <button onClick={saveContextNow} style={{ padding: '5px 14px', borderRadius: 5, fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', background: 'color-mix(in srgb, var(--fl-accent) 20%, transparent)', border: '1px solid color-mix(in srgb, var(--fl-accent) 30%, transparent)', color: 'var(--fl-dim)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}>
+              <Save size={11} /> Save
             </button>
           </div>
         </div>

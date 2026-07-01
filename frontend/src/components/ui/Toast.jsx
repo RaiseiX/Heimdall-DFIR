@@ -1,6 +1,7 @@
 
 import { createContext, useContext, useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { CheckCircle2, AlertTriangle, XCircle, Info, X } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { mix } from '../../utils/colorUtils';
 
 const ToastContext = createContext(null);
@@ -16,6 +17,7 @@ const DEFAULT_DURATION = 4000;
 const MAX_TOASTS       = 5;
 
 function ToastItem({ id, variant, message, duration, onRemove }) {
+  const { t } = useTranslation();
   const { color, Icon } = TOAST_VARIANTS[variant] ?? TOAST_VARIANTS.info;
   const [visible, setVisible]     = useState(false);
   const autoTimerRef              = useRef(null);
@@ -67,7 +69,7 @@ function ToastItem({ id, variant, message, duration, onRemove }) {
       </span>
       <button
         onClick={dismiss}
-        aria-label="Fermer la notification"
+        aria-label={t('common.close_notification')}
         style={{
           background: 'none', border: 'none', cursor: 'pointer',
           color: 'var(--fl-muted)', padding: 0,

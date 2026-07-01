@@ -4,8 +4,8 @@ import { collectionAPI } from '../../utils/api';
 
 export const VERDICTS = [
   { id: 'malicious',  label: 'Malicious',  color: 'var(--fl-danger)', bg: 'rgba(239,68,68,0.12)',  border: 'rgba(239,68,68,0.3)'  },
-  { id: 'suspicious', label: 'Suspicious', color: '#f59e0b', bg: 'rgba(245,158,11,0.12)', border: 'rgba(245,158,11,0.3)' },
-  { id: 'benign',     label: 'Benign',     color: '#22c55e', bg: 'rgba(34,197,94,0.12)',  border: 'rgba(34,197,94,0.3)'  },
+  { id: 'suspicious', label: 'Suspicious', color: 'var(--fl-warn)', bg: 'rgba(245,158,11,0.12)', border: 'rgba(245,158,11,0.3)' },
+  { id: 'benign',     label: 'Benign',     color: 'var(--fl-ok)', bg: 'rgba(34,197,94,0.12)',  border: 'rgba(34,197,94,0.3)'  },
   { id: 'unknown',    label: 'Unknown',    color: '#6b7280', bg: 'rgba(107,114,128,0.1)', border: 'rgba(107,114,128,0.25)' },
 ];
 
@@ -54,11 +54,11 @@ export default function VerdictBadge({ record, caseId, verdictMap, onVerdictChan
     <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }}>
       <button
         onClick={e => { e.stopPropagation(); setOpen(v => !v); }}
-        title={current ? `Verdict: ${current}` : 'Définir un verdict'}
+        title={current ? `Verdict: ${current}` : 'Set a verdict'}
         style={{
           display: 'inline-flex', alignItems: 'center',
           padding: current ? '1px 6px' : '1px 4px',
-          borderRadius: 3, fontSize: 9, fontFamily: 'monospace',
+          borderRadius: 3, fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
           cursor: 'pointer', border: 'none', transition: 'all 0.1s',
           fontWeight: current ? 700 : 400,
           background: current ? style.bg : 'transparent',
@@ -90,7 +90,7 @@ export default function VerdictBadge({ record, caseId, verdictMap, onVerdictChan
             minWidth: 140,
           }}
         >
-          <div style={{ fontFamily: 'monospace', fontSize: 8, color: '#2a5a8a', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>
+          <div style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 8, color: '#2a5a8a', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>
             Verdict
           </div>
           {VERDICTS.map(v => (
@@ -100,7 +100,7 @@ export default function VerdictBadge({ record, caseId, verdictMap, onVerdictChan
                 padding: '4px 6px', borderRadius: 4, marginBottom: 2,
                 background: current === v.id ? v.bg : 'transparent',
                 color: v.color, border: `1px solid ${current === v.id ? v.border : 'transparent'}`,
-                fontSize: 10, fontFamily: 'monospace', cursor: 'pointer',
+                fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', cursor: 'pointer',
                 fontWeight: current === v.id ? 700 : 400,
               }}
             >
@@ -115,9 +115,9 @@ export default function VerdictBadge({ record, caseId, verdictMap, onVerdictChan
                 display: 'flex', alignItems: 'center', gap: 4, width: '100%',
                 padding: '3px 6px', borderRadius: 4, marginTop: 2,
                 background: 'transparent', color: '#3a6a9a', border: 'none',
-                fontSize: 9, fontFamily: 'monospace', cursor: 'pointer',
+                fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', cursor: 'pointer',
               }}>
-              ✕ Effacer
+              ✕ Clear
             </button>
           )}
         </div>

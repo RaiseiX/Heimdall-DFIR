@@ -139,7 +139,7 @@ export default function TimelineExplorer({ caseId, filters = {}, onClose }) {
   return (
     <div style={{
       display: 'flex', flexDirection: 'column', height: '100%',
-      background: 'var(--fl-bg)', color: 'var(--fl-on-dark)', fontFamily: 'monospace', fontSize: 11,
+      background: 'var(--fl-bg)', color: 'var(--fl-on-dark)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11,
     }}>
       {/* ─ Group panel (drop zone + chip strip) ─ */}
       <div

@@ -25,7 +25,7 @@ export default function PanelShell({
           {Icon && <Icon size={15} style={{ color: 'var(--fl-accent)', flexShrink: 0 }} />}
           <div style={{ flex: 1, minWidth: 0 }}>
             {title && (
-              <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--fl-text)', fontFamily: 'monospace' }}>
+              <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--fl-text)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}>
                 {title}
               </span>
             )}

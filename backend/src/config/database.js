@@ -6,9 +6,9 @@ const pool = new Pool({
   database: process.env.DB_NAME || 'forensiclab',
   user: process.env.DB_USER || 'forensiclab',
   password: process.env.DB_PASSWORD,
-  max: 20,
+  max: parseInt(process.env.DB_POOL_MAX) || 30,
   idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 2000,
+  connectionTimeoutMillis: 15000,
 });
 
 async function testConnection() {

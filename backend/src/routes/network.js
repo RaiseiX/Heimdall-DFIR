@@ -7,11 +7,103 @@ const { parse: parseCsv } = require('csv-parse/sync');
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
 
 function isInternalIP(ip) {
-  return /^(10\.|172\.(1[6-9]|2[0-9]|3[01])\.|192\.168\.|127\.|::1$)/.test(ip || '');
+  const s = (ip || '').replace(/^::ffff:/i, '').replace(/:\d+$/, '');
+  // ── IPv6 special ──────────────────────────────────────────────────────
+  if (s === '::1')                        return true; // loopback
+  if (/^fe[89ab][0-9a-f]:/i.test(s))     return true; // link-local fe80::/10
+  if (/^f[cd][0-9a-f]{2}:/i.test(s))     return true; // ULA fc00::/7
+  // ── IPv4 private + special ────────────────────────────────────────────
+  return (
+    /^10\./.test(s)                                                      || // RFC1918 /8
+    /^172\.(1[6-9]|2\d|3[01])\./.test(s)                                || // RFC1918 /12
+    /^192\.168\./.test(s)                                                || // RFC1918 /16
+    /^127\./.test(s)                                                     || // loopback /8
+    /^169\.254\./.test(s)                                                || // APIPA link-local /16
+    /^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(s)                 || // CGN RFC6598 /10
+    /^(22[4-9]|23\d)\./.test(s)                                         || // multicast /4
+    /^0\.0\.0\.0$/.test(s)                                              || // unspecified
+    /^255\.255\.255\.255$/.test(s)                                          // broadcast
+  );
 }
 
+// Extract IP from "NAME (IP)" format like "LAB (127.0.0.1)" or "ROWENA (192.168.1.4)"
+function extractParenIP(id) {
+  const m = String(id || '').match(/\((\d+\.\d+\.\d+\.\d+)\)/);
+  return m ? m[1] : null;
+}
+
+const PRIVATE_TLD = /\.(lab|local|lan|corp|internal|intranet|home|localdomain|test|priv)$/i;
+
 const logger = require('../config/logger').default;
+const geoip  = require('geoip-lite');
 const router = express.Router();
+
+const { caseAccessParam } = require('../middleware/caseAccess');
+router.use(authenticate);
+router.param('caseId', caseAccessParam);
+
+// ── OS fingerprint from port evidence ────────────────────────────────────────
+function computeOsHint(ports) {
+  const p = new Set((ports || []).map(Number));
+  const win = (p.has(445)?60:0) + (p.has(135)?40:0) + (p.has(3389)?40:0) +
+              (p.has(88)?30:0)  + ((p.has(5985)||p.has(5986))?50:0) +
+              (p.has(139)?25:0) + ((p.has(137)||p.has(138))?15:0);
+  const lin = (p.has(22)?50:0) + (p.has(111)?40:0) + (p.has(2049)?40:0) + (p.has(631)?25:0);
+  const net = ((p.has(161)||p.has(162))?60:0) + (p.has(179)?75:0) +
+              ((p.has(520)||p.has(521))?50:0) + ((p.has(1812)||p.has(1813))?45:0);
+  const max = Math.max(win, lin, net);
+  if (max < 40) return null;
+  if (net === max && net >= 60) return 'network_device';
+  if (win === max && win >= 60) return 'windows';
+  if (lin === max && lin >= 50) return 'linux';
+  return null;
+}
+
+// ── Enrich nodeMap with ports, degrees, os_hint, geo (mutates in place) ──────
+function enrichNodes(nodeMap, edges) {
+  for (const e of edges) {
+    const src = nodeMap.get(e.source);
+    const tgt = nodeMap.get(e.target);
+    if (src) {
+      if (!src._ports)       src._ports       = new Set();
+      if (!src._out_targets) src._out_targets  = new Set();
+      src._out_targets.add(e.target);
+      (e.ports || []).forEach(p => src._ports.add(Number(p)));
+    }
+    if (tgt) {
+      if (!tgt._ports)       tgt._ports       = new Set();
+      if (!tgt._in_sources)  tgt._in_sources  = new Set();
+      tgt._in_sources.add(e.source);
+      (e.ports || []).forEach(p => tgt._ports.add(Number(p)));
+    }
+  }
+  nodeMap.forEach((n, id) => {
+    const ports  = Array.from(n._ports    || []);
+    const inDeg  = (n._in_sources  || new Set()).size;
+    const outDeg = (n._out_targets || new Set()).size;
+    const total  = inDeg + outDeg;
+    n.ports        = ports;
+    n.in_degree    = inDeg;
+    n.out_degree   = outDeg;
+    n.server_score = total > 0 ? Math.round(inDeg / total * 100) / 100 : null;
+    n.os_hint      = computeOsHint(ports);
+    if (n.type === 'external') {
+      const raw = String(id).replace(/^::ffff:/i, '').replace(/:\d+$/, '');
+      const geo = geoip.lookup(raw);
+      if (geo) n.geo = { country: geo.country, region: geo.region || null, city: geo.city || null };
+    }
+    delete n._ports; delete n._in_sources; delete n._out_targets;
+  });
+}
+
+// network_annotations: one row per case, stores zone rects and node type overrides
+pool.query(`
+  CREATE TABLE IF NOT EXISTS network_annotations (
+    case_id    UUID PRIMARY KEY REFERENCES cases(id) ON DELETE CASCADE,
+    data       JSONB NOT NULL DEFAULT '{"zones":[],"node_overrides":{}}',
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+  )
+`).catch(err => logger.error('[network_annotations] table init failed:', err));
 
 router.get('/:caseId', authenticate, async (req, res) => {
   try {
@@ -82,7 +174,9 @@ router.get('/:caseId/graph', authenticate, requireRole('admin', 'analyst'), asyn
         SELECT src_ip, dst_ip, dst_port::text AS dst_port, protocol,
                COUNT(*) AS connection_count,
                SUM(COALESCE(bytes_sent,0) + COALESCE(bytes_received,0)) AS total_bytes,
-               bool_or(is_suspicious) AS is_suspicious
+               bool_or(is_suspicious) AS is_suspicious,
+               MIN(first_seen) AS first_seen,
+               MAX(last_seen)  AS last_seen
         FROM network_connections
         WHERE case_id = $1 AND src_ip IS NOT NULL AND dst_ip IS NOT NULL
           AND src_ip <> '' AND dst_ip <> ''
@@ -93,7 +187,8 @@ router.get('/:caseId/graph', authenticate, requireRole('admin', 'analyst'), asyn
 
       pool.query(`
         SELECT src_ip, dst_ip, dst_port, protocol,
-               COUNT(*) AS connection_count, 0::bigint AS total_bytes, false AS is_suspicious
+               COUNT(*) AS connection_count, 0::bigint AS total_bytes, false AS is_suspicious,
+               MIN(ts) AS first_seen, MAX(ts) AS last_seen
         FROM (
           SELECT
             COALESCE(NULLIF(TRIM(raw->>'Computer'), ''), 'local') AS src_ip,
@@ -116,7 +211,8 @@ router.get('/:caseId/graph', authenticate, requireRole('admin', 'analyst'), asyn
               NULLIF(TRIM(raw->>'Protocol'),  ''),
               NULLIF(TRIM(raw->>'proto'),     ''),
               NULLIF(TRIM(raw->>'Transport'), '')
-            ) AS protocol
+            ) AS protocol,
+            timestamp AS ts
           FROM collection_timeline
           WHERE case_id = $1
             ${ctEvidenceFilter}
@@ -162,8 +258,19 @@ router.get('/:caseId/graph', authenticate, requireRole('admin', 'analyst'), asyn
       `, ctParams),
     ]);
 
+    // Well-known port → protocol label
+    const PORT_LABEL = {
+      '21':'FTP','22':'SSH','23':'TELNET','25':'SMTP','53':'DNS','67':'DHCP',
+      '80':'HTTP','88':'KERBEROS','110':'POP3','135':'RPC','139':'NETBIOS',
+      '143':'IMAP','389':'LDAP','443':'HTTPS','445':'SMB','465':'SMTPS',
+      '514':'SYSLOG','587':'SMTP','636':'LDAPS','993':'IMAPS','995':'POP3S',
+      '1433':'MSSQL','1723':'PPTP','3306':'MYSQL','3389':'RDP','5985':'WINRM',
+      '5986':'WINRMS','6379':'REDIS','8080':'HTTP-ALT','8443':'HTTPS-ALT',
+      '27017':'MONGODB','5432':'POSTGRES',
+    };
+
     const edgeMap = new Map();
-    const mergeEdge = (src, dst, port, proto, count, bytes, suspicious) => {
+    const mergeEdge = (src, dst, port, proto, count, bytes, suspicious, firstSeen, lastSeen) => {
       if (!src || !dst || src === dst) return;
       const key = `${src}||${dst}||${port || ''}||${proto || ''}`;
       if (edgeMap.has(key)) {
@@ -171,20 +278,28 @@ router.get('/:caseId/graph', authenticate, requireRole('admin', 'analyst'), asyn
         e.connection_count += parseInt(count) || 1;
         e.total_bytes += parseInt(bytes) || 0;
         if (suspicious) e.has_suspicious = true;
+        if (firstSeen && (!e.first_seen || firstSeen < e.first_seen)) e.first_seen = firstSeen;
+        if (lastSeen  && (!e.last_seen  || lastSeen  > e.last_seen))  e.last_seen  = lastSeen;
       } else {
+        const portLabel = port ? (PORT_LABEL[String(port)] || String(port)) : null;
+        const protoLabel = proto ? String(proto).toUpperCase() : null;
+        const label = portLabel || protoLabel || null;
         edgeMap.set(key, {
           source: src, target: dst,
           connection_count: parseInt(count) || 1,
           total_bytes: parseInt(bytes) || 0,
           ports: port ? [String(port)] : [],
-          protocols: proto ? [String(proto)] : [],
+          protocols: proto ? [String(proto).toUpperCase()] : [],
           has_suspicious: Boolean(suspicious),
+          first_seen: firstSeen || null,
+          last_seen:  lastSeen  || null,
+          label,
         });
       }
     };
 
-    for (const r of r1.rows) mergeEdge(r.src_ip, r.dst_ip, r.dst_port, r.protocol, r.connection_count, r.total_bytes, r.is_suspicious);
-    for (const r of r2.rows) mergeEdge(r.src_ip, r.dst_ip, r.dst_port, r.protocol, r.connection_count, r.total_bytes, false);
+    for (const r of r1.rows) mergeEdge(r.src_ip, r.dst_ip, r.dst_port, r.protocol, r.connection_count, r.total_bytes, r.is_suspicious, r.first_seen, r.last_seen);
+    for (const r of r2.rows) mergeEdge(r.src_ip, r.dst_ip, r.dst_port, r.protocol, r.connection_count, r.total_bytes, false, r.first_seen, r.last_seen);
     for (const r of r4.rows) {
       if (r.dst_url && r.src_host) {
         const proto = r.dst_url.startsWith('https') ? 'HTTPS' : 'HTTP';
@@ -197,9 +312,17 @@ router.get('/:caseId/graph', authenticate, requireRole('admin', 'analyst'), asyn
     const classifyType = (id) => {
       if (/^https?:\/\//.test(id)) return 'url';
       if (id === 'local') return 'internal';
-      if (/^\d+\.\d+\.\d+\.\d+$/.test(id) || /^[0-9a-f:]+$/i.test(id)) {
+      // IPv6-mapped (::ffff:) or pure IPv6 or plain IPv4
+      if (/^::ffff:/i.test(id) || /^\d+\.\d+\.\d+\.\d+$/.test(id) || /^[0-9a-f:]+$/i.test(id)) {
         return isInternalIP(id) ? 'internal' : 'external';
       }
+      // "IP:port" format (e.g. 127.0.0.1:0, 192.168.1.4:445)
+      if (/^\d+\.\d+\.\d+\.\d+:\d+$/.test(id)) return isInternalIP(id) ? 'internal' : 'external';
+      // "NAME (IP)" format (e.g. LAB (127.0.0.1), ROWENA (192.168.1.4))
+      const pip = extractParenIP(id);
+      if (pip) return isInternalIP(pip) ? 'internal' : 'external';
+      // Private TLDs (.lab, .local, .lan, etc.) → internal hostname
+      if (PRIVATE_TLD.test(id)) return 'internal';
       return id.includes('.') ? 'domain' : 'internal';
     };
 
@@ -230,6 +353,7 @@ router.get('/:caseId/graph', authenticate, requireRole('admin', 'analyst'), asyn
       }
     }
 
+    enrichNodes(nodeMap, edges);
     res.json({
       nodes: Array.from(nodeMap.values()),
       edges,
@@ -375,21 +499,21 @@ async function buildNetworkGraph(caseId, evidenceIdList, pool, fromTs, toTs) {
 
   const [r1, r2, r3, r4, r5] = await Promise.all([
 
-    // ── Source 1: network_connections table (manual / CSV imports) ──
-    hasFilter
-      ? Promise.resolve({ rows: [] })
-      : pool.query(`
-        SELECT src_ip, dst_ip, dst_port::text AS dst_port, protocol,
-               COUNT(*) AS connection_count,
-               SUM(COALESCE(bytes_sent,0) + COALESCE(bytes_received,0)) AS total_bytes,
-               bool_or(is_suspicious) AS is_suspicious
-        FROM network_connections
-        WHERE case_id = $1 AND src_ip IS NOT NULL AND dst_ip IS NOT NULL
-          AND src_ip <> '' AND dst_ip <> ''
-          ${ncTimeFilter}
-        GROUP BY src_ip, dst_ip, dst_port, protocol
-        ORDER BY connection_count DESC LIMIT ${LIMIT}
-      `, ncParams),
+    // ── Source 1: network_connections table (PCAP / CSV imports) ──
+    // network_connections has no evidence_id column, so always query by case_id.
+    // A collection-scoped view still shows all TCP flows for the case.
+    pool.query(`
+      SELECT src_ip, dst_ip, dst_port::text AS dst_port, protocol,
+             COUNT(*) AS connection_count,
+             SUM(COALESCE(bytes_sent,0) + COALESCE(bytes_received,0)) AS total_bytes,
+             bool_or(is_suspicious) AS is_suspicious
+      FROM network_connections
+      WHERE case_id = $1 AND src_ip IS NOT NULL AND dst_ip IS NOT NULL
+        AND src_ip <> '' AND dst_ip <> ''
+        ${ncTimeFilter}
+      GROUP BY src_ip, dst_ip, dst_port, protocol
+      ORDER BY connection_count DESC LIMIT ${LIMIT}
+    `, ncParams),
 
     // ── Source 2: collection_timeline raw JSON ──
     // Priority field order is intentional:
@@ -546,9 +670,16 @@ async function buildNetworkGraph(caseId, evidenceIdList, pool, fromTs, toTs) {
   const classifyType = (id) => {
     if (/^https?:\/\//.test(id)) return 'url';
     if (id === 'local') return 'internal';
-    if (/^\d+\.\d+\.\d+\.\d+$/.test(id) || /^[0-9a-f:]+$/i.test(id)) {
+    // IPv6-mapped, pure IPv4, pure IPv6
+    if (/^::ffff:/i.test(id) || /^\d+\.\d+\.\d+\.\d+$/.test(id) || /^[0-9a-f:]+$/i.test(id))
       return isInternalIP(id) ? 'internal' : 'external';
-    }
+    // IP:port (e.g. 127.0.0.1:0)
+    if (/^\d+\.\d+\.\d+\.\d+:\d+$/.test(id)) return isInternalIP(id) ? 'internal' : 'external';
+    // NAME (IP) (e.g. LAB (127.0.0.1))
+    const pip = extractParenIP(id);
+    if (pip) return isInternalIP(pip) ? 'internal' : 'external';
+    // Private TLDs
+    if (PRIVATE_TLD.test(id)) return 'internal';
     return id.includes('.') ? 'domain' : 'internal';
   };
 
@@ -586,6 +717,8 @@ async function buildNetworkGraph(caseId, evidenceIdList, pool, fromTs, toTs) {
       nodeMap.get(ioc.value).is_suspicious = true;
     }
   }
+
+  enrichNodes(nodeMap, edges);
 
   // Warn the caller when the LIMIT was hit (data may be incomplete)
   const truncated = r2.rows.length >= LIMIT || r1.rows.length >= LIMIT;
@@ -736,37 +869,64 @@ router.get('/:caseId/graph-data', authenticate, requireRole('admin', 'analyst'),
 router.get('/:caseId/graph-data/events', authenticate, async (req, res) => {
   try {
     const { caseId } = req.params;
-    const { node_id, limit = 50 } = req.query;
+    const { node_id, limit = 100 } = req.query;
     if (!node_id) return res.status(400).json({ error: 'node_id requis' });
 
-    const result = await pool.query(`
-      SELECT ct.timestamp, ct.artifact_type, ct.description, ct.source,
-             ct.evidence_id, e.name AS evidence_name,
-             -- Process that made this connection (Sysmon EID 3 Image field)
-             NULLIF(TRIM(ct.raw->>'Image'), '') AS process_name,
-             ct.raw->>'DestinationPort'         AS dst_port,
-             ct.raw->>'Protocol'                AS protocol
-      FROM collection_timeline ct
-      LEFT JOIN evidence e ON ct.evidence_id = e.id
-      WHERE ct.case_id = $1
-        AND (
-          ct.raw->>'SourceIp'          = $2 OR
-          ct.raw->>'DestinationIp'     = $2 OR
-          ct.raw->>'DestinationHostname' = $2 OR
-          ct.raw->>'RemoteHost'        = $2 OR
-          ct.raw->>'RemoteAddress'     = $2 OR
-          ct.raw->>'DstIP'             = $2 OR
-          ct.raw->>'dst_ip'            = $2 OR
-          ct.raw->>'id.resp_h'         = $2 OR
-          ct.raw->>'Computer'          = $2 OR
-          ct.host_name                 = $2 OR
-          ct.src_ip::text              = $2 OR
-          ct.dst_ip::text              = $2
-        )
-      ORDER BY ct.timestamp DESC LIMIT $3
-    `, [caseId, node_id, parseInt(limit) || 50]);
+    // Strip cluster/domain prefix for matching
+    const matchId = node_id.replace(/^(cluster:|domain:)/, '');
 
-    res.json(result.rows);
+    const result = await pool.query(`
+      SELECT
+        ct.timestamp,
+        ct.artifact_type,
+        ct.description,
+        ct.source,
+        ct.host_name,
+        ct.user_name,
+        ct.event_id,
+        ct.mitre_technique_id,
+        ct.mitre_tactic,
+        -- Network fields
+        NULLIF(TRIM(ct.raw->>'Image'),             '') AS process_name,
+        COALESCE(ct.raw->>'DestinationPort', ct.raw->>'RemotePort', ct.raw->>'DstPort') AS dst_port,
+        COALESCE(ct.raw->>'Protocol', ct.raw->>'proto', ct.raw->>'Transport')           AS protocol,
+        -- URL for browser history (sqle)
+        ct.raw->>'URL'   AS url,
+        -- Remote host info
+        COALESCE(
+          ct.raw->>'RemoteHost', ct.raw->>'RemoteAddress',
+          ct.raw->>'DestinationHostname', ct.raw->>'dst_host'
+        ) AS remote_host,
+        -- Source/dest IPs
+        ct.src_ip::text AS src_ip,
+        ct.dst_ip::text AS dst_ip
+      FROM collection_timeline ct
+      WHERE ct.case_id = $1
+        AND ct.artifact_type IN ('sqle', 'evtx', 'hayabusa', 'srum')
+        AND (
+          -- Exact IP / hostname matches
+          ct.raw->>'SourceIp'            = $2 OR
+          ct.raw->>'DestinationIp'       = $2 OR
+          ct.raw->>'DestinationHostname' = $2 OR
+          ct.raw->>'RemoteHost'          = $2 OR
+          ct.raw->>'RemoteAddress'       = $2 OR
+          ct.raw->>'DstIP'               = $2 OR
+          ct.raw->>'dst_ip'              = $2 OR
+          ct.raw->>'id.resp_h'           = $2 OR
+          ct.raw->>'Computer'            = $2 OR
+          ct.host_name                   = $2 OR
+          ct.src_ip::text                = $2 OR
+          ct.dst_ip::text                = $2 OR
+          -- Domain-based match: sqle browser history URLs containing the hostname
+          (ct.artifact_type = 'sqle'
+           AND ct.raw->>'URL' IS NOT NULL
+           AND ct.raw->>'URL' ILIKE '%' || $2 || '%')
+        )
+      ORDER BY ct.timestamp DESC
+      LIMIT $3
+    `, [caseId, matchId, parseInt(limit) || 100]);
+
+    res.json({ events: result.rows, total: result.rowCount });
   } catch (err) {
     logger.error('[network/graph-data/events]', err);
     res.status(500).json({ error: 'Erreur serveur' });
@@ -971,4 +1131,253 @@ router.get('/:caseId/dga-analysis', authenticate, async (req, res) => {
   }
 });
 
+// ── Canvas annotations (zones + node type overrides) ───────────────────────
+router.get('/:caseId/annotations', authenticate, requireRole('admin', 'analyst'), async (req, res) => {
+  try {
+    const { caseId } = req.params;
+    const result = await pool.query(
+      'SELECT data FROM network_annotations WHERE case_id = $1',
+      [caseId]
+    );
+    res.json(result.rows[0]?.data ?? { zones: [], node_overrides: {} });
+  } catch (err) {
+    logger.error('[network/annotations GET]', err);
+    res.status(500).json({ error: 'Erreur serveur' });
+  }
+});
+
+router.put('/:caseId/annotations', authenticate, requireRole('admin', 'analyst'), async (req, res) => {
+  try {
+    const { caseId } = req.params;
+    const data = req.body;
+    if (!Array.isArray(data?.zones) || typeof data?.node_overrides !== 'object' || data.node_overrides === null) {
+      return res.status(400).json({ error: 'Invalid annotations shape' });
+    }
+    await pool.query(
+      `INSERT INTO network_annotations (case_id, data, updated_at)
+       VALUES ($1, $2, NOW())
+       ON CONFLICT (case_id) DO UPDATE SET data = $2, updated_at = NOW()`,
+      [caseId, JSON.stringify(data)]
+    );
+    const io = req.app.locals.io;
+    if (io) {
+      io.to(caseId).emit('network:schema_edited', {
+        username:  req.user?.username || 'Anonyme',
+        userId:    req.user?.id,
+        timestamp: Date.now(),
+      });
+    }
+    res.json({ ok: true });
+  } catch (err) {
+    logger.error('[network/annotations PUT]', err);
+    res.status(500).json({ error: 'Erreur serveur' });
+  }
+});
+
+// ── Global-map annotations (zones/overrides/manual nodes for the case-level view) ─
+// Uses JSONB || merge so per-evidence annotations (zones / node_overrides) are never overwritten.
+router.put('/:caseId/annotations/global', authenticate, requireRole('admin', 'analyst'), async (req, res) => {
+  try {
+    const { caseId } = req.params;
+    const { zones = [], node_overrides = {}, manual_nodes = [], subnet_rules = [] } = req.body;
+    if (!Array.isArray(zones) || typeof node_overrides !== 'object' || !Array.isArray(manual_nodes) || !Array.isArray(subnet_rules)) {
+      return res.status(400).json({ error: 'Invalid global annotations shape' });
+    }
+    const patch = JSON.stringify({ global_zones: zones, global_node_overrides: node_overrides, global_manual_nodes: manual_nodes, global_subnet_rules: subnet_rules });
+    await pool.query(
+      `INSERT INTO network_annotations (case_id, data, updated_at)
+       VALUES ($1, $2::jsonb || '{"zones":[],"node_overrides":{}}'::jsonb, NOW())
+       ON CONFLICT (case_id) DO UPDATE
+         SET data = network_annotations.data || $2::jsonb,
+             updated_at = NOW()`,
+      [caseId, patch]
+    );
+    res.json({ ok: true });
+  } catch (err) {
+    logger.error('[network/annotations/global PUT]', err);
+    res.status(500).json({ error: 'Erreur serveur' });
+  }
+});
+
+function mergeGlobalGraph(results, evidences) {
+  if (results.length !== evidences.length) {
+    throw new Error(`mergeGlobalGraph: results/evidences length mismatch (${results.length} vs ${evidences.length})`);
+  }
+  const nodeMap = new Map();
+  const edgeMap = new Map();
+  const evidenceSources = evidences.map(ev => ({
+    id: ev.id,
+    name: ev.name || ev.original_filename || ev.id,
+  }));
+
+  results.forEach((result, idx) => {
+    const evidenceId = evidences[idx].id;
+    const { nodes = [], edges = [] } = result;
+
+    for (const node of nodes) {
+      if (!nodeMap.has(node.id)) {
+        nodeMap.set(node.id, {
+          ...node,
+          processes:    node.processes ? [...node.processes] : undefined,
+          evidence_ids: [],
+          connection_count: 0,
+          total_bytes: 0,
+        });
+      }
+      const n = nodeMap.get(node.id);
+      if (!n.evidence_ids.includes(evidenceId)) n.evidence_ids.push(evidenceId);
+      n.connection_count += node.connection_count || 0;
+      n.total_bytes      += node.total_bytes      || 0;
+      if (node.is_suspicious) n.is_suspicious = true;
+      if ((node.dga_score || 0) > (n.dga_score || 0)) n.dga_score = node.dga_score;
+    }
+
+    for (const edge of edges) {
+      const key = `${edge.source}||${edge.target}||${(edge.ports || [])[0] || ''}||${(edge.protocols || [])[0] || ''}`;
+      if (!edgeMap.has(key)) {
+        edgeMap.set(key, {
+          ...edge,
+          ports:        edge.ports     ? [...edge.ports]     : [],
+          protocols:    edge.protocols ? [...edge.protocols] : [],
+          processes:    edge.processes ? [...edge.processes] : [],
+          evidence_ids: [],
+          connection_count: 0,
+          total_bytes: 0,
+        });
+      }
+      const e = edgeMap.get(key);
+      if (!e.evidence_ids.includes(evidenceId)) e.evidence_ids.push(evidenceId);
+      e.connection_count += edge.connection_count || 0;
+      e.total_bytes      += edge.total_bytes      || 0;
+      if (edge.has_suspicious) e.has_suspicious = true;
+    }
+  });
+
+  return {
+    nodes:            Array.from(nodeMap.values()),
+    edges:            Array.from(edgeMap.values()),
+    evidence_sources: evidenceSources,
+    truncated:        results.some(r => r.truncated),
+  };
+}
+
+router.get('/:caseId/global-graph', authenticate, requireRole('admin', 'analyst'), async (req, res) => {
+  try {
+    const { caseId } = req.params;
+
+    const evidencesResult = await pool.query(
+      `SELECT id, name, original_filename FROM evidence WHERE case_id = $1 ORDER BY created_at ASC`,
+      [caseId]
+    );
+    const evidences = evidencesResult.rows;
+
+    if (!evidences.length) {
+      return res.json({ nodes: [], edges: [], evidence_sources: [], truncated: false });
+    }
+
+    const results = await Promise.all(
+      evidences.map(ev => buildNetworkGraph(caseId, [ev.id], pool, null, null))
+    );
+
+    const graph = mergeGlobalGraph(results, evidences);
+    res.json(graph);
+  } catch (err) {
+    logger.error('[network/global-graph]', err);
+    res.status(500).json({ error: 'Erreur serveur' });
+  }
+});
+
+// ── Phase 2: network behavioural analytics over network_connections ──────────
+// Exfiltration (volume), scan/sweep, lateral-movement ports, rare external
+// connections, and pivot hosts. Returns findings + per-node flags for the map.
+// IP "internal" test uses string prefixes (avoids ::inet cast errors on hostnames).
+const INTERNAL_SQL = (col) =>
+  `(${col} LIKE '10.%' OR ${col} LIKE '192.168.%' OR ${col} ~ '^172\\.(1[6-9]|2[0-9]|3[01])\\.' OR ${col} LIKE '169.254.%' OR ${col} LIKE 'fe80:%' OR ${col} LIKE 'fc%' OR ${col} LIKE 'fd%')`;
+
+router.get('/:caseId/analytics', authenticate, async (req, res) => {
+  const cid = req.params.caseId;
+  try {
+    const findings = [];
+    const nodeFlags = {}; // ip -> { exfil, scanner, lateral, pivot, rare }
+    const flag = (ip, k) => { if (!ip) return; (nodeFlags[ip] = nodeFlags[ip] || {})[k] = true; };
+
+    // 1. Exfiltration — large outbound volume to an external destination.
+    const exfil = (await pool.query(
+      `SELECT src_ip, dst_ip, SUM(bytes_sent) AS sent, SUM(bytes_received) AS recv
+         FROM network_connections WHERE case_id=$1 AND NOT ${INTERNAL_SQL('dst_ip')}
+         GROUP BY src_ip, dst_ip HAVING SUM(bytes_sent) > 52428800
+         ORDER BY sent DESC LIMIT 30`, [cid])).rows;
+    exfil.forEach(r => { flag(r.src_ip, 'exfil'); findings.push({ type: 'exfil', severity: 'ÉLEVÉ', mitre: 'T1048', src: r.src_ip, dst: r.dst_ip, label: `Exfiltration possible — ${(r.sent / 1048576).toFixed(0)} Mo sortants vers ${r.dst_ip}` }); });
+
+    // 2. Scan / sweep — one source reaching many distinct hosts or ports.
+    const scan = (await pool.query(
+      `SELECT src_ip, COUNT(DISTINCT dst_ip) AS hosts, COUNT(DISTINCT dst_port) AS ports
+         FROM network_connections WHERE case_id=$1
+         GROUP BY src_ip HAVING COUNT(DISTINCT dst_ip) >= 25 OR COUNT(DISTINCT dst_port) >= 25
+         ORDER BY hosts DESC LIMIT 30`, [cid])).rows;
+    scan.forEach(r => { flag(r.src_ip, 'scanner'); findings.push({ type: 'scan', severity: 'ÉLEVÉ', mitre: 'T1046', src: r.src_ip, label: `Scan/sweep — ${r.hosts} hôtes, ${r.ports} ports depuis ${r.src_ip}` }); });
+
+    // 3. Lateral movement — internal→internal on admin ports.
+    const lateral = (await pool.query(
+      `SELECT src_ip, dst_ip, dst_port, COUNT(*) AS n
+         FROM network_connections WHERE case_id=$1
+           AND dst_port IN (3389,445,5985,5986,22,135,139,5900)
+           AND ${INTERNAL_SQL('src_ip')} AND ${INTERNAL_SQL('dst_ip')}
+         GROUP BY src_ip, dst_ip, dst_port ORDER BY n DESC LIMIT 40`, [cid])).rows;
+    const PORTNAME = { 3389: 'RDP', 445: 'SMB', 5985: 'WinRM', 5986: 'WinRM', 22: 'SSH', 135: 'RPC', 139: 'NetBIOS', 5900: 'VNC' };
+    lateral.forEach(r => { flag(r.src_ip, 'lateral'); flag(r.dst_ip, 'lateral'); findings.push({ type: 'lateral', severity: 'ÉLEVÉ', mitre: 'T1021', src: r.src_ip, dst: r.dst_ip, label: `Mouvement latéral — ${PORTNAME[r.dst_port] || r.dst_port} ${r.src_ip} → ${r.dst_ip}` }); });
+
+    // 4. Pivot host — internal node with high in AND out internal degree.
+    const pivot = (await pool.query(
+      `WITH deg AS (
+         SELECT src_ip AS ip, COUNT(DISTINCT dst_ip) AS out_d, 0 AS in_d FROM network_connections WHERE case_id=$1 AND ${INTERNAL_SQL('src_ip')} GROUP BY src_ip
+         UNION ALL
+         SELECT dst_ip AS ip, 0, COUNT(DISTINCT src_ip) FROM network_connections WHERE case_id=$1 AND ${INTERNAL_SQL('dst_ip')} GROUP BY dst_ip )
+       SELECT ip, SUM(out_d) AS o, SUM(in_d) AS i FROM deg GROUP BY ip HAVING SUM(out_d) >= 5 AND SUM(in_d) >= 5 ORDER BY (SUM(out_d)+SUM(in_d)) DESC LIMIT 20`, [cid])).rows;
+    pivot.forEach(r => { flag(r.ip, 'pivot'); findings.push({ type: 'pivot', severity: 'MOYEN', mitre: 'T1570', src: r.ip, label: `Relais de pivot — ${r.ip} (${r.i} entrants / ${r.o} sortants)` }); });
+
+    // 5. Rare external connection — a single connection to an external host on a high port.
+    const rare = (await pool.query(
+      `SELECT src_ip, dst_ip, dst_port FROM network_connections
+        WHERE case_id=$1 AND NOT ${INTERNAL_SQL('dst_ip')} AND dst_port > 1024 AND dst_port NOT IN (8080,8443,3128)
+        GROUP BY src_ip, dst_ip, dst_port HAVING COUNT(*) = 1 ORDER BY dst_port DESC LIMIT 25`, [cid])).rows;
+    rare.forEach(r => { flag(r.dst_ip, 'rare'); findings.push({ type: 'rare', severity: 'FAIBLE', mitre: 'T1571', src: r.src_ip, dst: r.dst_ip, label: `Connexion externe rare — ${r.src_ip} → ${r.dst_ip}:${r.dst_port}` }); });
+
+    // 6. Threat Intel — node matches a known-bad indicator (TAXII / feed correlation).
+    const ti = (await pool.query(
+      `SELECT DISTINCT ioc_value, indicator_name, source_name FROM threat_correlations WHERE case_id=$1 LIMIT 50`, [cid])).rows;
+    ti.forEach(r => { flag(r.ioc_value, 'knownBad'); findings.unshift({ type: 'threat-intel', severity: 'CRITIQUE', mitre: 'T1071', src: r.ioc_value, dst: r.ioc_value, label: `Known-bad (${r.source_name || 'feed'}) — ${r.ioc_value}${r.indicator_name ? ' · ' + r.indicator_name : ''}` }); });
+
+    // GeoIP summary of external destinations.
+    const geo = (await pool.query(
+      `SELECT geo_dst->>'country' AS country, COUNT(DISTINCT dst_ip) AS hosts
+         FROM network_connections WHERE case_id=$1 AND COALESCE(geo_dst->>'country','') <> ''
+         GROUP BY country ORDER BY hosts DESC LIMIT 10`, [cid])).rows;
+
+    // Auto zone classification (internal vs external, + cloud by geo org).
+    const zones = (await pool.query(
+      `SELECT
+         COUNT(DISTINCT ip) FILTER (WHERE internal)                       AS internal,
+         COUNT(DISTINCT ip) FILTER (WHERE NOT internal AND NOT cloud)     AS external,
+         COUNT(DISTINCT ip) FILTER (WHERE cloud)                          AS cloud
+       FROM (
+         SELECT src_ip AS ip, ${INTERNAL_SQL('src_ip')} AS internal, FALSE AS cloud FROM network_connections WHERE case_id=$1
+         UNION
+         SELECT dst_ip, ${INTERNAL_SQL('dst_ip')},
+                COALESCE(geo_dst->>'org','') ~* '(amazon|aws|azure|microsoft|google|cloud|digitalocean|ovh|hetzner|linode)'
+           FROM network_connections WHERE case_id=$1
+       ) u`, [cid])).rows[0] || {};
+
+    res.json({
+      findings, nodeFlags,
+      counts: { exfil: exfil.length, scan: scan.length, lateral: lateral.length, pivot: pivot.length, rare: rare.length, knownBad: ti.length },
+      geo, zones,
+    });
+  } catch (err) {
+    logger.error('[network analytics]', err.message);
+    res.status(500).json({ error: 'Erreur analytics réseau : ' + err.message });
+  }
+});
+
 module.exports = router;
+module.exports.mergeGlobalGraph = mergeGlobalGraph;

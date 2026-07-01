@@ -5,8 +5,9 @@ export default {
     extend: {
       colors: {},
       fontFamily: {
+        display: ['Space Grotesk', 'Inter', 'system-ui', 'sans-serif'],
         mono: ['JetBrains Mono', 'monospace'],
-        sans: ['IBM Plex Sans', 'sans-serif'],
+        sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif'],
       }
     }
   },

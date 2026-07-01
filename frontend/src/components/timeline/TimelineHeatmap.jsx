@@ -37,8 +37,8 @@ export default function TimelineHeatmap({ caseId, availTypes, startTime, endTime
   }, [caseId, availTypes?.join(','), startTime, endTime]);
 
   if (loading) return (
-    <div style={{ padding: '20px', textAlign: 'center', fontFamily: 'monospace', fontSize: 11, color: '#3a6a9a' }}>
-      Chargement heatmap…
+    <div style={{ padding: '20px', textAlign: 'center', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11, color: '#3a6a9a' }}>
+      Loading heatmap…
     </div>
   );
   if (!matrix) return null;
@@ -49,14 +49,14 @@ export default function TimelineHeatmap({ caseId, availTypes, startTime, endTime
 
   return (
     <div style={{ padding: '12px 16px', userSelect: 'none' }}>
-      <div style={{ fontFamily: 'monospace', fontSize: 9, color: '#3a6a9a', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 8 }}>
-        Heatmap activité — heure UTC × jour de semaine
+      <div style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 9, color: '#3a6a9a', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 8 }}>
+        Activity heatmap — UTC hour x weekday
       </div>
 
       <div style={{ display: 'flex', marginLeft: LABEL_W, marginBottom: 2 }}>
         {HOURS.filter(h => h % 3 === 0).map(h => (
           <div key={h} style={{
-            width: CELL_W * 3, fontSize: 8, fontFamily: 'monospace',
+            width: CELL_W * 3, fontSize: 8, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
             color: '#2a5a8a', textAlign: 'center',
           }}>{String(h).padStart(2, '0')}h</div>
         ))}
@@ -65,7 +65,7 @@ export default function TimelineHeatmap({ caseId, availTypes, startTime, endTime
       {DAYS.map((day, wd) => (
         <div key={wd} style={{ display: 'flex', alignItems: 'center', marginBottom: 2 }}>
           
-          <div style={{ width: LABEL_W, fontSize: 9, fontFamily: 'monospace', color: '#3a6a9a', flexShrink: 0 }}>
+          <div style={{ width: LABEL_W, fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: '#3a6a9a', flexShrink: 0 }}>
             {day}
           </div>
           
@@ -82,14 +82,14 @@ export default function TimelineHeatmap({ caseId, availTypes, startTime, endTime
                   width: CELL_W,
                   height: CELL_H,
                   background: count > 0 ? lerp(t) : 'rgba(77,130,192,0.03)',
-                  border: isHovered ? '1px solid #4d82c080' : '1px solid rgba(77,130,192,0.08)',
+                  border: isHovered ? '1px solid color-mix(in srgb, var(--fl-accent) 50%, transparent)' : '1px solid rgba(77,130,192,0.08)',
                   borderRadius: 2,
                   cursor: count > 0 ? 'default' : 'default',
                   transition: 'border-color 0.1s',
                   position: 'relative',
                   flexShrink: 0,
                 }}
-                title={count > 0 ? `${day} ${String(h).padStart(2,'0')}h — ${count} événement${count > 1 ? 's' : ''}` : ''}
+                title={count > 0 ? `${day} ${String(h).padStart(2,'0')}h — ${count} event${count > 1 ? 's' : ''}` : ''}
               />
             );
           })}
@@ -97,19 +97,19 @@ export default function TimelineHeatmap({ caseId, availTypes, startTime, endTime
       ))}
 
       {hoveredCell && hoveredCell.count > 0 && (
-        <div style={{ marginTop: 6, fontFamily: 'monospace', fontSize: 10, color: '#7abfff' }}>
+        <div style={{ marginTop: 6, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10, color: '#7abfff' }}>
           {DAYS[hoveredCell.weekday]} {String(hoveredCell.hour).padStart(2, '0')}h00 UTC —{' '}
-          <strong>{hoveredCell.count}</strong> événement{hoveredCell.count > 1 ? 's' : ''}
+          <strong>{hoveredCell.count}</strong> event{hoveredCell.count > 1 ? 's' : ''}
           {' '}({Math.round(hoveredCell.count / maxCount * 100)}% du pic)
         </div>
       )}
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 8 }}>
-        <span style={{ fontSize: 8, fontFamily: 'monospace', color: '#2a5a8a' }}>0</span>
+        <span style={{ fontSize: 8, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: '#2a5a8a' }}>0</span>
         {[0.1, 0.25, 0.5, 0.75, 1.0].map(v => (
           <div key={v} style={{ width: 18, height: 10, borderRadius: 2, background: lerp(v) }} />
         ))}
-        <span style={{ fontSize: 8, fontFamily: 'monospace', color: '#2a5a8a' }}>max ({maxCount})</span>
+        <span style={{ fontSize: 8, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: '#2a5a8a' }}>max ({maxCount})</span>
       </div>
     </div>
   );

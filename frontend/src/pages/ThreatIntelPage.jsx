@@ -1,26 +1,27 @@
 import { useState, useEffect, useCallback } from 'react';
-import { useParams } from 'react-router-dom';
-import { Globe, Plus, Trash2, RefreshCw, Search, AlertTriangle, CheckCircle, Loader, ChevronLeft, ChevronRight, ShieldAlert } from 'lucide-react';
+import { useParams, useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
+import { Globe, Plus, Trash2, RefreshCw, Search, AlertTriangle, CheckCircle, Loader, ChevronLeft, ChevronRight, ShieldAlert, Rss, List, GitMerge } from 'lucide-react';
 import { useTheme } from '../utils/theme';
 import { threatIntelAPI, casesAPI } from '../utils/api';
 import TabGroup from '../components/ui/TabGroup';
 import { fmtLocal } from '../utils/formatters';
 
 const IOC_COLORS = {
-  ipv4:   '#e05252',
-  ipv6:   '#e07e52',
-  domain: '#d4a017',
+  ipv4:   'var(--fl-danger)',
+  ipv6:   'var(--fl-warn)',
+  domain: 'var(--fl-gold)',
   url:    'var(--fl-accent)',
-  email:  '#9b59b6',
-  md5:    '#27ae60',
-  sha1:   '#1abc9c',
-  sha256: '#16a085',
+  email:  'var(--fl-pink)',
+  md5:    'var(--fl-ok)',
+  sha1:   'var(--fl-artifact-shellbags)',
+  sha256: 'var(--fl-purple)',
 };
 
 const STIX_COLORS = {
   indicator:       'var(--fl-accent)',
-  malware:         '#e05252',
-  'attack-pattern':'#d4a017',
+  malware:         'var(--fl-danger)',
+  'attack-pattern':'var(--fl-gold)',
 };
 
 function IocBadge({ type }) {
@@ -28,13 +29,13 @@ function IocBadge({ type }) {
   const color = IOC_COLORS[type] || T.muted;
   return (
     <span style={{
-      background: `${color}20`,
+      background: `color-mix(in srgb, ${color} 13%, transparent)`,
       color,
-      border: `1px solid ${color}40`,
+      border: `1px solid color-mix(in srgb, ${color} 25%, transparent)`,
       borderRadius: 4,
       padding: '1px 6px',
       fontSize: 11,
-      fontFamily: 'monospace',
+      fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
       fontWeight: 600,
       textTransform: 'uppercase',
     }}>{type || '—'}</span>
@@ -46,13 +47,13 @@ function StixBadge({ type }) {
   const color = STIX_COLORS[type] || T.muted;
   return (
     <span style={{
-      background: `${color}20`,
+      background: `color-mix(in srgb, ${color} 13%, transparent)`,
       color,
-      border: `1px solid ${color}40`,
+      border: `1px solid color-mix(in srgb, ${color} 25%, transparent)`,
       borderRadius: 4,
       padding: '1px 6px',
       fontSize: 11,
-      fontFamily: 'monospace',
+      fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
     }}>{type}</span>
   );
 }
@@ -60,7 +61,7 @@ function StixBadge({ type }) {
 function Toast({ msg, type, onClose }) {
   const T = useTheme();
   useEffect(() => { const t = setTimeout(onClose, 4000); return () => clearTimeout(t); }, [onClose]);
-  const color = type === 'error' ? T.danger : type === 'warn' ? '#d4a017' : '#27ae60';
+  const color = type === 'error' ? 'var(--fl-danger)' : type === 'warn' ? 'var(--fl-warn)' : 'var(--fl-ok)';
   return (
     <div style={{
       position: 'fixed', bottom: 24, right: 24, zIndex: 9999,
@@ -77,6 +78,7 @@ function Toast({ msg, type, onClose }) {
 }
 
 function FeedsTab({ toast }) {
+  const { t } = useTranslation();
   const T = useTheme();
   const [feeds, setFeeds]       = useState([]);
   const [loading, setLoading]   = useState(true);
@@ -92,7 +94,7 @@ function FeedsTab({ toast }) {
     try {
       const res = await threatIntelAPI.feeds();
       setFeeds(Array.isArray(res.data) ? res.data : []);
-    } catch { toast('Erreur chargement des flux', 'error'); }
+    } catch { toast(t('threat_intel.feeds.load_error'), 'error'); }
     finally { setLoading(false); }
   }, [toast]);
 
@@ -104,20 +106,20 @@ function FeedsTab({ toast }) {
       await threatIntelAPI.addFeed(form);
       setShowModal(false);
       setForm({ name: '', url: '', api_root: '', collection_id: '', auth_type: 'none', auth_value: '' });
-      toast('Flux ajouté', 'ok');
+      toast(t('threat_intel.feeds.added'), 'ok');
       load();
     } catch (err) {
-      toast(err.response?.data?.error || 'Erreur ajout flux', 'error');
+      toast(err.response?.data?.error || t('threat_intel.feeds.add_error'), 'error');
     }
   }
 
   async function handleDelete(id) {
-    if (!confirm('Supprimer ce flux ?')) return;
+    if (!confirm(t('threat_intel.feeds.delete_confirm'))) return;
     try {
       await threatIntelAPI.deleteFeed(id);
-      toast('Flux supprimé', 'ok');
+      toast(t('threat_intel.feeds.deleted'), 'ok');
       load();
-    } catch { toast('Erreur suppression', 'error'); }
+    } catch { toast(t('threat_intel.feeds.delete_error'), 'error'); }
   }
 
   async function handleFetch(id) {
@@ -127,7 +129,7 @@ function FeedsTab({ toast }) {
       toast(res.data.message, 'ok');
       load();
     } catch (err) {
-      toast(err.response?.data?.error || 'Erreur TAXII', 'error');
+      toast(err.response?.data?.error || t('threat_intel.feeds.fetch_error'), 'error');
     } finally {
       setFetching(f => ({ ...f, [id]: false }));
     }
@@ -144,14 +146,14 @@ function FeedsTab({ toast }) {
     <div>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
         <span style={{ color: T.muted, fontSize: 13 }}>
-          {feeds.length} flux TAXII configuré{feeds.length !== 1 ? 's' : ''}
+          {t('threat_intel.feeds.count', { count: feeds.length })}
         </span>
         <button onClick={() => setShowModal(true)} style={{
           background: T.accent, color: '#fff', border: 'none',
           borderRadius: 6, padding: '7px 14px', cursor: 'pointer',
           display: 'flex', alignItems: 'center', gap: 6, fontSize: 13,
         }}>
-          <Plus size={14} /> Ajouter un flux
+          <Plus size={14} /> {t('threat_intel.feeds.add')}
         </button>
       </div>
 
@@ -165,15 +167,15 @@ function FeedsTab({ toast }) {
           padding: 40, textAlign: 'center', color: T.muted,
         }}>
           <Globe size={32} style={{ marginBottom: 12, opacity: 0.4 }} />
-          <div style={{ fontSize: 14 }}>Aucun flux TAXII configuré</div>
-          <div style={{ fontSize: 12, marginTop: 6 }}>Ajoutez un serveur TAXII 2.1 pour importer des indicateurs de menace.</div>
+          <div style={{ fontSize: 14 }}>{t('threat_intel.feeds.empty_title')}</div>
+          <div style={{ fontSize: 12, marginTop: 6 }}>{t('threat_intel.feeds.empty_sub')}</div>
         </div>
       ) : (
         <div style={{ border: `1px solid ${T.border}`, borderRadius: 8, overflow: 'hidden' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
             <thead>
-              <tr style={{ background: `${T.accent}10`, borderBottom: `1px solid ${T.border}` }}>
-                {['Nom', 'URL', 'Auth', 'Indicateurs', 'Dernière synchro', 'Actions'].map(h => (
+              <tr style={{ background: `color-mix(in srgb, ${T.accent} 6%, transparent)`, borderBottom: `1px solid ${T.border}` }}>
+                {[t('threat_intel.feeds.col_name'), t('threat_intel.feeds.col_url'), t('threat_intel.feeds.col_auth'), t('threat_intel.feeds.col_indicators'), t('threat_intel.feeds.col_sync'), t('threat_intel.feeds.col_actions')].map(h => (
                   <th key={h} style={{ padding: '9px 12px', textAlign: 'left', color: T.muted, fontWeight: 600, fontSize: 11, textTransform: 'uppercase' }}>{h}</th>
                 ))}
               </tr>
@@ -182,7 +184,7 @@ function FeedsTab({ toast }) {
               {feeds.map((f, i) => (
                 <tr key={f.id} style={{ borderBottom: i < feeds.length - 1 ? `1px solid ${T.border}` : 'none' }}>
                   <td style={{ padding: '10px 12px', color: T.text, fontWeight: 500 }}>{f.name}</td>
-                  <td style={{ padding: '10px 12px', color: T.dim, fontFamily: 'monospace', fontSize: 12, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  <td style={{ padding: '10px 12px', color: T.dim, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 12, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {f.url}
                   </td>
                   <td style={{ padding: '10px 12px', color: T.muted, fontSize: 12 }}>{f.auth_type}</td>
@@ -190,31 +192,31 @@ function FeedsTab({ toast }) {
                     {f.indicator_count || 0}
                   </td>
                   <td style={{ padding: '10px 12px', color: T.muted, fontSize: 12 }}>
-                    {f.last_fetched ? fmtLocal(f.last_fetched) : 'Jamais'}
+                    {f.last_fetched ? fmtLocal(f.last_fetched) : t('common.never')}
                   </td>
                   <td style={{ padding: '10px 12px' }}>
                     <div style={{ display: 'flex', gap: 6 }}>
                       <button
                         onClick={() => handleFetch(f.id)}
                         disabled={fetching[f.id]}
-                        title="Synchroniser"
+                        title={t('threat_intel.feeds.sync')}
                         style={{
-                          background: `${T.accent}20`, color: T.accent,
-                          border: `1px solid ${T.accent}40`, borderRadius: 5,
+                          background: `color-mix(in srgb, ${T.accent} 13%, transparent)`, color: T.accent,
+                          border: `1px solid color-mix(in srgb, ${T.accent} 25%, transparent)`, borderRadius: 5,
                           padding: '4px 8px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4,
                         }}
                       >
                         {fetching[f.id]
                           ? <Loader size={12} style={{ animation: 'spin 1s linear infinite' }} />
                           : <RefreshCw size={12} />}
-                        <span style={{ fontSize: 11 }}>Sync</span>
+                        <span style={{ fontSize: 11 }}>{t('threat_intel.feeds.sync_short')}</span>
                       </button>
                       <button
                         onClick={() => handleDelete(f.id)}
-                        title="Supprimer"
+                        title={t('common.delete')}
                         style={{
-                          background: `${T.danger}15`, color: T.danger,
-                          border: `1px solid ${T.danger}40`, borderRadius: 5,
+                          background: `color-mix(in srgb, ${T.danger} 8%, transparent)`, color: T.danger,
+                          border: `1px solid color-mix(in srgb, ${T.danger} 25%, transparent)`, borderRadius: 5,
                           padding: '4px 7px', cursor: 'pointer',
                         }}
                       >
@@ -236,36 +238,36 @@ function FeedsTab({ toast }) {
           display: 'flex', alignItems: 'center', justifyContent: 'center',
         }}>
           <div style={{
-            background: T.panel, borderRadius: 10,
+            background: T.panel, borderRadius: 8,
             border: `1px solid ${T.border}`,
             padding: 28, width: 500, maxWidth: '95vw',
           }}>
-            <h3 style={{ color: T.text, margin: '0 0 20px', fontSize: 15, fontWeight: 600 }}>
-              Ajouter un flux TAXII 2.1
+              <h3 style={{ color: T.text, margin: '0 0 20px', fontSize: 15, fontWeight: 600 }}>
+              {t('threat_intel.feeds.modal_title')}
             </h3>
             <form onSubmit={handleAdd} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
               <div>
-                <label style={labelStyle}>Nom *</label>
-                <input style={inputStyle} value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} required placeholder="ex. AlienVault OTX" />
+                <label style={labelStyle}>{t('threat_intel.feeds.name')} *</label>
+                <input style={inputStyle} value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} required placeholder={t('threat_intel.feeds.name_ph')} />
               </div>
               <div>
-                <label style={labelStyle}>URL du serveur TAXII *</label>
-                <input style={inputStyle} value={form.url} onChange={e => setForm(f => ({ ...f, url: e.target.value }))} required placeholder="https://otx.alienvault.com/taxii/root" />
+                <label style={labelStyle}>{t('threat_intel.feeds.url')} *</label>
+                <input style={inputStyle} value={form.url} onChange={e => setForm(f => ({ ...f, url: e.target.value }))} required placeholder={t('threat_intel.feeds.url_ph')} />
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                 <div>
-                  <label style={labelStyle}>API Root</label>
-                  <input style={inputStyle} value={form.api_root} onChange={e => setForm(f => ({ ...f, api_root: e.target.value }))} placeholder="optionnel" />
+                  <label style={labelStyle}>{t('threat_intel.feeds.api_root')}</label>
+                  <input style={inputStyle} value={form.api_root} onChange={e => setForm(f => ({ ...f, api_root: e.target.value }))} placeholder={t('common.optional')} />
                 </div>
                 <div>
                   <label style={labelStyle}>Collection ID</label>
-                  <input style={inputStyle} value={form.collection_id} onChange={e => setForm(f => ({ ...f, collection_id: e.target.value }))} placeholder="optionnel" />
+                  <input style={inputStyle} value={form.collection_id} onChange={e => setForm(f => ({ ...f, collection_id: e.target.value }))} placeholder={t('common.optional')} />
                 </div>
               </div>
               <div>
-                <label style={labelStyle}>Authentification</label>
+                <label style={labelStyle}>{t('threat_intel.feeds.auth')}</label>
                 <select style={{ ...inputStyle }} value={form.auth_type} onChange={e => setForm(f => ({ ...f, auth_type: e.target.value }))}>
-                  <option value="none">Aucune</option>
+                  <option value="none">{t('common.none')}</option>
                   <option value="bearer">Bearer Token</option>
                   <option value="basic">Basic (user:password)</option>
                 </select>
@@ -279,7 +281,7 @@ function FeedsTab({ toast }) {
                     type="password" style={inputStyle}
                     value={form.auth_value}
                     onChange={e => setForm(f => ({ ...f, auth_value: e.target.value }))}
-                    placeholder={form.auth_type === 'bearer' ? 'Bearer token...' : 'utilisateur:motdepasse'}
+                    placeholder={form.auth_type === 'bearer' ? 'Bearer token...' : 'user:password'}
                   />
                 </div>
               )}
@@ -287,11 +289,11 @@ function FeedsTab({ toast }) {
                 <button type="button" onClick={() => setShowModal(false)} style={{
                   background: T.inputBg, color: T.dim, border: `1px solid ${T.border}`,
                   borderRadius: 6, padding: '8px 16px', cursor: 'pointer', fontSize: 13,
-                }}>Annuler</button>
+                }}>{t('common.cancel')}</button>
                 <button type="submit" style={{
                   background: T.accent, color: '#fff', border: 'none',
                   borderRadius: 6, padding: '8px 18px', cursor: 'pointer', fontSize: 13, fontWeight: 600,
-                }}>Ajouter</button>
+                }}>{t('common.add')}</button>
               </div>
             </form>
           </div>
@@ -304,6 +306,7 @@ function FeedsTab({ toast }) {
 const IOC_TYPES = ['', 'ipv4', 'ipv6', 'domain', 'url', 'email', 'md5', 'sha1', 'sha256'];
 
 function IndicatorsTab() {
+  const { t } = useTranslation();
   const T = useTheme();
   const [data, setData]             = useState({ records: [], total: 0, page: 1, limit: 50, total_pages: 1 });
   const [loading, setLoading]       = useState(false);
@@ -336,7 +339,7 @@ function IndicatorsTab() {
       {stats && (
         <div style={{ display: 'flex', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
           <div style={{ background: T.panel, border: `1px solid ${T.border}`, borderRadius: 8, padding: '10px 16px', fontSize: 13 }}>
-            <span style={{ color: T.muted, fontSize: 11 }}>Total</span>
+            <span style={{ color: T.muted, fontSize: 11 }}>{t('common.all')}</span>
             <div style={{ color: T.text, fontWeight: 700, fontSize: 20 }}>{stats.total.toLocaleString()}</div>
           </div>
           {stats.by_type.slice(0, 4).map(b => (
@@ -353,26 +356,26 @@ function IndicatorsTab() {
           <Search size={14} style={{ margin: '0 8px', color: T.muted, alignSelf: 'center' }} />
           <input
             style={{ flex: 1, background: 'none', border: 'none', color: T.text, fontSize: 13, padding: '7px 0', outline: 'none' }}
-            placeholder="Rechercher IOC, nom, description..."
+            placeholder={t('threat_intel.indicators.search_ph')}
             value={q} onChange={e => setQ(e.target.value)}
           />
         </div>
         <select value={iocType} onChange={e => { setIocType(e.target.value); setPage(1); }}
           style={{ background: T.inputBg, border: `1px solid ${T.border}`, borderRadius: 6, color: T.text, padding: '7px 10px', fontSize: 13 }}>
-          <option value="">Tous les types IOC</option>
+          <option value="">{t('threat_intel.indicators.all_ioc_types')}</option>
           {IOC_TYPES.filter(Boolean).map(t => <option key={t} value={t}>{t.toUpperCase()}</option>)}
         </select>
         <select value={stixType} onChange={e => { setStixType(e.target.value); setPage(1); }}
           style={{ background: T.inputBg, border: `1px solid ${T.border}`, borderRadius: 6, color: T.text, padding: '7px 10px', fontSize: 13 }}>
-          <option value="">Tous les types STIX</option>
-          <option value="indicator">Indicator</option>
-          <option value="malware">Malware</option>
-          <option value="attack-pattern">Attack Pattern</option>
+          <option value="">{t('threat_intel.indicators.all_stix_types')}</option>
+          <option value="indicator">{t('threat_intel.indicators.stix_indicator')}</option>
+          <option value="malware">{t('threat_intel.indicators.stix_malware')}</option>
+          <option value="attack-pattern">{t('threat_intel.indicators.stix_attack_pattern')}</option>
         </select>
         <button type="submit" style={{
           background: T.accent, color: '#fff', border: 'none',
           borderRadius: 6, padding: '7px 16px', cursor: 'pointer', fontSize: 13,
-        }}>Chercher</button>
+        }}>{t('common.search')}</button>
       </form>
 
       {loading ? (
@@ -382,16 +385,16 @@ function IndicatorsTab() {
       ) : data.records.length === 0 ? (
         <div style={{ border: `1px dashed ${T.border}`, borderRadius: 8, padding: 40, textAlign: 'center', color: T.muted }}>
           <ShieldAlert size={32} style={{ marginBottom: 12, opacity: 0.4 }} />
-          <div style={{ fontSize: 14 }}>Aucun indicateur trouvé</div>
-          <div style={{ fontSize: 12, marginTop: 6 }}>Synchronisez un flux TAXII pour importer des indicateurs.</div>
+          <div style={{ fontSize: 14 }}>{t('threat_intel.indicators.empty_title')}</div>
+          <div style={{ fontSize: 12, marginTop: 6 }}>{t('threat_intel.indicators.empty_sub')}</div>
         </div>
       ) : (
         <>
           <div style={{ border: `1px solid ${T.border}`, borderRadius: 8, overflow: 'hidden', marginBottom: 12 }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
               <thead>
-                <tr style={{ background: `${T.accent}10`, borderBottom: `1px solid ${T.border}` }}>
-                  {['Type STIX', 'IOC Type', 'Valeur IOC', 'Nom', 'Labels', 'Confiance', 'Source', 'Modifié'].map(h => (
+                <tr style={{ background: `color-mix(in srgb, ${T.accent} 6%, transparent)`, borderBottom: `1px solid ${T.border}` }}>
+                  {[t('threat_intel.indicators.col_stix'), t('threat_intel.indicators.col_ioc_type'), t('threat_intel.indicators.col_value'), t('common.name'), t('threat_intel.indicators.col_labels'), t('threat_intel.indicators.col_confidence'), t('threat_intel.indicators.col_source'), t('threat_intel.indicators.col_modified')].map(h => (
                     <th key={h} style={{ padding: '8px 10px', textAlign: 'left', color: T.muted, fontWeight: 600, fontSize: 10, textTransform: 'uppercase', whiteSpace: 'nowrap' }}>{h}</th>
                   ))}
                 </tr>
@@ -401,7 +404,7 @@ function IndicatorsTab() {
                   <tr key={r.stix_id || i} style={{ borderBottom: i < data.records.length - 1 ? `1px solid ${T.border}` : 'none' }}>
                     <td style={{ padding: '8px 10px' }}><StixBadge type={r.stix_type} /></td>
                     <td style={{ padding: '8px 10px' }}>{r.ioc_type ? <IocBadge type={r.ioc_type} /> : <span style={{ color: T.muted }}>—</span>}</td>
-                    <td style={{ padding: '8px 10px', fontFamily: 'monospace', color: T.text, maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    <td style={{ padding: '8px 10px', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: T.text, maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {r.ioc_value || '—'}
                     </td>
                     <td style={{ padding: '8px 10px', color: T.text, maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -410,7 +413,7 @@ function IndicatorsTab() {
                     <td style={{ padding: '8px 10px', maxWidth: 140 }}>
                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3 }}>
                         {(r.labels || []).slice(0, 2).map(l => (
-                          <span key={l} style={{ background: `${T.accent}15`, color: T.accent, borderRadius: 3, padding: '0 5px', fontSize: 10 }}>{l}</span>
+                          <span key={l} style={{ background: `color-mix(in srgb, ${T.accent} 8%, transparent)`, color: T.accent, borderRadius: 3, padding: '0 5px', fontSize: 10 }}>{l}</span>
                         ))}
                       </div>
                     </td>
@@ -429,7 +432,7 @@ function IndicatorsTab() {
 
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <span style={{ color: T.muted, fontSize: 12 }}>
-              {((page - 1) * 50 + 1)}–{Math.min(page * 50, data.total)} sur {data.total.toLocaleString()} résultats
+              {t('threat_intel.indicators.range', { from: ((page - 1) * 50 + 1), to: Math.min(page * 50, data.total), total: data.total.toLocaleString() })}
             </span>
             <div style={{ display: 'flex', gap: 6 }}>
               <button
@@ -438,7 +441,7 @@ function IndicatorsTab() {
                 <ChevronLeft size={13} />
               </button>
               <span style={{ color: T.dim, fontSize: 12, alignSelf: 'center', padding: '0 6px' }}>
-                Page {page} / {data.total_pages}
+                {t('threat_intel.indicators.page', { page, total_pages: data.total_pages })}
               </span>
               <button
                 onClick={() => setPage(p => Math.min(data.total_pages, p + 1))} disabled={page >= data.total_pages}
@@ -454,6 +457,7 @@ function IndicatorsTab() {
 }
 
 function CorrelationsTab({ toast }) {
+  const { t } = useTranslation();
   const T = useTheme();
   const [cases, setCases]               = useState([]);
   const [selectedCase, setSelectedCase] = useState('');
@@ -488,7 +492,7 @@ function CorrelationsTab({ toast }) {
       toast(res.data.message, 'ok');
       loadCorrelations(selectedCase);
     } catch (err) {
-      toast(err.response?.data?.error || 'Erreur corrélation', 'error');
+      toast(err.response?.data?.error || t('threat_intel.correlations.correlate_error'), 'error');
     } finally { setRunning(false); }
   }
 
@@ -500,7 +504,7 @@ function CorrelationsTab({ toast }) {
           onChange={e => handleCaseChange(e.target.value)}
           style={{ background: T.inputBg, border: `1px solid ${T.border}`, borderRadius: 6, color: T.text, padding: '8px 12px', fontSize: 13, minWidth: 250 }}
         >
-          <option value="">Sélectionner un cas...</option>
+          <option value="">{t('threat_intel.correlations.select_case')}</option>
           {cases.map(c => <option key={c.id} value={c.id}>{c.case_number} — {c.title}</option>)}
         </select>
         <button
@@ -515,19 +519,19 @@ function CorrelationsTab({ toast }) {
           }}
         >
           {running
-            ? <><Loader size={14} style={{ animation: 'spin 1s linear infinite' }} /> Analyse en cours...</>
-            : <><ShieldAlert size={14} /> Lancer la corrélation</>}
+            ? <><Loader size={14} style={{ animation: 'spin 1s linear infinite' }} /> Running analysis...</>
+            : <><ShieldAlert size={14} /> {t('threat_intel.correlations.run')}</>}
         </button>
 
         {correlations.length > 0 && (
           <div style={{
             marginLeft: 'auto',
-            background: `${IOC_COLORS.ipv4}15`,
-            border: `1px solid ${IOC_COLORS.ipv4}40`,
+            background: `color-mix(in srgb, ${IOC_COLORS.ipv4} 8%, transparent)`,
+            border: `1px solid color-mix(in srgb, ${IOC_COLORS.ipv4} 25%, transparent)`,
             borderRadius: 6, padding: '6px 14px',
             color: IOC_COLORS.ipv4, fontWeight: 700, fontSize: 14,
           }}>
-            {correlations.length} correspondance{correlations.length !== 1 ? 's' : ''}
+            {t('threat_intel.correlations.matches', { count: correlations.length })}
           </div>
         )}
       </div>
@@ -535,9 +539,9 @@ function CorrelationsTab({ toast }) {
       {!selectedCase ? (
         <div style={{ border: `1px dashed ${T.border}`, borderRadius: 8, padding: 40, textAlign: 'center', color: T.muted }}>
           <ShieldAlert size={32} style={{ marginBottom: 12, opacity: 0.4 }} />
-          <div style={{ fontSize: 14 }}>Sélectionnez un cas pour voir les corrélations</div>
+          <div style={{ fontSize: 14 }}>{t('threat_intel.correlations.empty_title')}</div>
           <div style={{ fontSize: 12, marginTop: 6 }}>
-            La corrélation compare la Super Timeline du cas avec les IOCs des flux TAXII.
+            {t('threat_intel.correlations.empty_sub')}
           </div>
         </div>
       ) : loading ? (
@@ -547,15 +551,15 @@ function CorrelationsTab({ toast }) {
       ) : correlations.length === 0 ? (
         <div style={{ border: `1px dashed ${T.border}`, borderRadius: 8, padding: 40, textAlign: 'center', color: T.muted }}>
           <CheckCircle size={32} style={{ marginBottom: 12, opacity: 0.4 }} />
-          <div style={{ fontSize: 14 }}>Aucune correspondance trouvée</div>
-          <div style={{ fontSize: 12, marginTop: 6 }}>Lancez une corrélation ou synchronisez davantage d'indicateurs.</div>
+          <div style={{ fontSize: 14 }}>{t('threat_intel.correlations.none_title')}</div>
+          <div style={{ fontSize: 12, marginTop: 6 }}>{t('threat_intel.correlations.none_sub')}</div>
         </div>
       ) : (
         <div style={{ border: `1px solid ${T.border}`, borderRadius: 8, overflow: 'hidden' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
             <thead>
-              <tr style={{ background: `${IOC_COLORS.ipv4}10`, borderBottom: `1px solid ${T.border}` }}>
-                {['Type', 'Valeur IOC', 'Indicateur STIX', 'Source', 'Détecté le'].map(h => (
+              <tr style={{ background: `color-mix(in srgb, ${IOC_COLORS.ipv4} 6%, transparent)`, borderBottom: `1px solid ${T.border}` }}>
+                {[t('threat_intel.correlations.col_type'), t('threat_intel.correlations.col_value'), t('threat_intel.correlations.col_indicator'), t('threat_intel.correlations.col_source'), t('threat_intel.correlations.col_detected')].map(h => (
                   <th key={h} style={{ padding: '9px 12px', textAlign: 'left', color: T.muted, fontWeight: 600, fontSize: 10, textTransform: 'uppercase' }}>{h}</th>
                 ))}
               </tr>
@@ -564,7 +568,7 @@ function CorrelationsTab({ toast }) {
               {correlations.map((c, i) => (
                 <tr key={c.id} style={{ borderBottom: i < correlations.length - 1 ? `1px solid ${T.border}` : 'none' }}>
                   <td style={{ padding: '9px 12px' }}><IocBadge type={c.ioc_type} /></td>
-                  <td style={{ padding: '9px 12px', fontFamily: 'monospace', color: IOC_COLORS[c.ioc_type] || T.text, fontWeight: 600 }}>
+                  <td style={{ padding: '9px 12px', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: IOC_COLORS[c.ioc_type] || T.text, fontWeight: 600 }}>
                     {c.ioc_value}
                   </td>
                   <td style={{ padding: '9px 12px', color: T.text, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -585,13 +589,15 @@ function CorrelationsTab({ toast }) {
 }
 
 const TABS = [
-  { id: 'feeds',        label: 'Flux TAXII',    to: '/threat-intel/feeds' },
-  { id: 'indicators',   label: 'Indicateurs',   to: '/threat-intel/indicators' },
-  { id: 'correlations', label: 'Corrélations',  to: '/threat-intel/correlations' },
+  { id: 'feeds',        labelKey: 'threat_intel.tabs.feeds',        icon: Rss,      to: '/threat-intel/feeds' },
+  { id: 'indicators',   labelKey: 'threat_intel.tabs.indicators',   icon: List,     to: '/threat-intel/indicators' },
+  { id: 'correlations', labelKey: 'threat_intel.tabs.correlations', icon: GitMerge, to: '/threat-intel/correlations' },
 ];
 
 export default function ThreatIntelPage() {
+  const { t } = useTranslation();
   const T = useTheme();
+  const navigate = useNavigate();
   const { tab = 'feeds' } = useParams();
   const [toast, setToast] = useState(null);
 
@@ -602,16 +608,32 @@ export default function ThreatIntelPage() {
   return (
     <div style={{ padding: 24, maxWidth: 1400, margin: '0 auto' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 24 }}>
-        <Globe size={22} style={{ color: T.accent }} />
+        <Globe size={20} style={{ color: 'var(--fl-accent)' }} strokeWidth={1.6} />
         <div>
-          <h1 style={{ margin: 0, color: T.text, fontSize: 18, fontWeight: 700 }}>Threat Intelligence</h1>
-          <p style={{ margin: 0, color: T.muted, fontSize: 12 }}>
-            Flux TAXII 2.1 · Indicateurs STIX · Corrélation automatique
+          <h1 style={{ margin: 0, color: 'var(--fl-text)', fontSize: 20, fontWeight: 600, fontFamily: 'var(--f-display, var(--f-ui))', letterSpacing: '-0.01em' }}>{t('threat_intel.title')}</h1>
+          <p style={{ margin: 0, color: 'var(--fl-muted)', fontSize: 12, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}>
+            {t('threat_intel.subtitle')}
           </p>
         </div>
       </div>
 
-      <TabGroup tabs={TABS} className="mb-5" />
+      {/* Segmented control nav */}
+      <div style={{ display: 'inline-flex', gap: 2, padding: 3, marginBottom: 22, borderRadius: 9, background: 'var(--fl-bg)', border: '1px solid var(--fl-border)', maxWidth: '100%', overflowX: 'auto' }}>
+        {TABS.map(it => {
+          const on = tab === it.id; const Ico = it.icon;
+          return (
+            <button key={it.id} onClick={() => navigate(it.to)}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '6px 13px', borderRadius: 7, border: 'none', cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0,
+                fontFamily: 'var(--f-ui, "Inter", sans-serif)', fontSize: 12.5, fontWeight: on ? 600 : 500,
+                background: on ? 'var(--fl-card)' : 'transparent', color: on ? 'var(--fl-accent)' : 'var(--fl-muted)',
+                boxShadow: on ? 'var(--fl-shadow-sm)' : 'none', transition: 'color 0.12s, background 0.12s' }}
+              onMouseEnter={e => { if (!on) e.currentTarget.style.color = 'var(--fl-dim)'; }}
+              onMouseLeave={e => { if (!on) e.currentTarget.style.color = 'var(--fl-muted)'; }}>
+              <Ico size={13} strokeWidth={1.6} style={{ flexShrink: 0 }} />{t(it.labelKey)}
+            </button>
+          );
+        })}
+      </div>
 
       <div>
         {tab === 'feeds'        && <FeedsTab toast={showToast} />}

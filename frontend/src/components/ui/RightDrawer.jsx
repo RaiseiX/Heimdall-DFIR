@@ -1,6 +1,9 @@
 import { X } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 export default function RightDrawer({ open, onClose, title, children, width = 440 }) {
+  const { t } = useTranslation();
+  const resolvedTitle = title || t('common.details');
   return (
     <>
       
@@ -19,7 +22,7 @@ export default function RightDrawer({ open, onClose, title, children, width = 44
       <div
         role="dialog"
         aria-modal="true"
-        aria-label={title || 'Détails'}
+        aria-label={resolvedTitle}
         style={{
           position: 'fixed',
           top: 0,
@@ -45,12 +48,12 @@ export default function RightDrawer({ open, onClose, title, children, width = 44
           flexShrink: 0,
           background: 'var(--fl-surface, #0d1117)',
         }}>
-          <span style={{ fontFamily: 'monospace', fontSize: 11, fontWeight: 700, color: 'var(--fl-text, #e6edf3)', letterSpacing: '0.04em' }}>
-            {title || 'Détails'}
+          <span style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11, fontWeight: 700, color: 'var(--fl-text, #e6edf3)', letterSpacing: '0.04em' }}>
+            {resolvedTitle}
           </span>
           <button
             onClick={onClose}
-            aria-label="Fermer"
+            aria-label={t('common.close')}
             style={{
               background: 'none', border: 'none', cursor: 'pointer',
               color: 'var(--fl-muted, #7d8590)', display: 'flex', alignItems: 'center',

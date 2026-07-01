@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Plus, Pencil, Trash2, Bookmark, X, RefreshCw, FileDown, FileText } from 'lucide-react';
-import { bookmarksAPI } from '../../utils/api';
+import { Plus, Pencil, Trash2, Bookmark, X, RefreshCw, FileDown, FileText, Sparkles, ClipboardCopy, Check } from 'lucide-react';
+import { bookmarksAPI, reportsAPI } from '../../utils/api';
 import { fmtLocal } from '../../utils/formatters';
 
 const MITRE_TACTICS = [
@@ -24,11 +24,11 @@ const TACTIC_COLOR = {
   'Lateral Movement':     'var(--fl-warn)',
   'Collection':           'var(--fl-ok)',
   'Command and Control':  'var(--fl-danger)',
-  'Exfiltration':         '#f43f5e',
+  'Exfiltration':         'var(--fl-danger)',
   'Impact':               'var(--fl-danger)',
 };
 
-const PALETTE = ['var(--fl-accent)', 'var(--fl-danger)', 'var(--fl-warn)', 'var(--fl-gold)', 'var(--fl-ok)', 'var(--fl-purple)', 'var(--fl-pink)', '#f43f5e'];
+const PALETTE = ['var(--fl-accent)', 'var(--fl-danger)', 'var(--fl-warn)', 'var(--fl-gold)', 'var(--fl-ok)', 'var(--fl-purple)', 'var(--fl-pink)', 'var(--fl-danger)'];
 
 const EMPTY_FORM = { title: '', description: '', mitre_tactic: '', mitre_technique: '', color: 'var(--fl-accent)' };
 
@@ -59,7 +59,7 @@ function BookmarkForm({ initial, onSave, onCancel }) {
         onChange={e => set('title', e.target.value)}
         style={{
           background: '#050c18', border: '1px solid var(--fl-card)', borderRadius: 4,
-          color: 'var(--fl-on-dark)', fontFamily: 'monospace', fontSize: 11,
+          color: 'var(--fl-on-dark)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11,
           padding: '5px 8px', outline: 'none', width: '100%', boxSizing: 'border-box',
         }}
       />
@@ -70,7 +70,7 @@ function BookmarkForm({ initial, onSave, onCancel }) {
         style={{
           background: '#050c18', border: '1px solid var(--fl-card)', borderRadius: 4,
           color: form.mitre_tactic ? (TACTIC_COLOR[form.mitre_tactic] || 'var(--fl-on-dark)') : 'var(--fl-subtle)',
-          fontFamily: 'monospace', fontSize: 11, padding: '5px 8px', outline: 'none',
+          fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11, padding: '5px 8px', outline: 'none',
           width: '100%', boxSizing: 'border-box',
         }}
       >
@@ -86,7 +86,7 @@ function BookmarkForm({ initial, onSave, onCancel }) {
         onChange={e => set('mitre_technique', e.target.value)}
         style={{
           background: '#050c18', border: '1px solid var(--fl-card)', borderRadius: 4,
-          color: 'var(--fl-on-dark)', fontFamily: 'monospace', fontSize: 11,
+          color: 'var(--fl-on-dark)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11,
           padding: '5px 8px', outline: 'none', width: '100%', boxSizing: 'border-box',
         }}
       />
@@ -98,14 +98,14 @@ function BookmarkForm({ initial, onSave, onCancel }) {
         rows={2}
         style={{
           background: '#050c18', border: '1px solid var(--fl-card)', borderRadius: 4,
-          color: 'var(--fl-on-dark)', fontFamily: 'monospace', fontSize: 11,
+          color: 'var(--fl-on-dark)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11,
           padding: '5px 8px', outline: 'none', resize: 'vertical',
           width: '100%', boxSizing: 'border-box',
         }}
       />
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-        <span style={{ fontSize: 10, color: 'var(--fl-subtle)', fontFamily: 'monospace' }}>{t('workbench.color_label')}</span>
+        <span style={{ fontSize: 10, color: 'var(--fl-subtle)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}>Couleur :</span>
         {PALETTE.map(c => (
           <button
             key={c} type="button"
@@ -122,17 +122,17 @@ function BookmarkForm({ initial, onSave, onCancel }) {
       <div style={{ display: 'flex', gap: 6 }}>
         <button type="submit" disabled={saving || !form.title.trim()} style={{
           flex: 1, padding: '5px 10px', borderRadius: 4,
-          background: form.title.trim() ? '#1a3a5a' : '#0a1020',
+          background: form.title.trim() ? '#1a1f2c' : '#0a1020',
           border: `1px solid ${form.title.trim() ? '#2a5080' : '#0e1828'}`,
           color: form.title.trim() ? 'var(--fl-accent)' : 'var(--fl-card)',
-          fontSize: 11, fontFamily: 'monospace', cursor: form.title.trim() ? 'pointer' : 'default',
+          fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', cursor: form.title.trim() ? 'pointer' : 'default',
         }}>
           {saving ? t('bookmark.creating') : t('common.save')}
         </button>
         <button type="button" onClick={onCancel} style={{
           padding: '5px 10px', borderRadius: 4, background: 'none',
           border: '1px solid var(--fl-card)', color: 'var(--fl-subtle)',
-          fontSize: 11, fontFamily: 'monospace', cursor: 'pointer',
+          fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', cursor: 'pointer',
         }}>
           {t('common.cancel')}
         </button>
@@ -148,6 +148,31 @@ export default function BookmarkPanel({ caseId }) {
   const [showForm, setShowForm]   = useState(false);
   const [editId, setEditId]       = useState(null);
   const [editInitial, setEditInitial] = useState(null);
+  const [narrative, setNarrative]   = useState(null);
+  const [narLoading, setNarLoading] = useState(false);
+  const [narCopied, setNarCopied]   = useState(false);
+
+  async function generateNarrative() {
+    if (narLoading || !bookmarks.length) return;
+    setNarLoading(true);
+    setNarrative(null);
+    try {
+      const r = await reportsAPI.bookmarkNarrative(caseId);
+      setNarrative(r.data?.narrative || '');
+    } catch (e) {
+      setNarrative('Erreur : ' + (e.response?.data?.error || e.message));
+    } finally {
+      setNarLoading(false);
+    }
+  }
+
+  function copyNarrative() {
+    if (!narrative) return;
+    navigator.clipboard.writeText(narrative).then(() => {
+      setNarCopied(true);
+      setTimeout(() => setNarCopied(false), 2000);
+    });
+  }
 
   const load = useCallback(() => {
     if (!caseId) return;
@@ -237,7 +262,7 @@ export default function BookmarkPanel({ caseId }) {
 <html>
 <head>
   <meta charset="utf-8"/>
-  <title>Bookmarks — Cas ${esc(String(caseId))}</title>
+  <title>Bookmarks - Case ${esc(String(caseId))}</title>
   <style>
     body { font-family: 'Segoe UI', Arial, sans-serif; background: #fff; color: #1a1a2e; margin: 24px; }
     h1 { font-size: 18px; margin-bottom: 4px; }
@@ -251,7 +276,7 @@ export default function BookmarkPanel({ caseId }) {
 </head>
 <body>
   <h1>${esc(t('bookmark.pdf_title'))}</h1>
-  <p class="sub">${esc(t('timeline.export_case_label'))} : ${esc(String(caseId))} &nbsp;|&nbsp; ${esc(t('bookmark.pdf_exported'))} ${esc(exportedAt)} &nbsp;|&nbsp; ${bookmarks.length} bookmark(s)</p>
+  <p class="sub">${esc(t('timeline.export_case_label'))}: ${esc(String(caseId))} &nbsp;|&nbsp; ${esc(t('bookmark.pdf_exported'))} ${esc(exportedAt)} &nbsp;|&nbsp; ${bookmarks.length} bookmark(s)</p>
   <table>
     <thead>
       <tr>
@@ -286,7 +311,7 @@ export default function BookmarkPanel({ caseId }) {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <Bookmark size={13} style={{ color: 'var(--fl-accent)' }} />
-          <span style={{ fontFamily: 'monospace', fontSize: 11, fontWeight: 700, color: '#8aa0bc', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+          <span style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11, fontWeight: 700, color: '#8aa0bc', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
             Bookmarks ({bookmarks.length})
           </span>
         </div>
@@ -303,7 +328,7 @@ export default function BookmarkPanel({ caseId }) {
                   display: 'flex', alignItems: 'center', gap: 3,
                   background: 'none', border: '1px solid var(--fl-sep)', borderRadius: 4,
                   cursor: 'pointer', padding: '5px 10px', color: 'var(--fl-subtle)',
-                  fontSize: 10, fontFamily: 'monospace',
+                  fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
                 }}
               >
                 <FileText size={10} /> CSV
@@ -315,20 +340,36 @@ export default function BookmarkPanel({ caseId }) {
                   display: 'flex', alignItems: 'center', gap: 3,
                   background: 'none', border: '1px solid var(--fl-sep)', borderRadius: 4,
                   cursor: 'pointer', padding: '5px 10px', color: 'var(--fl-purple)',
-                  fontSize: 10, fontFamily: 'monospace',
+                  fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
                 }}
               >
                 <FileDown size={10} /> PDF
               </button>
             </>
           )}
+          {bookmarks.length > 0 && (
+            <button onClick={generateNarrative} disabled={narLoading}
+              title={t('bookmark.narrative_title')}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 4,
+                background: 'none', border: '1px solid color-mix(in srgb, var(--fl-purple) 35%, transparent)',
+                borderRadius: 4, cursor: narLoading ? 'default' : 'pointer',
+                padding: '3px 8px', color: 'var(--fl-purple)', fontSize: 10,
+                fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
+                opacity: narLoading ? 0.6 : 1,
+              }}
+            >
+              <Sparkles size={10} style={{ animation: narLoading ? 'fl-spin 1.2s linear infinite' : 'none' }} />
+              {narLoading ? t('bookmark.narrative_generating') : t('bookmark.narrative_btn')}
+            </button>
+          )}
           <button
             onClick={() => { setShowForm(v => !v); setEditId(null); }}
             style={{
               display: 'flex', alignItems: 'center', gap: 4,
-              background: showForm ? '#1a3a5a' : 'none',
+              background: showForm ? '#1a1f2c' : 'none',
               border: '1px solid #2a4a6a', borderRadius: 4, cursor: 'pointer',
-              padding: '3px 8px', color: 'var(--fl-accent)', fontSize: 10, fontFamily: 'monospace',
+              padding: '3px 8px', color: 'var(--fl-accent)', fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
             }}
           >
             {showForm ? <X size={11} /> : <Plus size={11} />}
@@ -344,15 +385,38 @@ export default function BookmarkPanel({ caseId }) {
         />
       )}
 
+      {narrative !== null && (
+        <div style={{
+          border: '1px solid color-mix(in srgb, var(--fl-purple) 25%, transparent)',
+          borderRadius: 8, background: 'color-mix(in srgb, var(--fl-purple) 5%, var(--fl-bg))',
+          padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 8,
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <span style={{ fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-purple)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+              <Sparkles size={9} style={{ marginRight: 4, verticalAlign: 'middle' }} />{t('bookmark.narrative_title')}
+            </span>
+            <div style={{ display: 'flex', gap: 4 }}>
+              <button onClick={copyNarrative} title={t('common.copy')} style={{ background: 'none', border: '1px solid var(--fl-sep)', borderRadius: 4, cursor: 'pointer', padding: '3px 7px', color: narCopied ? 'var(--fl-ok)' : 'var(--fl-subtle)', display: 'flex', alignItems: 'center', gap: 3, fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}>
+                {narCopied ? <Check size={10} /> : <ClipboardCopy size={10} />} {narCopied ? t('common.copied') : t('common.copy')}
+              </button>
+              <button onClick={() => setNarrative(null)} title={t('common.close')} style={{ background: 'none', border: '1px solid var(--fl-sep)', borderRadius: 4, cursor: 'pointer', padding: '3px 7px', color: 'var(--fl-subtle)' }}>
+                <X size={10} />
+              </button>
+            </div>
+          </div>
+          <pre style={{ margin: 0, fontSize: 11, lineHeight: 1.6, color: 'var(--fl-text)', fontFamily: 'var(--f-ui, sans-serif)', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{narrative}</pre>
+        </div>
+      )}
+
       {loading && (
-        <div style={{ textAlign: 'center', color: 'var(--fl-subtle)', fontFamily: 'monospace', fontSize: 11, padding: 16 }}>
+        <div style={{ textAlign: 'center', color: 'var(--fl-subtle)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11, padding: 16 }}>
           {t('common.loading')}
         </div>
       )}
 
       {!loading && bookmarks.length === 0 && !showForm && (
         <div style={{
-          textAlign: 'center', color: 'var(--fl-muted)', fontFamily: 'monospace', fontSize: 11,
+          textAlign: 'center', color: 'var(--fl-muted)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11,
           padding: '24px 16px', border: '1px dashed var(--fl-sep)', borderRadius: 8,
         }}>
           {t('bookmark.empty')}
@@ -372,7 +436,7 @@ export default function BookmarkPanel({ caseId }) {
               />
             ) : (
               <div style={{
-                borderRadius: 8, border: `1px solid ${b.color || 'var(--fl-sep)'}30`,
+                borderRadius: 8, border: `1px solid color-mix(in srgb, ${b.color || 'var(--fl-sep)'} 19%, transparent)`,
                 borderLeft: `3px solid ${b.color || 'var(--fl-accent)'}`,
                 background: 'var(--fl-bg)', padding: '10px 12px',
                 display: 'flex', flexDirection: 'column', gap: 6,
@@ -386,7 +450,7 @@ export default function BookmarkPanel({ caseId }) {
                     <button onClick={() => startEdit(b)} title={t('common.edit')} style={{ background: 'none', border: '1px solid var(--fl-sep)', borderRadius: 4, cursor: 'pointer', color: 'var(--fl-subtle)', padding: '4px 7px', display: 'flex', alignItems: 'center' }}>
                       <Pencil size={10} />
                     </button>
-                    <button onClick={() => remove(b.id)} title={t('common.delete')} style={{ background: 'none', border: '1px solid #da363330', borderRadius: 4, cursor: 'pointer', color: 'var(--fl-danger)', padding: '4px 7px', display: 'flex', alignItems: 'center' }}>
+                    <button onClick={() => remove(b.id)} title={t('common.delete')} style={{ background: 'none', border: '1px solid color-mix(in srgb, var(--fl-danger) 19%, transparent)', borderRadius: 4, cursor: 'pointer', color: 'var(--fl-danger)', padding: '4px 7px', display: 'flex', alignItems: 'center' }}>
                       <Trash2 size={10} />
                     </button>
                   </div>
@@ -400,25 +464,25 @@ export default function BookmarkPanel({ caseId }) {
                   {b.mitre_tactic && (
                     <span style={{
                       padding: '1px 7px', borderRadius: 4, fontSize: 9, fontWeight: 700,
-                      fontFamily: 'monospace', background: `${tc}18`, color: tc, border: `1px solid ${tc}30`,
+                      fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', background: `color-mix(in srgb, ${tc} 9%, transparent)`, color: tc, border: `1px solid color-mix(in srgb, ${tc} 19%, transparent)`,
                     }}>
                       {b.mitre_tactic}
                     </span>
                   )}
                   {b.mitre_technique && (
                     <span style={{
-                      padding: '1px 7px', borderRadius: 4, fontSize: 9, fontFamily: 'monospace',
+                      padding: '1px 7px', borderRadius: 4, fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
                       background: 'var(--fl-sep)', color: 'var(--fl-dim)', border: '1px solid #2a3045',
                     }}>
                       {b.mitre_technique}
                     </span>
                   )}
                   {b.event_timestamp && (
-                    <span style={{ fontSize: 9, fontFamily: 'monospace', color: 'var(--fl-subtle)' }}>
+                    <span style={{ fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-subtle)' }}>
                       {fmtLocal(b.event_timestamp)}
                     </span>
                   )}
-                  <span style={{ fontSize: 9, fontFamily: 'monospace', color: 'var(--fl-muted)', marginLeft: 'auto' }}>
+                  <span style={{ fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-muted)', marginLeft: 'auto' }}>
                     {b.author_name || b.username} · {new Date(b.created_at).toLocaleDateString('fr-FR')}
                   </span>
                 </div>

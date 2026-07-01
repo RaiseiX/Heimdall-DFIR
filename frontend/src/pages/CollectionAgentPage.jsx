@@ -3,24 +3,24 @@ import { useTranslation } from 'react-i18next';
 import { Terminal, Copy, Download, CheckCircle } from 'lucide-react';
 
 const WIN_ARTIFACT_LABELS = {
-  evtx: 'Journaux EVTX (Windows Events)',
-  prefetch: 'Prefetch (exécutables)',
+  evtx: 'EVTX logs (Windows Events)',
+  prefetch: 'Prefetch (executables)',
   mft: 'MFT (NTFS — raw)',
-  registry: 'Ruches Registry (SAM, SYSTEM, SOFTWARE, SECURITY, NTUSER)',
+  registry: 'Registry hives (SAM, SYSTEM, SOFTWARE, SECURITY, NTUSER)',
   amcache: 'Amcache.hve',
-  lnk: 'Fichiers LNK & Jump Lists',
+  lnk: 'LNK files & Jump Lists',
   sysmon: 'Logs Sysmon',
-  scheduled_tasks: 'Tâches planifiées',
+  scheduled_tasks: 'Scheduled tasks',
   ram: 'RAM (WinPmem)',
-  pcap: 'Capture réseau (netsh)',
+  pcap: 'Network capture (netsh)',
 };
 
 const LIN_ARTIFACT_LABELS = {
-  syslog: 'Logs système (/var/log/syslog, auth.log…)',
-  process: 'Processus en cours (ps, cmdlines)',
-  network: 'Réseau (ss, ip route, iptables)',
+  syslog: 'System logs (/var/log/syslog, auth.log…)',
+  process: 'Running processes (ps, cmdlines)',
+  network: 'Network (ss, ip route, iptables)',
   cron: 'Crontabs',
-  persistence: 'Persistance (init.d, systemd, rc.local)',
+  persistence: 'Persistence (init.d, systemd, rc.local)',
   ram: 'RAM (/dev/mem)',
 };
 
@@ -37,7 +37,7 @@ function generateWindowsScript({ caseNum, analyst, outputDir, artifacts, compres
 
   if (artifacts.evtx) {
     lines.push(`# EVTX Windows Event Logs`);
-    lines.push(`Write-Host "[*] Collecte EVTX..."`);
+    lines.push(`Write-Host "[*] Collecting EVTX..."`);
     lines.push(`New-Item -ItemType Directory -Force -Path "$OutDir\\evtx" | Out-Null`);
     lines.push(`Copy-Item "C:\\Windows\\System32\\winevt\\Logs\\*" "$OutDir\\evtx\\" -Force -ErrorAction SilentlyContinue`);
     lines.push(``);
@@ -45,7 +45,7 @@ function generateWindowsScript({ caseNum, analyst, outputDir, artifacts, compres
 
   if (artifacts.prefetch) {
     lines.push(`# Prefetch`);
-    lines.push(`Write-Host "[*] Collecte Prefetch..."`);
+    lines.push(`Write-Host "[*] Collecting Prefetch..."`);
     lines.push(`New-Item -ItemType Directory -Force -Path "$OutDir\\prefetch" | Out-Null`);
     lines.push(`Copy-Item "C:\\Windows\\Prefetch\\*.pf" "$OutDir\\prefetch\\" -Force -ErrorAction SilentlyContinue`);
     lines.push(``);
@@ -53,21 +53,21 @@ function generateWindowsScript({ caseNum, analyst, outputDir, artifacts, compres
 
   if (artifacts.mft) {
     lines.push(`# MFT (raw NTFS)`);
-    lines.push(`Write-Host "[*] Collecte MFT (NTFS raw)..."`);
+    lines.push(`Write-Host "[*] Collecting MFT (NTFS raw)..."`);
     lines.push(`New-Item -ItemType Directory -Force -Path "$OutDir\\mft" | Out-Null`);
     lines.push(`try {`);
     lines.push(`  $vol = [System.IO.FileStream]::new('\\\\.\\C:', [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::ReadWrite)`);
     lines.push(`  $buf = New-Object byte[] 1024`);
     lines.push(`  $vol.Read($buf, 0, 1024) | Out-Null`);
     lines.push(`  $vol.Close()`);
-    lines.push(`  Write-Host "[+] MFT: utilisez FTK Imager ou Zimmerman MFTECmd pour extraction complète"`);
-    lines.push(`} catch { Write-Host "[-] MFT: droits insuffisants" }`);
+    lines.push(`  Write-Host "[+] MFT: use FTK Imager or Zimmerman MFTECmd for full extraction"`);
+    lines.push(`} catch { Write-Host "[-] MFT: insufficient privileges" }`);
     lines.push(``);
   }
 
   if (artifacts.registry) {
     lines.push(`# Registry`);
-    lines.push(`Write-Host "[*] Collecte Registry..."`);
+    lines.push(`Write-Host "[*] Collecting Registry..."`);
     lines.push(`New-Item -ItemType Directory -Force -Path "$OutDir\\registry" | Out-Null`);
     lines.push(`reg save HKLM\\SAM "$OutDir\\registry\\SAM.hiv" /y 2>$null`);
     lines.push(`reg save HKLM\\SYSTEM "$OutDir\\registry\\SYSTEM.hiv" /y 2>$null`);
@@ -79,7 +79,7 @@ function generateWindowsScript({ caseNum, analyst, outputDir, artifacts, compres
 
   if (artifacts.amcache) {
     lines.push(`# Amcache`);
-    lines.push(`Write-Host "[*] Collecte Amcache..."`);
+    lines.push(`Write-Host "[*] Collecting Amcache..."`);
     lines.push(`New-Item -ItemType Directory -Force -Path "$OutDir\\amcache" | Out-Null`);
     lines.push(`Copy-Item "C:\\Windows\\AppCompat\\Programs\\Amcache.hve" "$OutDir\\amcache\\" -Force -ErrorAction SilentlyContinue`);
     lines.push(``);
@@ -87,7 +87,7 @@ function generateWindowsScript({ caseNum, analyst, outputDir, artifacts, compres
 
   if (artifacts.lnk) {
     lines.push(`# LNK & Jump Lists`);
-    lines.push(`Write-Host "[*] Collecte LNK & Jump Lists..."`);
+    lines.push(`Write-Host "[*] Collecting LNK & Jump Lists..."`);
     lines.push(`New-Item -ItemType Directory -Force -Path "$OutDir\\lnk" | Out-Null`);
     lines.push(`Copy-Item "$env:APPDATA\\Microsoft\\Windows\\Recent\\*" "$OutDir\\lnk\\" -Recurse -Force -ErrorAction SilentlyContinue`);
     lines.push(`New-Item -ItemType Directory -Force -Path "$OutDir\\jumplists" | Out-Null`);
@@ -98,14 +98,14 @@ function generateWindowsScript({ caseNum, analyst, outputDir, artifacts, compres
 
   if (artifacts.sysmon) {
     lines.push(`# Sysmon`);
-    lines.push(`Write-Host "[*] Collecte Sysmon..."`);
+    lines.push(`Write-Host "[*] Collecting Sysmon..."`);
     lines.push(`Copy-Item "C:\\Windows\\System32\\winevt\\Logs\\Microsoft-Windows-Sysmon%4Operational.evtx" "$OutDir\\evtx\\" -Force -ErrorAction SilentlyContinue`);
     lines.push(``);
   }
 
   if (artifacts.scheduled_tasks) {
     lines.push(`# Scheduled Tasks`);
-    lines.push(`Write-Host "[*] Collecte Tâches planifiées..."`);
+    lines.push(`Write-Host "[*] Collecting scheduled tasks..."`);
     lines.push(`New-Item -ItemType Directory -Force -Path "$OutDir\\tasks" | Out-Null`);
     lines.push(`Copy-Item "C:\\Windows\\System32\\Tasks\\*" "$OutDir\\tasks\\" -Recurse -Force -ErrorAction SilentlyContinue`);
     lines.push(``);
@@ -113,26 +113,26 @@ function generateWindowsScript({ caseNum, analyst, outputDir, artifacts, compres
 
   if (artifacts.ram) {
     lines.push(`# RAM (WinPmem)`);
-    lines.push(`Write-Host "[*] Collecte RAM (nécessite WinPmem)..."`);
+    lines.push(`Write-Host "[*] Collecting RAM (WinPmem required)..."`);
     lines.push(`New-Item -ItemType Directory -Force -Path "$OutDir\\ram" | Out-Null`);
     lines.push(`if (Get-Command winpmem.exe -ErrorAction SilentlyContinue) {`);
     lines.push(`  winpmem.exe "$OutDir\\ram\\memory.raw"`);
-    lines.push(`} else { Write-Host "[-] WinPmem non trouvé — télécharger depuis https://github.com/Velocidex/WinPmem" }`);
+    lines.push(`} else { Write-Host "[-] WinPmem not found — download from https://github.com/Velocidex/WinPmem" }`);
     lines.push(``);
   }
 
   if (artifacts.pcap) {
     lines.push(`# Network Capture`);
-    lines.push(`Write-Host "[*] Démarrage capture réseau..."`);
+    lines.push(`Write-Host "[*] Starting network capture..."`);
     lines.push(`New-Item -ItemType Directory -Force -Path "$OutDir\\pcap" | Out-Null`);
     lines.push(`netsh trace start capture=yes traceFile="$OutDir\\pcap\\capture.etl" maxsize=512 overwrite=yes`);
-    lines.push(`Write-Host "[!] Capture réseau démarrée. Pour arrêter: netsh trace stop"`);
+    lines.push(`Write-Host "[!] Network capture started. To stop: netsh trace stop"`);
     lines.push(``);
   }
 
   if (compress) {
     lines.push(`# Compression`);
-    lines.push(`Write-Host "[*] Compression en cours..."`);
+    lines.push(`Write-Host "[*] Compressing..."`);
     lines.push(`Compress-Archive -Path $OutDir -DestinationPath "$OutDir.zip" -CompressionLevel Optimal -Force`);
     lines.push(``);
   }
@@ -146,9 +146,9 @@ function generateWindowsScript({ caseNum, analyst, outputDir, artifacts, compres
     lines.push(``);
   }
 
-  lines.push(`Write-Host ""`);
-  lines.push(`Write-Host "[+] Collecte terminée: ${compress ? '$OutDir.zip' : '$OutDir'}"`);
-  if (hashFile) lines.push(`Write-Host "[+] Hash SHA256: $OutDir.sha256.txt"`);
+    lines.push(`Write-Host ""`);
+  lines.push(`Write-Host "[+] Collection complete: ${compress ? '$OutDir.zip' : '$OutDir'}"`);
+  if (hashFile) lines.push(`Write-Host "[+] SHA256 hash: $OutDir.sha256.txt"`);
 
   return lines.join('\n');
 }
@@ -167,7 +167,7 @@ function generateLinuxScript({ caseNum, analyst, artifacts, compress, hashFile }
 
   if (artifacts.syslog) {
     lines.push(`# System logs`);
-    lines.push(`echo "[*] Collecte logs système..."`);
+    lines.push(`echo "[*] Collecting system logs..."`);
     lines.push(`mkdir -p "$OUT_DIR/logs"`);
     lines.push(`cp -r /var/log/syslog* "$OUT_DIR/logs/" 2>/dev/null`);
     lines.push(`cp -r /var/log/auth.log* "$OUT_DIR/logs/" 2>/dev/null`);
@@ -179,7 +179,7 @@ function generateLinuxScript({ caseNum, analyst, artifacts, compress, hashFile }
 
   if (artifacts.process) {
     lines.push(`# Process info`);
-    lines.push(`echo "[*] Collecte processus..."`);
+    lines.push(`echo "[*] Collecting processes..."`);
     lines.push(`ps auxf > "$OUT_DIR/processes.txt"`);
     lines.push(`cat /proc/[0-9]*/cmdline 2>/dev/null | tr '\\0' ' ' > "$OUT_DIR/cmdlines.txt"`);
     lines.push(``);
@@ -187,7 +187,7 @@ function generateLinuxScript({ caseNum, analyst, artifacts, compress, hashFile }
 
   if (artifacts.network) {
     lines.push(`# Network`);
-    lines.push(`echo "[*] Collecte réseau..."`);
+    lines.push(`echo "[*] Collecting network data..."`);
     lines.push(`ss -tanup > "$OUT_DIR/network_connections.txt" 2>/dev/null`);
     lines.push(`ip route > "$OUT_DIR/routes.txt" 2>/dev/null`);
     lines.push(`ip addr > "$OUT_DIR/interfaces.txt" 2>/dev/null`);
@@ -197,7 +197,7 @@ function generateLinuxScript({ caseNum, analyst, artifacts, compress, hashFile }
 
   if (artifacts.cron) {
     lines.push(`# Crontabs`);
-    lines.push(`echo "[*] Collecte crontabs..."`);
+    lines.push(`echo "[*] Collecting crontabs..."`);
     lines.push(`mkdir -p "$OUT_DIR/cron"`);
     lines.push(`crontab -l > "$OUT_DIR/cron/crontab_current_user.txt" 2>/dev/null`);
     lines.push(`ls -la /etc/cron* > "$OUT_DIR/cron/cron_dirs.txt" 2>/dev/null`);
@@ -207,7 +207,7 @@ function generateLinuxScript({ caseNum, analyst, artifacts, compress, hashFile }
 
   if (artifacts.persistence) {
     lines.push(`# Persistence`);
-    lines.push(`echo "[*] Collecte persistance..."`);
+    lines.push(`echo "[*] Collecting persistence..."`);
     lines.push(`mkdir -p "$OUT_DIR/persistence"`);
     lines.push(`ls -la /etc/init.d/ > "$OUT_DIR/persistence/init_d.txt" 2>/dev/null`);
     lines.push(`systemctl list-units --type=service > "$OUT_DIR/persistence/systemd_services.txt" 2>/dev/null`);
@@ -217,7 +217,7 @@ function generateLinuxScript({ caseNum, analyst, artifacts, compress, hashFile }
 
   if (artifacts.ram) {
     lines.push(`# RAM`);
-    lines.push(`echo "[*] Collecte RAM..."`);
+    lines.push(`echo "[*] Collecting RAM..."`);
     lines.push(`mkdir -p "$OUT_DIR/ram"`);
     lines.push(`dd if=/dev/mem of="$OUT_DIR/ram/memory.raw" bs=1M 2>/dev/null || echo "[-] /dev/mem non accessible"`);
     lines.push(``);
@@ -225,7 +225,7 @@ function generateLinuxScript({ caseNum, analyst, artifacts, compress, hashFile }
 
   if (compress) {
     lines.push(`# Compression`);
-    lines.push(`echo "[*] Compression..."`);
+    lines.push(`echo "[*] Compressing..."`);
     lines.push(`tar czf "\${OUT_DIR}.tar.gz" "$OUT_DIR" 2>/dev/null`);
     lines.push(``);
   }
@@ -238,7 +238,7 @@ function generateLinuxScript({ caseNum, analyst, artifacts, compress, hashFile }
     lines.push(``);
   }
 
-  lines.push(`echo "[+] Collecte terminée: ${compress ? '${OUT_DIR}.tar.gz' : '$OUT_DIR'}"`);
+  lines.push(`echo "[+] Collection complete: ${compress ? '${OUT_DIR}.tar.gz' : '$OUT_DIR'}"`);
 
   return lines.join('\n');
 }
@@ -298,6 +298,7 @@ export default function CollectionAgentPage() {
 
   const artifactLabels = os === 'windows' ? WIN_ARTIFACT_LABELS : LIN_ARTIFACT_LABELS;
 
+  const MONO = 'var(--f-mono, "JetBrains Mono", monospace)';
   const labelStyle = {
     display: 'flex', alignItems: 'center', gap: 8,
     fontSize: 12, color: 'var(--fl-dim)', cursor: 'pointer',
@@ -306,34 +307,37 @@ export default function CollectionAgentPage() {
 
   const inputStyle = {
     width: '100%', padding: '6px 10px',
-    background: 'var(--fl-bg)', color: 'var(--fl-text)',
-    border: '1px solid var(--fl-border)', borderRadius: 5,
-    fontSize: 12, fontFamily: 'monospace', outline: 'none',
+    background: 'var(--fl-input-bg)', color: 'var(--fl-text)',
+    border: '1px solid var(--fl-border)', borderRadius: 6,
+    fontSize: 12, fontFamily: MONO, outline: 'none',
   };
 
-  const sectionLabel = { fontSize: 11, color: 'var(--fl-dim)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 };
+  const sectionLabel = { fontSize: 9.5, color: 'var(--fl-muted)', fontWeight: 600, fontFamily: MONO, textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: 8 };
 
   return (
     <div style={{ display: 'flex', height: '100vh', background: 'var(--fl-bg)', overflow: 'hidden' }}>
-      
-      <div style={{ width: 300, flexShrink: 0, borderRight: '1px solid var(--fl-panel)', overflowY: 'auto', padding: '20px 16px', display: 'flex', flexDirection: 'column', gap: 20 }}>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <Terminal size={16} style={{ color: 'var(--fl-accent)' }} />
-          <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--fl-text)', fontFamily: 'monospace' }}>Agent Collecte</span>
+      <div style={{ width: 300, flexShrink: 0, borderRight: '1px solid var(--fl-border)', overflowY: 'auto', padding: '20px 16px', display: 'flex', flexDirection: 'column', gap: 22 }}>
+
+        <div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Terminal size={15} style={{ color: 'var(--fl-accent)' }} />
+            <span style={{ fontSize: 16, fontWeight: 600, color: 'var(--fl-text)', fontFamily: 'var(--f-display, var(--f-ui))', letterSpacing: '-0.01em' }}>Agent de collecte</span>
+          </div>
+          <p style={{ fontSize: 11, color: 'var(--fl-muted)', margin: '4px 0 0', fontFamily: 'var(--f-ui, sans-serif)', lineHeight: 1.45 }}>Forensic collection script generated locally.</p>
         </div>
 
         <div>
-          <div style={sectionLabel}>Système cible</div>
+          <div style={sectionLabel}>Target system</div>
           <div style={{ display: 'flex', gap: 8 }}>
             {['windows', 'linux'].map(o => (
               <button
                 key={o}
                 onClick={() => setOs(o)}
                 style={{
-                  flex: 1, padding: '6px 0', fontSize: 12, fontFamily: 'monospace',
+                  flex: 1, padding: '6px 0', fontSize: 12, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
                   border: `1px solid ${os === o ? 'var(--fl-accent)' : 'var(--fl-border)'}`,
-                  background: os === o ? '#4d82c020' : 'transparent',
+                  background: os === o ? 'color-mix(in srgb, var(--fl-accent) 13%, transparent)' : 'transparent',
                   color: os === o ? 'var(--fl-accent)' : 'var(--fl-dim)',
                   borderRadius: 5, cursor: 'pointer', textTransform: 'capitalize',
                 }}
@@ -345,7 +349,7 @@ export default function CollectionAgentPage() {
         </div>
 
         <div>
-          <div style={sectionLabel}>Métadonnées</div>
+          <div style={sectionLabel}>Metadata</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             <div>
               <label style={{ fontSize: 11, color: 'var(--fl-dim)', display: 'block', marginBottom: 3 }}>{t('collection.case_number_label')}</label>
@@ -380,7 +384,7 @@ export default function CollectionAgentPage() {
         </div>
 
         <div>
-          <div style={sectionLabel}>Artefacts à collecter</div>
+          <div style={sectionLabel}>Artifacts to collect</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
             {Object.entries(artifactLabels).map(([key, label]) => (
               <label key={key} style={labelStyle}>
@@ -426,63 +430,62 @@ export default function CollectionAgentPage() {
             onClick={handleDownload}
             style={{
               display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-              padding: '8px 0', fontSize: 12, fontFamily: 'monospace', fontWeight: 700,
-              background: '#1c6ef2', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer',
+              padding: '9px 0', fontSize: 12, fontFamily: MONO, fontWeight: 600,
+              background: 'var(--fl-accent)', color: '#fff', border: '1px solid var(--fl-accent)', borderRadius: 7, cursor: 'pointer',
             }}
           >
             <Download size={13} />
-            Télécharger ({os === 'windows' ? '.ps1' : '.sh'})
+            Download ({os === 'windows' ? '.ps1' : '.sh'})
           </button>
           <button
             onClick={handleCopy}
             style={{
               display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-              padding: '8px 0', fontSize: 12, fontFamily: 'monospace',
-              background: copied ? '#22c55e20' : 'transparent',
-              color: copied ? '#22c55e' : 'var(--fl-dim)',
-              border: `1px solid ${copied ? '#22c55e40' : 'var(--fl-border)'}`,
+              padding: '8px 0', fontSize: 12, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
+              background: copied ? 'color-mix(in srgb, var(--fl-ok) 13%, transparent)' : 'transparent',
+              color: copied ? 'var(--fl-ok)' : 'var(--fl-dim)',
+              border: `1px solid ${copied ? 'color-mix(in srgb, var(--fl-ok) 25%, transparent)' : 'var(--fl-border)'}`,
               borderRadius: 6, cursor: 'pointer', transition: 'all 0.2s',
             }}
           >
             {copied ? <CheckCircle size={13} /> : <Copy size={13} />}
-            {copied ? 'Copié !' : 'Copier dans le presse-papier'}
+            {copied ? 'Copied!' : 'Copy to clipboard'}
           </button>
         </div>
 
         
         <div style={{ fontSize: 10, color: 'var(--fl-muted)', lineHeight: 1.5, borderTop: '1px solid var(--fl-panel)', paddingTop: 12 }}>
-          Ce script est généré localement dans le navigateur. Aucune donnée n'est envoyée au serveur. Exécutez toujours avec les droits administrateur/root sur la machine cible.
+          This script is generated locally in the browser. No data is sent to the server. Always run it with administrator/root privileges on the target machine.
         </div>
       </div>
 
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 16px', borderBottom: '1px solid var(--fl-panel)', background: 'var(--fl-panel)', flexShrink: 0 }}>
-          <span style={{ fontSize: 12, fontFamily: 'monospace', color: 'var(--fl-dim)' }}>
-            {os === 'windows' ? 'PowerShell (.ps1)' : 'Bash (.sh)'} — {script.split('\n').length} lignes
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 16px', borderBottom: '1px solid var(--fl-border)', background: 'var(--fl-panel)', flexShrink: 0 }}>
+          <span style={{ width: 7, height: 7, borderRadius: 2, background: 'var(--fl-ok)', flexShrink: 0 }} />
+          <span style={{ fontSize: 11.5, fontFamily: MONO, color: 'var(--fl-dim)' }}>
+            {os === 'windows' ? 'PowerShell · .ps1' : 'Bash · .sh'}
           </span>
-          <div style={{ display: 'flex', gap: 6 }}>
-            <span style={{ width: 12, height: 12, borderRadius: '50%', background: 'var(--fl-danger)', display: 'inline-block' }} />
-            <span style={{ width: 12, height: 12, borderRadius: '50%', background: 'var(--fl-warn)', display: 'inline-block' }} />
-            <span style={{ width: 12, height: 12, borderRadius: '50%', background: '#22c55e', display: 'inline-block' }} />
-          </div>
+          <span style={{ marginLeft: 'auto', fontSize: 10.5, fontFamily: MONO, color: 'var(--fl-muted)' }}>
+            {script.split('\n').length} lines · generated locally
+          </span>
         </div>
-        
+
         <div style={{ flex: 1, overflow: 'auto', padding: 16 }}>
           <pre style={{
-            margin: 0, fontFamily: 'JetBrains Mono, Consolas, monospace',
+            margin: 0, fontFamily: MONO,
             fontSize: 12, lineHeight: 1.7,
             color: 'var(--fl-text)', whiteSpace: 'pre', tabSize: 2,
           }}>
             {script.split('\n').map((line, i) => {
               let color = 'var(--fl-text)';
-              if (line.startsWith('#')) color = '#6a9955';
-              else if (line.match(/^(Write-Host|echo)\s/)) color = '#9cdcfe';
-              else if (line.match(/^(if|else|try|catch|New-Item|Copy-Item|mkdir|cp|ss|ps|cat)\b/)) color = '#569cd6';
-              else if (line.match(/\$\w+\s*=/)) color = '#dcdcaa';
+              if (line.startsWith('#')) color = 'var(--fl-ok)';
+              else if (line.match(/^(Write-Host|echo)\s/)) color = 'var(--fl-dim)';
+              else if (line.match(/^(if|else|try|catch|New-Item|Copy-Item|mkdir|cp|ss|ps|cat)\b/)) color = 'var(--fl-accent)';
+              else if (line.match(/\$\w+\s*=/)) color = 'var(--fl-gold)';
               return (
                 <span key={i} style={{ display: 'block' }}>
-                  <span style={{ color: '#333', userSelect: 'none', minWidth: 32, display: 'inline-block', textAlign: 'right', marginRight: 16 }}>
+                  <span style={{ color: 'var(--fl-subtle)', userSelect: 'none', minWidth: 32, display: 'inline-block', textAlign: 'right', marginRight: 16 }}>
                     {i + 1}
                   </span>
                   <span style={{ color }}>{line || ' '}</span>

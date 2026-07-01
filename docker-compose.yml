@@ -99,11 +99,14 @@ services:
       VOLWEB_PUBLIC_URL: ${VOLWEB_PUBLIC_URL:-http://localhost:8888}
       OLLAMA_URL: ${OLLAMA_URL:-http://ollama:11434}
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      LOG_FILE: "true"
+      LOG_LEVEL: info
       AWS_ENDPOINT_HOST: http://minio:9000
+      S3_ENDPOINT: http://minio:9000
+      S3_BUCKET_NAME: volweb
       AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER}
       AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
       S3_PUBLIC_URL: ${MINIO_PUBLIC_URL}
-
     volumes:
       - uploads_data:/app/uploads
       - zimmerman_tools:/app/zimmerman-tools
@@ -111,6 +114,7 @@ services:
       - collections_data:/app/collections
       - temp_data:/app/temp
       - backups_data:/app/backups
+      - ./logs/odin:/app/logs
       # Docker socket — read-write required for Ollama model pull from admin panel.
       # DOCKER_GID must match the host docker group: stat -c %g /var/run/docker.sock
       - /var/run/docker.sock:/var/run/docker.sock
@@ -130,21 +134,21 @@ services:
       # ── Router: auth — 5 req/min brute-force protection (priority 30) ──
       - "traefik.http.routers.heimdall-auth.rule=Host(`${DOMAIN}`) && PathPrefix(`/api/auth`)"
       - "traefik.http.routers.heimdall-auth.entrypoints=websecure"
-      - "traefik.http.routers.heimdall-auth.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.heimdall-auth.tls=true"
       - "traefik.http.routers.heimdall-auth.middlewares=security-headers@file,auth-ratelimit@file"
       - "traefik.http.routers.heimdall-auth.service=backend-svc"
       - "traefik.http.routers.heimdall-auth.priority=30"
       # ── Router: socket.io WebSocket (priority 20) ──
       - "traefik.http.routers.heimdall-socket.rule=Host(`${DOMAIN}`) && PathPrefix(`/socket.io`)"
       - "traefik.http.routers.heimdall-socket.entrypoints=websecure"
-      - "traefik.http.routers.heimdall-socket.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.heimdall-socket.tls=true"
       - "traefik.http.routers.heimdall-socket.middlewares=security-headers@file"
       - "traefik.http.routers.heimdall-socket.service=backend-svc"
       - "traefik.http.routers.heimdall-socket.priority=20"
       # ── Router: general API — 30 req/s, burst 50 (priority 10) ──
       - "traefik.http.routers.heimdall-api.rule=Host(`${DOMAIN}`) && PathPrefix(`/api`)"
       - "traefik.http.routers.heimdall-api.entrypoints=websecure"
-      - "traefik.http.routers.heimdall-api.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.heimdall-api.tls=true"
       - "traefik.http.routers.heimdall-api.middlewares=security-headers@file,api-ratelimit@file"
       - "traefik.http.routers.heimdall-api.service=backend-svc"
       - "traefik.http.routers.heimdall-api.priority=10"
@@ -160,10 +164,10 @@ services:
       - volweb-net
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:4000/api/health || exit 1"]
-      interval: 15s
-      timeout: 5s
-      retries: 5
-      start_period: 30s
+      interval: 30s
+      timeout: 20s
+      retries: 3
+      start_period: 60s
     deploy:
       resources:
         limits:
@@ -182,7 +186,7 @@ services:
       - discovery.type=single-node
       - xpack.security.enabled=false
       - xpack.security.http.ssl.enabled=false
-      - "ES_JAVA_OPTS=-Xms512m -Xmx1g"
+      - "ES_JAVA_OPTS=-Xms2g -Xmx2g"
     volumes:
       - es_data:/usr/share/elasticsearch/data
     networks:
@@ -197,10 +201,10 @@ services:
       resources:
         limits:
           cpus: "2.0"
-          memory: 2g
+          memory: 4g
         reservations:
           cpus: "0.5"
-          memory: 1g
+          memory: 2g
 
   # ─── ClamAV Antivirus Scanner ───
   clamav:
@@ -491,7 +495,7 @@ services:
     networks:
       - heimdall-net
     healthcheck:
-      test: ["CMD-SHELL", "ps -ef | grep -v grep | grep -q 'startWorker' || exit 1"]
+      test: ["CMD-SHELL", "node -e \"require('fs').statSync('/proc/1/status')\" 2>/dev/null || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -521,7 +525,7 @@ services:
       # ── Router: catch-all SPA (priority 1 — lowest, backend routers win) ──
       - "traefik.http.routers.heimdall-frontend.rule=Host(`${DOMAIN}`)"
       - "traefik.http.routers.heimdall-frontend.entrypoints=websecure"
-      - "traefik.http.routers.heimdall-frontend.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.heimdall-frontend.tls=true"
       - "traefik.http.routers.heimdall-frontend.middlewares=security-headers@file"
       - "traefik.http.routers.heimdall-frontend.service=frontend-svc"
       - "traefik.http.routers.heimdall-frontend.priority=1"
@@ -564,6 +568,8 @@ services:
     ports:
       - "80:80"
       - "443:443"
+    environment:
+      - DOCKER_API_VERSION=1.47
     volumes:
       # Docker socket — read-only is sufficient for label discovery
       - /var/run/docker.sock:/var/run/docker.sock:ro
@@ -615,10 +621,12 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "8.0"
-          memory: 16g
+          # Local default 6 CPU / 10g. Dev server (20-core) overrides via .env:
+          # OLLAMA_CPUS=16  OLLAMA_MEM=26g
+          cpus: "${OLLAMA_CPUS:-6.0}"
+          memory: ${OLLAMA_MEM:-10g}
         reservations:
-          cpus: "1.0"
+          cpus: "2.0"
           memory: 4g
 
 volumes:

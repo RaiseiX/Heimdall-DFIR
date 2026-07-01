@@ -55,6 +55,10 @@ const RAW_FIELD_PRIORITY = [
   'RuleName','Techniques','level','Level','Channel','RecordID',
 ];
 
+function tCount(t, key, count, options = {}) {
+  return t(count === 1 ? key : `${key}_plural`, { count, ...options });
+}
+
 function sortRawByPriority(entries) {
   return [...entries].sort(([a], [b]) => {
     const ia = RAW_FIELD_PRIORITY.indexOf(a);
@@ -70,17 +74,17 @@ const DESC_CHIP_RULES = [
 
   { test: s => /\.(exe|dll|bat|ps1|sh|py|cmd|vbs|js)(\s|$|:)/i.test(s) || /^(Image|Process|CommandLine|ParentImage):/i.test(s), color: '#c792ea', bg: '#c792ea28' },
 
-  { test: s => /[A-Za-z]:\\|\/home\/|\/etc\/|\/var\/|\/tmp\/|%\w+%/i.test(s) || /^(Path|File|Dir|TargetFilename|ObjectName):/i.test(s), color: '#6ab0f5', bg: '#4d82c028' },
+  { test: s => /[A-Za-z]:\\|\/home\/|\/etc\/|\/var\/|\/tmp\/|%\w+%/i.test(s) || /^(Path|File|Dir|TargetFilename|ObjectName):/i.test(s), color: '#6ab0f5', bg: 'color-mix(in srgb, var(--fl-accent) 16%, transparent)' },
 
   { test: s => /^(User|Username|SubjectUserName|TargetUserName|Account):/i.test(s), color: '#d4a44c', bg: '#d4a44c28' },
 
-  { test: s => /^(PID|ProcessId|ParentProcessId|ppid):/i.test(s) || /\bpid\s*[:=]\s*\d+/i.test(s), color: '#a98ee8', bg: '#8b72d628' },
+  { test: s => /^(PID|ProcessId|ParentProcessId|ppid):/i.test(s) || /\bpid\s*[:=]\s*\d+/i.test(s), color: '#a98ee8', bg: 'color-mix(in srgb, var(--fl-purple) 16%, transparent)' },
 
-  { test: s => /\b\d{1,3}(\.\d{1,3}){3}\b/.test(s) || /^(IP|DestinationIp|SourceIp|dst|src):/i.test(s), color: '#4ade80', bg: '#3fb95028' },
+  { test: s => /\b\d{1,3}(\.\d{1,3}){3}\b/.test(s) || /^(IP|DestinationIp|SourceIp|dst|src):/i.test(s), color: '#4ade80', bg: 'color-mix(in srgb, var(--fl-ok) 16%, transparent)' },
 
   { test: s => /^(MD5|SHA1|SHA256|Hash|Hashes):/i.test(s) || /\b[0-9a-f]{32,64}\b/i.test(s), color: '#58a6ff', bg: '#58a6ff28' },
 
-  { test: s => /^(Key|Registry|TargetObject|HKLM|HKCU|HKU)/i.test(s), color: '#f0883e', bg: '#d97c2028' },
+  { test: s => /^(Key|Registry|TargetObject|HKLM|HKCU|HKU)/i.test(s), color: '#f0883e', bg: 'color-mix(in srgb, var(--fl-warn) 16%, transparent)' },
 
   { test: s => /^(Port|DestinationPort|SourcePort|dst_port|src_port):/i.test(s), color: '#79c0ff', bg: '#79c0ff28' },
 ];
@@ -168,8 +172,8 @@ function DescriptionCell({ value }) {
           <span key={i} style={{
             flexShrink: 0, display: 'inline-block',
             padding: '0px 5px', borderRadius: 3,
-            fontSize: 10, fontFamily: 'monospace',
-            background: bg, color, border: `1px solid ${color}30`,
+            fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
+            background: bg, color, border: `1px solid color-mix(in srgb, ${color} 19%, transparent)`,
             whiteSpace: 'nowrap', maxWidth: 180,
             overflow: 'hidden', textOverflow: 'ellipsis',
           }}>
@@ -188,7 +192,7 @@ function DescriptionCell({ value }) {
 const IOA_PATTERNS = [
   {
     id: 'pth', name: 'Pass-the-Hash', tactic: 'lateral-movement',
-    color: '#f43f5e',
+    color: 'var(--fl-danger)',
     match: r => {
       const eid = r.raw?.EventID || r.raw?.EventId;
       const logon = r.raw?.LogonType || r.raw?.logon_type;
@@ -207,7 +211,7 @@ const IOA_PATTERNS = [
   },
   {
     id: 'kerberoast', name: 'Kerberoasting', tactic: 'credential-access',
-    color: '#f59e0b',
+    color: 'var(--fl-warn)',
     match: r => {
       const eid = String(r.raw?.EventID || r.raw?.EventId || '');
       const ticket = r.raw?.TicketEncryptionType || '';
@@ -216,7 +220,7 @@ const IOA_PATTERNS = [
   },
   {
     id: 'lolbins', name: 'LOLBins', tactic: 'defense-evasion',
-    color: '#a855f7',
+    color: 'var(--fl-accent)',
     match: r => {
       const img = (r.raw?.Image || r.raw?.process_name || r.process_name || '').toLowerCase();
       const lol = ['certutil','mshta','wscript','cscript','regsvr32','rundll32','msiexec','installutil','regasm','regsvcs','wmic','bitsadmin','forfiles','msbuild'];
@@ -225,7 +229,7 @@ const IOA_PATTERNS = [
   },
   {
     id: 'mimikatz', name: 'Credential Dumping', tactic: 'credential-access',
-    color: '#ef4444',
+    color: 'var(--fl-danger)',
     match: r => {
       const desc = (r.description || '').toLowerCase();
       const cmd = (r.raw?.CommandLine || r.raw?.command_line || '').toLowerCase();
@@ -234,7 +238,7 @@ const IOA_PATTERNS = [
   },
   {
     id: 'psexec', name: 'Lateral Tool Transfer', tactic: 'lateral-movement',
-    color: '#22c55e',
+    color: 'var(--fl-ok)',
     match: r => {
       const img = (r.raw?.Image || r.raw?.ParentImage || r.process_name || '').toLowerCase();
       const svc = (r.raw?.ServiceName || '').toLowerCase();
@@ -302,8 +306,8 @@ const GRID_COLUMNS = [
       return (
         <span style={{
           padding: '1px 6px', borderRadius: 3, fontSize: 10,
-          fontWeight: 700, fontFamily: 'monospace',
-          background: `${color}18`, color, border: `1px solid ${color}30`,
+          fontWeight: 700, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
+          background: `color-mix(in srgb, ${color} 9%, transparent)`, color, border: `1px solid color-mix(in srgb, ${color} 19%, transparent)`,
           whiteSpace: 'nowrap', display: 'inline-block',
         }}>
           {v}
@@ -462,27 +466,28 @@ const GRID_COLUMNS = [
 ];
 
 const WB_LEVELS = [
-  { key: 'critical', label: 'Malveillant', color: 'var(--fl-danger)', dot: '●' },
-  { key: 'high',     label: 'Suspect',     color: 'var(--fl-warn)', dot: '●' },
-  { key: 'medium',   label: 'Ambigu',      color: 'var(--fl-gold)', dot: '●' },
-  { key: 'low',      label: 'Bénin',       color: '#22c55e', dot: '●' },
+  { key: 'critical', color: 'var(--fl-danger)', dot: '●' },
+  { key: 'high',     color: 'var(--fl-warn)', dot: '●' },
+  { key: 'medium',   color: 'var(--fl-gold)', dot: '●' },
+  { key: 'low',      color: 'var(--fl-ok)', dot: '●' },
 ];
 const WB_TAGS = [
-  { key: 'exec',            label: 'Exécution',       color: 'var(--fl-warn)' },
-  { key: 'persist',         label: 'Persistance',     color: 'var(--fl-purple)' },
-  { key: 'lateral',         label: 'Mvt latéral',     color: '#22c55e' },
-  { key: 'exfil',           label: 'Exfiltration',    color: 'var(--fl-danger)' },
-  { key: 'c2',              label: 'C2',               color: '#f43f5e' },
-  { key: 'recon',           label: 'Reconnaissance',  color: '#06b6d4' },
-  { key: 'privesc',         label: 'Privesc',          color: '#f59e0b' },
-  { key: 'defense_evasion', label: 'Évasion défense', color: '#64748b' },
-  { key: 'credential',      label: 'Credentials',     color: 'var(--fl-pink)' },
-  { key: 'discovery',       label: 'Découverte',      color: '#0ea5e9' },
-  { key: 'collection',      label: 'Collection',      color: '#84cc16' },
-  { key: 'impact',          label: 'Impact',           color: '#dc2626' },
+  { key: 'exec',            color: 'var(--fl-warn)' },
+  { key: 'persist',         color: 'var(--fl-purple)' },
+  { key: 'lateral',         color: 'var(--fl-ok)' },
+  { key: 'exfil',           color: 'var(--fl-danger)' },
+  { key: 'c2',              color: 'var(--fl-danger)' },
+  { key: 'recon',           color: 'var(--fl-purple)' },
+  { key: 'privesc',         color: 'var(--fl-warn)' },
+  { key: 'defense_evasion', color: '#64748b' },
+  { key: 'credential',      color: 'var(--fl-pink)' },
+  { key: 'discovery',       color: 'var(--fl-purple)' },
+  { key: 'collection',      color: 'var(--fl-ok)' },
+  { key: 'impact',          color: '#dc2626' },
 ];
 
 function WbTagPicker({ rowId, current = {}, onChange, onClose, anchorRef }) {
+  const { t } = useTranslation();
   const ref = useRef(null);
   const [pos, setPos] = useState({ x: 0, y: 0 });
 
@@ -509,19 +514,19 @@ function WbTagPicker({ rowId, current = {}, onChange, onClose, anchorRef }) {
         position: 'fixed', left: pos.x, top: pos.y, zIndex: 9999,
         background: 'var(--fl-bg)', border: '1px solid #1a2a40', borderRadius: 6,
         boxShadow: '0 8px 32px #00000080', padding: '8px 10px', width: 210,
-        fontFamily: 'monospace',
+        fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
       }}
       onClick={e => e.stopPropagation()}
     >
       
-      <div style={{ fontSize: 8, color: 'var(--fl-subtle)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 5 }}>Niveau</div>
+      <div style={{ fontSize: 8, color: 'var(--fl-subtle)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 5 }}>{t('workbench.level')}</div>
       <div style={{ display: 'flex', gap: 4, marginBottom: 8 }}>
         {WB_LEVELS.map(l => (
           <button key={l.key} onClick={() => onChange({ ...current, level: lvl === l.key ? null : l.key })}
-            title={l.label}
+            title={t(`workbench.verdict_levels.${l.key}`)}
             style={{
               flex: 1, padding: '3px 0', borderRadius: 4, cursor: 'pointer', fontSize: 13,
-              background: lvl === l.key ? `${l.color}30` : 'transparent',
+              background: lvl === l.key ? `color-mix(in srgb, ${l.color} 19%, transparent)` : 'transparent',
               border: `1px solid ${lvl === l.key ? l.color + '80' : '#1a2a40'}`,
               color: l.color,
             }}>
@@ -530,19 +535,19 @@ function WbTagPicker({ rowId, current = {}, onChange, onClose, anchorRef }) {
         ))}
       </div>
       
-      <div style={{ fontSize: 8, color: 'var(--fl-subtle)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 5 }}>Tags</div>
+      <div style={{ fontSize: 8, color: 'var(--fl-subtle)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 5 }}>{t('workbench.tags_label')}</div>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-        {WB_TAGS.map(t => {
-          const active = tags.includes(t.key);
+        {WB_TAGS.map(tag => {
+          const active = tags.includes(tag.key);
           return (
-            <button key={t.key} onClick={() => onChange({ ...current, tags: active ? tags.filter(k => k !== t.key) : [...tags, t.key] })}
+            <button key={tag.key} onClick={() => onChange({ ...current, tags: active ? tags.filter(k => k !== tag.key) : [...tags, tag.key] })}
               style={{
                 padding: '2px 6px', borderRadius: 8, fontSize: 9, cursor: 'pointer', fontWeight: 600,
-                background: active ? `${t.color}30` : 'rgba(255,255,255,0.05)',
-                color: active ? t.color : 'var(--fl-dim)',
-                border: `1px solid ${active ? t.color + '60' : 'rgba(255,255,255,0.1)'}`,
+                background: active ? `color-mix(in srgb, ${tag.color} 19%, transparent)` : 'rgba(255,255,255,0.05)',
+                color: active ? tag.color : 'var(--fl-dim)',
+                border: `1px solid ${active ? tag.color + '60' : 'rgba(255,255,255,0.1)'}`,
               }}>
-              {t.label}
+              {t(`workbench.tags.${tag.key}`)}
             </button>
           );
         })}
@@ -550,7 +555,7 @@ function WbTagPicker({ rowId, current = {}, onChange, onClose, anchorRef }) {
       
       <button onClick={() => { onChange({ level: null, tags: [] }); onClose(); }}
         style={{ marginTop: 7, background: 'none', border: 'none', cursor: 'pointer', fontSize: 9, color: 'var(--fl-subtle)', padding: 0 }}>
-        Effacer
+        {t('workbench.clear')}
       </button>
     </div>
   );
@@ -755,23 +760,23 @@ function ArtifactGrid({ records, selectedRecord, onSelect, notedRefs, gapThresho
                     setSelectedRows(prev => prev.size === tableRows.length ? new Set() : allIds);
                   }}
                   style={{ width: 24, padding: '6px 4px', borderBottom: '2px solid var(--fl-sep)', background: 'var(--fl-bg)', textAlign: 'center', cursor: 'pointer' }}
-                  title="Tout sélectionner"
+                  title={t('workbench.select_all')}
                 >
                   {selectedRows.size > 0 && selectedRows.size === tableRows.length
                     ? <CheckSquare size={11} style={{ color: 'var(--fl-accent)' }} />
-                    : <Square size={11} style={{ color: selectedRows.size > 0 ? '#4d82c060' : 'var(--fl-border)' }} />
+                    : <Square size={11} style={{ color: selectedRows.size > 0 ? 'color-mix(in srgb, var(--fl-accent) 38%, transparent)' : 'var(--fl-border)' }} />
                   }
                 </th>
                 
-                <th style={{ width: 22, padding: '6px 4px', borderBottom: '2px solid var(--fl-sep)', background: 'var(--fl-bg)', textAlign: 'center' }} title="Signets">
+                <th style={{ width: 22, padding: '6px 4px', borderBottom: '2px solid var(--fl-sep)', background: 'var(--fl-bg)', textAlign: 'center' }} title={t('workbench.bookmarks')}>
                   <Star size={10} style={{ color: 'var(--fl-border)' }} />
                 </th>
                 
-                <th style={{ width: 20, padding: '6px 4px', borderBottom: '2px solid var(--fl-sep)', background: 'var(--fl-bg)', textAlign: 'center' }} title="Épingles">
+                <th style={{ width: 20, padding: '6px 4px', borderBottom: '2px solid var(--fl-sep)', background: 'var(--fl-bg)', textAlign: 'center' }} title={t('workbench.pins')}>
                   <Pin size={10} style={{ color: 'var(--fl-border)' }} />
                 </th>
                 
-                <th style={{ width: 30, padding: '6px 4px', borderBottom: '2px solid var(--fl-sep)', background: 'var(--fl-bg)', textAlign: 'center' }} title="Tags forensiques">
+                <th style={{ width: 30, padding: '6px 4px', borderBottom: '2px solid var(--fl-sep)', background: 'var(--fl-bg)', textAlign: 'center' }} title={t('workbench.forensic_tags')}>
                   <Tag size={10} style={{ color: 'var(--fl-border)' }} />
                 </th>
                 {hg.headers.map((h) => {
@@ -786,7 +791,7 @@ function ArtifactGrid({ records, selectedRecord, onSelect, notedRefs, gapThresho
                         textAlign: 'left',
                         cursor: 'pointer',
                         userSelect: 'none',
-                        fontFamily: 'monospace',
+                        fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
                         fontSize: 10,
                         fontWeight: 700,
                         letterSpacing: '0.07em',
@@ -835,7 +840,7 @@ function ArtifactGrid({ records, selectedRecord, onSelect, notedRefs, gapThresho
                       }}>
                         <div style={{ flex: 1, height: 1, borderStyle: 'dashed', borderWidth: '1px 0 0 0', borderColor: 'color-mix(in srgb, var(--fl-danger) 30%, transparent)' }} />
                         <span style={{
-                          fontSize: 9, fontFamily: 'monospace', fontWeight: 700,
+                          fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontWeight: 700,
                           color: 'var(--fl-danger)',
                           background: 'color-mix(in srgb, var(--fl-danger) 8%, var(--fl-bg))',
                           border: '1px solid color-mix(in srgb, var(--fl-danger) 30%, transparent)',
@@ -892,19 +897,19 @@ function ArtifactGrid({ records, selectedRecord, onSelect, notedRefs, gapThresho
                   <td
                     onClick={e => { e.stopPropagation(); toggleBookmark(row.id); }}
                     style={{ padding: '2px 0', textAlign: 'center', width: 22, cursor: 'pointer' }}
-                    title={bookmarkedRows.has(row.id) ? 'Retirer le signet' : 'Ajouter un signet'}
+                    title={bookmarkedRows.has(row.id) ? t('workbench.remove_bookmark') : t('workbench.add_bookmark')}
                   >
                     <Star
                       size={11}
-                      fill={bookmarkedRows.has(row.id) ? '#f59e0b' : 'none'}
-                      style={{ color: bookmarkedRows.has(row.id) ? '#f59e0b' : (isHovered ? 'var(--fl-subtle)' : 'var(--fl-sep)') }}
+                      fill={bookmarkedRows.has(row.id) ? 'var(--fl-warn)' : 'none'}
+                      style={{ color: bookmarkedRows.has(row.id) ? 'var(--fl-warn)' : (isHovered ? 'var(--fl-subtle)' : 'var(--fl-sep)') }}
                     />
                   </td>
 
                   <td
                     onClick={e => { e.stopPropagation(); onPin?.(row.original); }}
                     style={{ padding: '2px 0', textAlign: 'center', width: 20, cursor: onPin ? 'pointer' : 'default' }}
-                    title={isPinned?.(row.original) ? 'Désépingler' : 'Épingler en haut'}
+                    title={isPinned?.(row.original) ? t('workbench.unpin') : t('workbench.pin_to_top')}
                   >
                     {(() => {
                       const pinEntry = pinnedRows
@@ -929,7 +934,7 @@ function ArtifactGrid({ records, selectedRecord, onSelect, notedRefs, gapThresho
                     ref={tagPickerRowId === row.id ? tagAnchorRef : null}
                     onClick={e => openTagPicker(e, row.id)}
                     style={{ padding: '2px 0', textAlign: 'center', width: 30, cursor: 'pointer' }}
-                    title="Tag forensique"
+                    title={t('workbench.forensic_tag')}
                   >
                     {(() => {
                       const td = tagData.get(row.id) || {};
@@ -937,8 +942,8 @@ function ArtifactGrid({ records, selectedRecord, onSelect, notedRefs, gapThresho
                       if (lvl) return <span style={{ fontSize: 13, color: lvl.color, lineHeight: 1 }}>{lvl.dot}</span>;
                       if (td.tags?.length > 0) return <Tag size={11} style={{ color: 'var(--fl-subtle)' }} />;
                       const score = anomalyScores.get(row.original) || 0;
-                      if (score >= 7) return <span style={{ fontSize: 10, color: 'var(--fl-danger)', lineHeight: 1 }} title={`Score anomalie: ${score}/10`}>⚡</span>;
-                      if (score >= 4) return <span style={{ fontSize: 10, color: 'var(--fl-warn)', lineHeight: 1 }} title={`Score anomalie: ${score}/10`}>△</span>;
+                      if (score >= 7) return <span style={{ fontSize: 10, color: 'var(--fl-danger)', lineHeight: 1 }} title={t('workbench.anomaly_score_value', { score })}>⚡</span>;
+                      if (score >= 4) return <span style={{ fontSize: 10, color: 'var(--fl-warn)', lineHeight: 1 }} title={t('workbench.anomaly_score_value', { score })}>△</span>;
                       return <span style={{ fontSize: 11, color: isHovered ? 'var(--fl-card)' : 'var(--fl-bg)' }}>○</span>;
                     })()}
                   </td>
@@ -956,7 +961,7 @@ function ArtifactGrid({ records, selectedRecord, onSelect, notedRefs, gapThresho
                           textOverflow: 'ellipsis',
                           whiteSpace: 'nowrap',
                           minWidth: isDesc ? 0 : undefined,
-                          fontFamily: mono ? 'monospace' : undefined,
+                          fontFamily: mono ? 'var(--f-mono, "JetBrains Mono", monospace)' : undefined,
                           color: mono ? 'var(--fl-accent)' : 'var(--fl-on-dark)',
                           position:   pinned ? 'sticky' : undefined,
                           left:       pinned ? 0 : undefined,
@@ -989,24 +994,24 @@ function ArtifactGrid({ records, selectedRecord, onSelect, notedRefs, gapThresho
         padding: '3px 12px',
         background: 'var(--fl-bg)',
         borderTop: '1px solid var(--fl-sep)',
-        fontFamily: 'monospace',
+        fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
         fontSize: 10,
         color: 'var(--fl-muted)',
         display: 'flex',
         alignItems: 'center',
         gap: 10,
       }}>
-        <span>{tableRows.length.toLocaleString()} ligne{tableRows.length !== 1 ? 's' : ''}{gapThresholdMs ? ` · ${displayRows.filter(r => r.type === 'gap').length} gap(s)` : ''}</span>
+        <span>{tCount(t, 'workbench.rows_count', tableRows.length)}{gapThresholdMs ? ` · ${tCount(t, 'workbench.gaps_count', displayRows.filter(r => r.type === 'gap').length)}` : ''}</span>
         {artifactType && ARTIFACT_PROFILES[artifactType]?.virtual?.length > 0 && (
           <span style={{
             display: 'inline-flex', alignItems: 'center', gap: 3,
             padding: '1px 6px', borderRadius: 3,
-            background: `${ac(artifactType)}12`,
-            border: `1px solid ${ac(artifactType)}30`,
+            background: `color-mix(in srgb, ${ac(artifactType)} 7%, transparent)`,
+            border: `1px solid color-mix(in srgb, ${ac(artifactType)} 19%, transparent)`,
             color: ac(artifactType),
             fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em',
           }}>
-            <FileText size={8} /> Mode investigation · {artifactType}
+            <FileText size={8} /> {t('workbench.investigation_mode')} · {artifactType}
           </span>
         )}
         {selectedRecord && (
@@ -1041,7 +1046,7 @@ function PivotButton({ value, isIP, caseId, onFilterTimeline }) {
         title="Pivot"
         style={{
           background: 'none', border: '1px solid var(--fl-card)', borderRadius: 3,
-          cursor: 'pointer', padding: '1px 6px', fontSize: 9, fontFamily: 'monospace',
+          cursor: 'pointer', padding: '1px 6px', fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
           color: 'var(--fl-accent)', display: 'flex', alignItems: 'center', gap: 3, flexShrink: 0,
         }}
       >
@@ -1058,7 +1063,7 @@ function PivotButton({ value, isIP, caseId, onFilterTimeline }) {
               onClick={() => { onFilterTimeline(value); setOpen(false); }}
               style={{
                 display: 'block', width: '100%', textAlign: 'left',
-                padding: '5px 12px', fontSize: 10, fontFamily: 'monospace',
+                padding: '5px 12px', fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
                 background: 'none', border: 'none', cursor: 'pointer', color: 'var(--fl-on-dark)',
               }}
               onMouseEnter={e => e.currentTarget.style.background = 'var(--fl-card)'}
@@ -1072,7 +1077,7 @@ function PivotButton({ value, isIP, caseId, onFilterTimeline }) {
               onClick={() => { window.location.href = `/cases/${caseId}/graph?view=network`; setOpen(false); }}
               style={{
                 display: 'block', width: '100%', textAlign: 'left',
-                padding: '5px 12px', fontSize: 10, fontFamily: 'monospace',
+                padding: '5px 12px', fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
                 background: 'none', border: 'none', cursor: 'pointer', color: 'var(--fl-on-dark)',
               }}
               onMouseEnter={e => e.currentTarget.style.background = 'var(--fl-card)'}
@@ -1170,7 +1175,7 @@ function ArtifactInspector({ record, allRecords = [], caseId, onNotedRefsChange,
         background: '#05080f', gap: 8,
       }}>
         <div style={{ fontSize: 22, opacity: 0.15 }}>⬛</div>
-        <div style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--fl-muted)' }}>
+        <div style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11, color: 'var(--fl-muted)' }}>
           {t('timeline.inspector_placeholder')}
         </div>
       </div>
@@ -1207,7 +1212,7 @@ function ArtifactInspector({ record, allRecords = [], caseId, onNotedRefsChange,
             return (
             <button key={tab.id} onClick={() => setTab(tab.id)} style={{
               background: 'none', border: 'none', cursor: 'pointer',
-              padding: '5px 8px', borderRadius: 4, fontSize: 10, fontFamily: 'monospace',
+              padding: '5px 8px', borderRadius: 4, fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
               fontWeight: inspectorTab === tab.id ? 600 : 400,
               color: inspectorTab === tab.id ? 'var(--fl-accent)' : 'var(--fl-muted)',
               borderBottom: inspectorTab === tab.id ? '2px solid var(--fl-accent)' : '2px solid transparent',
@@ -1224,14 +1229,14 @@ function ArtifactInspector({ record, allRecords = [], caseId, onNotedRefsChange,
           
           <span style={{
             padding: '2px 8px', borderRadius: 4, fontSize: 10, fontWeight: 700,
-            fontFamily: 'monospace', whiteSpace: 'nowrap',
-            background: `${color}20`, color, border: `1px solid ${color}40`,
+            fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', whiteSpace: 'nowrap',
+            background: `color-mix(in srgb, ${color} 13%, transparent)`, color, border: `1px solid color-mix(in srgb, ${color} 25%, transparent)`,
           }}>
             {record.artifact_type || '?'}
           </span>
           {record.artifact_name && (
             <span style={{
-              fontSize: 11, fontFamily: 'monospace', color: '#a0b8d0',
+              fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: '#a0b8d0',
               overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
             }}>
               {record.artifact_name}
@@ -1257,9 +1262,9 @@ function ArtifactInspector({ record, allRecords = [], caseId, onNotedRefsChange,
                 marginLeft: 4, background: 'rgba(139,114,214,0.12)',
                 border: '1px solid rgba(139,114,214,0.35)',
                 borderRadius: 4, cursor: 'pointer', padding: '2px 8px',
-                fontSize: 10, fontFamily: 'monospace', color: 'var(--fl-purple)',
+                fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-purple)',
               }}
-              title={pid ? `Ouvrir VolWeb — PID ${pid}` : 'Ouvrir VolWeb'}
+              title={pid ? t('workbench.open_volweb_pid', { pid }) : t('workbench.open_volweb')}
             >
               ↗ VolWeb{pid ? ` (PID ${pid})` : ''}
             </button>
@@ -1270,7 +1275,7 @@ function ArtifactInspector({ record, allRecords = [], caseId, onNotedRefsChange,
           flexShrink: 0, display: 'flex', alignItems: 'center', gap: 4,
           marginLeft: 8, background: 'none', border: '1px solid var(--fl-sep)',
           borderRadius: 4, cursor: 'pointer', padding: '2px 8px',
-          fontSize: 10, fontFamily: 'monospace',
+          fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
           color: copied ? 'var(--fl-ok)' : 'var(--fl-subtle)', transition: 'color 0.15s',
         }}>
           {copied ? <CheckCheck size={11} /> : <Copy size={11} />}
@@ -1289,11 +1294,11 @@ function ArtifactInspector({ record, allRecords = [], caseId, onNotedRefsChange,
         return (
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
             <div style={{ flexShrink: 0, padding: '6px 12px', borderBottom: '1px solid var(--fl-border2)', display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{ fontSize: 10, fontFamily: 'monospace', color: 'var(--fl-subtle)' }}>Fenêtre ±</span>
+              <span style={{ fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-subtle)' }}>{t('workbench.window_pm')}</span>
               {[1, 5, 15, 30, 60].map(n => (
                 <button key={n} onClick={() => setContextWindow(n)}
                   style={{
-                    padding: '1px 7px', borderRadius: 3, fontSize: 9, fontFamily: 'monospace', cursor: 'pointer',
+                    padding: '1px 7px', borderRadius: 3, fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', cursor: 'pointer',
                     background: contextWindow === n ? 'rgba(77,130,192,0.2)' : 'transparent',
                     border: `1px solid ${contextWindow === n ? 'var(--fl-accent)' : 'var(--fl-sep)'}`,
                     color: contextWindow === n ? 'var(--fl-accent)' : 'var(--fl-muted)',
@@ -1301,12 +1306,12 @@ function ArtifactInspector({ record, allRecords = [], caseId, onNotedRefsChange,
                   {n < 60 ? `${n}m` : '1h'}
                 </button>
               ))}
-              <span style={{ marginLeft: 'auto', fontSize: 9, fontFamily: 'monospace', color: 'var(--fl-subtle)' }}>{nearby.length} evt</span>
+              <span style={{ marginLeft: 'auto', fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-subtle)' }}>{t('workbench.evt_count_short', { count: nearby.length })}</span>
             </div>
             <div style={{ flex: 1, overflow: 'auto', padding: '6px 0' }}>
               {nearby.length === 0 ? (
-                <div style={{ textAlign: 'center', marginTop: 24, fontSize: 11, fontFamily: 'monospace', color: 'var(--fl-muted)' }}>
-                  Aucun événement dans la fenêtre ±{contextWindow} min
+                <div style={{ textAlign: 'center', marginTop: 24, fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-muted)' }}>
+                  {t('workbench.no_event_in_window', { minutes: contextWindow })}
                 </div>
               ) : nearby.map((x, i) => {
                 const c = ac(x.artifact_type);
@@ -1319,13 +1324,13 @@ function ArtifactInspector({ record, allRecords = [], caseId, onNotedRefsChange,
                     borderLeft: `2px solid ${c}`,
                     marginBottom: 2,
                   }}>
-                    <span style={{ fontSize: 9, fontFamily: 'monospace', color: '#3a6a9a', flexShrink: 0, width: 46, textAlign: 'right' }}>
+                    <span style={{ fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: '#3a6a9a', flexShrink: 0, width: 46, textAlign: 'right' }}>
                       {delta > 0 ? `+${delta}` : delta}m
                     </span>
-                    <span style={{ fontSize: 9, padding: '1px 4px', borderRadius: 2, background: `${c}18`, color: c, fontFamily: 'monospace', flexShrink: 0 }}>
+                    <span style={{ fontSize: 9, padding: '1px 4px', borderRadius: 2, background: `color-mix(in srgb, ${c} 9%, transparent)`, color: c, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', flexShrink: 0 }}>
                       {x.artifact_type}
                     </span>
-                    <span style={{ fontSize: 10, fontFamily: 'monospace', color: 'var(--fl-on-dark)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
+                    <span style={{ fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-on-dark)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
                       {x.description || x.source || ''}
                     </span>
                   </div>
@@ -1362,18 +1367,18 @@ function ArtifactInspector({ record, allRecords = [], caseId, onNotedRefsChange,
               <input
                 value={pivotQuery}
                 onChange={e => setPivotQuery(e.target.value)}
-                placeholder="Filtrer les champs…"
+                placeholder={t('workbench.filter_fields_ph')}
                 style={{
                   width: '100%', background: 'var(--fl-input-bg)', border: '1px solid var(--fl-border)',
-                  borderRadius: 4, color: 'var(--fl-text)', fontFamily: 'monospace', fontSize: 10,
+                  borderRadius: 4, color: 'var(--fl-text)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10,
                   padding: '4px 8px', outline: 'none', boxSizing: 'border-box',
                 }}
               />
             </div>
             <div style={{ flex: 1, overflow: 'auto', padding: '6px 12px', display: 'flex', flexDirection: 'column', gap: 4 }}>
               {filtered.length === 0 && (
-                <div style={{ textAlign: 'center', marginTop: 20, fontSize: 11, fontFamily: 'monospace', color: 'var(--fl-muted)' }}>
-                  Aucun champ IOC
+                <div style={{ textAlign: 'center', marginTop: 20, fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-muted)' }}>
+                  {t('workbench.no_ioc_field')}
                 </div>
               )}
               {filtered.map(({ key, value }) => {
@@ -1384,17 +1389,17 @@ function ArtifactInspector({ record, allRecords = [], caseId, onNotedRefsChange,
                 }).length;
                 return (
                   <div key={key} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 6px', borderRadius: 4, border: '1px solid var(--fl-border)', background: 'var(--fl-bg)' }}>
-                    <span style={{ fontSize: 9, fontFamily: 'monospace', color: '#4d82c0', flexShrink: 0, width: 120, overflow: 'hidden', textOverflow: 'ellipsis' }}>{key}</span>
-                    <span style={{ flex: 1, fontSize: 10, fontFamily: 'monospace', color: 'var(--fl-on-dark)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={value}>{truncated}</span>
+                    <span style={{ fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-accent)', flexShrink: 0, width: 120, overflow: 'hidden', textOverflow: 'ellipsis' }}>{key}</span>
+                    <span style={{ flex: 1, fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-on-dark)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={value}>{truncated}</span>
                     {matchCount > 1 && (
-                      <span style={{ fontSize: 8, padding: '1px 5px', borderRadius: 8, background: 'rgba(77,130,192,0.15)', color: 'var(--fl-accent)', flexShrink: 0, fontFamily: 'monospace' }}>
-                        ×{matchCount}
+                      <span style={{ fontSize: 8, padding: '1px 5px', borderRadius: 8, background: 'rgba(77,130,192,0.15)', color: 'var(--fl-accent)', flexShrink: 0, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}>
+                        x{matchCount}
                       </span>
                     )}
                     <button
                       onClick={() => onFilterTimeline?.({ field: key, value })}
-                      title={`Pivoter sur ${key}=${value}`}
-                      style={{ flexShrink: 0, background: 'none', border: '1px solid var(--fl-sep)', borderRadius: 3, cursor: 'pointer', padding: '1px 5px', fontSize: 8, color: 'var(--fl-accent)', fontFamily: 'monospace' }}>
+                      title={t('workbench.pivot_on', { key, value })}
+                      style={{ flexShrink: 0, background: 'none', border: '1px solid var(--fl-sep)', borderRadius: 3, cursor: 'pointer', padding: '1px 5px', fontSize: 8, color: 'var(--fl-accent)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}>
                       Pivot
                     </button>
                   </div>
@@ -1413,7 +1418,7 @@ function ArtifactInspector({ record, allRecords = [], caseId, onNotedRefsChange,
           <div style={{ flex: 1, overflow: 'auto', padding: '12px' }}>
 
             <div style={{ marginBottom: 12 }}>
-              <div style={{ fontSize: 9, fontFamily: 'monospace', color: 'var(--fl-subtle)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>Score d'anomalie</div>
+              <div style={{ fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-subtle)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>{t('workbench.anomaly_score')}</div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <div style={{ flex: 1, height: 6, background: 'var(--fl-sep)', borderRadius: 3, overflow: 'hidden' }}>
                   <div style={{
@@ -1422,7 +1427,7 @@ function ArtifactInspector({ record, allRecords = [], caseId, onNotedRefsChange,
                     background: score >= 7 ? 'var(--fl-danger)' : score >= 4 ? 'var(--fl-warn)' : 'var(--fl-ok)',
                   }} />
                 </div>
-                <span style={{ fontSize: 11, fontFamily: 'monospace', fontWeight: 700, color: score >= 7 ? 'var(--fl-danger)' : score >= 4 ? 'var(--fl-warn)' : 'var(--fl-ok)', flexShrink: 0 }}>
+                <span style={{ fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontWeight: 700, color: score >= 7 ? 'var(--fl-danger)' : score >= 4 ? 'var(--fl-warn)' : 'var(--fl-ok)', flexShrink: 0 }}>
                   {score}/10
                 </span>
               </div>
@@ -1431,11 +1436,11 @@ function ArtifactInspector({ record, allRecords = [], caseId, onNotedRefsChange,
 
             {ioas.length > 0 && (
               <div style={{ marginBottom: 12 }}>
-                <div style={{ fontSize: 9, fontFamily: 'monospace', color: 'var(--fl-subtle)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>Patterns IoA détectés</div>
+                <div style={{ fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-subtle)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>{t('workbench.ioa_patterns_detected')}</div>
                 {ioas.map(p => (
-                  <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 8px', borderRadius: 4, marginBottom: 4, background: `${p.color}12`, border: `1px solid ${p.color}40` }}>
-                    <span style={{ fontSize: 9, fontWeight: 700, color: p.color, fontFamily: 'monospace' }}>⚡ {p.name}</span>
-                    <span style={{ fontSize: 8, color: '#4d6080', fontFamily: 'monospace' }}>{p.tactic}</span>
+                  <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 8px', borderRadius: 4, marginBottom: 4, background: `color-mix(in srgb, ${p.color} 7%, transparent)`, border: `1px solid color-mix(in srgb, ${p.color} 25%, transparent)` }}>
+                    <span style={{ fontSize: 9, fontWeight: 700, color: p.color, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}>⚡ {p.name}</span>
+                    <span style={{ fontSize: 8, color: '#4d6080', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}>{p.tactic}</span>
                   </div>
                 ))}
               </div>
@@ -1443,25 +1448,25 @@ function ArtifactInspector({ record, allRecords = [], caseId, onNotedRefsChange,
 
 
             <div>
-              <div style={{ fontSize: 9, fontFamily: 'monospace', color: 'var(--fl-subtle)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>Verdict</div>
+              <div style={{ fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-subtle)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>Verdict</div>
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                 {WB_LEVELS.map(l => (
                   <button key={l.key}
                     onClick={() => setVerdictLocal(verdictLocal === l.key ? null : l.key)}
                     style={{
-                      padding: '4px 10px', borderRadius: 4, fontSize: 10, fontFamily: 'monospace',
+                      padding: '4px 10px', borderRadius: 4, fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
                       fontWeight: 600, cursor: 'pointer',
-                      background: verdictLocal === l.key ? `${l.color}25` : 'transparent',
+                      background: verdictLocal === l.key ? `color-mix(in srgb, ${l.color} 15%, transparent)` : 'transparent',
                       border: `1px solid ${verdictLocal === l.key ? l.color : 'var(--fl-sep)'}`,
                       color: verdictLocal === l.key ? l.color : 'var(--fl-muted)',
                     }}>
-                    {l.dot} {l.label}
+                    {l.dot} {t(`workbench.verdict_levels.${l.key}`)}
                   </button>
                 ))}
               </div>
               {verdictLocal && (
-                <div style={{ marginTop: 8, padding: '6px 10px', borderRadius: 4, background: 'rgba(77,130,192,0.08)', border: '1px solid var(--fl-sep)', fontSize: 10, fontFamily: 'monospace', color: 'var(--fl-muted)' }}>
-                  Verdict «{WB_LEVELS.find(l => l.key === verdictLocal)?.label}» appliqué localement. Utilisez les annotations (onglet Notes) pour persister.
+                <div style={{ marginTop: 8, padding: '6px 10px', borderRadius: 4, background: 'rgba(77,130,192,0.08)', border: '1px solid var(--fl-sep)', fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-muted)' }}>
+                  {t('workbench.local_verdict_notice', { verdict: t(`workbench.verdict_levels.${verdictLocal}`) })}
                 </div>
               )}
             </div>
@@ -1474,7 +1479,7 @@ function ArtifactInspector({ record, allRecords = [], caseId, onNotedRefsChange,
           
           <div style={{ flex: 1, overflow: 'auto', padding: '8px 12px', display: 'flex', flexDirection: 'column', gap: 8 }}>
             {notes.length === 0 ? (
-              <div style={{ color: 'var(--fl-muted)', fontFamily: 'monospace', fontSize: 11, textAlign: 'center', marginTop: 24 }}>
+              <div style={{ color: 'var(--fl-muted)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11, textAlign: 'center', marginTop: 24 }}>
                 {t('notes.empty')}
               </div>
             ) : notes.map(n => (
@@ -1483,19 +1488,19 @@ function ArtifactInspector({ record, allRecords = [], caseId, onNotedRefsChange,
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                     <textarea value={noteEditText} onChange={e => setNoteEditText(e.target.value)}
                       style={{ width: '100%', background: 'var(--fl-input-bg)', border: '1px solid var(--fl-border)', borderRadius: 4,
-                        color: 'var(--fl-text)', fontFamily: 'monospace', fontSize: 11, padding: '6px 8px',
+                        color: 'var(--fl-text)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11, padding: '6px 8px',
                         resize: 'vertical', minHeight: 60, outline: 'none', boxSizing: 'border-box' }} />
                     <div style={{ display: 'flex', gap: 6 }}>
                       <button onClick={() => saveEditNote(n.id)}
                         style={{ padding: '3px 10px', borderRadius: 4,
                           background: 'color-mix(in srgb, var(--fl-accent) 15%, var(--fl-card))',
                           border: '1px solid color-mix(in srgb, var(--fl-accent) 40%, transparent)',
-                          color: 'var(--fl-accent)', fontSize: 10, fontFamily: 'monospace', cursor: 'pointer' }}>
+                          color: 'var(--fl-accent)', fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', cursor: 'pointer' }}>
                         {t('common.save')}
                       </button>
                       <button onClick={() => setNoteEditId(null)}
                         style={{ padding: '3px 10px', borderRadius: 4, background: 'none', border: '1px solid var(--fl-border)',
-                          color: 'var(--fl-dim)', fontSize: 10, fontFamily: 'monospace', cursor: 'pointer' }}>
+                          color: 'var(--fl-dim)', fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', cursor: 'pointer' }}>
                         {t('common.cancel')}
                       </button>
                     </div>
@@ -1506,7 +1511,7 @@ function ArtifactInspector({ record, allRecords = [], caseId, onNotedRefsChange,
                       {n.note}
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                      <span style={{ fontSize: 9, color: 'var(--fl-muted)', fontFamily: 'monospace' }}>
+                      <span style={{ fontSize: 9, color: 'var(--fl-muted)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}>
                         {n.author_name || n.author_username} · {fmtLocal(n.created_at)}
                         {n.updated_at !== n.created_at && t('workbench.note_edited')}
                       </span>
@@ -1532,14 +1537,14 @@ function ArtifactInspector({ record, allRecords = [], caseId, onNotedRefsChange,
               placeholder={t('notes.placeholder')}
               onKeyDown={e => { if (e.key === 'Enter' && e.ctrlKey) submitNote(); }}
               style={{ flex: 1, background: 'var(--fl-input-bg)', border: '1px solid var(--fl-border)', borderRadius: 4,
-                color: 'var(--fl-text)', fontFamily: 'monospace', fontSize: 11, padding: '6px 8px',
+                color: 'var(--fl-text)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11, padding: '6px 8px',
                 resize: 'none', height: 52, outline: 'none' }} />
             <button onClick={submitNote} disabled={noteSaving || !noteText.trim()}
               style={{ padding: '0 12px', borderRadius: 4,
                 background: noteText.trim() ? 'color-mix(in srgb, var(--fl-accent) 15%, var(--fl-card))' : 'var(--fl-bg)',
                 border: `1px solid ${noteText.trim() ? 'color-mix(in srgb, var(--fl-accent) 40%, transparent)' : 'var(--fl-border2)'}`,
                 color: noteText.trim() ? 'var(--fl-accent)' : 'var(--fl-muted)', cursor: noteText.trim() ? 'pointer' : 'default',
-                display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, fontFamily: 'monospace' }}>
+                display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}>
               <Send size={11} /> {t('workbench.send')}
             </button>
           </div>
@@ -1555,10 +1560,10 @@ function ArtifactInspector({ record, allRecords = [], caseId, onNotedRefsChange,
         }}>
           
           <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
-            <span style={{ display: 'flex', alignItems: 'center', gap: 4, width: 80, flexShrink: 0, fontSize: 10, color: 'var(--fl-subtle)', fontFamily: 'monospace', paddingTop: 1 }}>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 4, width: 80, flexShrink: 0, fontSize: 10, color: 'var(--fl-subtle)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', paddingTop: 1 }}>
               <Clock size={10} /> {t('workbench.timestamp_label')}
             </span>
-            <span style={{ fontSize: 11, fontFamily: 'monospace', color: '#7abfff', fontWeight: 600, lineHeight: 1.4 }}>
+            <span style={{ fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: '#7abfff', fontWeight: 600, lineHeight: 1.4 }}>
               {fmtTs(record.timestamp)}
               {record.timestamp_column && (
                 <span style={{ marginLeft: 8, fontSize: 9, padding: '1px 5px', borderRadius: 3, background: 'var(--fl-sep)', color: '#4d6080', fontWeight: 400 }}>
@@ -1571,10 +1576,10 @@ function ArtifactInspector({ record, allRecords = [], caseId, onNotedRefsChange,
           
           {(record.host_name || record.source_device) && (
             <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
-              <span style={{ display: 'flex', alignItems: 'center', gap: 4, width: 80, flexShrink: 0, fontSize: 10, color: 'var(--fl-subtle)', fontFamily: 'monospace', paddingTop: 1 }}>
-                <HardDrive size={10} /> Hôte
+              <span style={{ display: 'flex', alignItems: 'center', gap: 4, width: 80, flexShrink: 0, fontSize: 10, color: 'var(--fl-subtle)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', paddingTop: 1 }}>
+                <HardDrive size={10} /> {t('workbench.host')}
               </span>
-              <span style={{ fontSize: 11, fontFamily: 'monospace', color: '#22c55e', fontWeight: 600 }}>
+              <span style={{ fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-ok)', fontWeight: 600 }}>
                 {record.host_name || record.source_device}
               </span>
             </div>
@@ -1583,10 +1588,10 @@ function ArtifactInspector({ record, allRecords = [], caseId, onNotedRefsChange,
           
           {record.user_name && (
             <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
-              <span style={{ display: 'flex', alignItems: 'center', gap: 4, width: 80, flexShrink: 0, fontSize: 10, color: 'var(--fl-subtle)', fontFamily: 'monospace', paddingTop: 1 }}>
-                <Eye size={10} /> Utilisateur
+              <span style={{ display: 'flex', alignItems: 'center', gap: 4, width: 80, flexShrink: 0, fontSize: 10, color: 'var(--fl-subtle)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', paddingTop: 1 }}>
+                <Eye size={10} /> {t('workbench.user')}
               </span>
-              <span style={{ fontSize: 11, fontFamily: 'monospace', color: 'var(--fl-gold)', fontWeight: 600 }}>
+              <span style={{ fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-gold)', fontWeight: 600 }}>
                 {record.user_name}
               </span>
             </div>
@@ -1595,10 +1600,10 @@ function ArtifactInspector({ record, allRecords = [], caseId, onNotedRefsChange,
           
           {record.process_name && (
             <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
-              <span style={{ display: 'flex', alignItems: 'center', gap: 4, width: 80, flexShrink: 0, fontSize: 10, color: 'var(--fl-subtle)', fontFamily: 'monospace', paddingTop: 1 }}>
-                <Cpu size={10} /> Processus
+              <span style={{ display: 'flex', alignItems: 'center', gap: 4, width: 80, flexShrink: 0, fontSize: 10, color: 'var(--fl-subtle)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', paddingTop: 1 }}>
+                <Cpu size={10} /> {t('workbench.process')}
               </span>
-              <span style={{ fontSize: 11, fontFamily: 'monospace', color: 'var(--fl-warn)', fontWeight: 600, wordBreak: 'break-all' }}>
+              <span style={{ fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-warn)', fontWeight: 600, wordBreak: 'break-all' }}>
                 {record.process_name}
               </span>
             </div>
@@ -1607,7 +1612,7 @@ function ArtifactInspector({ record, allRecords = [], caseId, onNotedRefsChange,
           
           {record.mitre_technique_id && (
             <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
-              <span style={{ display: 'flex', alignItems: 'center', gap: 4, width: 80, flexShrink: 0, fontSize: 10, color: 'var(--fl-subtle)', fontFamily: 'monospace', paddingTop: 1 }}>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 4, width: 80, flexShrink: 0, fontSize: 10, color: 'var(--fl-subtle)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', paddingTop: 1 }}>
                 <ShieldAlert size={10} /> MITRE
               </span>
               <MitreBadge id={record.mitre_technique_id} name={record.mitre_technique_name} />
@@ -1618,7 +1623,7 @@ function ArtifactInspector({ record, allRecords = [], caseId, onNotedRefsChange,
           {record.description && (
             <div style={{
               padding: '6px 8px', borderRadius: 5,
-              background: `${color}10`, border: `1px solid ${color}35`,
+              background: `color-mix(in srgb, ${color} 6%, transparent)`, border: `1px solid color-mix(in srgb, ${color} 21%, transparent)`,
               fontSize: 11, lineHeight: 1.55, wordBreak: 'break-word',
               display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 4,
             }}>
@@ -1628,12 +1633,12 @@ function ArtifactInspector({ record, allRecords = [], caseId, onNotedRefsChange,
                   <span key={i} style={{
                     padding: i === 0 ? '0' : '1px 6px',
                     borderRadius: i === 0 ? 0 : 4,
-                    fontFamily: 'monospace',
+                    fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
                     fontSize: i === 0 ? 11 : 10,
                     fontWeight: i === 0 ? 600 : 400,
                     color: i === 0 ? 'var(--fl-on-dark)' : c,
                     background: i === 0 ? 'transparent' : bg,
-                    border: i === 0 ? 'none' : `1px solid ${c}40`,
+                    border: i === 0 ? 'none' : `1px solid color-mix(in srgb, ${c} 25%, transparent)`,
                     whiteSpace: 'nowrap',
                   }}>
                     {part.trim()}
@@ -1646,10 +1651,10 @@ function ArtifactInspector({ record, allRecords = [], caseId, onNotedRefsChange,
           
           {record.source && (
             <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
-              <span style={{ display: 'flex', alignItems: 'center', gap: 4, width: 80, flexShrink: 0, fontSize: 10, color: 'var(--fl-subtle)', fontFamily: 'monospace', paddingTop: 1 }}>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 4, width: 80, flexShrink: 0, fontSize: 10, color: 'var(--fl-subtle)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', paddingTop: 1 }}>
                 <FileText size={10} /> Source
               </span>
-              <span style={{ fontSize: 10, fontFamily: 'monospace', color: '#4d6080', wordBreak: 'break-all', lineHeight: 1.4 }}>
+              <span style={{ fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: '#4d6080', wordBreak: 'break-all', lineHeight: 1.4 }}>
                 {record.source}
               </span>
             </div>
@@ -1663,7 +1668,7 @@ function ArtifactInspector({ record, allRecords = [], caseId, onNotedRefsChange,
               <div style={{
                 position: 'sticky', top: 0,
                 padding: '4px 12px',
-                fontSize: 9, fontFamily: 'monospace', fontWeight: 700,
+                fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontWeight: 700,
                 color: 'var(--fl-muted)', letterSpacing: '0.08em', textTransform: 'uppercase',
                 background: '#05080f', borderBottom: '1px solid rgba(255,255,255,0.07)',
                 display: 'flex', alignItems: 'center', gap: 5,
@@ -1679,10 +1684,10 @@ function ArtifactInspector({ record, allRecords = [], caseId, onNotedRefsChange,
                   const isURL  = /^https?:\/\//.test(strVal);
                   const isPivotable = isIP || isHash || isURL;
                   return (
-                    <div key={key} style={{ borderRadius: 4, overflow: 'hidden', border: `1px solid ${color}28` }}>
+                    <div key={key} style={{ borderRadius: 4, overflow: 'hidden', border: `1px solid color-mix(in srgb, ${color} 16%, transparent)` }}>
                       <div style={{
-                        fontFamily: 'monospace', fontSize: 9, color,
-                        padding: '3px 8px', background: `${color}18`,
+                        fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 9, color,
+                        padding: '3px 8px', background: `color-mix(in srgb, ${color} 9%, transparent)`,
                         textTransform: 'uppercase', letterSpacing: '0.07em', fontWeight: 600,
                         userSelect: 'none',
                       }}>
@@ -1690,9 +1695,9 @@ function ArtifactInspector({ record, allRecords = [], caseId, onNotedRefsChange,
                       </div>
                       <div style={{
                         padding: '5px 8px',
-                        fontFamily: 'monospace', color: '#c0cfe0', fontSize: 10,
+                        fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: '#c0cfe0', fontSize: 10,
                         wordBreak: 'break-all', lineHeight: 1.5,
-                        background: '#05080f', borderTop: `1px solid ${color}18`,
+                        background: '#05080f', borderTop: `1px solid color-mix(in srgb, ${color} 9%, transparent)`,
                         display: 'flex', alignItems: 'flex-start', gap: 6,
                       }}>
                         <span style={{ flex: 1 }}>{strVal}</span>
@@ -1708,7 +1713,7 @@ function ArtifactInspector({ record, allRecords = [], caseId, onNotedRefsChange,
           ) : (
             <div style={{ padding: '8px 12px' }}>
               <div style={{
-                fontSize: 9, fontFamily: 'monospace', fontWeight: 700, color: 'var(--fl-muted)',
+                fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontWeight: 700, color: 'var(--fl-muted)',
                 letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 6,
               }}>
                 {t('workbench.json_raw')}
@@ -1734,8 +1739,8 @@ function MitreBadge({ id, name }) {
   return (
     <span style={{
       display: 'inline-flex', alignItems: 'center', gap: 3,
-      padding: '1px 6px', borderRadius: 3, fontSize: 9, fontFamily: 'monospace', fontWeight: 700,
-      background: '#8b72d615', color: 'var(--fl-purple)', border: '1px solid #8b72d630',
+      padding: '1px 6px', borderRadius: 3, fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontWeight: 700,
+      background: 'color-mix(in srgb, var(--fl-purple) 8%, transparent)', color: 'var(--fl-purple)', border: '1px solid color-mix(in srgb, var(--fl-purple) 19%, transparent)',
       whiteSpace: 'nowrap', flexShrink: 0,
     }} title={name || id}>
       {id}
@@ -1744,16 +1749,16 @@ function MitreBadge({ id, name }) {
 }
 
 const SEV_COLORS = {
-  critical: { bg: '#da363318', color: 'var(--fl-danger)', border: '#da363340' },
-  high:     { bg: '#d97c2014', color: 'var(--fl-warn)', border: '#d97c2035' },
-  medium:   { bg: '#c89d1d12', color: 'var(--fl-gold)', border: '#c89d1d30' },
-  low:      { bg: '#22c55e0c', color: '#22c55e', border: '#22c55e25' },
+  critical: { bg: 'color-mix(in srgb, var(--fl-danger) 9%, transparent)', color: 'var(--fl-danger)', border: 'color-mix(in srgb, var(--fl-danger) 25%, transparent)' },
+  high:     { bg: 'color-mix(in srgb, var(--fl-warn) 8%, transparent)', color: 'var(--fl-warn)', border: 'color-mix(in srgb, var(--fl-warn) 21%, transparent)' },
+  medium:   { bg: 'color-mix(in srgb, var(--fl-gold) 7%, transparent)', color: 'var(--fl-gold)', border: 'color-mix(in srgb, var(--fl-gold) 19%, transparent)' },
+  low:      { bg: 'color-mix(in srgb, var(--fl-ok) 5%, transparent)', color: 'var(--fl-ok)', border: 'color-mix(in srgb, var(--fl-ok) 15%, transparent)' },
 };
 function SeverityBadge({ level }) {
   const s = SEV_COLORS[level] || SEV_COLORS.low;
   return (
     <span style={{
-      padding: '1px 7px', borderRadius: 4, fontSize: 9, fontFamily: 'monospace', fontWeight: 700,
+      padding: '1px 7px', borderRadius: 4, fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontWeight: 700,
       background: s.bg, color: s.color, border: `1px solid ${s.border}`,
       textTransform: 'uppercase', flexShrink: 0,
     }}>
@@ -1779,12 +1784,12 @@ function PersistancePanel({ caseId }) {
   }, [caseId]);
 
   if (loading) return (
-    <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--fl-muted)', fontFamily: 'monospace', fontSize: 11 }}>
+    <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--fl-muted)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11 }}>
       {t('workbench.loading_persistence')}
     </div>
   );
   if (error) return (
-    <div style={{ flex: 1, padding: 16, color: 'var(--fl-danger)', fontFamily: 'monospace', fontSize: 11 }}>
+    <div style={{ flex: 1, padding: 16, color: 'var(--fl-danger)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11 }}>
       {t('common.error')}: {error}
     </div>
   );
@@ -1792,8 +1797,8 @@ function PersistancePanel({ caseId }) {
   const findings = data?.findings || data?.results || data || [];
   if (!Array.isArray(findings) || findings.length === 0) return (
     <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, flexDirection: 'column' }}>
-      <ShieldAlert size={28} style={{ color: '#22c55e', opacity: 0.5 }} />
-      <span style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--fl-subtle)' }}>
+      <ShieldAlert size={28} style={{ color: 'var(--fl-ok)', opacity: 0.5 }} />
+      <span style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11, color: 'var(--fl-subtle)' }}>
         {t('workbench.no_persistence')}
       </span>
     </div>
@@ -1802,7 +1807,7 @@ function PersistancePanel({ caseId }) {
   const byVector = useMemo(() => {
     const result = {};
     for (const f of findings) {
-      const k = f.vector || f.artifact_type || f.type || 'Autre';
+      const k = f.vector || f.artifact_type || f.type || t('workbench.other');
       if (!result[k]) result[k] = [];
       result[k].push(f);
     }
@@ -1811,13 +1816,13 @@ function PersistancePanel({ caseId }) {
 
   const VECTOR_COLORS = {
     'Registry RunKey': 'var(--fl-pink)', registry: 'var(--fl-pink)',
-    lnk: 'var(--fl-warn)', bits: '#64748b', prefetch: '#22c55e',
-    jumplist: '#8b5cf6', amcache: 'var(--fl-gold)',
+    lnk: 'var(--fl-warn)', bits: '#64748b', prefetch: 'var(--fl-ok)',
+    jumplist: 'var(--fl-accent)', amcache: 'var(--fl-gold)',
   };
 
   return (
     <div style={{ flex: 1, overflow: 'auto', padding: '8px 12px', display: 'flex', flexDirection: 'column', gap: 6 }}>
-      <div style={{ fontSize: 9, fontFamily: 'monospace', fontWeight: 700, color: 'var(--fl-subtle)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 5 }}>
+      <div style={{ fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontWeight: 700, color: 'var(--fl-subtle)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 5 }}>
         <ShieldAlert size={10} />
         {findings.length} {findings.length !== 1 ? t('workbench.persistence_items_pl') : t('workbench.persistence_items')} — {Object.keys(byVector).length} {Object.keys(byVector).length !== 1 ? t('workbench.vectors_pl') : t('workbench.vectors')}
       </div>
@@ -1828,21 +1833,21 @@ function PersistancePanel({ caseId }) {
         const mitre_id   = sample?.mitre_technique_id || sample?.technique_id;
         const mitre_name = sample?.mitre_technique_name || sample?.technique_name;
         return (
-          <div key={vector} style={{ borderRadius: 6, border: `1px solid ${col}25`, background: `${col}08`, overflow: 'hidden' }}>
+          <div key={vector} style={{ borderRadius: 6, border: `1px solid color-mix(in srgb, ${col} 15%, transparent)`, background: `color-mix(in srgb, ${col} 3%, transparent)`, overflow: 'hidden' }}>
             
             <button
               onClick={() => setCollapsed(p => ({ ...p, [vector]: !p[vector] }))}
               style={{
                 display: 'flex', alignItems: 'center', gap: 7, width: '100%', textAlign: 'left',
                 padding: '6px 10px', background: 'none', border: 'none', cursor: 'pointer',
-                borderBottom: isOpen ? `1px solid ${col}20` : 'none',
+                borderBottom: isOpen ? `1px solid color-mix(in srgb, ${col} 13%, transparent)` : 'none',
               }}
             >
               {isOpen ? <ChevronDown size={10} style={{ color: col }} /> : <ChevronRight size={10} style={{ color: col }} />}
-              <span style={{ fontSize: 11, fontFamily: 'monospace', fontWeight: 700, color: col, flex: 1 }}>
+              <span style={{ fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontWeight: 700, color: col, flex: 1 }}>
                 {vector}
               </span>
-              <span style={{ fontSize: 10, fontFamily: 'monospace', color: 'var(--fl-subtle)' }}>
+              <span style={{ fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-subtle)' }}>
                 {items.length} {items.length !== 1 ? t('workbench.artifacts_pl') : t('workbench.artifacts')}
               </span>
               <MitreBadge id={mitre_id} name={mitre_name} />
@@ -1850,20 +1855,20 @@ function PersistancePanel({ caseId }) {
             
             {isOpen && items.map((item, i) => (
               <div key={i} style={{
-                padding: '5px 12px 5px 26px', borderBottom: i < items.length - 1 ? `1px solid ${col}12` : 'none',
+                padding: '5px 12px 5px 26px', borderBottom: i < items.length - 1 ? `1px solid color-mix(in srgb, ${col} 7%, transparent)` : 'none',
                 display: 'flex', flexDirection: 'column', gap: 2,
               }}>
-                <span style={{ fontSize: 11, color: 'var(--fl-on-dark)', fontFamily: 'monospace', wordBreak: 'break-all' }}>
+                <span style={{ fontSize: 11, color: 'var(--fl-on-dark)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', wordBreak: 'break-all' }}>
                   {item.description || item.value || item.name || item.source || JSON.stringify(item).slice(0, 120)}
                 </span>
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
                   {item.timestamp && (
-                    <span style={{ fontSize: 9, fontFamily: 'monospace', color: '#3d6080' }}>
+                    <span style={{ fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: '#3d6080' }}>
                       {fmtTs(item.timestamp)}
                     </span>
                   )}
                   {item.source && item.source !== (item.description || '') && (
-                    <span style={{ fontSize: 9, fontFamily: 'monospace', color: 'var(--fl-subtle)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 200 }}>
+                    <span style={{ fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-subtle)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 200 }}>
                       {item.source}
                     </span>
                   )}
@@ -1907,7 +1912,7 @@ function DissimulationPanel({ caseId, records }) {
   }, [records]);
 
   if (loading) return (
-    <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--fl-muted)', fontFamily: 'monospace', fontSize: 11 }}>
+    <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--fl-muted)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11 }}>
       {t('workbench.loading_evasion')}
     </div>
   );
@@ -1919,8 +1924,8 @@ function DissimulationPanel({ caseId, records }) {
 
   if (total === 0) return (
     <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, flexDirection: 'column' }}>
-      <Eye size={28} style={{ color: '#22c55e', opacity: 0.5 }} />
-      <span style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--fl-subtle)' }}>
+      <Eye size={28} style={{ color: 'var(--fl-ok)', opacity: 0.5 }} />
+      <span style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11, color: 'var(--fl-subtle)' }}>
         {t('workbench.no_evasion')}
       </span>
     </div>
@@ -1933,15 +1938,15 @@ function DissimulationPanel({ caseId, records }) {
         borderBottom: '1px solid var(--fl-bg)', flexWrap: 'wrap',
       }}>
         <SeverityBadge level={item.severity || (type === 'timestomping' ? 'high' : type === 'double_ext' ? 'medium' : 'low')} />
-        <span style={{ fontSize: 9, fontFamily: 'monospace', padding: '1px 6px', borderRadius: 3,
-          background: `${color}15`, color, border: `1px solid ${color}30`, flexShrink: 0 }}>
+        <span style={{ fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', padding: '1px 6px', borderRadius: 3,
+          background: `color-mix(in srgb, ${color} 8%, transparent)`, color, border: `1px solid color-mix(in srgb, ${color} 19%, transparent)`, flexShrink: 0 }}>
           {label}
         </span>
-        <span style={{ fontSize: 11, color: 'var(--fl-on-dark)', fontFamily: 'monospace', flex: 1, wordBreak: 'break-all', minWidth: 0 }}>
+        <span style={{ fontSize: 11, color: 'var(--fl-on-dark)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', flex: 1, wordBreak: 'break-all', minWidth: 0 }}>
           {item.description || item.filename || item.name || item.value || item.source || JSON.stringify(item).slice(0, 120)}
         </span>
         {item.timestamp && (
-          <span style={{ fontSize: 9, fontFamily: 'monospace', color: '#3d6080', flexShrink: 0 }}>
+          <span style={{ fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: '#3d6080', flexShrink: 0 }}>
             {fmtTs(item.timestamp)}
           </span>
         )}
@@ -1954,14 +1959,14 @@ function DissimulationPanel({ caseId, records }) {
       
       <div style={{
         flexShrink: 0, padding: '6px 12px', background: 'var(--fl-bg)', borderBottom: '1px solid var(--fl-bg)',
-        fontSize: 9, fontFamily: 'monospace', fontWeight: 700, color: 'var(--fl-subtle)',
+        fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontWeight: 700, color: 'var(--fl-subtle)',
         textTransform: 'uppercase', letterSpacing: '0.1em', display: 'flex', gap: 10, alignItems: 'center',
       }}>
         <Eye size={10} />
         {total} {total !== 1 ? t('workbench.evasion_items_pl') : t('workbench.evasion_items')}
-        {tsFindings.length > 0 && <span style={{ color: 'var(--fl-warn)' }}>Timestomping ×{tsFindings.length}</span>}
-        {dextFindings.length > 0 && <span style={{ color: 'var(--fl-danger)' }}>Double ext. ×{dextFindings.length}</span>}
-        {mftAnomalies.length > 0 && <span style={{ color: 'var(--fl-purple)' }}>{t('workbench.mft_anomalies')} ×{mftAnomalies.length}</span>}
+        {tsFindings.length > 0 && <span style={{ color: 'var(--fl-warn)' }}>Timestomping x{tsFindings.length}</span>}
+        {dextFindings.length > 0 && <span style={{ color: 'var(--fl-danger)' }}>Double ext. x{dextFindings.length}</span>}
+        {mftAnomalies.length > 0 && <span style={{ color: 'var(--fl-purple)' }}>{t('workbench.mft_anomalies')} x{mftAnomalies.length}</span>}
       </div>
       
       {tsFindings.map((item, i) => <ArtifactRow key={`ts-${i}`} item={item} type="timestomping" label="Timestomping" color="var(--fl-warn)" />)}
@@ -1995,6 +2000,7 @@ function ResizeHandle() {
 
 /* ─── ProcessTree ───────────────────────────────────────────────────────────── */
 function ProcessTreeView({ records }) {
+  const { t } = useTranslation();
   const nodes = useMemo(() => {
     const map = new Map(); // pid → node
     const roots = [];
@@ -2024,9 +2030,9 @@ function ProcessTreeView({ records }) {
     return (
       <div key={node.pid} style={{ marginLeft: depth * 18 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '3px 6px', borderRadius: 3, marginBottom: 2 }}>
-          <span style={{ fontSize: 9, color: '#2a5a8a', fontFamily: 'monospace', flexShrink: 0 }}>{node.pid}</span>
-          <span style={{ fontSize: 10, fontFamily: 'monospace', fontWeight: 600, color: c, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={node.img}>{node.name}</span>
-          <span style={{ fontSize: 8, color: '#2a4a6a', fontFamily: 'monospace', flexShrink: 0 }}>{node.ts ? fmtTs(node.ts).slice(0, 19) : ''}</span>
+          <span style={{ fontSize: 9, color: '#2a5a8a', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', flexShrink: 0 }}>{node.pid}</span>
+          <span style={{ fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontWeight: 600, color: c, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={node.img}>{node.name}</span>
+          <span style={{ fontSize: 8, color: '#2a4a6a', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', flexShrink: 0 }}>{node.ts ? fmtTs(node.ts).slice(0, 19) : ''}</span>
         </div>
         {node.children.map(ch => renderNode(ch, depth + 1))}
       </div>
@@ -2035,12 +2041,12 @@ function ProcessTreeView({ records }) {
 
   return (
     <div style={{ flex: 1, overflow: 'auto', padding: '12px', background: '#05080f' }}>
-      <div style={{ fontSize: 9, fontFamily: 'monospace', color: 'var(--fl-subtle)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 10 }}>
-        Arbre de processus — EID 4688 / Sysmon 1 ({nodes.length} racines)
+      <div style={{ fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-subtle)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 10 }}>
+        {tCount(t, 'workbench.process_tree_title', nodes.length)}
       </div>
       {nodes.length === 0 ? (
-        <div style={{ textAlign: 'center', marginTop: 40, fontSize: 12, fontFamily: 'monospace', color: 'var(--fl-muted)' }}>
-          Aucun événement de création de processus (EID 4688 ou Sysmon 1) dans la sélection
+        <div style={{ textAlign: 'center', marginTop: 40, fontSize: 12, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-muted)' }}>
+          {t('workbench.no_process_creation_events')}
         </div>
       ) : nodes.map(n => renderNode(n, 0))}
     </div>
@@ -2049,6 +2055,7 @@ function ProcessTreeView({ records }) {
 
 /* ─── PatternMatcher ────────────────────────────────────────────────────────── */
 function PatternMatcherView({ records }) {
+  const { t } = useTranslation();
   const hits = useMemo(() => {
     const results = [];
     for (const pattern of IOA_PATTERNS) {
@@ -2063,37 +2070,37 @@ function PatternMatcherView({ records }) {
 
   return (
     <div style={{ flex: 1, overflow: 'auto', padding: '12px', background: '#05080f' }}>
-      <div style={{ fontSize: 9, fontFamily: 'monospace', color: 'var(--fl-subtle)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 10 }}>
-        Détection de patterns IoA — {hits.length} pattern(s) détecté(s)
+      <div style={{ fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-subtle)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 10 }}>
+        {tCount(t, 'workbench.ioa_detection_title', hits.length)}
       </div>
       {hits.length === 0 ? (
-        <div style={{ textAlign: 'center', marginTop: 40, fontSize: 12, fontFamily: 'monospace', color: 'var(--fl-muted)' }}>
-          Aucun pattern IoA détecté dans les {records.length} événements chargés
+        <div style={{ textAlign: 'center', marginTop: 40, fontSize: 12, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-muted)' }}>
+          {t('workbench.no_ioa_patterns_loaded', { count: records.length })}
         </div>
       ) : hits.map(({ pattern, matched }) => (
-        <div key={pattern.id} style={{ marginBottom: 8, borderRadius: 6, border: `1px solid ${pattern.color}40`, overflow: 'hidden' }}>
+        <div key={pattern.id} style={{ marginBottom: 8, borderRadius: 6, border: `1px solid color-mix(in srgb, ${pattern.color} 25%, transparent)`, overflow: 'hidden' }}>
           <div
             onClick={() => toggle(pattern.id)}
             style={{
               display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px',
-              background: `${pattern.color}12`, cursor: 'pointer',
+              background: `color-mix(in srgb, ${pattern.color} 7%, transparent)`, cursor: 'pointer',
             }}>
             {expanded.has(pattern.id) ? <ChevronDown size={10} style={{ color: pattern.color, flexShrink: 0 }} /> : <ChevronRight size={10} style={{ color: pattern.color, flexShrink: 0 }} />}
-            <span style={{ fontSize: 11, fontWeight: 700, fontFamily: 'monospace', color: pattern.color }}>⚡ {pattern.name}</span>
-            <span style={{ fontSize: 9, fontFamily: 'monospace', color: '#4d6080' }}>{pattern.tactic}</span>
-            <span style={{ marginLeft: 'auto', fontSize: 9, padding: '1px 6px', borderRadius: 8, background: `${pattern.color}25`, color: pattern.color, fontFamily: 'monospace' }}>
-              {matched.length} hit{matched.length > 1 ? 's' : ''}
+            <span style={{ fontSize: 11, fontWeight: 700, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: pattern.color }}>⚡ {pattern.name}</span>
+            <span style={{ fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: '#4d6080' }}>{pattern.tactic}</span>
+            <span style={{ marginLeft: 'auto', fontSize: 9, padding: '1px 6px', borderRadius: 8, background: `color-mix(in srgb, ${pattern.color} 15%, transparent)`, color: pattern.color, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}>
+              {tCount(t, 'workbench.hits_count', matched.length)}
             </span>
           </div>
           {expanded.has(pattern.id) && (
             <div style={{ padding: '6px 10px', display: 'flex', flexDirection: 'column', gap: 3 }}>
               {matched.slice(0, 20).map((r, i) => (
-                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '3px 6px', borderRadius: 3, background: 'rgba(255,255,255,0.02)', fontSize: 10, fontFamily: 'monospace' }}>
+                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '3px 6px', borderRadius: 3, background: 'rgba(255,255,255,0.02)', fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}>
                   <span style={{ color: '#3a6a9a', flexShrink: 0, width: 130 }}>{fmtTs(r.timestamp).slice(0, 19)}</span>
                   <span style={{ color: 'var(--fl-on-dark)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{r.description || r.source}</span>
                 </div>
               ))}
-              {matched.length > 20 && <span style={{ fontSize: 9, color: 'var(--fl-muted)', fontFamily: 'monospace' }}>+{matched.length - 20} autres</span>}
+              {matched.length > 20 && <span style={{ fontSize: 9, color: 'var(--fl-muted)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}>{tCount(t, 'workbench.other_count', matched.length - 20)}</span>}
             </div>
           )}
         </div>
@@ -2104,6 +2111,7 @@ function PatternMatcherView({ records }) {
 
 /* ─── ClusterView ───────────────────────────────────────────────────────────── */
 function ClusterView({ records }) {
+  const { t } = useTranslation();
   const [groupBy, setGroupBy] = useState('artifact_type');
   const fields = ['artifact_type', 'host_name', 'user_name', 'process_name', 'source'];
 
@@ -2120,17 +2128,17 @@ function ClusterView({ records }) {
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: '#05080f' }}>
       <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderBottom: '1px solid var(--fl-border)' }}>
-        <span style={{ fontSize: 9, fontFamily: 'monospace', color: 'var(--fl-subtle)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Grouper par</span>
+        <span style={{ fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-subtle)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{t('workbench.group_by')}</span>
         {fields.map(f => (
           <button key={f} onClick={() => setGroupBy(f)}
             style={{
-              padding: '2px 8px', borderRadius: 3, fontSize: 9, fontFamily: 'monospace', cursor: 'pointer',
+              padding: '2px 8px', borderRadius: 3, fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', cursor: 'pointer',
               background: groupBy === f ? 'rgba(77,130,192,0.2)' : 'transparent',
               border: `1px solid ${groupBy === f ? 'var(--fl-accent)' : 'var(--fl-sep)'}`,
               color: groupBy === f ? 'var(--fl-accent)' : 'var(--fl-muted)',
             }}>{f}</button>
         ))}
-        <span style={{ marginLeft: 'auto', fontSize: 9, fontFamily: 'monospace', color: 'var(--fl-subtle)' }}>{clusters.length} groupes</span>
+        <span style={{ marginLeft: 'auto', fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-subtle)' }}>{tCount(t, 'workbench.groups_count', clusters.length)}</span>
       </div>
       <div style={{ flex: 1, overflow: 'auto', padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 4 }}>
         {clusters.map(([key, rows]) => {
@@ -2138,11 +2146,11 @@ function ClusterView({ records }) {
           const c = ac(rows[0]?.artifact_type);
           return (
             <div key={key} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 8px', borderRadius: 4, background: 'var(--fl-bg)', border: '1px solid var(--fl-border)' }}>
-              <span style={{ fontSize: 10, fontFamily: 'monospace', color: 'var(--fl-on-dark)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={key}>{key}</span>
+              <span style={{ fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-on-dark)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={key}>{key}</span>
               <div style={{ width: 80, height: 4, background: 'var(--fl-sep)', borderRadius: 2, overflow: 'hidden', flexShrink: 0 }}>
                 <div style={{ width: `${pct}%`, height: '100%', background: c, borderRadius: 2 }} />
               </div>
-              <span style={{ fontSize: 9, fontFamily: 'monospace', color: 'var(--fl-subtle)', flexShrink: 0, width: 40, textAlign: 'right' }}>{rows.length}</span>
+              <span style={{ fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-subtle)', flexShrink: 0, width: 40, textAlign: 'right' }}>{rows.length}</span>
             </div>
           );
         })}
@@ -2153,6 +2161,7 @@ function ClusterView({ records }) {
 
 /* ─── MultiHostTrackView ────────────────────────────────────────────────────── */
 function MultiHostTrackView({ records }) {
+  const { t } = useTranslation();
   const hosts = useMemo(() => [...new Set(records.map(r => r.host_name).filter(Boolean))].sort(), [records]);
   const [selHost, setSelHost] = useState(null);
   const displayed = useMemo(() => selHost ? records.filter(r => r.host_name === selHost) : records, [records, selHost]);
@@ -2160,39 +2169,39 @@ function MultiHostTrackView({ records }) {
   return (
     <div style={{ flex: 1, display: 'flex', overflow: 'hidden', background: '#05080f' }}>
       <div style={{ width: 160, flexShrink: 0, borderRight: '1px solid var(--fl-border)', overflow: 'auto', padding: '8px 0' }}>
-        <div style={{ padding: '4px 12px 6px', fontSize: 9, fontFamily: 'monospace', color: 'var(--fl-subtle)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Hôtes</div>
+        <div style={{ padding: '4px 12px 6px', fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-subtle)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{t('workbench.hosts')}</div>
         <div onClick={() => setSelHost(null)}
-          style={{ padding: '4px 12px', fontSize: 10, fontFamily: 'monospace', cursor: 'pointer', color: !selHost ? 'var(--fl-accent)' : 'var(--fl-muted)', background: !selHost ? 'rgba(77,130,192,0.1)' : 'transparent' }}>
-          Tous ({records.length})
+          style={{ padding: '4px 12px', fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', cursor: 'pointer', color: !selHost ? 'var(--fl-accent)' : 'var(--fl-muted)', background: !selHost ? 'rgba(77,130,192,0.1)' : 'transparent' }}>
+          {t('common.all')} ({records.length})
         </div>
         {hosts.map(h => {
           const cnt = records.filter(r => r.host_name === h).length;
           return (
             <div key={h} onClick={() => setSelHost(h)}
-              style={{ padding: '4px 12px', fontSize: 10, fontFamily: 'monospace', cursor: 'pointer', color: selHost === h ? 'var(--fl-accent)' : 'var(--fl-on-dark)', background: selHost === h ? 'rgba(77,130,192,0.1)' : 'transparent', borderLeft: selHost === h ? '2px solid var(--fl-accent)' : '2px solid transparent', display: 'flex', justifyContent: 'space-between' }}>
+              style={{ padding: '4px 12px', fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', cursor: 'pointer', color: selHost === h ? 'var(--fl-accent)' : 'var(--fl-on-dark)', background: selHost === h ? 'rgba(77,130,192,0.1)' : 'transparent', borderLeft: selHost === h ? '2px solid var(--fl-accent)' : '2px solid transparent', display: 'flex', justifyContent: 'space-between' }}>
               <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{h}</span>
               <span style={{ color: 'var(--fl-subtle)', flexShrink: 0 }}>{cnt}</span>
             </div>
           );
         })}
-        {hosts.length === 0 && <div style={{ padding: '8px 12px', fontSize: 10, fontFamily: 'monospace', color: 'var(--fl-muted)' }}>Aucun hôte</div>}
+        {hosts.length === 0 && <div style={{ padding: '8px 12px', fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-muted)' }}>{t('workbench.no_hosts')}</div>}
       </div>
       <div style={{ flex: 1, overflow: 'auto', padding: '8px 12px' }}>
-        <div style={{ fontSize: 9, fontFamily: 'monospace', color: 'var(--fl-subtle)', marginBottom: 8 }}>
-          {selHost ? `Hôte: ${selHost}` : 'Tous les hôtes'} — {displayed.length} événements
+        <div style={{ fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-subtle)', marginBottom: 8 }}>
+          {selHost ? t('workbench.host_label', { host: selHost }) : t('workbench.all_hosts')} — {t('workbench.events_count', { count: displayed.length })}
         </div>
         {displayed.slice(0, 200).map((r, i) => {
           const c = ac(r.artifact_type);
           return (
             <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '3px 4px', borderLeft: `2px solid ${c}`, marginBottom: 2, paddingLeft: 8 }}>
-              <span style={{ fontSize: 9, fontFamily: 'monospace', color: '#3a6a9a', flexShrink: 0, width: 130 }}>{fmtTs(r.timestamp).slice(0, 19)}</span>
-              <span style={{ fontSize: 9, padding: '0 4px', borderRadius: 2, background: `${c}18`, color: c, fontFamily: 'monospace', flexShrink: 0 }}>{r.artifact_type}</span>
-              <span style={{ fontSize: 10, fontFamily: 'monospace', color: 'var(--fl-on-dark)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{r.description || r.source}</span>
-              {r.host_name && !selHost && <span style={{ fontSize: 8, fontFamily: 'monospace', color: '#22c55e', flexShrink: 0 }}>{r.host_name}</span>}
+              <span style={{ fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: '#3a6a9a', flexShrink: 0, width: 130 }}>{fmtTs(r.timestamp).slice(0, 19)}</span>
+              <span style={{ fontSize: 9, padding: '0 4px', borderRadius: 2, background: `color-mix(in srgb, ${c} 9%, transparent)`, color: c, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', flexShrink: 0 }}>{r.artifact_type}</span>
+              <span style={{ fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-on-dark)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{r.description || r.source}</span>
+              {r.host_name && !selHost && <span style={{ fontSize: 8, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-ok)', flexShrink: 0 }}>{r.host_name}</span>}
             </div>
           );
         })}
-        {displayed.length > 200 && <div style={{ fontSize: 9, fontFamily: 'monospace', color: 'var(--fl-muted)', textAlign: 'center', padding: '8px' }}>+{displayed.length - 200} événements supplémentaires</div>}
+        {displayed.length > 200 && <div style={{ fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-muted)', textAlign: 'center', padding: '8px' }}>{t('workbench.additional_events', { count: displayed.length - 200 })}</div>}
       </div>
     </div>
   );
@@ -2200,6 +2209,7 @@ function MultiHostTrackView({ records }) {
 
 /* ─── AttackChainBuilderView ─────────────────────────────────────────────────── */
 function AttackChainBuilderView({ records }) {
+  const { t } = useTranslation();
   const [chain, setChain] = useState([]);
   const [label, setLabel] = useState('');
 
@@ -2222,8 +2232,8 @@ function AttackChainBuilderView({ records }) {
   return (
     <div style={{ flex: 1, display: 'flex', overflow: 'hidden', background: '#05080f' }}>
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', borderRight: '1px solid var(--fl-border)' }}>
-        <div style={{ flexShrink: 0, padding: '8px 12px', borderBottom: '1px solid var(--fl-border)', fontSize: 9, fontFamily: 'monospace', color: 'var(--fl-subtle)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-          Événements notables ({suggestions.length})
+        <div style={{ flexShrink: 0, padding: '8px 12px', borderBottom: '1px solid var(--fl-border)', fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-subtle)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+          {t('workbench.notable_events', { count: suggestions.length })}
         </div>
         <div style={{ flex: 1, overflow: 'auto', padding: '6px' }}>
           {suggestions.map((r, i) => {
@@ -2231,31 +2241,31 @@ function AttackChainBuilderView({ records }) {
             return (
               <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 8px', borderRadius: 4, marginBottom: 3, background: 'var(--fl-bg)', border: '1px solid var(--fl-border)' }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 9, fontFamily: 'monospace', color: '#3a6a9a' }}>{fmtTs(r.timestamp).slice(0, 19)}</div>
-                  <div style={{ fontSize: 10, fontFamily: 'monospace', color: 'var(--fl-on-dark)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.description || r.source}</div>
+                  <div style={{ fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: '#3a6a9a' }}>{fmtTs(r.timestamp).slice(0, 19)}</div>
+                  <div style={{ fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-on-dark)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.description || r.source}</div>
                   <div style={{ display: 'flex', gap: 3, marginTop: 2 }}>
-                    {ioas.map(p => <span key={p.id} style={{ fontSize: 7, padding: '0 4px', borderRadius: 2, background: `${p.color}20`, color: p.color, fontFamily: 'monospace' }}>{p.name}</span>)}
+                    {ioas.map(p => <span key={p.id} style={{ fontSize: 7, padding: '0 4px', borderRadius: 2, background: `color-mix(in srgb, ${p.color} 13%, transparent)`, color: p.color, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}>{p.name}</span>)}
                   </div>
                 </div>
                 <button onClick={() => addToChain(r)}
-                  style={{ flexShrink: 0, padding: '2px 6px', borderRadius: 3, fontSize: 9, fontFamily: 'monospace', background: 'rgba(77,130,192,0.1)', border: '1px solid var(--fl-accent)', color: 'var(--fl-accent)', cursor: 'pointer' }}>
+                  style={{ flexShrink: 0, padding: '2px 6px', borderRadius: 3, fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', background: 'rgba(77,130,192,0.1)', border: '1px solid var(--fl-accent)', color: 'var(--fl-accent)', cursor: 'pointer' }}>
                   +
                 </button>
               </div>
             );
           })}
-          {suggestions.length === 0 && <div style={{ textAlign: 'center', marginTop: 20, fontSize: 11, fontFamily: 'monospace', color: 'var(--fl-muted)' }}>Aucun événement notable détecté</div>}
+          {suggestions.length === 0 && <div style={{ textAlign: 'center', marginTop: 20, fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-muted)' }}>{t('workbench.no_notable_events')}</div>}
         </div>
       </div>
 
       <div style={{ width: 300, flexShrink: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         <div style={{ flexShrink: 0, padding: '8px 12px', borderBottom: '1px solid var(--fl-border)', display: 'flex', alignItems: 'center', gap: 6 }}>
-          <span style={{ fontSize: 9, fontFamily: 'monospace', color: 'var(--fl-subtle)', textTransform: 'uppercase', letterSpacing: '0.08em', flex: 1 }}>Chaîne d'attaque ({chain.length})</span>
-          {chain.length > 0 && <button onClick={() => setChain([])} style={{ fontSize: 8, fontFamily: 'monospace', color: 'var(--fl-danger)', background: 'none', border: 'none', cursor: 'pointer' }}>Vider</button>}
+          <span style={{ fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-subtle)', textTransform: 'uppercase', letterSpacing: '0.08em', flex: 1 }}>{t('workbench.attack_chain', { count: chain.length })}</span>
+          {chain.length > 0 && <button onClick={() => setChain([])} style={{ fontSize: 8, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-danger)', background: 'none', border: 'none', cursor: 'pointer' }}>{t('workbench.clear')}</button>}
         </div>
         <div style={{ flex: 1, overflow: 'auto', padding: '6px 10px' }}>
           {chain.length === 0 ? (
-            <div style={{ textAlign: 'center', marginTop: 20, fontSize: 10, fontFamily: 'monospace', color: 'var(--fl-muted)' }}>Ajoutez des événements depuis la liste</div>
+            <div style={{ textAlign: 'center', marginTop: 20, fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-muted)' }}>{t('workbench.add_events_from_list')}</div>
           ) : chain.map((r, i) => {
             const c = ac(r.artifact_type);
             return (
@@ -2264,9 +2274,9 @@ function AttackChainBuilderView({ records }) {
                   <div style={{ width: 8, height: 8, borderRadius: '50%', background: c, marginTop: 2 }} />
                   {i < chain.length - 1 && <div style={{ width: 1, height: 24, background: 'var(--fl-sep)', marginTop: 2 }} />}
                 </div>
-                <div style={{ flex: 1, minWidth: 0, padding: '2px 6px', borderRadius: 3, background: 'var(--fl-bg)', border: `1px solid ${c}30` }}>
-                  <div style={{ fontSize: 8, fontFamily: 'monospace', color: '#3a6a9a' }}>{fmtTs(r.timestamp).slice(0, 19)}</div>
-                  <div style={{ fontSize: 9, fontFamily: 'monospace', color: 'var(--fl-on-dark)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.description || r.source}</div>
+                <div style={{ flex: 1, minWidth: 0, padding: '2px 6px', borderRadius: 3, background: 'var(--fl-bg)', border: `1px solid color-mix(in srgb, ${c} 19%, transparent)` }}>
+                  <div style={{ fontSize: 8, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: '#3a6a9a' }}>{fmtTs(r.timestamp).slice(0, 19)}</div>
+                  <div style={{ fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-on-dark)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.description || r.source}</div>
                 </div>
                 <button onClick={() => setChain(prev => prev.filter((_, j) => j !== i))}
                   style={{ flexShrink: 0, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--fl-danger)', fontSize: 9, padding: '2px' }}>✕</button>
@@ -2276,15 +2286,15 @@ function AttackChainBuilderView({ records }) {
         </div>
         {chain.length > 0 && (
           <div style={{ flexShrink: 0, padding: '8px 10px', borderTop: '1px solid var(--fl-border)' }}>
-            <input value={label} onChange={e => setLabel(e.target.value)} placeholder="Nom du rapport…"
-              style={{ width: '100%', background: 'var(--fl-input-bg)', border: '1px solid var(--fl-border)', borderRadius: 4, color: 'var(--fl-text)', fontFamily: 'monospace', fontSize: 9, padding: '4px 8px', outline: 'none', boxSizing: 'border-box', marginBottom: 6 }} />
+            <input value={label} onChange={e => setLabel(e.target.value)} placeholder={t('workbench.report_name_ph')}
+              style={{ width: '100%', background: 'var(--fl-input-bg)', border: '1px solid var(--fl-border)', borderRadius: 4, color: 'var(--fl-text)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 9, padding: '4px 8px', outline: 'none', boxSizing: 'border-box', marginBottom: 6 }} />
             <button
               onClick={() => {
-                const lines = [`# Chaîne d'attaque${label ? ': ' + label : ''}`, `Générée le ${new Date().toISOString()}`, '', ...chain.map((r, i) => `${i + 1}. [${r.artifact_type}] ${fmtTs(r.timestamp)} — ${r.description || r.source}`)].join('\n');
+                const lines = [label ? t('workbench.attack_chain_report_title_named', { label }) : t('workbench.attack_chain_report_title'), t('workbench.generated_at', { date: new Date().toISOString() }), '', ...chain.map((r, i) => `${i + 1}. [${r.artifact_type}] ${fmtTs(r.timestamp)} — ${r.description || r.source}`)].join('\n');
                 navigator.clipboard.writeText(lines).catch(() => {});
               }}
-              style={{ width: '100%', padding: '4px', borderRadius: 4, fontSize: 9, fontFamily: 'monospace', background: 'rgba(77,130,192,0.15)', border: '1px solid var(--fl-accent)', color: 'var(--fl-accent)', cursor: 'pointer' }}>
-              Copier le rapport
+              style={{ width: '100%', padding: '4px', borderRadius: 4, fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', background: 'rgba(77,130,192,0.15)', border: '1px solid var(--fl-accent)', color: 'var(--fl-accent)', cursor: 'pointer' }}>
+              {t('workbench.copy_report')}
             </button>
           </div>
         )}
@@ -2295,6 +2305,7 @@ function AttackChainBuilderView({ records }) {
 
 /* ─── ExportFindingsView ─────────────────────────────────────────────────────── */
 function ExportFindingsView({ records, caseId }) {
+  const { t } = useTranslation();
   const [format, setFormat] = useState('csv');
   const [scope, setScope]   = useState('all');
   const [withIoa, setWithIoa] = useState(true);
@@ -2330,24 +2341,24 @@ function ExportFindingsView({ records, caseId }) {
     } else if (format === 'md') {
       const ioas = IOA_PATTERNS.filter(p => records.some(r => { try { return p.match(r); } catch { return false; } }));
       const lines = [
-        `# Rapport d'investigation Heimdall DFIR`,
+        t('workbench.investigation_report_title'),
         `**Date**: ${new Date().toISOString()}`,
-        `**Événements analysés**: ${records.length}`,
+        t('workbench.analyzed_events_md', { count: records.length }),
         '',
-        '## Patterns IoA détectés',
+        t('workbench.ioa_patterns_detected_md'),
         ioas.length > 0
-          ? ioas.map(p => `- **${p.name}** (${p.tactic}): ${records.filter(r => { try { return p.match(r); } catch { return false; } }).length} occurrence(s)`).join('\n')
-          : '_Aucun pattern détecté_',
+          ? ioas.map(p => `- **${p.name}** (${p.tactic}): ${tCount(t, 'workbench.occurrences_count', records.filter(r => { try { return p.match(r); } catch { return false; } }).length)}`).join('\n')
+          : t('workbench.no_pattern_detected_md'),
         '',
-        '## Événements exportés',
-        `| Timestamp | Type | Hôte | Description |`,
+        t('workbench.exported_events_md'),
+        t('workbench.exported_events_table_header'),
         `|---|---|---|---|`,
         ...rows.slice(0, 500).map(r => `| ${r.timestamp || ''} | ${r.artifact_type || ''} | ${r.host_name || ''} | ${(r.description || '').replace(/\|/g, '\\|').slice(0, 100)} |`),
-        rows.length > 500 ? `\n_...et ${rows.length - 500} événements supplémentaires_` : '',
+        rows.length > 500 ? `\n${t('workbench.additional_events_md', { count: rows.length - 500 })}` : '',
       ].join('\n');
       const blob = new Blob([lines], { type: 'text/markdown' });
       const url = URL.createObjectURL(blob);
-      const a = document.createElement('a'); a.href = url; a.download = `heimdall-rapport-${Date.now()}.md`; a.click();
+      const a = document.createElement('a'); a.href = url; a.download = `heimdall-report-${Date.now()}.md`; a.click();
       URL.revokeObjectURL(url);
     }
   }
@@ -2357,14 +2368,14 @@ function ExportFindingsView({ records, caseId }) {
   return (
     <div style={{ flex: 1, overflow: 'auto', padding: '20px', background: '#05080f' }}>
       <div style={{ maxWidth: 520, margin: '0 auto' }}>
-        <div style={{ fontSize: 9, fontFamily: 'monospace', color: 'var(--fl-subtle)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 16 }}>Export & Rapport</div>
+        <div style={{ fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-subtle)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 16 }}>{t('workbench.export_report')}</div>
 
         <div style={{ marginBottom: 16 }}>
-          <div style={{ fontSize: 10, fontFamily: 'monospace', color: 'var(--fl-muted)', marginBottom: 6 }}>Format</div>
+          <div style={{ fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-muted)', marginBottom: 6 }}>Format</div>
           <div style={{ display: 'flex', gap: 8 }}>
             {['csv', 'json', 'md'].map(f => (
               <button key={f} onClick={() => setFormat(f)}
-                style={{ padding: '5px 14px', borderRadius: 4, fontSize: 10, fontFamily: 'monospace', cursor: 'pointer', fontWeight: format === f ? 700 : 400, background: format === f ? 'rgba(77,130,192,0.2)' : 'transparent', border: `1px solid ${format === f ? 'var(--fl-accent)' : 'var(--fl-sep)'}`, color: format === f ? 'var(--fl-accent)' : 'var(--fl-muted)' }}>
+                style={{ padding: '5px 14px', borderRadius: 4, fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', cursor: 'pointer', fontWeight: format === f ? 700 : 400, background: format === f ? 'rgba(77,130,192,0.2)' : 'transparent', border: `1px solid ${format === f ? 'var(--fl-accent)' : 'var(--fl-sep)'}`, color: format === f ? 'var(--fl-accent)' : 'var(--fl-muted)' }}>
                 {f.toUpperCase()}
               </button>
             ))}
@@ -2372,11 +2383,11 @@ function ExportFindingsView({ records, caseId }) {
         </div>
 
         <div style={{ marginBottom: 16 }}>
-          <div style={{ fontSize: 10, fontFamily: 'monospace', color: 'var(--fl-muted)', marginBottom: 6 }}>Périmètre</div>
+          <div style={{ fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-muted)', marginBottom: 6 }}>{t('workbench.scope')}</div>
           <div style={{ display: 'flex', gap: 8 }}>
-            {[{ k: 'all', l: `Tous (${records.length})` }, { k: 'ioa', l: `IoA seulement (${records.filter(r => IOA_PATTERNS.some(p => { try { return p.match(r); } catch { return false; } })).length})` }].map(opt => (
+            {[{ k: 'all', l: t('workbench.scope_all', { count: records.length }) }, { k: 'ioa', l: t('workbench.scope_ioa_only', { count: records.filter(r => IOA_PATTERNS.some(p => { try { return p.match(r); } catch { return false; } })).length }) }].map(opt => (
               <button key={opt.k} onClick={() => setScope(opt.k)}
-                style={{ padding: '5px 14px', borderRadius: 4, fontSize: 10, fontFamily: 'monospace', cursor: 'pointer', fontWeight: scope === opt.k ? 700 : 400, background: scope === opt.k ? 'rgba(77,130,192,0.2)' : 'transparent', border: `1px solid ${scope === opt.k ? 'var(--fl-accent)' : 'var(--fl-sep)'}`, color: scope === opt.k ? 'var(--fl-accent)' : 'var(--fl-muted)' }}>
+                style={{ padding: '5px 14px', borderRadius: 4, fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', cursor: 'pointer', fontWeight: scope === opt.k ? 700 : 400, background: scope === opt.k ? 'rgba(77,130,192,0.2)' : 'transparent', border: `1px solid ${scope === opt.k ? 'var(--fl-accent)' : 'var(--fl-sep)'}`, color: scope === opt.k ? 'var(--fl-accent)' : 'var(--fl-muted)' }}>
                 {opt.l}
               </button>
             ))}
@@ -2385,18 +2396,18 @@ function ExportFindingsView({ records, caseId }) {
 
         <div style={{ marginBottom: 20, display: 'flex', alignItems: 'center', gap: 8 }}>
           <input type="checkbox" id="withIoa" checked={withIoa} onChange={e => setWithIoa(e.target.checked)} />
-          <label htmlFor="withIoa" style={{ fontSize: 10, fontFamily: 'monospace', color: 'var(--fl-muted)', cursor: 'pointer' }}>
-            Inclure colonne IoA patterns
+          <label htmlFor="withIoa" style={{ fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-muted)', cursor: 'pointer' }}>
+            {t('workbench.include_ioa_column')}
           </label>
         </div>
 
-        <div style={{ padding: '12px', borderRadius: 6, background: 'rgba(77,130,192,0.05)', border: '1px solid var(--fl-sep)', marginBottom: 16, fontSize: 10, fontFamily: 'monospace', color: 'var(--fl-subtle)' }}>
-          {scopeRows.length} événements · format {format.toUpperCase()}
+        <div style={{ padding: '12px', borderRadius: 6, background: 'rgba(77,130,192,0.05)', border: '1px solid var(--fl-sep)', marginBottom: 16, fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-subtle)' }}>
+          {t('workbench.export_summary', { count: scopeRows.length, format: format.toUpperCase() })}
         </div>
 
         <button onClick={doExport}
-          style={{ width: '100%', padding: '10px', borderRadius: 6, fontSize: 11, fontFamily: 'monospace', fontWeight: 700, cursor: 'pointer', background: 'rgba(77,130,192,0.2)', border: '1px solid var(--fl-accent)', color: 'var(--fl-accent)' }}>
-          ↓ Télécharger le rapport
+          style={{ width: '100%', padding: '10px', borderRadius: 6, fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontWeight: 700, cursor: 'pointer', background: 'rgba(77,130,192,0.2)', border: '1px solid var(--fl-accent)', color: 'var(--fl-accent)' }}>
+          {t('workbench.download_report')}
         </button>
       </div>
     </div>
@@ -2687,11 +2698,11 @@ export default function SuperTimelineWorkbench({ records, availTypes, caseId, on
           }} />
           <style>{`@keyframes wbPulse { 0%,100%{opacity:1;box-shadow:0 0 6px var(--fl-accent)} 50%{opacity:.5;box-shadow:0 0 12px var(--fl-accent)} }`}</style>
           <span style={{
-            fontSize: 9, fontFamily: 'monospace', fontWeight: 800,
+            fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontWeight: 800,
             textTransform: 'uppercase', letterSpacing: '0.12em',
             color: 'var(--fl-accent)',
           }}>
-            Mode Investigation
+            {t('workbench.investigation_mode')}
           </span>
         </div>
 
@@ -2699,11 +2710,11 @@ export default function SuperTimelineWorkbench({ records, availTypes, caseId, on
         <div style={{ width: 1, height: 14, background: 'var(--fl-accent)' }} />
 
         
-        <span style={{ fontSize: 10, fontFamily: 'monospace', color: '#3a6a9a' }}>
+        <span style={{ fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: '#3a6a9a' }}>
           <span style={{ color: '#7abfff', fontWeight: 700 }}>{filteredRecords?.length?.toLocaleString() ?? 0}</span>
           {processFilter
-            ? <span style={{ color: '#22c55e' }}> filtrés</span>
-            : total > 0 ? <> / {total.toLocaleString()} événements</> : null
+            ? <span style={{ color: 'var(--fl-ok)' }}> {t('workbench.filtered')}</span>
+            : total > 0 ? <> / {tCount(t, 'workbench.events_count_plain', total)}</> : null
           }
         </span>
 
@@ -2716,18 +2727,18 @@ export default function SuperTimelineWorkbench({ records, availTypes, caseId, on
                 onClick={() => onPageChange(page - 1)}
                 disabled={page <= 1}
                 style={{
-                  padding: '1px 6px', borderRadius: 3, fontSize: 10, fontFamily: 'monospace',
+                  padding: '1px 6px', borderRadius: 3, fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
                   background: 'transparent', border: '1px solid var(--fl-accent)',
                   color: page <= 1 ? 'var(--fl-accent)' : 'var(--fl-accent)', cursor: page <= 1 ? 'default' : 'pointer',
                 }}>‹</button>
-              <span style={{ fontSize: 10, fontFamily: 'monospace', color: '#3a6a9a' }}>
+              <span style={{ fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: '#3a6a9a' }}>
                 {page} / {totalPages}
               </span>
               <button
                 onClick={() => onPageChange(page + 1)}
                 disabled={page >= totalPages}
                 style={{
-                  padding: '1px 6px', borderRadius: 3, fontSize: 10, fontFamily: 'monospace',
+                  padding: '1px 6px', borderRadius: 3, fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
                   background: 'transparent', border: '1px solid var(--fl-accent)',
                   color: page >= totalPages ? 'var(--fl-accent)' : 'var(--fl-accent)', cursor: page >= totalPages ? 'default' : 'pointer',
                 }}>›</button>
@@ -2742,7 +2753,7 @@ export default function SuperTimelineWorkbench({ records, availTypes, caseId, on
         {enteredAt && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
             <Clock size={9} style={{ color: '#2a5a8a' }} />
-            <span style={{ fontSize: 9, fontFamily: 'monospace', color: '#2a5a8a', letterSpacing: '0.05em' }}>
+            <span style={{ fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: '#2a5a8a', letterSpacing: '0.05em' }}>
               {elapsed}
             </span>
           </div>
@@ -2754,9 +2765,9 @@ export default function SuperTimelineWorkbench({ records, availTypes, caseId, on
             onClick={() => setShowActionsMenu(v => !v)}
             style={{
               display: 'flex', alignItems: 'center', gap: 5,
-              padding: '3px 10px', borderRadius: 5, fontSize: 10, fontFamily: 'monospace',
+              padding: '3px 10px', borderRadius: 5, fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
               background: showActionsMenu ? 'rgba(77,130,192,0.18)' : 'rgba(77,130,192,0.08)',
-              border: `1px solid ${showActionsMenu ? '#4d82c060' : 'var(--fl-accent)'}`,
+              border: `1px solid ${showActionsMenu ? 'color-mix(in srgb, var(--fl-accent) 38%, transparent)' : 'var(--fl-accent)'}`,
               color: showActionsMenu ? '#7abfff' : 'var(--fl-accent)',
               cursor: 'pointer', fontWeight: 600,
             }}
@@ -2766,56 +2777,56 @@ export default function SuperTimelineWorkbench({ records, availTypes, caseId, on
           {showActionsMenu && (
             <div style={{
               position: 'absolute', top: '100%', right: 0, marginTop: 4,
-              zIndex: 9000, background: '#0a1520', border: '1px solid var(--fl-accent)',
+              zIndex: 9000, background: '#0e1118', border: '1px solid var(--fl-accent)',
               borderRadius: 8, boxShadow: '0 12px 40px rgba(0,0,0,0.7)',
               width: 520, padding: '10px 0', userSelect: 'none',
             }}>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 0 }}>
                 
-                <ActionMenuSection title="Vues" icon="🖥">
+                <ActionMenuSection title={t('workbench.views')} icon="🖥">
                   {[
                     { id: 'view:timeline',  label: 'Timeline',    icon: '⏱' },
                     { id: 'view:mitre',     label: 'MITRE Live',  icon: '🎯' },
-                    { id: 'view:playback',  label: 'Lecture auto',icon: '▶'  },
-                    { id: 'tab:persistence',label: 'Persistance', icon: '🛡' },
+                    { id: 'view:playback',  label: t('workbench.auto_playback'),icon: '▶'  },
+                    { id: 'tab:persistence',label: t('workbench.tab_persistence'), icon: '🛡' },
                   ].map(c => (
                     <ActionMenuItem key={c.id} icon={c.icon} label={c.label}
                       onClick={() => { handlePaletteCommand(c.id); setShowActionsMenu(false); }} />
                   ))}
                 </ActionMenuSection>
                 
-                <ActionMenuSection title="Filtres rapides" icon="🔍">
+                <ActionMenuSection title={t('workbench.quick_filters')} icon="🔍">
                   {[
                     { id: 'filter:critical',   label: 'Hayabusa Critical', icon: '🔴' },
                     { id: 'filter:high',        label: 'Hayabusa High',     icon: '🟠' },
-                    { id: 'filter:malware',     label: 'Rechercher: malware',icon:'🔍' },
-                    { id: 'filter:lsass',       label: 'Rechercher: lsass', icon: '🔍' },
-                    { id: 'filter:powershell',  label: 'Rechercher: powershell',icon:'🔍' },
+                    { id: 'filter:malware',     label: t('workbench.search_term', { term: 'malware' }),icon:'🔍' },
+                    { id: 'filter:lsass',       label: t('workbench.search_term', { term: 'lsass' }), icon: '🔍' },
+                    { id: 'filter:powershell',  label: t('workbench.search_term', { term: 'powershell' }),icon:'🔍' },
                   ].map(c => (
                     <ActionMenuItem key={c.id} icon={c.icon} label={c.label}
                       onClick={() => { handlePaletteCommand(c.id); setShowActionsMenu(false); }} />
                   ))}
                   {quickFilter && (
-                    <ActionMenuItem icon="✕" label="Effacer le filtre actif" danger
+                    <ActionMenuItem icon="✕" label={t('workbench.clear_active_filter')} danger
                       onClick={() => { setQuickFilter(null); setShowActionsMenu(false); }} />
                   )}
                   {processFilter && (
-                    <ActionMenuItem icon="✕" label="Effacer le suivi processus" danger
+                    <ActionMenuItem icon="✕" label={t('workbench.clear_process_follow')} danger
                       onClick={() => { setProcessFilter(null); setShowActionsMenu(false); }} />
                   )}
                 </ActionMenuSection>
                 
                 <ActionMenuSection title="Actions" icon="⚡">
                   {[
-                    { id: 'copy:all', label: `Copier ${filteredRecords.length} lignes CSV`, icon: '📋' },
+                    { id: 'copy:all', label: tCount(t, 'workbench.copy_csv_rows', filteredRecords.length), icon: '📋' },
                   ].map(c => (
                     <ActionMenuItem key={c.id} icon={c.icon} label={c.label}
                       onClick={() => { handlePaletteCommand(c.id); setShowActionsMenu(false); }} />
                   ))}
-                  <ActionMenuItem icon="⌘K" label="Palette complète (Ctrl+K)"
+                  <ActionMenuItem icon="⌘K" label={t('workbench.full_palette')}
                     onClick={() => { setShowActionsMenu(false); setShowCmdPalette(true); }} />
                   {onExitWorkbench && (
-                    <ActionMenuItem icon="✕" label="Quitter Investigation" danger
+                    <ActionMenuItem icon="✕" label={t('workbench.exit_investigation')} danger
                       onClick={() => { setShowActionsMenu(false); onExitWorkbench(); }} />
                   )}
                 </ActionMenuSection>
@@ -2823,14 +2834,14 @@ export default function SuperTimelineWorkbench({ records, availTypes, caseId, on
               
               {availTypes?.length > 0 && (
                 <div style={{ borderTop: '1px solid var(--fl-bg)', margin: '6px 0 0', padding: '8px 14px 2px' }}>
-                  <div style={{ fontSize: 8, fontFamily: 'monospace', color: 'var(--fl-accent)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 6 }}>
-                    🏷 Filtrer par type d'artefact
+                  <div style={{ fontSize: 8, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-accent)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 6 }}>
+                    🏷 {t('workbench.filter_by_artifact_type')}
                   </div>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
                     {availTypes.map(t => (
                       <button key={t} onClick={() => { handlePaletteCommand(`type:${t}`); setShowActionsMenu(false); }}
                         style={{
-                          padding: '2px 8px', borderRadius: 3, fontSize: 9, fontFamily: 'monospace',
+                          padding: '2px 8px', borderRadius: 3, fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
                           background: 'rgba(77,130,192,0.08)', border: '1px solid var(--fl-accent)',
                           color: '#7abfff', cursor: 'pointer',
                         }}>
@@ -2841,8 +2852,8 @@ export default function SuperTimelineWorkbench({ records, availTypes, caseId, on
                 </div>
               )}
               <div style={{ padding: '8px 14px 2px', borderTop: '1px solid var(--fl-bg)', marginTop: 6 }}>
-                <div style={{ fontSize: 8, fontFamily: 'monospace', color: 'var(--fl-accent)', marginTop: 2 }}>
-                  Astuce : <kbd style={{ border: '1px solid var(--fl-accent)', borderRadius: 2, padding: '0 4px', fontSize: 8, color: '#2a5a8a' }}>Ctrl+K</kbd> pour la palette complète avec recherche
+                <div style={{ fontSize: 8, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-accent)', marginTop: 2 }}>
+                  {t('workbench.tip_prefix')} <kbd style={{ border: '1px solid var(--fl-accent)', borderRadius: 2, padding: '0 4px', fontSize: 8, color: '#2a5a8a' }}>Ctrl+K</kbd> {t('workbench.tip_palette_search')}
                 </div>
               </div>
             </div>
@@ -2852,10 +2863,10 @@ export default function SuperTimelineWorkbench({ records, availTypes, caseId, on
         
         <button
           onClick={() => setShowCmdPalette(true)}
-          title="Palette de commandes (Ctrl+K)"
+          title={t('workbench.command_palette_title')}
           style={{
             display: 'flex', alignItems: 'center', gap: 4,
-            padding: '2px 8px', borderRadius: 4, fontSize: 9, fontFamily: 'monospace',
+            padding: '2px 8px', borderRadius: 4, fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
             background: 'transparent', border: '1px solid var(--fl-bg)',
             color: '#2a5a8a', cursor: 'pointer',
           }}
@@ -2867,18 +2878,18 @@ export default function SuperTimelineWorkbench({ records, availTypes, caseId, on
         {onExitWorkbench && (
           <button
             onClick={onExitWorkbench}
-            title="Quitter le mode investigation"
+            title={t('workbench.exit_investigation_mode')}
             style={{
               display: 'flex', alignItems: 'center', gap: 4,
-              padding: '2px 8px', borderRadius: 4, fontSize: 9, fontFamily: 'monospace',
+              padding: '2px 8px', borderRadius: 4, fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
               background: 'transparent', border: '1px solid var(--fl-accent)',
               color: '#3a6a9a', cursor: 'pointer',
               transition: 'all 0.1s',
             }}
-            onMouseEnter={e => { e.currentTarget.style.color = '#7abfff'; e.currentTarget.style.borderColor = '#4d82c060'; }}
+            onMouseEnter={e => { e.currentTarget.style.color = '#7abfff'; e.currentTarget.style.borderColor = 'color-mix(in srgb, var(--fl-accent) 38%, transparent)'; }}
             onMouseLeave={e => { e.currentTarget.style.color = '#3a6a9a'; e.currentTarget.style.borderColor = 'var(--fl-accent)'; }}
           >
-            <X size={9} /> Quitter
+            <X size={9} /> {t('workbench.exit')}
           </button>
         )}
       </div>
@@ -2898,11 +2909,11 @@ export default function SuperTimelineWorkbench({ records, availTypes, caseId, on
             : tab.id === 'gantt'
             ? '#22d3ee'
             : tab.id === 'heatmap'
-            ? '#f97316'
+            ? 'var(--fl-warn)'
             : tab.id === 'mitre'
-            ? '#a855f7'
+            ? 'var(--fl-accent)'
             : tab.id === 'ai'
-            ? '#22c55e'
+            ? 'var(--fl-ok)'
             : 'var(--fl-accent)';
           return (
             <button
@@ -2910,7 +2921,7 @@ export default function SuperTimelineWorkbench({ records, availTypes, caseId, on
               onClick={() => { setActiveTab(tab.id); onAITabChange?.(tab.id === 'ai'); }}
               style={{
                 display: 'flex', alignItems: 'center', gap: 4,
-                padding: '3px 10px', borderRadius: '4px 4px 0 0', fontSize: 10, fontFamily: 'monospace',
+                padding: '3px 10px', borderRadius: '4px 4px 0 0', fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
                 cursor: 'pointer', background: 'none', border: 'none',
                 fontWeight: active ? 700 : 400,
                 color: active ? color : 'var(--fl-muted)',
@@ -3007,16 +3018,16 @@ export default function SuperTimelineWorkbench({ records, availTypes, caseId, on
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
                 <Globe2 size={16} style={{ color: promoteDialog.is_global ? 'var(--fl-danger)' : '#f0b040' }} />
-                <span style={{ fontFamily: 'monospace', fontWeight: 700, color: 'var(--fl-on-dark)', fontSize: 13 }}>
-                  {promoteDialog.is_global ? 'Retirer le pin global' : 'Partager ce pin avec tous'}
+                <span style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontWeight: 700, color: 'var(--fl-on-dark)', fontSize: 13 }}>
+                  {promoteDialog.is_global ? t('workbench.remove_global_pin') : t('workbench.share_pin_with_all')}
                 </span>
               </div>
-              <div style={{ fontFamily: 'monospace', fontSize: 10, color: '#6a8090', marginBottom: 16, lineHeight: 1.5 }}>
+              <div style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10, color: '#6a8090', marginBottom: 16, lineHeight: 1.5 }}>
                 {promoteDialog.is_global
-                  ? 'Ce pin ne sera plus visible par les autres membres du cas.'
-                  : 'Tous les membres du cas pourront voir ce pin dans leur Workbench.'}
+                  ? t('workbench.global_pin_remove_desc')
+                  : t('workbench.global_pin_share_desc')}
               </div>
-              <div style={{ display: 'flex', gap: 6, fontSize: 10, fontFamily: 'monospace', color: 'var(--fl-accent)', marginBottom: 14 }}>
+              <div style={{ display: 'flex', gap: 6, fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-accent)', marginBottom: 14 }}>
                 <span style={{ color: ac(promoteDialog.artifact_type), flexShrink: 0 }}>[{promoteDialog.artifact_type || '?'}]</span>
                 <span style={{ color: '#7abfff', flexShrink: 0 }}>{promoteDialog.event_ts ? fmtTs(promoteDialog.event_ts) : '-'}</span>
                 <span style={{ color: 'var(--fl-on-dark)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{promoteDialog.description || '-'}</span>
@@ -3024,20 +3035,20 @@ export default function SuperTimelineWorkbench({ records, availTypes, caseId, on
               <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
                 <button
                   onClick={() => setPromoteDialog(null)}
-                  style={{ padding: '5px 14px', borderRadius: 5, border: '1px solid #1e2d45', background: 'transparent', color: '#6a8090', cursor: 'pointer', fontFamily: 'monospace', fontSize: 11 }}
+                  style={{ padding: '5px 14px', borderRadius: 5, border: '1px solid #1e2d45', background: 'transparent', color: '#6a8090', cursor: 'pointer', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11 }}
                 >
-                  Annuler
+                  {t('common.cancel')}
                 </button>
                 <button
                   onClick={() => handlePromoteConfirm(promoteDialog)}
                   style={{
-                    padding: '5px 14px', borderRadius: 5, cursor: 'pointer', fontFamily: 'monospace', fontSize: 11, fontWeight: 700,
+                    padding: '5px 14px', borderRadius: 5, cursor: 'pointer', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11, fontWeight: 700,
                     background: promoteDialog.is_global ? 'color-mix(in srgb, var(--fl-danger) 20%, var(--fl-bg))' : 'color-mix(in srgb, #f0b040 20%, var(--fl-bg))',
                     color: promoteDialog.is_global ? 'var(--fl-danger)' : '#f0b040',
                     border: `1px solid ${promoteDialog.is_global ? 'color-mix(in srgb, var(--fl-danger) 40%, transparent)' : 'color-mix(in srgb, #f0b040 40%, transparent)'}`,
                   }}
                 >
-                  {promoteDialog.is_global ? 'Retirer' : 'Partager'}
+                  {promoteDialog.is_global ? t('workbench.remove') : t('workbench.share')}
                 </button>
               </div>
             </div>
@@ -3057,12 +3068,12 @@ export default function SuperTimelineWorkbench({ records, availTypes, caseId, on
             >
               {pinsOpen ? <ChevronDown size={10} style={{ color: 'var(--fl-accent)' }} /> : <ChevronRight size={10} style={{ color: 'var(--fl-accent)' }} />}
               <Pin size={10} style={{ color: 'var(--fl-accent)' }} />
-              <span style={{ fontSize: 9, fontFamily: 'monospace', fontWeight: 700, color: 'var(--fl-accent)', textTransform: 'uppercase', letterSpacing: '0.07em' }}>
-                Épinglés ({pinnedRows.size})
+              <span style={{ fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontWeight: 700, color: 'var(--fl-accent)', textTransform: 'uppercase', letterSpacing: '0.07em' }}>
+                {t('workbench.pinned_count', { count: pinnedRows.size })}
               </span>
               {[...pinnedRows.values()].some(p => p.is_global) && (
                 <span style={{ marginLeft: 4, display: 'inline-flex', alignItems: 'center', gap: 2, fontSize: 9, color: '#f0b040' }}>
-                  <Globe2 size={8} /> {[...pinnedRows.values()].filter(p => p.is_global).length} global
+                  <Globe2 size={8} /> {t('workbench.global_count', { count: [...pinnedRows.values()].filter(p => p.is_global).length })}
                 </span>
               )}
             </button>
@@ -3071,11 +3082,11 @@ export default function SuperTimelineWorkbench({ records, availTypes, caseId, on
                 {[...pinnedRows.values()].map(pin => (
                   <div key={pin.id} style={{
                     display: 'flex', alignItems: 'center', gap: 6, padding: '4px 10px 4px 24px',
-                    borderBottom: '1px solid var(--fl-bg)', fontSize: 10, fontFamily: 'monospace',
+                    borderBottom: '1px solid var(--fl-bg)', fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
                     borderLeft: pin.is_global ? '2px solid #f0b04060' : '2px solid transparent',
                   }}>
                     {pin.is_global
-                      ? <Globe2 size={9} style={{ color: '#f0b040', flexShrink: 0 }} title={`Global — partagé par ${pin.promoted_by_name || 'un membre'}`} />
+                      ? <Globe2 size={9} style={{ color: '#f0b040', flexShrink: 0 }} title={t('workbench.global_shared_by', { name: pin.promoted_by_name || t('workbench.a_member') })} />
                       : <Pin size={9} style={{ color: 'var(--fl-accent)', flexShrink: 0 }} />
                     }
                     <span style={{ color: ac(pin.artifact_type), flexShrink: 0 }}>{pin.artifact_type || '?'}</span>
@@ -3084,7 +3095,7 @@ export default function SuperTimelineWorkbench({ records, availTypes, caseId, on
                     {pin.note && <span style={{ color: '#6a8090', fontStyle: 'italic', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 100 }}>{pin.note}</span>}
                     <button
                       onClick={() => setPromoteDialog(pin)}
-                      title={pin.is_global ? 'Retirer le partage global' : 'Partager avec tous les membres'}
+                      title={pin.is_global ? t('workbench.remove_global_share') : t('workbench.share_with_all_members')}
                       style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 1, flexShrink: 0, display: 'flex', alignItems: 'center',
                         color: pin.is_global ? '#f0b040' : 'var(--fl-card)',
                       }}
@@ -3093,7 +3104,7 @@ export default function SuperTimelineWorkbench({ records, availTypes, caseId, on
                     </button>
                     <button
                       onClick={() => handlePin({ timestamp: pin.event_ts, source: pin.source, artifact_type: pin.artifact_type })}
-                      title="Désépingler"
+                      title={t('workbench.unpin')}
                       style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--fl-danger)', display: 'flex', alignItems: 'center', padding: 0, flexShrink: 0 }}
                     >
                       <PinOff size={9} />
@@ -3114,7 +3125,7 @@ export default function SuperTimelineWorkbench({ records, availTypes, caseId, on
             flexShrink: 0, display: 'flex', alignItems: 'center', gap: 6,
             padding: '3px 10px', background: 'var(--fl-bg)', borderBottom: '1px solid var(--fl-bg)',
           }}>
-            <span style={{ fontSize: 9, fontFamily: 'monospace', color: 'var(--fl-muted)', textTransform: 'uppercase', letterSpacing: '0.07em' }}>
+            <span style={{ fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-muted)', textTransform: 'uppercase', letterSpacing: '0.07em' }}>
               {t('workbench.gaps_label')} :
             </span>
             {gapThresholds.map(thresh => (
@@ -3122,7 +3133,7 @@ export default function SuperTimelineWorkbench({ records, availTypes, caseId, on
                 key={thresh.ms}
                 onClick={() => setGapThresholdMs(thresh.ms)}
                 style={{
-                  padding: '1px 7px', borderRadius: 3, fontSize: 9, fontFamily: 'monospace',
+                  padding: '1px 7px', borderRadius: 3, fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
                   cursor: 'pointer', border: 'none',
                   background: gapThresholdMs === thresh.ms
                     ? (thresh.ms ? 'color-mix(in srgb, var(--fl-danger) 10%, var(--fl-bg))' : 'color-mix(in srgb, var(--fl-accent) 10%, var(--fl-bg))')
@@ -3139,13 +3150,13 @@ export default function SuperTimelineWorkbench({ records, availTypes, caseId, on
             
             <div style={{ marginLeft: 'auto' }}>
               <button onClick={() => setShowPlayback(v => !v)}
-                title="Lecture chronologique (W-4)"
+                title={t('workbench.chronological_playback')}
                 style={{
-                  padding: '1px 8px', borderRadius: 3, fontSize: 9, fontFamily: 'monospace',
-                  cursor: 'pointer', border: `1px solid ${showPlayback ? '#4d82c030' : 'var(--fl-bg)'}`,
+                  padding: '1px 8px', borderRadius: 3, fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
+                  cursor: 'pointer', border: `1px solid ${showPlayback ? 'color-mix(in srgb, var(--fl-accent) 19%, transparent)' : 'var(--fl-bg)'}`,
                   background: showPlayback ? 'rgba(77,130,192,0.15)' : 'transparent',
                   color: showPlayback ? 'var(--fl-accent)' : '#2a5a8a',
-                }}>▶ Lecture</button>
+                }}>▶ {t('workbench.playback')}</button>
             </div>
           </div>
           
@@ -3155,12 +3166,12 @@ export default function SuperTimelineWorkbench({ records, availTypes, caseId, on
               padding: '3px 10px', background: 'rgba(34,197,94,0.08)',
               borderBottom: '1px solid rgba(34,197,94,0.2)',
             }}>
-              <span style={{ fontSize: 9, fontFamily: 'monospace', color: '#22c55e' }}>
-                🔗 Suivre: <strong>{processFilter}</strong> — {filteredRecords.length} événements
+              <span style={{ fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-ok)' }}>
+                🔗 {t('workbench.following_process', { process: processFilter, count: filteredRecords.length })}
               </span>
               <button onClick={() => setProcessFilter(null)}
-                style={{ marginLeft: 'auto', fontSize: 9, fontFamily: 'monospace', color: '#22c55e', background: 'none', border: 'none', cursor: 'pointer' }}>
-                ✕ Effacer
+                style={{ marginLeft: 'auto', fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-ok)', background: 'none', border: 'none', cursor: 'pointer' }}>
+                ✕ {t('workbench.clear')}
               </button>
             </div>
           )}
@@ -3171,12 +3182,12 @@ export default function SuperTimelineWorkbench({ records, availTypes, caseId, on
               padding: '3px 10px', background: 'rgba(249,115,22,0.08)',
               borderBottom: '1px solid rgba(249,115,22,0.2)',
             }}>
-              <span style={{ fontSize: 9, fontFamily: 'monospace', color: '#f97316' }}>
-                🔍 Filtre <strong>{quickFilter.field}</strong>: <strong>{quickFilter.value}</strong> — {filteredRecords.length} événements
+              <span style={{ fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-warn)' }}>
+                🔍 {t('workbench.active_filter_summary', { field: quickFilter.field, value: quickFilter.value, count: filteredRecords.length })}
               </span>
               <button onClick={() => setQuickFilter(null)}
-                style={{ marginLeft: 'auto', fontSize: 9, fontFamily: 'monospace', color: '#f97316', background: 'none', border: 'none', cursor: 'pointer' }}>
-                ✕ Effacer
+                style={{ marginLeft: 'auto', fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-warn)', background: 'none', border: 'none', cursor: 'pointer' }}>
+                ✕ {t('workbench.clear')}
               </button>
             </div>
           )}
@@ -3233,6 +3244,7 @@ export default function SuperTimelineWorkbench({ records, availTypes, caseId, on
 }
 
 function QuickFilterBar({ records, availTypes, quickFilter, processFilter, onFilter, onClearProcess, onClearAll }) {
+  const { t } = useTranslation();
   const hosts   = useMemo(() => [...new Set((records || []).map(r => r.host_name).filter(Boolean))].sort(), [records]);
   const users   = useMemo(() => [...new Set((records || []).map(r => r.user_name).filter(Boolean))].sort(), [records]);
   const sevs    = ['critical', 'high', 'medium', 'low'];
@@ -3247,15 +3259,15 @@ function QuickFilterBar({ records, availTypes, quickFilter, processFilter, onFil
       overflowX: 'auto',
     }}>
       
-      <span style={{ fontSize: 8, fontFamily: 'monospace', color: 'var(--fl-accent)', whiteSpace: 'nowrap' }}>SÉVÉRITÉ</span>
+      <span style={{ fontSize: 8, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-accent)', whiteSpace: 'nowrap' }}>{t('workbench.severity')}</span>
       {sevs.map(s => {
         const active = quickFilter?.field === 'hay_severity' && quickFilter.value === s;
         return (
           <button key={s} onClick={() => onFilter('hay_severity', active ? null : s)}
             style={{
-              padding: '1px 7px', borderRadius: 3, fontSize: 9, fontFamily: 'monospace', whiteSpace: 'nowrap',
+              padding: '1px 7px', borderRadius: 3, fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', whiteSpace: 'nowrap',
               cursor: 'pointer', fontWeight: active ? 700 : 400,
-              background: active ? `${SEV_COLOR[s]}22` : 'transparent',
+              background: active ? `color-mix(in srgb, ${SEV_COLOR[s]} 13%, transparent)` : 'transparent',
               border: `1px solid ${active ? SEV_COLOR[s] : 'var(--fl-bg)'}`,
               color: active ? SEV_COLOR[s] : '#2a5a8a',
             }}>
@@ -3269,18 +3281,18 @@ function QuickFilterBar({ records, availTypes, quickFilter, processFilter, onFil
       
       {hosts.length > 0 && (
         <>
-          <span style={{ fontSize: 8, fontFamily: 'monospace', color: 'var(--fl-accent)', whiteSpace: 'nowrap' }}>HÔTE</span>
+          <span style={{ fontSize: 8, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-accent)', whiteSpace: 'nowrap' }}>{t('workbench.host')}</span>
           <select
             value={quickFilter?.field === 'host' ? quickFilter.value : ''}
             onChange={e => onFilter('host', e.target.value || null)}
             style={{
               background: quickFilter?.field === 'host' ? 'rgba(77,130,192,0.12)' : '#04070e',
-              border: `1px solid ${quickFilter?.field === 'host' ? '#4d82c060' : 'var(--fl-bg)'}`,
+              border: `1px solid ${quickFilter?.field === 'host' ? 'color-mix(in srgb, var(--fl-accent) 38%, transparent)' : 'var(--fl-bg)'}`,
               borderRadius: 3, color: quickFilter?.field === 'host' ? '#7abfff' : '#3a6a9a',
-              fontSize: 9, fontFamily: 'monospace', padding: '1px 4px', cursor: 'pointer',
+              fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', padding: '1px 4px', cursor: 'pointer',
               maxWidth: 130,
             }}>
-            <option value="">Tous les hôtes</option>
+            <option value="">{t('workbench.all_hosts')}</option>
             {hosts.map(h => <option key={h} value={h}>{h}</option>)}
           </select>
         </>
@@ -3289,18 +3301,18 @@ function QuickFilterBar({ records, availTypes, quickFilter, processFilter, onFil
       
       {users.length > 0 && (
         <>
-          <span style={{ fontSize: 8, fontFamily: 'monospace', color: 'var(--fl-accent)', whiteSpace: 'nowrap' }}>USER</span>
+          <span style={{ fontSize: 8, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-accent)', whiteSpace: 'nowrap' }}>USER</span>
           <select
             value={quickFilter?.field === 'user' ? quickFilter.value : ''}
             onChange={e => onFilter('user', e.target.value || null)}
             style={{
               background: quickFilter?.field === 'user' ? 'rgba(77,130,192,0.12)' : '#04070e',
-              border: `1px solid ${quickFilter?.field === 'user' ? '#4d82c060' : 'var(--fl-bg)'}`,
+              border: `1px solid ${quickFilter?.field === 'user' ? 'color-mix(in srgb, var(--fl-accent) 38%, transparent)' : 'var(--fl-bg)'}`,
               borderRadius: 3, color: quickFilter?.field === 'user' ? '#7abfff' : '#3a6a9a',
-              fontSize: 9, fontFamily: 'monospace', padding: '1px 4px', cursor: 'pointer',
+              fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', padding: '1px 4px', cursor: 'pointer',
               maxWidth: 130,
             }}>
-            <option value="">Tous les utilisateurs</option>
+            <option value="">{t('workbench.all_users')}</option>
             {users.map(u => <option key={u} value={u}>{u}</option>)}
           </select>
         </>
@@ -3310,17 +3322,17 @@ function QuickFilterBar({ records, availTypes, quickFilter, processFilter, onFil
       {availTypes?.length > 0 && (
         <>
           <div style={{ width: 1, height: 14, background: 'var(--fl-bg)', flexShrink: 0 }} />
-          <span style={{ fontSize: 8, fontFamily: 'monospace', color: 'var(--fl-accent)', whiteSpace: 'nowrap' }}>TYPE</span>
+          <span style={{ fontSize: 8, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-accent)', whiteSpace: 'nowrap' }}>TYPE</span>
           <select
             defaultValue=""
             onChange={e => { if (e.target.value) onFilter('type', e.target.value); e.target.value = ''; }}
             style={{
               background: '#04070e', border: '1px solid var(--fl-bg)',
               borderRadius: 3, color: '#3a6a9a',
-              fontSize: 9, fontFamily: 'monospace', padding: '1px 4px', cursor: 'pointer',
+              fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', padding: '1px 4px', cursor: 'pointer',
               maxWidth: 140,
             }}>
-            <option value="">Filtrer par type…</option>
+            <option value="">{t('workbench.filter_by_type_ph')}</option>
             {availTypes.map(t => <option key={t} value={t}>{t}</option>)}
           </select>
         </>
@@ -3332,11 +3344,11 @@ function QuickFilterBar({ records, availTypes, quickFilter, processFilter, onFil
           <div style={{ width: 1, height: 14, background: 'var(--fl-bg)', flexShrink: 0 }} />
           <button onClick={onClearAll}
             style={{
-              padding: '1px 8px', borderRadius: 3, fontSize: 9, fontFamily: 'monospace',
+              padding: '1px 8px', borderRadius: 3, fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
               background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)',
               color: 'var(--fl-danger)', cursor: 'pointer', whiteSpace: 'nowrap',
             }}>
-            ✕ Réinitialiser filtres
+            ✕ {t('workbench.reset_filters')}
           </button>
         </>
       )}
@@ -3347,7 +3359,7 @@ function QuickFilterBar({ records, availTypes, quickFilter, processFilter, onFil
 function ActionMenuSection({ title, icon, children }) {
   return (
     <div style={{ padding: '0 0 8px' }}>
-      <div style={{ padding: '2px 14px 6px', fontSize: 8, fontFamily: 'monospace', color: 'var(--fl-accent)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+      <div style={{ padding: '2px 14px 6px', fontSize: 8, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-accent)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
         {icon} {title}
       </div>
       {children}
@@ -3369,7 +3381,7 @@ function ActionMenuItem({ icon, label, onClick, danger }) {
         borderLeft: `2px solid ${hov ? (danger ? 'var(--fl-danger)' : 'var(--fl-accent)') : 'transparent'}`,
       }}>
       <span style={{ fontSize: 11, flexShrink: 0 }}>{icon}</span>
-      <span style={{ fontFamily: 'monospace', fontSize: 10, color: danger ? 'var(--fl-danger)' : (hov ? 'var(--fl-on-dark)' : '#7abfff'), overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+      <span style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10, color: danger ? 'var(--fl-danger)' : (hov ? 'var(--fl-on-dark)' : '#7abfff'), overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
         {label}
       </span>
     </div>
@@ -3385,6 +3397,7 @@ const DET_SEV_COLOR = {
 };
 
 function DetectionsSummaryBanner({ caseId }) {
+  const { t, i18n } = useTranslation();
   const [summary, setSummary] = useState(null);
   useEffect(() => {
     if (!caseId) return;
@@ -3410,17 +3423,17 @@ function DetectionsSummaryBanner({ caseId }) {
       padding: '6px 14px',
       background: 'linear-gradient(90deg, rgba(239,68,68,0.06), rgba(217,124,32,0.04) 40%, transparent)',
       borderBottom: '1px solid var(--fl-sep)',
-      fontFamily: 'monospace', fontSize: 11,
+      fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11,
     }}>
       <span style={{ color: 'var(--fl-warn)', fontWeight: 700 }}>
-        🎯 {summary.total.toLocaleString('fr-FR')} détection{summary.total > 1 ? 's' : ''}
+        🎯 {tCount(t, 'workbench.detections_count', summary.total, { count: summary.total.toLocaleString(i18n.language) })}
       </span>
       {sevEntries.map(([s, n]) => (
         <span key={s} style={{
           padding: '1px 7px', borderRadius: 3, fontWeight: 700,
-          background: `${DET_SEV_COLOR[s]}22`,
+          background: `color-mix(in srgb, ${DET_SEV_COLOR[s]} 13%, transparent)`,
           color: DET_SEV_COLOR[s],
-          border: `1px solid ${DET_SEV_COLOR[s]}50`,
+          border: `1px solid color-mix(in srgb, ${DET_SEV_COLOR[s]} 31%, transparent)`,
         }}>
           {s.toUpperCase()} · {n}
         </span>

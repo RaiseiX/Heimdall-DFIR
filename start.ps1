@@ -114,6 +114,7 @@ if (-not (Test-Path ".env")) {
     Replace-InFile ".env" "VOLWEB_PASSWORD=CHANGEME_min16chars_volweb"           "VOLWEB_PASSWORD=$VOLWEB_PASSWORD"
     Replace-InFile ".env" "MINIO_ROOT_USER=CHANGEME_access_key_id"               "MINIO_ROOT_USER=$MINIO_ROOT_USER"
     Replace-InFile ".env" "MINIO_ROOT_PASSWORD=CHANGEME_min12chars_secret_key"   "MINIO_ROOT_PASSWORD=$MINIO_ROOT_PASSWORD"
+    Replace-InFile ".env" "ADMIN_DEFAULT_PASSWORD=CHANGEME_strong_admin_password" "ADMIN_DEFAULT_PASSWORD=Admin2026!"
 
     Write-Ok "Secrets generated automatically"
 } else {

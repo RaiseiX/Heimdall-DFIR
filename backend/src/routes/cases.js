@@ -6,8 +6,96 @@ const { hardDeleteCase } = require('../services/hardDeleteService');
 const { getRiskScore } = require('../services/riskScoreService');
 const logger = require('../config/logger').default;
 const { computeTriageScores, saveTriageScores, getTriageScores } = require('../services/triageScoreService');
+const { getExceptions, applyExceptions, applyExceptionsGrouped } = require('../services/detectionExceptions');
+const { getDriverIndex, getHijackIndex, matchDrivers, matchHijack } = require('../services/lolDriversService');
+const { buildLateralMovement, mapNetworkRowsToLateral } = require('../services/lateralMovementService');
 
 const router = express.Router();
+
+const { caseAccessParam, caseListFilter, canAccessCase, ELEVATED } = require('../middleware/caseAccess');
+// Enforce case-level access on every route carrying :id (the case id). The cases
+// list (no :id) and global routes (e.g. /detections/exceptions/:exId) are unaffected.
+// NB: param callbacks run before route-level middleware, so authenticate must be
+// applied at router level first — otherwise req.user is undefined in the param.
+router.use(authenticate);
+router.param('id', caseAccessParam);
+
+// ── Case assignment (RBAC) ───────────────────────────────────────────────────
+// Users that can be assigned to a case (analysts + team leads).
+router.get('/assignable-users', authenticate, requireRole('admin', 'team_lead'), async (req, res) => {
+  try {
+    const r = await pool.query(
+      `SELECT id, full_name, username, role FROM users WHERE role IN ('analyst','team_lead','admin') AND is_active IS NOT FALSE ORDER BY full_name NULLS LAST, username`);
+    res.json({ users: r.rows });
+  } catch (e) { logger.error('assignable-users:', e.message); res.status(500).json({ error: 'Erreur serveur' }); }
+});
+
+// Assignees of a case (anyone with access to the case can view them).
+router.get('/:id/assignees', authenticate, async (req, res) => {
+  try {
+    const r = await pool.query(
+      `SELECT u.id, u.full_name, u.username, u.role, ca.assigned_at
+         FROM case_assignees ca JOIN users u ON u.id = ca.user_id
+        WHERE ca.case_id = $1 ORDER BY ca.assigned_at`, [req.params.id]);
+    res.json({ assignees: r.rows });
+  } catch (e) { logger.error('get assignees:', e.message); res.status(500).json({ error: 'Erreur serveur' }); }
+});
+
+router.post('/:id/assignees', authenticate, requireRole('admin', 'team_lead'), async (req, res) => {
+  try {
+    const { user_id } = req.body;
+    if (!user_id) return res.status(400).json({ error: 'user_id requis' });
+    await pool.query(
+      `INSERT INTO case_assignees (case_id, user_id, assigned_by) VALUES ($1, $2, $3)
+       ON CONFLICT (case_id, user_id) DO NOTHING`, [req.params.id, user_id, req.user.id]);
+    await auditLog(req.user.id, 'update_case', 'case', req.params.id, { action: 'assign', user_id }, req.ip);
+    res.json({ ok: true });
+  } catch (e) { logger.error('add assignee:', e.message); res.status(500).json({ error: 'Erreur serveur' }); }
+});
+
+router.delete('/:id/assignees/:userId', authenticate, requireRole('admin', 'team_lead'), async (req, res) => {
+  try {
+    await pool.query('DELETE FROM case_assignees WHERE case_id = $1 AND user_id = $2', [req.params.id, req.params.userId]);
+    await auditLog(req.user.id, 'update_case', 'case', req.params.id, { action: 'unassign', user_id: req.params.userId }, req.ip);
+    res.json({ ok: true });
+  } catch (e) { logger.error('remove assignee:', e.message); res.status(500).json({ error: 'Erreur serveur' }); }
+});
+
+// ── Detection false-positive suppression (tuning loop) ───────────────────────
+// Confidence (true-positive likelihood) — distinct from severity (impact if true).
+const CONF_FROM_SEV = { 'CRITIQUE': 'high', 'ÉLEVÉ': 'high', 'MOYEN': 'medium', 'FAIBLE': 'low' };
+const vecConf = (v) => v.confidence || CONF_FROM_SEV[v.severity] || 'medium';
+const DETECTION_TYPES = ['timestomping', 'double-ext', 'beaconing', 'persistence', 'sysmon-behavior',
+  'lolbins', 'masquerading', 'powershell-abuse', 'wmi-persistence', 'defender-tampering',
+  'anti-forensic', 'execution-anomaly', 'attack-techniques', 'vuln-drivers'];
+
+router.get('/:id/detections/exceptions', authenticate, async (req, res) => {
+  try { res.json({ exceptions: await getExceptions(req.params.id) }); }
+  catch (err) { logger.error('[detections.exceptions GET]', err); res.status(500).json({ error: 'Erreur serveur' }); }
+});
+
+router.post('/:id/detections/exceptions', authenticate, async (req, res) => {
+  try {
+    const value = String(req.body?.match_value || '').trim();
+    if (!value) return res.status(400).json({ error: 'match_value requis' });
+    const dtype = DETECTION_TYPES.includes(req.body?.detection_type) ? req.body.detection_type : null;
+    const scope = req.body?.scope === 'global' ? null : req.params.id;   // null = global
+    const reason = String(req.body?.reason || '').slice(0, 500) || null;
+    const r = await pool.query(
+      `INSERT INTO detection_exceptions (case_id, detection_type, match_value, reason, created_by)
+       VALUES ($1, $2, $3, $4, $5) RETURNING id, case_id, detection_type, match_value, reason, created_at`,
+      [scope, dtype, value, reason, req.user.id]
+    );
+    await auditLog(req.user.id, 'create_ioc', 'case', req.params.id,
+      { action: 'detection_exception', detection_type: dtype, scope: scope ? 'case' : 'global' }, req.ip);
+    res.status(201).json(r.rows[0]);
+  } catch (err) { logger.error('[detections.exceptions POST]', err); res.status(500).json({ error: 'Erreur serveur' }); }
+});
+
+router.delete('/:id/detections/exceptions/:exId', authenticate, async (req, res) => {
+  try { await pool.query('DELETE FROM detection_exceptions WHERE id = $1', [req.params.exId]); res.json({ ok: true }); }
+  catch (err) { logger.error('[detections.exceptions DELETE]', err); res.status(500).json({ error: 'Erreur serveur' }); }
+});
 
 router.get('/', authenticate, async (req, res) => {
   try {
@@ -32,12 +120,18 @@ router.get('/', authenticate, async (req, res) => {
       idx++;
     }
 
+    // RBAC: analysts only see their own/assigned cases (elevated roles see all).
+    const acc = caseListFilter(req.user, 'c', idx);
+    if (acc.sql) { query += acc.sql; params.push(...acc.params); idx += acc.params.length; }
+
     query += ` ORDER BY c.created_at DESC LIMIT $${idx++} OFFSET $${idx++}`;
     params.push(parseInt(limit), (parseInt(page) - 1) * parseInt(limit));
 
     const result = await pool.query(query, params);
 
-    const countResult = await pool.query('SELECT COUNT(*) FROM cases');
+    const accCount = caseListFilter(req.user, 'c', 1);
+    const countResult = await pool.query(
+      `SELECT COUNT(*) FROM cases c WHERE 1=1${accCount.sql}`, accCount.params);
 
     res.json({
       cases: result.rows,
@@ -53,7 +147,7 @@ router.get('/', authenticate, async (req, res) => {
 
 router.get('/stats/dashboard', authenticate, async (req, res) => {
   try {
-    const [stats, evidenceStats, iocStats, recentActivity, dailyActivity, artifactStats] = await Promise.all([
+    const [stats, evidenceStats, iocStats, recentActivity, dailyActivity, artifactStats, findingsSev, scanHealth, parsedEv] = await Promise.all([
       pool.query(`
         SELECT
           COUNT(*) FILTER (WHERE status = 'active') as active_cases,
@@ -121,7 +215,45 @@ router.get('/stats/dashboard', authenticate, async (req, res) => {
           GROUP BY artifact_type
         ) t
       `).catch(() => ({ rows: [{ artifact_types: 0, total_lines: 0, breakdown: [] }] })),
+      // Findings by severity — aggregate over persisted threat-engine detections (JSONB array per row)
+      pool.query(`
+        SELECT lower(COALESCE(d->>'severity','')) AS sev, COUNT(*)::int AS cnt
+        FROM collection_timeline ct
+        CROSS JOIN LATERAL jsonb_array_elements(ct.detections) AS d
+        WHERE ct.detections IS NOT NULL AND jsonb_typeof(ct.detections) = 'array'
+        GROUP BY lower(COALESCE(d->>'severity',''))
+      `).catch(() => ({ rows: [] })),
+      // Scan health — evidence scan_status distribution
+      pool.query(`
+        SELECT COALESCE(NULLIF(scan_status, ''), 'pending') AS st, COUNT(*)::int AS cnt
+        FROM evidence
+        GROUP BY COALESCE(NULLIF(scan_status, ''), 'pending')
+      `).catch(() => ({ rows: [] })),
+      // Parse coverage — evidence that produced at least one timeline row
+      pool.query(`
+        SELECT COUNT(DISTINCT evidence_id)::int AS parsed
+        FROM collection_timeline WHERE evidence_id IS NOT NULL
+      `).catch(() => ({ rows: [{ parsed: 0 }] })),
     ]);
+
+    // ── Findings by severity (greyware folds into low) ──────────────────────
+    const findings_by_severity = { critical: 0, high: 0, medium: 0, low: 0 };
+    for (const row of findingsSev.rows) {
+      const s = row.sev;
+      if (s === 'critical')                 findings_by_severity.critical += row.cnt;
+      else if (s === 'high')                findings_by_severity.high    += row.cnt;
+      else if (s === 'medium')              findings_by_severity.medium  += row.cnt;
+      else if (s === 'low' || s === 'greyware') findings_by_severity.low += row.cnt;
+    }
+
+    // ── Scan health (known buckets + total + parsed coverage) ───────────────
+    const scan_health = { pending: 0, clean: 0, quarantined: 0, error: 0, other: 0, total: 0, parsed: parsedEv.rows[0]?.parsed || 0 };
+    for (const row of scanHealth.rows) {
+      const st = String(row.st || '').toLowerCase();
+      scan_health.total += row.cnt;
+      if (st in scan_health && st !== 'total' && st !== 'parsed' && st !== 'other') scan_health[st] += row.cnt;
+      else scan_health.other += row.cnt;
+    }
 
     res.json({
       cases: stats.rows[0],
@@ -130,6 +262,8 @@ router.get('/stats/dashboard', authenticate, async (req, res) => {
       recent_activity: recentActivity.rows,
       daily_activity: dailyActivity.rows,
       artifacts: artifactStats.rows[0] || { artifact_types: 0, total_lines: 0, breakdown: [] },
+      findings_by_severity,
+      scan_health,
     });
   } catch (err) {
     logger.error('Dashboard stats error:', err.message, err.detail || '');
@@ -221,9 +355,14 @@ router.post('/', authenticate, async (req, res) => {
       return res.status(400).json({ error: 'Le titre est requis' });
     }
 
-    const countResult = await pool.query("SELECT COUNT(*) FROM cases WHERE case_number LIKE 'CASE-2026-%'");
-    const num = parseInt(countResult.rows[0].count) + 1;
-    const case_number = `CASE-2026-${String(num).padStart(3, '0')}`;
+    const year = new Date().getFullYear();
+    const maxResult = await pool.query(
+      `SELECT COALESCE(MAX(CAST(SUBSTRING(case_number FROM $1) AS INTEGER)), 0) AS max_num
+       FROM cases WHERE case_number ~ $2`,
+      [`CASE-${year}-([0-9]+)$`, `^CASE-${year}-[0-9]+$`]
+    );
+    const num = maxResult.rows[0].max_num + 1;
+    const case_number = `CASE-${year}-${String(num).padStart(3, '0')}`;
 
     const validInvestigator = investigator_id && investigator_id.match(/^[0-9a-f-]{36}$/i) ? investigator_id : null;
 
@@ -369,88 +508,171 @@ router.get('/:id/lateral-movement', authenticate, async (req, res) => {
   try {
     const { id } = req.params;
 
-    const result = await pool.query(`
-      WITH events AS (
+    // EvtxECmd stores source in RemoteHost as "hostname (IP)" — extract hostname part.
+    // Hayabusa stores source in AllFieldInfo.WorkstationName / AllFieldInfo.IpAddress.
+    // Both legacy field names (WorkstationName, IpAddress at root) and new nested paths
+    // are checked so the query works regardless of which parser produced the record.
+    const [result, indicators, netConns] = await Promise.all([
+      pool.query(`
+        WITH raw_events AS (
+          SELECT
+            -- Source extraction: EvtxECmd uses RemoteHost "HOST (IP)"; Hayabusa uses AllFieldInfo
+            NULLIF(TRIM(COALESCE(
+              -- EvtxECmd RemoteHost: "HOSTNAME (IP)" → extract hostname before " ("
+              CASE
+                WHEN raw->>'RemoteHost' ~ '^[^-].+ \\(.+\\)$'
+                THEN NULLIF(TRIM(SPLIT_PART(raw->>'RemoteHost', ' (', 1)), '-')
+              END,
+              -- EvtxECmd RemoteHost IP-only fallback: extract from "(IP)"
+              CASE
+                WHEN raw->>'RemoteHost' ~ '\\([0-9a-f.:]+\\)'
+                THEN NULLIF(REGEXP_REPLACE(raw->>'RemoteHost', '^.*\\(([^)]+)\\).*$', '\\1'), '-')
+              END,
+              -- Hayabusa AllFieldInfo nested fields
+              NULLIF(raw->'AllFieldInfo'->>'WorkstationName', ''),
+              NULLIF(raw->'AllFieldInfo'->>'IpAddress', ''),
+              NULLIF(raw->'AllFieldInfo'->>'SourceAddress', ''),
+              -- Legacy flat fields (some older parsers / Sysmon)
+              NULLIF(raw->>'WorkstationName', ''),
+              NULLIF(raw->>'SourceHostname', ''),
+              NULLIF(raw->>'IpAddress', ''),
+              NULLIF(raw->>'SourceIp', '')
+            )), '-') AS src,
+
+            -- Destination: EvtxECmd uses Computer; Hayabusa also uses Computer at root
+            NULLIF(TRIM(COALESCE(
+              NULLIF(raw->>'Computer', ''),
+              NULLIF(raw->>'ComputerName', ''),
+              NULLIF(raw->'AllFieldInfo'->>'DestinationHostname', ''),
+              NULLIF(raw->>'DestinationHostname', ''),
+              NULLIF(raw->>'DestinationIp', '')
+            )), '-') AS dst,
+
+            COALESCE(
+              NULLIF(TRIM(raw->'AllFieldInfo'->>'TargetUserName'), ''),
+              NULLIF(TRIM(raw->>'TargetUserName'), ''),
+              NULLIF(TRIM(raw->'AllFieldInfo'->>'SubjectUserName'), ''),
+              NULLIF(TRIM(raw->>'SubjectUserName'), ''), '?'
+            ) AS username,
+
+            COALESCE(raw->>'EventID', raw->>'EventId', event_id::text, '?') AS event_id,
+
+            COALESCE(
+              raw->'AllFieldInfo'->>'LogonType',
+              raw->>'LogonType',
+              raw->>'PayloadData2'
+            ) AS logon_type,
+
+            artifact_type,
+            timestamp
+          FROM collection_timeline
+          WHERE case_id = $1
+            AND (
+              event_id IN (4624, 4625, 4648, 4768, 4769, 4776, 4771)
+              OR raw->>'EventID' IN ('4624','4625','4648','4768','4769','4776','4771','3')
+              OR raw->>'EventId' IN ('4624','4625','4648','4768','4769','4776','4771','3')
+            )
+        )
         SELECT
-          NULLIF(TRIM(COALESCE(
-            NULLIF(raw->>'WorkstationName', ''),
-            NULLIF(raw->>'SourceHostname', ''),
-            NULLIF(raw->>'IpAddress', ''),
-            NULLIF(raw->>'SourceIp', '')
-          )), '-') AS src,
-          NULLIF(TRIM(COALESCE(
-            NULLIF(raw->>'ComputerName', ''),
-            NULLIF(raw->>'Computer', ''),
-            NULLIF(raw->>'DestinationHostname', ''),
-            NULLIF(raw->>'DestinationIp', '')
-          )), '-') AS dst,
-          COALESCE(NULLIF(TRIM(raw->>'TargetUserName'), ''), NULLIF(TRIM(raw->>'SubjectUserName'), ''), '?') AS username,
-          COALESCE(raw->>'EventID', raw->>'EventId', '?') AS event_id,
-          COALESCE(raw->>'LogonType', '') AS logon_type,
-          timestamp
+          src, dst, username, event_id, logon_type, artifact_type,
+          COUNT(*)::int  AS event_count,
+          MIN(timestamp) AS first_seen,
+          MAX(timestamp) AS last_seen
+        FROM raw_events
+        WHERE src IS NOT NULL
+          AND dst IS NOT NULL
+          AND src <> dst
+          AND src  NOT IN ('127.0.0.1','::1','0.0.0.0','-')
+          AND dst  NOT IN ('127.0.0.1','::1','0.0.0.0','-')
+          AND src  NOT ILIKE '%localhost%'
+          AND dst  NOT ILIKE '%localhost%'
+        GROUP BY src, dst, username, event_id, logon_type, artifact_type
+        ORDER BY event_count DESC
+        LIMIT 2000
+      `, [id]),
+
+      // Lateral movement indicators: non-network artifacts that reveal RDP/remote tool usage
+      pool.query(`
+        SELECT artifact_type, description, mitre_tactic, mitre_technique_id, timestamp, host_name
         FROM collection_timeline
         WHERE case_id = $1
           AND (
-            raw->>'EventID'  IN ('4624','4648','4768','4769','4776','3')
-            OR raw->>'EventId' IN ('4624','4648','4768','4769','4776','3')
+            -- RDP client execution (mstsc.exe in MFT/amcache/prefetch)
+            description ILIKE '%mstsc%'
+            OR description ILIKE '%rdpclip%'
+            OR description ILIKE '%tscon%'
+            -- Registry: RDP enabled / terminal server config
+            OR (artifact_type = 'registry' AND (
+              description ILIKE '%RDP%'
+              OR description ILIKE '%Terminal Server%'
+              OR raw->>'KeyPath' ILIKE '%TerminalServer%'
+              OR raw->>'KeyPath' ILIKE '%Terminal Server%'
+            ))
+            -- Hayabusa lateral movement tactics
+            OR mitre_tactic ILIKE '%lateral%'
+            OR mitre_technique_id IN ('T1021.001','T1021.002','T1021.003','T1021.004',
+                                       'T1021.006','T1047','T1550.002','T1550.003',
+                                       'T1563.002','T1570')
+            -- Hayabusa detection names for lateral movement
+            OR (artifact_type = 'hayabusa' AND (
+              artifact_name ILIKE '%RDP%'
+              OR artifact_name ILIKE '%PsExec%'
+              OR artifact_name ILIKE '%WMI%Remote%'
+              OR artifact_name ILIKE '%Pass-the%'
+              OR artifact_name ILIKE '%Lateral%'
+              OR artifact_name ILIKE '%Remote Service%'
+            ))
           )
-      )
-      SELECT
-        src, dst, username, event_id, logon_type,
-        COUNT(*)::int          AS event_count,
-        MIN(timestamp)         AS first_seen,
-        MAX(timestamp)         AS last_seen
-      FROM events
-      WHERE src IS NOT NULL
-        AND dst IS NOT NULL
-        AND src <> dst
-        AND src NOT IN ('127.0.0.1','::1','0.0.0.0')
-        AND dst NOT IN ('127.0.0.1','::1','0.0.0.0')
-      GROUP BY src, dst, username, event_id, logon_type
-      ORDER BY event_count DESC
-      LIMIT 500
-    `, [id]);
+        ORDER BY timestamp
+        LIMIT 200
+      `, [id]),
 
-    const rows = result.rows;
+      pool.query(`
+        SELECT src_ip, dst_ip, dst_port, protocol, packet_count, first_seen, last_seen
+        FROM network_connections
+        WHERE case_id = $1
+          AND dst_port IN (445,139,135,3389,5985,5986,22,5900)
+          AND src_ip IS NOT NULL AND dst_ip IS NOT NULL
+        ORDER BY packet_count DESC NULLS LAST
+        LIMIT 5000
+      `, [id]),
+    ]);
 
-    const nodeMap = new Map();
-    const addNode = (id) => {
-      if (!nodeMap.has(id)) nodeMap.set(id, { id, total_events: 0, as_source: 0, as_target: 0 });
-    };
+    const networkRows = mapNetworkRowsToLateral(
+      netConns.rows.map((r) => ({
+        src_ip: r.src_ip, dst_ip: r.dst_ip, dst_port: Number(r.dst_port),
+        protocol: r.protocol, packet_count: r.packet_count == null ? null : Number(r.packet_count),
+        first_seen: r.first_seen, last_seen: r.last_seen,
+      })),
+    );
+    const rows = [...result.rows, ...networkRows];
 
-    rows.forEach(r => {
-      addNode(r.src); addNode(r.dst);
-      nodeMap.get(r.src).total_events += r.event_count;
-      nodeMap.get(r.src).as_source    += r.event_count;
-      nodeMap.get(r.dst).total_events += r.event_count;
-      nodeMap.get(r.dst).as_target    += r.event_count;
+    // IOC hosts for overlap scoring (ioc_type enum has 'ip','domain' — there is no 'hostname')
+    let iocHosts = new Set();
+    try {
+      const iocRes = await pool.query(
+        `SELECT DISTINCT value FROM iocs WHERE case_id = $1 AND ioc_type IN ('ip','domain')`, [id]
+      );
+      iocHosts = new Set(iocRes.rows.map(r => r.value));
+    } catch (e) {
+      logger.warn('[lateral-movement] ioc lookup failed, continuing without IOC overlap: ' + e.message);
+    }
+
+    // Identity observations: group the MULTIPLE representations of the SAME host (IP + hostname).
+    // CRITICAL: never put a source host and a destination host in the same observation — they are
+    // different machines. The aggregated `rows` only expose one coalesced identifier per side, so we
+    // have no second representation to link here. Pass NO cross-identity observations (resolver is a
+    // safe no-op: each id maps to itself). Feeding real IP+hostname pairs is a follow-up that requires
+    // the raw_events SELECT to emit both forms per host.
+    const observations = [];
+
+    const result2 = buildLateralMovement({
+      rows,
+      observations,
+      indicators: indicators.rows,
+      iocHosts,
     });
-
-    const edgeMap = new Map();
-    rows.forEach(r => {
-      const key = `${r.src}|||${r.dst}`;
-      if (!edgeMap.has(key)) {
-        edgeMap.set(key, { source: r.src, target: r.dst, count: 0, event_ids: new Set(), usernames: new Set(), first_seen: r.first_seen, last_seen: r.last_seen });
-      }
-      const e = edgeMap.get(key);
-      e.count      += r.event_count;
-      e.event_ids.add(r.event_id);
-      if (r.username && r.username !== '?') e.usernames.add(r.username);
-      if (r.first_seen < e.first_seen) e.first_seen = r.first_seen;
-      if (r.last_seen  > e.last_seen)  e.last_seen  = r.last_seen;
-    });
-
-    const edges = [...edgeMap.values()].map(e => ({
-      ...e,
-      event_ids: [...e.event_ids],
-      usernames: [...e.usernames],
-    }));
-
-    res.json({
-      nodes: [...nodeMap.values()],
-      edges,
-      total_events: rows.reduce((s, r) => s + r.event_count, 0),
-    });
+    res.json(result2);
   } catch (err) {
     logger.error('[lateral-movement]', err);
     res.status(500).json({ error: 'Erreur construction graphe: ' + err.message });
@@ -511,6 +733,7 @@ router.get('/:id/detections/timestomping', authenticate, async (req, res) => {
 
     const result = await pool.query(
       `SELECT
+         id,
          raw->>'FileName'            AS filename,
          raw->>'ParentPath'          AS parent_path,
          raw->>'Extension'           AS extension,
@@ -549,6 +772,7 @@ router.get('/:id/detections/timestomping', authenticate, async (req, res) => {
         const diffDays   = diffMs / 86400000;
         if (threshold > 0 && diffDays < threshold) return null;
         return {
+          id:          r.id,
           filename:    r.filename    || '',
           parent_path: r.parent_path || '',
           extension:   r.extension   || '',
@@ -563,7 +787,9 @@ router.get('/:id/detections/timestomping', authenticate, async (req, res) => {
       })
       .filter(Boolean);
 
-    res.json({ items, total: items.length, mft_records_analyzed: result.rowCount });
+    const _exc = await getExceptions(req.params.id);
+    const _items = applyExceptions(items, _exc, 'timestomping');
+    res.json({ items: _items, total: _items.length, mft_records_analyzed: result.rowCount, suppressed: items.length - _items.length });
   } catch (err) {
     logger.error('[timestomping]', err);
     res.status(500).json({ error: 'Erreur détection timestomping: ' + err.message });
@@ -580,6 +806,7 @@ router.get('/:id/detections/double-ext', authenticate, async (req, res) => {
 
     const result = await pool.query(
       `SELECT
+         id,
          timestamp,
          artifact_type,
          description,
@@ -621,6 +848,7 @@ router.get('/:id/detections/double-ext', authenticate, async (req, res) => {
 
         if (decoyExt === 'txt' && dangerExt === 'js') return null;
         return {
+          id:          r.id,
           filename:    fname,
           decoy_ext:   decoyExt,
           danger_ext:  dangerExt,
@@ -638,7 +866,9 @@ router.get('/:id/detections/double-ext', authenticate, async (req, res) => {
       return !LEGITIMATE_SUFFIXES.some(re => re.test(filename));
     });
 
-    res.json({ items, total: items.length, records_scanned: result.rowCount });
+    const _exc = await getExceptions(req.params.id);
+    const _items = applyExceptions(items, _exc, 'double-ext');
+    res.json({ items: _items, total: _items.length, records_scanned: result.rowCount, suppressed: items.length - _items.length });
   } catch (err) {
     logger.error('[double-ext]', err);
     res.status(500).json({ error: 'Erreur détection double extension: ' + err.message });
@@ -720,7 +950,9 @@ router.get('/:id/detections/beaconing', authenticate, async (req, res) => {
     }
 
     items.sort((a, b) => b.beacon_score - a.beacon_score);
-    res.json({ items, total: items.length, network_events_analyzed: result.rowCount });
+    const _exc = await getExceptions(req.params.id);
+    const _items = applyExceptions(items, _exc, 'beaconing');
+    res.json({ items: _items, total: _items.length, network_events_analyzed: result.rowCount, suppressed: items.length - _items.length });
   } catch (err) {
     logger.error('[beaconing]', err);
     res.status(500).json({ error: 'Erreur détection beaconing: ' + err.message });
@@ -738,7 +970,7 @@ router.get('/:id/detections/persistence', authenticate, async (req, res) => {
         mitre: 'T1547.001',
         severity: 'ÉLEVÉ',
         query: `
-          SELECT timestamp, artifact_type, description, source, host_name, raw
+          SELECT id, timestamp, artifact_type, description, source, host_name, raw
           FROM collection_timeline
           WHERE case_id = $1
             AND artifact_type = 'registry'
@@ -758,7 +990,7 @@ router.get('/:id/detections/persistence', authenticate, async (req, res) => {
         mitre: 'T1547.009',
         severity: 'MOYEN',
         query: `
-          SELECT timestamp, artifact_type, description, source, host_name, raw
+          SELECT id, timestamp, artifact_type, description, source, host_name, raw
           FROM collection_timeline
           WHERE case_id = $1
             AND artifact_type = 'lnk'
@@ -785,7 +1017,7 @@ router.get('/:id/detections/persistence', authenticate, async (req, res) => {
         mitre: 'T1197',
         severity: 'ÉLEVÉ',
         query: `
-          SELECT timestamp, artifact_type, description, source, host_name, raw
+          SELECT id, timestamp, artifact_type, description, source, host_name, raw
           FROM collection_timeline
           WHERE case_id = $1
             AND artifact_type = 'bits'
@@ -798,7 +1030,7 @@ router.get('/:id/detections/persistence', authenticate, async (req, res) => {
         mitre: 'T1543 / T1053',
         severity: 'CRITIQUE',
         query: `
-          SELECT timestamp, artifact_type, description, source, host_name, raw,
+          SELECT id, timestamp, artifact_type, description, source, host_name, raw,
                  raw->>'level'     AS hay_level,
                  raw->>'rule_file' AS rule_file
           FROM collection_timeline
@@ -823,18 +1055,115 @@ router.get('/:id/detections/persistence', authenticate, async (req, res) => {
             timestamp
           LIMIT 200`,
       },
+      {
+        id: 'wmi_subscription',
+        label: 'Persistance WMI (Event Subscription)',
+        mitre: 'T1546.003',
+        severity: 'CRITIQUE',
+        query: `
+          SELECT id, timestamp, artifact_type, description, source, host_name, raw
+          FROM collection_timeline
+          WHERE case_id = $1
+            AND artifact_type IN ('evtx','sysmon','hayabusa')
+            AND (
+              raw->>'EventID' IN ('19','20','21')
+              OR description ILIKE '%CommandLineEventConsumer%'
+              OR description ILIKE '%ActiveScriptEventConsumer%'
+              OR description ILIKE '%__EventFilter%'
+              OR description ILIKE '%WmiEventConsumer%'
+            )
+          ORDER BY timestamp
+          LIMIT 200`,
+      },
+      {
+        id: 'scheduled_tasks',
+        label: 'Tâches planifiées suspectes',
+        mitre: 'T1053.005',
+        severity: 'ÉLEVÉ',
+        query: `
+          SELECT id, timestamp, artifact_type, description, source, host_name, raw
+          FROM collection_timeline
+          WHERE case_id = $1
+            AND (
+              (artifact_type = 'registry' AND source ILIKE '%TaskCache%Tasks%')
+              OR (artifact_type IN ('evtx','sysmon','hayabusa') AND raw->>'EventID' IN ('4698','4702'))
+            )
+            AND (
+              description ILIKE '%temp%'       OR description ILIKE '%appdata%'
+              OR description ILIKE '%powershell%' OR description ILIKE '%cmd.exe%'
+              OR description ILIKE '%mshta%'     OR description ILIKE '%rundll32%'
+              OR description ILIKE '%programdata%' OR description ILIKE '%users%public%'
+            )
+          ORDER BY timestamp
+          LIMIT 200`,
+      },
+      {
+        id: 'service_install',
+        label: 'Services — chemin/commande suspects',
+        mitre: 'T1543.003',
+        severity: 'ÉLEVÉ',
+        query: `
+          SELECT id, timestamp, artifact_type, description, source, host_name, raw
+          FROM collection_timeline
+          WHERE case_id = $1
+            AND artifact_type = 'registry'
+            AND source ILIKE '%Services%'
+            AND (
+              description ILIKE '%temp%'    OR description ILIKE '%appdata%'
+              OR description ILIKE '%powershell%' OR description ILIKE '%cmd.exe /c%'
+              OR description ILIKE '%programdata%' OR description ILIKE '%users%'
+            )
+            AND description NOT ILIKE '%system32%'
+            AND description NOT ILIKE '%program files%'
+          ORDER BY timestamp
+          LIMIT 200`,
+      },
+      {
+        id: 'winlogon_hijack',
+        label: 'Winlogon (Shell / Userinit / Notify)',
+        mitre: 'T1547.004',
+        severity: 'ÉLEVÉ',
+        query: `
+          SELECT id, timestamp, artifact_type, description, source, host_name, raw
+          FROM collection_timeline
+          WHERE case_id = $1
+            AND artifact_type = 'registry'
+            AND source ILIKE '%Winlogon%'
+            AND (description ILIKE '%Userinit%' OR description ILIKE '%Shell%' OR description ILIKE '%Notify%')
+            AND description NOT ILIKE '%explorer.exe%'
+            AND description NOT ILIKE '%userinit.exe%'
+          ORDER BY timestamp
+          LIMIT 200`,
+      },
+      {
+        id: 'ifeo_debugger',
+        label: 'IFEO Debugger (détournement d\'exécution)',
+        mitre: 'T1546.012',
+        severity: 'ÉLEVÉ',
+        query: `
+          SELECT id, timestamp, artifact_type, description, source, host_name, raw
+          FROM collection_timeline
+          WHERE case_id = $1
+            AND artifact_type = 'registry'
+            AND source ILIKE '%Image File Execution Options%'
+            AND description ILIKE '%Debugger%'
+          ORDER BY timestamp
+          LIMIT 200`,
+      },
     ];
 
     const populated = [];
     for (const v of VECTORS) {
       const r = await pool.query(v.query, [id]);
       if (r.rows.length > 0) {
-        populated.push({ id: v.id, label: v.label, mitre: v.mitre, severity: v.severity, count: r.rows.length, items: r.rows });
+        populated.push({ id: v.id, label: v.label, mitre: v.mitre, severity: v.severity, confidence: vecConf(v), count: r.rows.length, items: r.rows });
       }
     }
 
     const total = populated.reduce((s, v) => s + v.count, 0);
-    res.json({ vectors: populated, total });
+    const _exc = await getExceptions(req.params.id);
+    const _g = applyExceptionsGrouped(populated, _exc, 'persistence');
+    res.json({ vectors: _g.vectors, total: _g.total, suppressed: total - _g.total });
   } catch (err) {
     logger.error('[persistence]', err);
     res.status(500).json({ error: 'Erreur détection persistance: ' + err.message });
@@ -852,7 +1181,7 @@ router.get('/:id/detections/sysmon-behavior', authenticate, async (req, res) => 
         mitre: 'T1003.001',
         severity: 'CRITIQUE',
         query: `
-          SELECT timestamp, artifact_type, description, source, host_name, raw
+          SELECT id, timestamp, artifact_type, description, source, host_name, raw
           FROM collection_timeline
           WHERE case_id = $1
             AND artifact_type IN ('evtx', 'sysmon', 'hayabusa')
@@ -870,7 +1199,7 @@ router.get('/:id/detections/sysmon-behavior', authenticate, async (req, res) => 
         mitre: 'T1055',
         severity: 'CRITIQUE',
         query: `
-          SELECT timestamp, artifact_type, description, source, host_name, raw
+          SELECT id, timestamp, artifact_type, description, source, host_name, raw
           FROM collection_timeline
           WHERE case_id = $1
             AND artifact_type IN ('evtx', 'sysmon', 'hayabusa')
@@ -887,7 +1216,7 @@ router.get('/:id/detections/sysmon-behavior', authenticate, async (req, res) => 
         mitre: 'T1059',
         severity: 'ÉLEVÉ',
         query: `
-          SELECT timestamp, artifact_type, description, source, host_name, raw
+          SELECT id, timestamp, artifact_type, description, source, host_name, raw
           FROM collection_timeline
           WHERE case_id = $1
             AND artifact_type IN ('evtx', 'sysmon', 'prefetch', 'hayabusa')
@@ -909,7 +1238,7 @@ router.get('/:id/detections/sysmon-behavior', authenticate, async (req, res) => 
         mitre: 'T1574.002',
         severity: 'ÉLEVÉ',
         query: `
-          SELECT timestamp, artifact_type, description, source, host_name, raw
+          SELECT id, timestamp, artifact_type, description, source, host_name, raw
           FROM collection_timeline
           WHERE case_id = $1
             AND artifact_type IN ('evtx', 'sysmon')
@@ -927,7 +1256,7 @@ router.get('/:id/detections/sysmon-behavior', authenticate, async (req, res) => 
         mitre: 'T1071',
         severity: 'MOYEN',
         query: `
-          SELECT timestamp, artifact_type, description, source, host_name, raw
+          SELECT id, timestamp, artifact_type, description, source, host_name, raw
           FROM collection_timeline
           WHERE case_id = $1
             AND artifact_type IN ('evtx', 'sysmon')
@@ -946,7 +1275,7 @@ router.get('/:id/detections/sysmon-behavior', authenticate, async (req, res) => 
         mitre: 'T1055.012',
         severity: 'CRITIQUE',
         query: `
-          SELECT timestamp, artifact_type, description, source, host_name, raw
+          SELECT id, timestamp, artifact_type, description, source, host_name, raw
           FROM collection_timeline
           WHERE case_id = $1
             AND artifact_type IN ('evtx', 'sysmon')
@@ -964,7 +1293,7 @@ router.get('/:id/detections/sysmon-behavior', authenticate, async (req, res) => 
         mitre: 'T1074',
         severity: 'MOYEN',
         query: `
-          SELECT timestamp, artifact_type, description, source, host_name, raw
+          SELECT id, timestamp, artifact_type, description, source, host_name, raw
           FROM collection_timeline
           WHERE case_id = $1
             AND artifact_type IN ('evtx', 'sysmon')
@@ -983,15 +1312,205 @@ router.get('/:id/detections/sysmon-behavior', authenticate, async (req, res) => 
     for (const v of VECTORS) {
       const r = await pool.query(v.query, [id]);
       if (r.rows.length > 0) {
-        populated.push({ id: v.id, label: v.label, mitre: v.mitre, severity: v.severity, count: r.rows.length, items: r.rows });
+        populated.push({ id: v.id, label: v.label, mitre: v.mitre, severity: v.severity, confidence: vecConf(v), count: r.rows.length, items: r.rows });
       }
     }
 
     const total = populated.reduce((s, v) => s + v.count, 0);
-    res.json({ vectors: populated, total });
+    const _exc = await getExceptions(req.params.id);
+    const _g = applyExceptionsGrouped(populated, _exc, 'sysmon-behavior');
+    res.json({ vectors: _g.vectors, total: _g.total, suppressed: total - _g.total });
   } catch (err) {
     logger.error('[sysmon-behavior]', err);
     res.status(500).json({ error: 'Erreur détection comportementale Sysmon: ' + err.message });
+  }
+});
+
+// Generic grouped detection runner — shared by anti-forensic & execution-anomaly.
+async function runGroupedDetection(req, res, type, VECTORS, label) {
+  try {
+    const { id } = req.params;
+    const populated = [];
+    for (const v of VECTORS) {
+      try {
+        const r = await pool.query(v.query, [id]);
+        if (r.rows.length) populated.push({ id: v.id, label: v.label, mitre: v.mitre, severity: v.severity, confidence: vecConf(v), count: r.rows.length, items: r.rows });
+      } catch (e) { logger.warn(`[${type}:${v.id}]`, e.message); }
+    }
+    const total = populated.reduce((s, v) => s + v.count, 0);
+    const _exc = await getExceptions(id);
+    const _g = applyExceptionsGrouped(populated, _exc, type);
+    res.json({ vectors: _g.vectors, total: _g.total, suppressed: total - _g.total });
+  } catch (err) {
+    logger.error(`[${type}]`, err);
+    res.status(500).json({ error: `Erreur détection ${label}: ` + err.message });
+  }
+}
+
+router.get('/:id/detections/anti-forensic', authenticate, async (req, res) => {
+  const VECTORS = [
+    { id: 'log_cleared', label: 'Journaux d\'événements effacés', mitre: 'T1070.001', severity: 'CRITIQUE', query: `
+      SELECT timestamp, artifact_type, description, source, host_name, raw FROM collection_timeline
+      WHERE case_id=$1 AND artifact_type IN ('evtx','sysmon','hayabusa') AND (
+        raw->>'EventID' IN ('1102','104')
+        OR description ILIKE '%audit log was cleared%' OR description ILIKE '%event log was cleared%'
+        OR raw->>'CommandLine' ILIKE '%wevtutil%cl%' OR raw->>'CommandLine' ILIKE '%clear-eventlog%'
+      ) ORDER BY timestamp LIMIT 200` },
+    { id: 'shadowcopy_delete', label: 'Suppression de Volume Shadow Copies', mitre: 'T1490', severity: 'CRITIQUE', query: `
+      SELECT timestamp, artifact_type, description, source, host_name, raw FROM collection_timeline
+      WHERE case_id=$1 AND (
+        raw->>'CommandLine' ILIKE '%shadowcopy%delete%' OR raw->>'CommandLine' ILIKE '%vssadmin%delete%shadows%'
+        OR raw->>'CommandLine' ILIKE '%wmic%shadowcopy%delete%' OR description ILIKE '%delete shadows%'
+        OR raw->>'CommandLine' ILIKE '%resize shadowstorage%'
+      ) ORDER BY timestamp LIMIT 200` },
+    { id: 'usn_journal_delete', label: 'Suppression du journal USN', mitre: 'T1070', severity: 'CRITIQUE', query: `
+      SELECT timestamp, artifact_type, description, source, host_name, raw FROM collection_timeline
+      WHERE case_id=$1 AND (
+        raw->>'CommandLine' ILIKE '%fsutil%usn%deletejournal%' OR description ILIKE '%deletejournal%'
+      ) ORDER BY timestamp LIMIT 200` },
+    { id: 'secure_wipe', label: 'Effacement sécurisé / wiping', mitre: 'T1070.004', severity: 'ÉLEVÉ', query: `
+      SELECT timestamp, artifact_type, description, source, host_name, raw FROM collection_timeline
+      WHERE case_id=$1 AND (
+        raw->>'CommandLine' ILIKE '%cipher%/w%' OR lower(raw->>'Image') LIKE '%sdelete%'
+        OR raw->>'CommandLine' ILIKE '%sdelete%' OR raw->>'CommandLine' ILIKE '%format%/p:%'
+      ) ORDER BY timestamp LIMIT 200` },
+    { id: 'edr_tampering', label: 'Altération Sysmon / EDR', mitre: 'T1562.001', severity: 'ÉLEVÉ', query: `
+      SELECT timestamp, artifact_type, description, source, host_name, raw FROM collection_timeline
+      WHERE case_id=$1 AND (
+        raw->>'CommandLine' ILIKE '%sysmon%-u%' OR description ILIKE '%sysmon%uninstall%'
+        OR (description ILIKE '%sysmon%' AND raw->>'EventID' IN ('4','5') AND description ILIKE '%stop%')
+      ) ORDER BY timestamp LIMIT 200` },
+    { id: 'defender_tampering', label: 'Désactivation de Microsoft Defender', mitre: 'T1562.001', severity: 'ÉLEVÉ', query: `
+      SELECT timestamp, artifact_type, description, source, host_name, raw FROM collection_timeline
+      WHERE case_id=$1 AND (
+        raw->>'CommandLine' ILIKE '%set-mppreference%disable%' OR raw->>'CommandLine' ILIKE '%add-mppreference%exclusion%'
+        OR description ILIKE '%disableantispyware%' OR raw->>'CommandLine' ILIKE '%mpcmdrun%removedefinitions%'
+        OR description ILIKE '%real-time protection%disabled%'
+      ) ORDER BY timestamp LIMIT 200` },
+    { id: 'prefetch_disabled', label: 'Prefetch désactivé', mitre: 'T1562', severity: 'MOYEN', query: `
+      SELECT timestamp, artifact_type, description, source, host_name, raw FROM collection_timeline
+      WHERE case_id=$1 AND artifact_type='registry' AND source ILIKE '%PrefetchParameters%'
+        AND description ILIKE '%EnablePrefetcher%' AND (description ILIKE '%=0%' OR raw->>'value'='0')
+      ORDER BY timestamp LIMIT 200` },
+  ];
+  return runGroupedDetection(req, res, 'anti-forensic', VECTORS, 'anti-forensique');
+});
+
+router.get('/:id/detections/execution-anomaly', authenticate, async (req, res) => {
+  const VECTORS = [
+    { id: 'lolbins', label: 'LOLBins — abus d\'exécution', mitre: 'T1218', severity: 'ÉLEVÉ', query: `
+      SELECT timestamp, artifact_type, description, source, host_name, raw FROM collection_timeline
+      WHERE case_id=$1 AND artifact_type IN ('evtx','sysmon','hayabusa','prefetch') AND (
+        raw->>'CommandLine' ILIKE '%regsvr32%/i:http%' OR raw->>'CommandLine' ILIKE '%mshta%http%'
+        OR raw->>'CommandLine' ILIKE '%mshta%javascript%' OR raw->>'CommandLine' ILIKE '%mshta%vbscript%'
+        OR raw->>'CommandLine' ILIKE '%certutil%-urlcache%' OR raw->>'CommandLine' ILIKE '%certutil%-decode%'
+        OR raw->>'CommandLine' ILIKE '%bitsadmin%/transfer%' OR raw->>'CommandLine' ILIKE '%rundll32%javascript:%'
+        OR raw->>'CommandLine' ILIKE '%wmic%process%call%create%' OR raw->>'CommandLine' ILIKE '%msiexec%http%'
+      ) ORDER BY timestamp LIMIT 200` },
+    { id: 'masquerading', label: 'Masquerading — process système hors System32', mitre: 'T1036.005', severity: 'CRITIQUE', query: `
+      SELECT timestamp, artifact_type, description, source, host_name, raw FROM collection_timeline
+      WHERE case_id=$1 AND raw->>'Image' IS NOT NULL AND (
+        (lower(raw->>'Image') LIKE '%svchost.exe'  AND lower(raw->>'Image') NOT LIKE '%system32%' AND lower(raw->>'Image') NOT LIKE '%syswow64%')
+        OR (lower(raw->>'Image') LIKE '%lsass.exe'    AND lower(raw->>'Image') NOT LIKE '%system32%')
+        OR (lower(raw->>'Image') LIKE '%services.exe' AND lower(raw->>'Image') NOT LIKE '%system32%')
+        OR (lower(raw->>'Image') LIKE '%csrss.exe'    AND lower(raw->>'Image') NOT LIKE '%system32%')
+        OR (lower(raw->>'Image') LIKE '%winlogon.exe' AND lower(raw->>'Image') NOT LIKE '%system32%')
+        OR (lower(raw->>'Image') LIKE '%wininit.exe'  AND lower(raw->>'Image') NOT LIKE '%system32%')
+        OR (lower(raw->>'Image') LIKE '%smss.exe'     AND lower(raw->>'Image') NOT LIKE '%system32%')
+        OR (lower(raw->>'Image') LIKE '%spoolsv.exe'  AND lower(raw->>'Image') NOT LIKE '%system32%')
+      ) ORDER BY timestamp LIMIT 200` },
+    { id: 'powershell_abuse', label: 'PowerShell — encodé / cradle / caché', mitre: 'T1059.001', severity: 'ÉLEVÉ', query: `
+      SELECT timestamp, artifact_type, description, source, host_name, raw FROM collection_timeline
+      WHERE case_id=$1 AND artifact_type IN ('evtx','sysmon','hayabusa') AND (
+        (lower(raw->>'Image') LIKE '%powershell%' OR description ILIKE '%powershell%') AND (
+          raw->>'CommandLine' ILIKE '%-enc %' OR raw->>'CommandLine' ILIKE '%-encodedcommand%'
+          OR raw->>'CommandLine' ILIKE '%frombase64string%' OR raw->>'CommandLine' ILIKE '%-w hidden%'
+          OR raw->>'CommandLine' ILIKE '%-windowstyle hidden%' OR raw->>'CommandLine' ILIKE '%downloadstring%'
+          OR raw->>'CommandLine' ILIKE '%downloadfile%' OR raw->>'CommandLine' ILIKE '%net.webclient%'
+          OR raw->>'CommandLine' ILIKE '%invoke-expression%' OR raw->>'CommandLine' ILIKE '%iex(%'
+          OR description ILIKE '%frombase64string%' OR description ILIKE '%downloadstring%'
+        )
+      ) ORDER BY timestamp LIMIT 200` },
+  ];
+  return runGroupedDetection(req, res, 'execution-anomaly', VECTORS, 'anomalies d\'exécution');
+});
+
+router.get('/:id/detections/attack-techniques', authenticate, async (req, res) => {
+  const VECTORS = [
+    { id: 'lsass_dump', label: 'Dump LSASS / vol de credentials', mitre: 'T1003.001', severity: 'CRITIQUE', query: `
+      SELECT id, timestamp, artifact_type, description, source, host_name, raw FROM collection_timeline
+      WHERE case_id=$1 AND (
+        raw->>'CommandLine' ILIKE '%comsvcs.dll%minidump%' OR raw->>'CommandLine' ILIKE '%procdump%lsass%'
+        OR raw->>'CommandLine' ILIKE '%rundll32%comsvcs%' OR (raw->>'EventID'='10' AND raw->>'TargetImage' ILIKE '%lsass%')
+        OR description ILIKE '%lsass%dump%' OR description ILIKE '%mimikatz%' OR description ILIKE '%sekurlsa%' OR raw->>'CommandLine' ILIKE '%lsadump%'
+      ) ORDER BY timestamp LIMIT 200` },
+    { id: 'dcsync', label: 'DCSync (réplication AD)', mitre: 'T1003.006', severity: 'CRITIQUE', query: `
+      SELECT id, timestamp, artifact_type, description, source, host_name, raw FROM collection_timeline
+      WHERE case_id=$1 AND raw->>'EventID'='4662' AND description ILIKE '%replicating directory changes%'
+      ORDER BY timestamp LIMIT 200` },
+    { id: 'kerberoasting', label: 'Kerberoasting (TGS RC4)', mitre: 'T1558.003', severity: 'ÉLEVÉ', query: `
+      SELECT id, timestamp, artifact_type, description, source, host_name, raw FROM collection_timeline
+      WHERE case_id=$1 AND raw->>'EventID'='4769'
+        AND (raw->>'TicketEncryptionType' ILIKE '%0x17%' OR description ILIKE '%0x17%' OR description ILIKE '%RC4%')
+      ORDER BY timestamp LIMIT 200` },
+    { id: 'remote_exec', label: 'Exécution distante (PsExec / WMI / WinRM)', mitre: 'T1021.002 / T1021.006', severity: 'ÉLEVÉ', query: `
+      SELECT id, timestamp, artifact_type, description, source, host_name, raw FROM collection_timeline
+      WHERE case_id=$1 AND (
+        description ILIKE '%psexec%' OR (raw->>'EventID'='7045' AND description ILIKE '%PSEXESVC%')
+        OR raw->>'CommandLine' ILIKE '%wmic%/node:%' OR raw->>'CommandLine' ILIKE '%enter-pssession%'
+        OR raw->>'CommandLine' ILIKE '%invoke-command%-computername%' OR description ILIKE '%winrm%'
+      ) ORDER BY timestamp LIMIT 200` },
+    { id: 'rdp_explicit_logon', label: 'Connexion RDP / credentials explicites', mitre: 'T1021.001', severity: 'MOYEN', confidence: 'low', query: `
+      SELECT id, timestamp, artifact_type, description, source, host_name, raw FROM collection_timeline
+      WHERE case_id=$1 AND (
+        (raw->>'EventID'='4624' AND raw->>'LogonType'='10') OR raw->>'EventID'='4648'
+      ) ORDER BY timestamp LIMIT 200` },
+    { id: 'recon_burst', label: 'Reconnaissance (whoami / net / nltest)', mitre: 'T1087 / T1082', severity: 'MOYEN', confidence: 'low', query: `
+      SELECT id, timestamp, artifact_type, description, source, host_name, raw FROM collection_timeline
+      WHERE case_id=$1 AND (
+        raw->>'CommandLine' ILIKE '%whoami /all%' OR raw->>'CommandLine' ILIKE '%net group%domain admins%'
+        OR raw->>'CommandLine' ILIKE '%nltest%/dclist%' OR raw->>'CommandLine' ILIKE '%net localgroup administrators%'
+        OR raw->>'CommandLine' ILIKE '%nltest%/domain_trusts%'
+      ) ORDER BY timestamp LIMIT 200` },
+  ];
+  return runGroupedDetection(req, res, 'attack-techniques', VECTORS, 'techniques ATT&CK');
+});
+
+// LOLDrivers (vulnerable/malicious drivers) + HijackLibs (DLL hijacking) — matched
+// in JS against cached threat-intel datasets (too large for SQL IN/ILIKE).
+router.get('/:id/detections/vuln-drivers', authenticate, async (req, res) => {
+  const { id } = req.params;
+  try {
+    const populated = [];
+    let degraded = null;
+
+    // LOLDrivers: Amcache driver inventory carries SHA1 (DriverId) + DriverName.
+    try {
+      const drvRows = (await pool.query(
+        `SELECT timestamp, artifact_type, description, source, host_name, raw FROM collection_timeline
+         WHERE case_id=$1 AND artifact_type='amcache' AND (raw ? 'DriverName' OR raw ? 'DriverId') LIMIT 20000`, [id])).rows;
+      const idx = await getDriverIndex();
+      const items = matchDrivers(drvRows, idx);
+      if (items.length) populated.push({ id: 'loldrivers', label: 'Driver vulnérable / malveillant (LOLDrivers)', mitre: 'T1068', severity: 'CRITIQUE', confidence: 'high', count: items.length, items });
+    } catch (e) { degraded = 'LOLDrivers indisponible (' + e.message + ')'; logger.warn('[vuln-drivers:loldrivers]', e.message); }
+
+    // HijackLibs: known-hijackable DLL name found outside its expected location.
+    try {
+      const dllRows = (await pool.query(
+        `SELECT timestamp, artifact_type, description, source, host_name, raw FROM collection_timeline
+         WHERE case_id=$1 AND (raw->>'path' ILIKE '%.dll' OR raw->>'FullPath' ILIKE '%.dll' OR description ILIKE '%.dll') LIMIT 20000`, [id])).rows;
+      const hidx = await getHijackIndex();
+      const items = matchHijack(dllRows, hidx);
+      if (items.length) populated.push({ id: 'hijacklibs', label: 'DLL hijacking (HijackLibs)', mitre: 'T1574.001', severity: 'ÉLEVÉ', confidence: 'medium', count: items.length, items });
+    } catch (e) { logger.warn('[vuln-drivers:hijacklibs]', e.message); }
+
+    const total = populated.reduce((s, v) => s + v.count, 0);
+    const _exc = await getExceptions(id);
+    const _g = applyExceptionsGrouped(populated, _exc, 'vuln-drivers');
+    res.json({ vectors: _g.vectors, total: _g.total, suppressed: total - _g.total, degraded });
+  } catch (err) {
+    logger.error('[vuln-drivers]', err);
+    res.status(500).json({ error: 'Erreur détection drivers/DLL : ' + err.message });
   }
 });
 

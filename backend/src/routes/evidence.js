@@ -1,8 +1,9 @@
 const express = require('express');
-const multer = require('multer');
-const crypto = require('crypto');
-const path = require('path');
-const fs = require('fs');
+const multer  = require('multer');
+const crypto  = require('crypto');
+const path    = require('path');
+const fs      = require('fs');
+const { Transform, PassThrough } = require('stream');
 const { pool } = require('../config/database');
 const { authenticate, auditLog } = require('../middleware/auth');
 const { processMemoryDump } = require('../services/volwebService');
@@ -10,46 +11,12 @@ const { processMemoryDump } = require('../services/volwebService');
 const logger = require('../config/logger').default;
 const router = express.Router();
 
-async function verifyFileIntegrity(filePath, storedHash) {
-  return new Promise((resolve) => {
-    if (!storedHash) {
-      return resolve({ ok: false, stored: null, computed: null, reason: 'no_stored_hash' });
-    }
-    const hash = crypto.createHash('sha256');
-    const stream = fs.createReadStream(filePath, { highWaterMark: 64 * 1024 });
-    stream.on('data', chunk => hash.update(chunk));
-    stream.on('end', () => {
-      const computed = hash.digest('hex');
-      resolve({ ok: computed === storedHash, stored: storedHash, computed });
-    });
-    stream.on('error', (err) => {
-      resolve({ ok: false, stored: storedHash, computed: null, reason: err.message });
-    });
-  });
-}
+const { caseAccessParam } = require('../middleware/caseAccess');
+router.use(authenticate);
+router.param('caseId', caseAccessParam);
 
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    const dir = path.join(process.env.UPLOAD_DIR || '/app/uploads', req.params.caseId || 'temp');
-    fs.mkdirSync(dir, { recursive: true });
-    cb(null, dir);
-  },
-  filename: (req, file, cb) => {
-    if (file.fieldname === 'file') {
-      const uniqueSuffix = `${Date.now()}-${crypto.randomBytes(6).toString('hex')}`;
-      cb(null, `${uniqueSuffix}-${file.originalname}`);
-    } else {
-      cb(null, file.originalname);
-    }
-  }
-});
-const upload = multer({ storage, limits: { fileSize: 32 * 1024 * 1024 * 1024 } });
-const uploadFields = upload.fields([
-  { name: 'file', maxCount: 1 },
-  { name: 'additionalFiles', maxCount: 10 },
-]);
+// ── MinIO streaming helpers ──────────────────────────────────────────────────
 
-// ── Helper MinIO ──────────────────────────────────────────────────────────────
 let _minioStream = null;
 let _bucketStream = null;
 
@@ -60,7 +27,7 @@ function getMinioStream() {
   const ep = new URL(S3_ENDPOINT);
   _bucketStream = process.env.S3_BUCKET_NAME || 'volweb';
 
-  const accessKey = process.env.AWS_ACCESS_KEY_ID     || process.env.MINIO_ROOT_USER     || '';
+  const accessKey = process.env.AWS_ACCESS_KEY_ID  || process.env.MINIO_ROOT_USER     || '';
   const secretKey = process.env.AWS_SECRET_ACCESS_KEY || process.env.MINIO_ROOT_PASSWORD || '';
 
   const { Client: MinioClient } = require('minio');
@@ -71,12 +38,9 @@ function getMinioStream() {
     accessKey,
     secretKey,
   });
-
-  logger.info(`[Stream/MinIO] client initialisé → ${S3_ENDPOINT} bucket=${_bucketStream}`);
   return { minio: _minioStream, bucket: _bucketStream };
 }
 
-// Supprime un objet MinIO — ne throw pas si l'objet n'existe pas
 async function removeMinioObject(objectKey) {
   try {
     const { minio, bucket } = getMinioStream();
@@ -86,13 +50,12 @@ async function removeMinioObject(objectKey) {
         resolve();
       });
     });
-    logger.info(`[MinIO] Supprimé : ${objectKey}`);
+    logger.info(`[MinIO] Objet supprimé : ${objectKey}`);
   } catch (err) {
-    logger.warn(`[MinIO] Impossible de supprimer "${objectKey}": ${err.message}`);
+    logger.warn(`[MinIO] Impossible de supprimer "${objectKey}" : ${err.message}`);
   }
 }
 
-// ── Helper : pipe un stream busboy part → MinIO ───────────────────────────────
 function streamPartToMinio(minio, bucket, objectKey, partStream) {
   return new Promise((resolve, reject) => {
     let totalBytes = 0;
@@ -100,7 +63,6 @@ function streamPartToMinio(minio, bucket, objectKey, partStream) {
     const hash_sha1   = crypto.createHash('sha1');
     const hash_sha256 = crypto.createHash('sha256');
 
-    const { Transform, PassThrough } = require('stream');
     const hashTransform = new Transform({
       transform(chunk, _enc, cb) {
         totalBytes += chunk.length;
@@ -125,14 +87,48 @@ function streamPartToMinio(minio, bucket, objectKey, partStream) {
         etag:   objInfo?.etag || '',
       });
     });
-
-    partStream.on('error', (err) => { logger.error(`[Stream] partStream error: ${err.message}`); reject(err); });
-    passThrough.on('error', (err) => { logger.error(`[Stream] passThrough error: ${err.message}`); reject(err); });
-    hashTransform.on('error', (err) => { logger.error(`[Stream] hashTransform error: ${err.message}`); reject(err); });
   });
 }
 
-// ── GET /:caseId ──────────────────────────────────────────────────────────────
+// ── Legacy disk-storage upload (kept for backward compat) ───────────────────
+
+async function verifyFileIntegrity(filePath, storedHash) {
+  return new Promise((resolve) => {
+    if (!storedHash) {
+      return resolve({ ok: false, stored: null, computed: null, reason: 'no_stored_hash' });
+    }
+    const hash   = crypto.createHash('sha256');
+    const stream = fs.createReadStream(filePath, { highWaterMark: 64 * 1024 });
+    stream.on('data', chunk => hash.update(chunk));
+    stream.on('end',  () => {
+      const computed = hash.digest('hex');
+      resolve({ ok: computed === storedHash, stored: storedHash, computed });
+    });
+    stream.on('error', (err) => {
+      resolve({ ok: false, stored: storedHash, computed: null, reason: err.message });
+    });
+  });
+}
+
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const dir = path.join(process.env.UPLOAD_DIR || '/app/uploads', req.params.caseId || 'temp');
+    fs.mkdirSync(dir, { recursive: true });
+    cb(null, dir);
+  },
+  filename: (req, file, cb) => {
+    const uniqueSuffix = `${Date.now()}-${crypto.randomBytes(6).toString('hex')}`;
+    cb(null, `${uniqueSuffix}-${file.originalname}`);
+  },
+});
+const upload = multer({ storage, limits: { fileSize: 32 * 1024 * 1024 * 1024 } });
+const uploadFields = upload.fields([
+  { name: 'file', maxCount: 1 },
+  { name: 'additionalFiles', maxCount: 10 },
+]);
+
+// ── Routes ───────────────────────────────────────────────────────────────────
+
 router.get('/:caseId', authenticate, async (req, res) => {
   try {
     const result = await pool.query(`
@@ -149,8 +145,8 @@ router.get('/:caseId', authenticate, async (req, res) => {
   }
 });
 
-// ── POST /:caseId/upload ──────────────────────────────────────────────────────
-router.post('/:caseId/upload', authenticate, uploadFields, async (req, res) => {
+// Legacy disk upload (files ≤ 5 GB, no additional files)
+router.post('/:caseId/upload', authenticate, upload.single('file'), async (req, res) => {
   try {
     const file = req.files?.['file']?.[0];
     if (!file) return res.status(400).json({ error: 'Fichier requis' });
@@ -178,7 +174,7 @@ router.post('/:caseId/upload', authenticate, uploadFields, async (req, res) => {
     await new Promise((resolve, reject) => {
       const stream = fs.createReadStream(file.path, { highWaterMark: 64 * 1024 });
       stream.on('data', chunk => { hash_md5.update(chunk); hash_sha1.update(chunk); hash_sha256.update(chunk); });
-      stream.on('end', resolve);
+      stream.on('end',   resolve);
       stream.on('error', reject);
     });
 
@@ -202,7 +198,6 @@ router.post('/:caseId/upload', authenticate, uploadFields, async (req, res) => {
         file.size, evidence_type || 'other', md5, sha1, sha256,
         notes, req.user.id,
         JSON.stringify([{ action: 'uploaded', user: req.user.full_name, timestamp: new Date().toISOString(), hash_sha256: sha256 }]),
-        JSON.stringify(additionalFilesMeta),
       ]
     );
 
@@ -236,174 +231,159 @@ router.post('/:caseId/upload', authenticate, uploadFields, async (req, res) => {
   }
 });
 
-// ── POST /:caseId/upload-stream ───────────────────────────────────────────────
+// Streaming upload direct to MinIO — supports memory dumps up to 256 GB + additional files
 router.post('/:caseId/upload-stream', authenticate, async (req, res) => {
   if (!req.headers['content-type']?.includes('multipart/form-data')) {
     return res.status(400).json({ error: 'Content-Type multipart/form-data requis' });
   }
-  logger.info(`[Stream] Réception démarrée`);
-
-  req.on('error', (err) => {
-    logger.error(`[Stream] req error: ${err.message}`);
-    if (!res.headersSent) res.status(500).json({ error: err.message });
-  });
-
-  req.on('close', () => {
-    logger.warn('[Stream] req closed (client ou server)');
-  });
 
   const caseId = req.params.caseId;
 
-  pool.query('SELECT case_number, title FROM cases WHERE id = $1', [caseId])
-    .then(caseRes => {
-      if (!caseRes.rows.length) return res.status(404).json({ error: 'Cas introuvable' });
+  let caseRow;
+  try {
+    const caseRes = await pool.query('SELECT case_number, title FROM cases WHERE id = $1', [caseId]);
+    if (!caseRes.rows.length) return res.status(404).json({ error: 'Cas introuvable' });
+    caseRow = caseRes.rows[0];
+  } catch (err) {
+    return res.status(500).json({ error: 'Erreur récupération cas' });
+  }
 
-      const { case_number, title } = caseRes.rows[0];
-      const caseFolder = String(case_number).replace(/[^a-zA-Z0-9._-]/g, '_');
-      const { minio, bucket } = getMinioStream();
+  const { case_number, title } = caseRow;
+  const caseFolder = String(case_number).replace(/[^a-zA-Z0-9._-]/g, '_');
+  const { minio, bucket } = getMinioStream();
 
-      let sharedStem = null;
-      const fields  = {};
-      const uploads = [];
-      let bbError   = false;
+  let sharedStem = null;
+  const fields  = {};
+  const uploads = [];
+  let   bbError = false;
 
-      const bb = require('busboy')({
-        headers: req.headers,
-        limits: { fileSize: 256 * 1024 * 1024 * 1024, files: 11 },
-      });
+  const bb = require('busboy')({
+    headers: req.headers,
+    limits:  { fileSize: 256 * 1024 * 1024 * 1024, files: 11 },
+  });
 
-      bb.on('field', (name, value) => { fields[name] = value; });
+  bb.on('field', (name, value) => { fields[name] = value; });
 
-      bb.on('file', (fieldname, fileStream, info) => {
-        const { filename } = info;
-        if (!filename) { fileStream.resume(); return; }
+  bb.on('file', (fieldname, fileStream, info) => {
+    const { filename } = info;
+    if (!filename) { fileStream.resume(); return; }
 
-        if (!sharedStem) {
-          const uniqueSuffix = `${Date.now()}-${crypto.randomBytes(6).toString('hex')}`;
-          const mainExt  = path.extname(filename);
-          const mainBase = path.basename(filename, mainExt);
-          sharedStem = `${uniqueSuffix}-${mainBase}`;
-        }
+    if (!sharedStem) {
+      const uniqueSuffix = `${Date.now()}-${crypto.randomBytes(6).toString('hex')}`;
+      const mainExt  = path.extname(filename);
+      const mainBase = path.basename(filename, mainExt);
+      sharedStem = `${uniqueSuffix}-${mainBase}`;
+    }
 
-        const ext       = path.extname(filename);
-        const finalName = `${sharedStem}${ext}`;
-        const objectKey = `${caseFolder}/${finalName}`;
+    const ext       = path.extname(filename);
+    const finalName = `${sharedStem}${ext}`;
+    const objectKey = `${caseFolder}/${finalName}`;
 
-        logger.info(`[Stream] Réception "${filename}" → ${bucket}/${objectKey} (renommé: ${finalName})`);
+    logger.info(`[Stream] Réception "${filename}" → ${bucket}/${objectKey}…`);
 
-        const promise = streamPartToMinio(minio, bucket, objectKey, fileStream)
-          .then(result => {
-            logger.info(`[Stream] "${finalName}" ok — ${(result.size / 1024 / 1024).toFixed(1)} MB sha256=${result.sha256.slice(0, 12)}…`);
-            return { fieldname, filename, finalName, ...result };
-          })
-          .catch(err => {
-            bbError = true;
-            logger.error(`[Stream] upload error for "${finalName}": ${err.message}`);
-            if (!res.headersSent) res.status(500).json({ error: err.message });
-            throw err;
-          });
-
-        uploads.push(promise);
-      });
-
-      bb.on('error', (err) => {
+    const promise = streamPartToMinio(minio, bucket, objectKey, fileStream)
+      .then(result => {
+        logger.info(`[Stream] "${finalName}" ok — ${(result.size / 1024 / 1024).toFixed(1)} MB`);
+        return { fieldname, filename, finalName, ...result };
+      })
+      .catch(err => {
         bbError = true;
-        logger.error(`[Stream] busboy error: ${err.message}`);
-        if (!res.headersSent) res.status(500).json({ error: `Parse error: ${err.message}` });
+        logger.error(`[Stream] Erreur upload "${filename}" : ${err.message}`);
+        if (!res.headersSent) res.status(500).json({ error: err.message });
+        throw err;
       });
 
-      bb.on('finish', async () => {
-        if (bbError) return;
-        try {
-          const results          = await Promise.all(uploads);
-          const mainResult       = results.find(r => r.fieldname === 'file');
-          const additionalResults = results.filter(r => r.fieldname === 'additionalFiles');
+    uploads.push(promise);
+  });
 
-          if (!mainResult) return res.status(400).json({ error: 'Champ "file" manquant' });
+  bb.on('finish', async () => {
+    if (bbError) return;
+    try {
+      const results         = await Promise.all(uploads);
+      const mainResult      = results.find(r => r.fieldname === 'file');
+      const additionalResults = results.filter(r => r.fieldname === 'additionalFiles');
 
-          const dumpOs       = fields.dump_os       || 'windows';
-          const evidenceType = fields.evidence_type || 'memory';
+      if (!mainResult) return res.status(400).json({ error: 'Champ "file" manquant' });
 
-          const additionalFilesMeta = additionalResults.map(r => ({
-            name:          r.finalName,
-            original_name: r.filename,
-            size:          r.size,
-            object_key:    r.objectKey,
-          }));
+      const dumpOs        = fields.dump_os       || 'windows';
+      const evidenceType  = fields.evidence_type || 'memory';
 
-          if (additionalResults.length) {
-            logger.info(`[Stream] ${additionalResults.length} fichier(s) additionnel(s) uploadé(s) : ${additionalResults.map(r => r.finalName).join(', ')}`);
-          }
+      const additionalFilesMeta = additionalResults.map(r => ({
+        name:          r.finalName,
+        original_name: r.filename,
+        size:          r.size,
+        object_key:    r.objectKey,
+      }));
 
-          const dbResult = await pool.query(
-            `INSERT INTO evidence
-               (case_id, name, original_filename, file_path, file_size,
-                evidence_type, hash_md5, hash_sha1, hash_sha256,
-                notes, added_by, chain_of_custody, additional_files)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
-             RETURNING *`,
-            [
-              caseId,
-              mainResult.filename,
-              mainResult.filename,
-              `minio://${bucket}/${mainResult.objectKey}`,
-              mainResult.size,
-              evidenceType,
-              mainResult.md5,
-              mainResult.sha1,
-              mainResult.sha256,
-              null,
-              req.user.id,
-              JSON.stringify([{
-                action:      'uploaded_stream',
-                user:        req.user.full_name,
-                timestamp:   new Date().toISOString(),
-                objectKey:   mainResult.objectKey,
-                finalName:   mainResult.finalName,
-                hash_sha256: mainResult.sha256,
-              }]),
-              JSON.stringify(additionalFilesMeta),
-            ]
-          );
-
-          const evidence = dbResult.rows[0];
-          await auditLog(req.user.id, 'upload_evidence', 'evidence', evidence.id, {
-            filename:    mainResult.filename,
-            finalName:   mainResult.finalName,
+      const dbResult = await pool.query(
+        `INSERT INTO evidence
+           (case_id, name, original_filename, file_path, file_size,
+            evidence_type, hash_md5, hash_sha1, hash_sha256,
+            notes, added_by, chain_of_custody, additional_files)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+         RETURNING *`,
+        [
+          caseId,
+          mainResult.filename,
+          mainResult.filename,
+          `minio://${bucket}/${mainResult.objectKey}`,
+          mainResult.size,
+          evidenceType,
+          mainResult.md5,
+          mainResult.sha1,
+          mainResult.sha256,
+          null,
+          req.user.id,
+          JSON.stringify([{
+            action:    'uploaded_stream',
+            user:      req.user.full_name,
+            timestamp: new Date().toISOString(),
+            objectKey: mainResult.objectKey,
+            finalName: mainResult.finalName,
             hash_sha256: mainResult.sha256,
-          }, req.ip);
+          }]),
+          JSON.stringify(additionalFilesMeta),
+        ]
+      );
 
-          res.status(201).json(evidence);
+      const evidence = dbResult.rows[0];
 
-          if (evidenceType === 'memory') {
-            processMemoryDump({
-              s3ObjectKey:    mainResult.objectKey,
-              additionalKeys: additionalResults.map(r => r.objectKey),
-              caseTitle:      title,
-              caseNumber:     case_number,
-              os:             dumpOs,
-              heimdallCaseId: caseId,
-              evidenceId:     evidence.id,
-              pool,
-              io:             req.app.locals.io,
-            }).catch(e => logger.warn('[VolWeb] processMemoryDump:', e.message));
-          }
+      await auditLog(req.user.id, 'upload_evidence_stream', 'evidence', evidence.id, {
+        filename:   mainResult.filename,
+        objectKey:  mainResult.objectKey,
+        hash_sha256: mainResult.sha256,
+        additionals: additionalResults.length,
+      }, req.ip);
 
-        } catch (err) {
-          logger.error(`[Stream] finish error: ${err.message}`);
-          if (!res.headersSent) res.status(500).json({ error: err.message });
-        }
-      });
+      res.status(201).json(evidence);
 
-      req.pipe(bb);
-    })
-    .catch(err => {
-      logger.error(`[Stream] DB error: ${err.message}`);
+      if (evidenceType === 'memory') {
+        processMemoryDump({
+          s3ObjectKey:    mainResult.objectKey,
+          additionalKeys: additionalResults.map(r => r.objectKey),
+          caseTitle:      title,
+          caseNumber:     case_number,
+          os:             dumpOs,
+          heimdallCaseId: caseId,
+          evidenceId:     evidence.id,
+          pool,
+          io:             req.app.locals.io,
+        }).catch(e => logger.warn('[VolWeb] processMemoryDump error:', e.message));
+      }
+    } catch (err) {
+      logger.error(`[Stream] finish error : ${err.message}`);
       if (!res.headersSent) res.status(500).json({ error: err.message });
-    });
+    }
+  });
+
+  bb.on('error', (err) => {
+    logger.error(`[Stream] busboy error : ${err.message}`);
+    if (!res.headersSent) res.status(500).json({ error: err.message });
+  });
+
+  req.pipe(bb);
 });
 
-// ── PUT /:id/highlight ────────────────────────────────────────────────────────
 router.put('/:id/highlight', authenticate, async (req, res) => {
   try {
     const result = await pool.query(
@@ -435,21 +415,21 @@ router.get('/:id/hex', authenticate, async (req, res) => {
     const offset = parseInt(req.query.offset) || 0;
     const length = Math.min(parseInt(req.query.length) || 512, 4096);
 
-    const fd = fs.openSync(filePath, 'r');
-    const buffer = Buffer.alloc(length);
+    const fd       = fs.openSync(filePath, 'r');
+    const buffer   = Buffer.alloc(length);
     const bytesRead = fs.readSync(fd, buffer, 0, length, offset);
     fs.closeSync(fd);
 
-    const stats = fs.statSync(filePath);
+    const stats     = fs.statSync(filePath);
     const integrity = await verifyFileIntegrity(filePath, storedHash);
     if (!integrity.ok) res.setHeader('X-Integrity-Alert', 'true');
 
     res.json({
       name,
-      total_size: stats.size,
+      total_size:  stats.size,
       offset,
-      length: bytesRead,
-      hex: buffer.slice(0, bytesRead).toString('hex'),
+      length:      bytesRead,
+      hex:   buffer.slice(0, bytesRead).toString('hex'),
       ascii: buffer.slice(0, bytesRead).toString('ascii').replace(/[^\x20-\x7E]/g, '.'),
       integrity_ok: integrity.ok,
       ...(integrity.ok ? {} : { integrity_alert: true, stored_hash: integrity.stored, computed_hash: integrity.computed }),
@@ -475,10 +455,10 @@ router.get('/:id/strings', authenticate, async (req, res) => {
     }
 
     const minLength = parseInt(req.query.min_length) || 4;
-    const strings = [];
-    let current = '';
-    let byteOffset = 0;
-    let currentOffset = 0;
+    const strings   = [];
+    let   current   = '';
+    let   byteOffset   = 0;
+    let   currentOffset = 0;
 
     await new Promise((resolve, reject) => {
       const stream = fs.createReadStream(filePath, { highWaterMark: 64 * 1024 });
@@ -502,8 +482,8 @@ router.get('/:id/strings', authenticate, async (req, res) => {
         if (current.length >= minLength) strings.push({ offset: currentOffset, value: current, length: current.length });
         resolve();
       });
-      stream.on('error', reject);
-      stream.on('close', resolve);
+      stream.on('error',  reject);
+      stream.on('close',  resolve);
     });
 
     const integrity = await verifyFileIntegrity(filePath, storedHash);
@@ -538,10 +518,10 @@ router.get('/:id/integrity', authenticate, async (req, res) => {
     const integrity = await verifyFileIntegrity(filePath, storedHash);
 
     res.json({
-      evidence_id: req.params.id,
+      evidence_id:   req.params.id,
       name,
-      integrity_ok: integrity.ok,
-      stored_hash: integrity.stored,
+      integrity_ok:  integrity.ok,
+      stored_hash:   integrity.stored,
       computed_hash: integrity.computed,
       ...(integrity.reason ? { reason: integrity.reason } : {}),
     });
@@ -587,17 +567,16 @@ router.post('/:id/comments', authenticate, async (req, res) => {
 router.delete('/:id', authenticate, async (req, res) => {
   try {
     const row = await pool.query(
-      'SELECT file_path, name, case_id, additional_files FROM evidence WHERE id = $1',
+      'SELECT file_path, name, additional_files FROM evidence WHERE id = $1',
       [req.params.id]
     );
     if (row.rows.length === 0) return res.status(404).json({ error: 'Preuve introuvable' });
 
     const { file_path, name, additional_files } = row.rows[0];
 
-    // ── Suppression fichier principal ──
+    // ── Delete main file ──────────────────────────────────────────────────
     if (file_path) {
       if (file_path.startsWith('minio://')) {
-        // Format : minio://bucket/object/key
         const objectKey = file_path.replace(/^minio:\/\/[^/]+\//, '');
         await removeMinioObject(objectKey);
       } else if (fs.existsSync(file_path)) {
@@ -611,7 +590,7 @@ router.delete('/:id', authenticate, async (req, res) => {
       }
     }
 
-    // ── Suppression fichiers additionnels ──
+    // ── Delete additional files ────────────────────────────────────────────
     let additionals = [];
     try {
       additionals = typeof additional_files === 'string'
@@ -620,12 +599,9 @@ router.delete('/:id', authenticate, async (req, res) => {
     } catch { additionals = []; }
 
     for (const af of additionals) {
-      // Fichier additionnel MinIO (upload-stream stocke object_key)
       if (af.object_key) {
         await removeMinioObject(af.object_key);
-      // Fichier additionnel disque (upload classique stocke name/path relatif)
       } else if (af.name) {
-        // Reconstruire le chemin disque depuis file_path parent + nom du fichier
         const dir      = file_path && !file_path.startsWith('minio://') ? path.dirname(file_path) : null;
         const fullPath = dir ? path.join(dir, af.name) : null;
         if (fullPath && fs.existsSync(fullPath)) {
@@ -635,7 +611,7 @@ router.delete('/:id', authenticate, async (req, res) => {
       }
     }
 
-    // ── Suppression en base ──
+    // ── Delete from DB ─────────────────────────────────────────────────────
     await pool.query('DELETE FROM evidence_comments WHERE evidence_id = $1', [req.params.id]);
     await pool.query('DELETE FROM parser_results WHERE evidence_id = $1', [req.params.id]);
     await pool.query('UPDATE timeline_events SET evidence_id = NULL WHERE evidence_id = $1', [req.params.id]);

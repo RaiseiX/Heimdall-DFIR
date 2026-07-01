@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { X } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 const SIZES = {
   sm:  480,
@@ -9,6 +10,7 @@ const SIZES = {
 };
 
 function Modal({ open, title, onClose, size = 'md', accentColor, children }) {
+  const { t } = useTranslation();
 
   useEffect(() => {
     if (!open) return;
@@ -30,7 +32,7 @@ function Modal({ open, title, onClose, size = 'md', accentColor, children }) {
         className="fl-modal"
         style={{
           maxWidth,
-          ...(accentColor ? { borderColor: `${accentColor}40`, boxShadow: `0 20px 60px rgba(0,0,0,0.4), 0 0 40px ${accentColor}15` } : {}),
+          ...(accentColor ? { borderColor: `color-mix(in srgb, ${accentColor} 25%, transparent)`, boxShadow: `0 20px 60px rgba(0,0,0,0.4), 0 0 40px color-mix(in srgb, ${accentColor} 8%, transparent)` } : {}),
         }}
       >
         <div className="fl-modal-header" style={accentColor ? { color: accentColor } : {}}>
@@ -39,7 +41,7 @@ function Modal({ open, title, onClose, size = 'md', accentColor, children }) {
             className="fl-btn fl-btn-ghost"
             style={{ padding: '2px 6px', marginLeft: 'auto', color: 'var(--fl-dim)' }}
             onClick={onClose}
-            title="Fermer"
+            title={t('common.close')}
           >
             <X size={16} />
           </button>

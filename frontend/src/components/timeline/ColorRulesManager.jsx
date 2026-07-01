@@ -52,17 +52,17 @@ function ConditionRow({ cond, onChange, onDelete, isOnly }) {
   return (
     <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 4 }}>
       <select value={cond.field} onChange={e => onChange({ ...cond, field: e.target.value })}
-        style={{ flex: 1.2, padding: '3px 6px', background: 'var(--fl-bg)', border: '1px solid var(--fl-border)', borderRadius: 4, color: 'var(--fl-on-dark)', fontSize: 10, fontFamily: 'monospace' }}>
+        style={{ flex: 1.2, padding: '3px 6px', background: 'var(--fl-bg)', border: '1px solid var(--fl-border)', borderRadius: 4, color: 'var(--fl-on-dark)', fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}>
         {RULE_FIELDS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
       </select>
       <select value={cond.op} onChange={e => onChange({ ...cond, op: e.target.value })}
-        style={{ flex: 1, padding: '3px 6px', background: 'var(--fl-bg)', border: '1px solid var(--fl-border)', borderRadius: 4, color: 'var(--fl-on-dark)', fontSize: 10, fontFamily: 'monospace' }}>
+        style={{ flex: 1, padding: '3px 6px', background: 'var(--fl-bg)', border: '1px solid var(--fl-border)', borderRadius: 4, color: 'var(--fl-on-dark)', fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}>
         {RULE_OPS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
       </select>
       {needsValue && (
         <input value={cond.value || ''} onChange={e => onChange({ ...cond, value: e.target.value })}
-          placeholder="valeur"
-          style={{ flex: 1.5, padding: '3px 6px', background: 'var(--fl-bg)', border: '1px solid var(--fl-border)', borderRadius: 4, color: 'var(--fl-text)', fontSize: 10, fontFamily: 'monospace' }} />
+          placeholder="value"
+          style={{ flex: 1.5, padding: '3px 6px', background: 'var(--fl-bg)', border: '1px solid var(--fl-border)', borderRadius: 4, color: 'var(--fl-text)', fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }} />
       )}
       {!isOnly && (
         <button onClick={onDelete} style={{ padding: '2px 4px', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--fl-muted)' }}>
@@ -76,7 +76,7 @@ function ConditionRow({ cond, onChange, onDelete, isOnly }) {
 function RuleEditor({ rule, caseId, onSave, onCancel }) {
   const [form, setForm] = useState({
     name:       rule?.name || '',
-    color:      rule?.color || '#EF4444',
+    color:      rule?.color || 'var(--fl-danger)',
     icon:       rule?.icon || '',
     scope:      rule?.scope || 'case',
     priority:   rule?.priority ?? 10,
@@ -104,14 +104,14 @@ function RuleEditor({ rule, caseId, onSave, onCancel }) {
   }
 
   async function handleSave() {
-    if (!form.name.trim()) { setError('Le nom est requis'); return; }
-    if (!form.conditions.rules.length) { setError('Au moins une condition est requise'); return; }
+    if (!form.name.trim()) { setError('Name is required'); return; }
+    if (!form.conditions.rules.length) { setError('At least one condition is required'); return; }
     setSaving(true); setError('');
     try {
       const saved = await saveRule(form);
       onSave(saved);
     } catch (e) {
-      setError(e.response?.data?.error || 'Erreur lors de la sauvegarde');
+      setError(e.response?.data?.error || 'Save error');
     } finally { setSaving(false); }
   }
 
@@ -120,15 +120,15 @@ function RuleEditor({ rule, caseId, onSave, onCancel }) {
       
       <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
         <input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
-          placeholder="Nom de la règle"
-          style={{ flex: 1, padding: '5px 8px', background: 'var(--fl-panel)', border: '1px solid var(--fl-border)', borderRadius: 5, color: 'var(--fl-text)', fontSize: 11, fontFamily: 'monospace' }} />
+          placeholder="Rule name"
+          style={{ flex: 1, padding: '5px 8px', background: 'var(--fl-panel)', border: '1px solid var(--fl-border)', borderRadius: 5, color: 'var(--fl-text)', fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }} />
         <input type="number" value={form.priority} onChange={e => setForm(f => ({ ...f, priority: parseInt(e.target.value) || 0 }))}
-          title="Priorité (+ bas = évalué en premier)"
+          title="Priority (lower = evaluated first)"
           style={{ width: 54, padding: '5px 8px', background: 'var(--fl-panel)', border: '1px solid var(--fl-border)', borderRadius: 5, color: 'var(--fl-text)', fontSize: 11, textAlign: 'center' }} />
       </div>
 
       <div style={{ marginBottom: 8 }}>
-        <div style={{ fontSize: 9, fontFamily: 'monospace', color: 'var(--fl-subtle)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 4 }}>COULEUR</div>
+        <div style={{ fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-subtle)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 4 }}>COLOR</div>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, alignItems: 'center' }}>
           {RULE_COLORS.map(c => (
             <button key={c} onClick={() => setForm(f => ({ ...f, color: c }))}
@@ -141,29 +141,29 @@ function RuleEditor({ rule, caseId, onSave, onCancel }) {
           ))}
           <input type="color" value={form.color} onChange={e => setForm(f => ({ ...f, color: e.target.value }))}
             style={{ width: 24, height: 24, border: 'none', cursor: 'pointer', background: 'none', padding: 0 }} />
-          <span style={{ fontFamily: 'monospace', fontSize: 10, color: form.color }}>{form.color}</span>
+          <span style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10, color: form.color }}>{form.color}</span>
         </div>
       </div>
 
       <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 8 }}>
-        <span style={{ fontSize: 9, fontFamily: 'monospace', color: 'var(--fl-subtle)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>PORTÉE</span>
+        <span style={{ fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-subtle)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>SCOPE</span>
         <button onClick={() => setForm(f => ({ ...f, scope: f.scope === 'global' ? 'case' : 'global', case_id: f.scope === 'global' ? (caseId || null) : null }))}
-          style={{ padding: '2px 8px', borderRadius: 4, fontSize: 10, fontFamily: 'monospace', cursor: 'pointer',
-            background: form.scope === 'global' ? '#f59e0b18' : '#4d82c018',
-            color: form.scope === 'global' ? '#f59e0b' : 'var(--fl-accent)',
-            border: `1px solid ${form.scope === 'global' ? '#f59e0b40' : '#4d82c040'}` }}>
-          {form.scope === 'global' ? '🌐 Globale (tous les cas)' : '📁 Ce cas uniquement'}
+          style={{ padding: '2px 8px', borderRadius: 4, fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', cursor: 'pointer',
+            background: form.scope === 'global' ? 'color-mix(in srgb, var(--fl-warn) 9%, transparent)' : 'color-mix(in srgb, var(--fl-accent) 9%, transparent)',
+            color: form.scope === 'global' ? 'var(--fl-warn)' : 'var(--fl-accent)',
+            border: `1px solid ${form.scope === 'global' ? 'color-mix(in srgb, var(--fl-warn) 25%, transparent)' : 'color-mix(in srgb, var(--fl-accent) 25%, transparent)'}` }}>
+          {form.scope === 'global' ? '🌐 Global (all cases)' : '📁 This case only'}
         </button>
       </div>
 
       <div style={{ marginBottom: 8 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
-          <span style={{ fontSize: 9, fontFamily: 'monospace', color: 'var(--fl-subtle)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>CONDITIONS</span>
+          <span style={{ fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-subtle)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>CONDITIONS</span>
           <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
             <select value={form.conditions.operator} onChange={e => setForm(f => ({ ...f, conditions: { ...f.conditions, operator: e.target.value } }))}
               style={{ padding: '2px 5px', background: 'var(--fl-bg)', border: '1px solid var(--fl-border)', borderRadius: 3, color: 'var(--fl-dim)', fontSize: 9 }}>
-              <option value="AND">ET (toutes les conditions)</option>
-              <option value="OR">OU (au moins une)</option>
+              <option value="AND">AND (all conditions)</option>
+              <option value="OR">OR (at least one)</option>
             </select>
           </div>
         </div>
@@ -173,19 +173,19 @@ function RuleEditor({ rule, caseId, onSave, onCancel }) {
             onDelete={() => removeCondition(i)}
             isOnly={form.conditions.rules.length === 1} />
         ))}
-        <button onClick={addCondition} style={{ marginTop: 4, padding: '3px 10px', borderRadius: 4, fontSize: 10, fontFamily: 'monospace', cursor: 'pointer', background: 'var(--fl-panel)', border: '1px solid var(--fl-border)', color: 'var(--fl-dim)', display: 'flex', alignItems: 'center', gap: 4 }}>
-          <Plus size={10} /> Ajouter une condition
+        <button onClick={addCondition} style={{ marginTop: 4, padding: '3px 10px', borderRadius: 4, fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', cursor: 'pointer', background: 'var(--fl-panel)', border: '1px solid var(--fl-border)', color: 'var(--fl-dim)', display: 'flex', alignItems: 'center', gap: 4 }}>
+          <Plus size={10} /> Add condition
         </button>
       </div>
 
-      {error && <div style={{ padding: '4px 8px', borderRadius: 4, background: '#2d1515', border: '1px solid #dc2626', color: '#f87171', fontSize: 10, fontFamily: 'monospace', marginBottom: 6 }}>{error}</div>}
+      {error && <div style={{ padding: '4px 8px', borderRadius: 4, background: '#2d1515', border: '1px solid #dc2626', color: 'var(--fl-danger)', fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', marginBottom: 6 }}>{error}</div>}
 
       <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
-        <button onClick={onCancel} style={{ padding: '4px 12px', borderRadius: 5, fontSize: 10, fontFamily: 'monospace', cursor: 'pointer', background: 'var(--fl-panel)', border: '1px solid var(--fl-border)', color: 'var(--fl-dim)' }}>
-          Annuler
+        <button onClick={onCancel} style={{ padding: '4px 12px', borderRadius: 5, fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', cursor: 'pointer', background: 'var(--fl-panel)', border: '1px solid var(--fl-border)', color: 'var(--fl-dim)' }}>
+          Cancel
         </button>
-        <button onClick={handleSave} disabled={saving} style={{ padding: '4px 14px', borderRadius: 5, fontSize: 10, fontFamily: 'monospace', cursor: 'pointer', background: 'var(--fl-accent)', border: 'none', color: '#fff', fontWeight: 700 }}>
-          {saving ? '...' : 'Sauvegarder'}
+        <button onClick={handleSave} disabled={saving} style={{ padding: '4px 14px', borderRadius: 5, fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', cursor: 'pointer', background: 'var(--fl-accent)', border: 'none', color: '#fff', fontWeight: 700 }}>
+          {saving ? '...' : 'Save'}
         </button>
       </div>
     </div>
@@ -217,7 +217,7 @@ export default function ColorRulesManager({ open, onClose, caseId, onRulesChange
   }
 
   async function handleDelete(id) {
-    if (!confirm('Supprimer cette règle ?')) return;
+    if (!confirm('Delete this rule?')) return;
     await deleteRule(id);
     await loadRules();
   }
@@ -285,19 +285,19 @@ export default function ColorRulesManager({ open, onClose, caseId, onRulesChange
         
         <div style={{ padding: '14px 16px', borderBottom: '1px solid var(--fl-border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
           <div>
-            <div style={{ fontFamily: 'monospace', fontSize: 13, fontWeight: 700, color: 'var(--fl-text)' }}>
-              🎨 Règles de colorisation
+            <div style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 13, fontWeight: 700, color: 'var(--fl-text)' }}>
+              🎨 Color rules
             </div>
-            <div style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--fl-muted)', marginTop: 2 }}>
-              {rules.filter(r => r.is_active).length} règles actives · évaluées en priorité croissante
+            <div style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10, color: 'var(--fl-muted)', marginTop: 2 }}>
+              {rules.filter(r => r.is_active).length} active rules · evaluated in ascending priority
             </div>
           </div>
           <div style={{ display: 'flex', gap: 6 }}>
-            <button onClick={exportRules} title="Exporter les règles en JSON"
+            <button onClick={exportRules} title="Export rules as JSON"
               style={{ padding: '4px 8px', background: 'var(--fl-panel)', border: '1px solid var(--fl-border)', borderRadius: 5, cursor: 'pointer', color: 'var(--fl-dim)' }}>
               <Download size={12} />
             </button>
-            <button onClick={importRules} title="Importer des règles depuis JSON"
+            <button onClick={importRules} title="Import rules from JSON"
               style={{ padding: '4px 8px', background: 'var(--fl-panel)', border: '1px solid var(--fl-border)', borderRadius: 5, cursor: 'pointer', color: 'var(--fl-dim)' }}>
               <Upload size={12} />
             </button>
@@ -309,22 +309,22 @@ export default function ColorRulesManager({ open, onClose, caseId, onRulesChange
 
         <div style={{ padding: '8px 14px', borderBottom: '1px solid var(--fl-sep)', flexShrink: 0 }}>
           <button onClick={() => setEditRule('new')}
-            style={{ width: '100%', padding: '7px 0', borderRadius: 6, fontSize: 11, fontFamily: 'monospace', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, background: '#4d82c012', border: '1px dashed #4d82c040', color: 'var(--fl-accent)' }}>
-            <Plus size={12} /> Nouvelle règle
+            style={{ width: '100%', padding: '7px 0', borderRadius: 6, fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, background: 'color-mix(in srgb, var(--fl-accent) 7%, transparent)', border: '1px dashed color-mix(in srgb, var(--fl-accent) 25%, transparent)', color: 'var(--fl-accent)' }}>
+            <Plus size={12} /> New rule
           </button>
         </div>
 
         <div style={{ flex: 1, overflowY: 'auto', padding: '8px 14px' }}>
           {loading ? (
-            <div style={{ textAlign: 'center', padding: 40, color: 'var(--fl-muted)', fontFamily: 'monospace', fontSize: 11 }}>Chargement...</div>
+            <div style={{ textAlign: 'center', padding: 40, color: 'var(--fl-muted)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11 }}>Loading...</div>
           ) : (
             <>
               {editRule === 'new' && (
                 <RuleEditor rule={null} caseId={caseId} onSave={handleSave} onCancel={() => setEditRule(null)} />
               )}
               {rules.length === 0 && editRule !== 'new' && (
-                <div style={{ textAlign: 'center', padding: 40, color: 'var(--fl-muted)', fontFamily: 'monospace', fontSize: 11 }}>
-                  Aucune règle. Cliquez sur "Nouvelle règle" pour commencer.
+                <div style={{ textAlign: 'center', padding: 40, color: 'var(--fl-muted)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11 }}>
+                  No rules. Click "New rule" to begin.
                 </div>
               )}
               {rules.map((rule, idx) => {
@@ -346,7 +346,7 @@ export default function ColorRulesManager({ open, onClose, caseId, onRulesChange
                             style={{ padding: 1, background: 'none', border: 'none', cursor: idx === 0 ? 'default' : 'pointer', color: idx === 0 ? 'var(--fl-border)' : 'var(--fl-muted)' }}>
                             <ChevronUp size={10} />
                           </button>
-                          <span style={{ fontFamily: 'monospace', fontSize: 8, color: 'var(--fl-muted)', textAlign: 'center', lineHeight: 1 }}>{rule.priority}</span>
+                          <span style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 8, color: 'var(--fl-muted)', textAlign: 'center', lineHeight: 1 }}>{rule.priority}</span>
                           <button onClick={() => movePriority(rule, 'down')} disabled={idx === rules.length - 1}
                             style={{ padding: 1, background: 'none', border: 'none', cursor: idx === rules.length - 1 ? 'default' : 'pointer', color: idx === rules.length - 1 ? 'var(--fl-border)' : 'var(--fl-muted)' }}>
                             <ChevronDown size={10} />
@@ -356,27 +356,27 @@ export default function ColorRulesManager({ open, onClose, caseId, onRulesChange
                         <div style={{ width: 14, height: 14, borderRadius: 3, background: rule.color, flexShrink: 0 }} />
 
                         <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontFamily: 'monospace', fontSize: 11, fontWeight: 700, color: rule.is_active ? 'var(--fl-text)' : 'var(--fl-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          <div style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11, fontWeight: 700, color: rule.is_active ? 'var(--fl-text)' : 'var(--fl-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                             {rule.name}
                           </div>
-                          <div style={{ fontFamily: 'monospace', fontSize: 9, color: 'var(--fl-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          <div style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 9, color: 'var(--fl-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                             {rule.conditions?.operator} : {rule.conditions?.rules?.map(c => conditionToString(c)).join(` ${rule.conditions?.operator === 'OR' ? '| ' : '& '}`)}
                           </div>
                         </div>
 
                         {rule.scope === 'global' && (
-                          <span style={{ flexShrink: 0, padding: '1px 5px', borderRadius: 3, fontSize: 8, fontFamily: 'monospace', background: '#f59e0b14', color: '#f59e0b', border: '1px solid #f59e0b30' }}>global</span>
+                          <span style={{ flexShrink: 0, padding: '1px 5px', borderRadius: 3, fontSize: 8, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', background: 'color-mix(in srgb, var(--fl-warn) 8%, transparent)', color: 'var(--fl-warn)', border: '1px solid color-mix(in srgb, var(--fl-warn) 19%, transparent)' }}>global</span>
                         )}
 
-                        <button onClick={() => toggleActive(rule)} title={rule.is_active ? 'Désactiver' : 'Activer'}
-                          style={{ padding: 3, background: 'none', border: 'none', cursor: 'pointer', color: rule.is_active ? '#22c55e' : 'var(--fl-muted)', flexShrink: 0 }}>
+                        <button onClick={() => toggleActive(rule)} title={rule.is_active ? 'Disable' : 'Enable'}
+                          style={{ padding: 3, background: 'none', border: 'none', cursor: 'pointer', color: rule.is_active ? 'var(--fl-ok)' : 'var(--fl-muted)', flexShrink: 0 }}>
                           {rule.is_active ? <ToggleRight size={14} /> : <ToggleLeft size={14} />}
                         </button>
-                        <button onClick={() => setEditRule(rule)} title="Modifier"
+                        <button onClick={() => setEditRule(rule)} title="Edit"
                           style={{ padding: 3, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--fl-muted)', flexShrink: 0 }}>
                           <Edit3 size={11} />
                         </button>
-                        <button onClick={() => handleDelete(rule.id)} title="Supprimer"
+                        <button onClick={() => handleDelete(rule.id)} title="Delete"
                           style={{ padding: 3, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--fl-muted)', flexShrink: 0 }}
                           onMouseEnter={e => e.currentTarget.style.color = 'var(--fl-danger)'}
                           onMouseLeave={e => e.currentTarget.style.color = 'var(--fl-muted)'}>
@@ -391,8 +391,8 @@ export default function ColorRulesManager({ open, onClose, caseId, onRulesChange
           )}
         </div>
 
-        <div style={{ padding: '8px 14px', borderTop: '1px solid var(--fl-sep)', flexShrink: 0, fontFamily: 'monospace', fontSize: 9, color: 'var(--fl-subtle)' }}>
-          Les règles sont évaluées en ordre croissant de priorité · première correspondance gagne · évaluation 100% locale (zéro requête réseau)
+        <div style={{ padding: '8px 14px', borderTop: '1px solid var(--fl-sep)', flexShrink: 0, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 9, color: 'var(--fl-subtle)' }}>
+          Rules are evaluated in ascending priority · first match wins · fully local evaluation (zero network requests)
         </div>
       </div>
     </div>

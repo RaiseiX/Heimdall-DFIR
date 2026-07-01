@@ -3,6 +3,7 @@ const { execSync, execFileSync, exec, spawnSync, spawn, execFile } = require('ch
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
+const { v4: uuidv4 } = require('uuid');
 const readline = require('readline');
 const { Transform, Writable } = require('stream');
 const { pipeline } = require('stream/promises');
@@ -19,8 +20,13 @@ const logger = require('../config/logger').default;
 const { matchTags: matchKeywordTags } = require('../services/timelineKeywords');
 const threatEngine = require('../services/threatEngine');
 const { detectMapping, applyMapping, loadMappings } = require('../services/timelineMappings');
+const { pushTextFilter, pushSearchFilter } = require('../utils/textFilter');
 
 const router = express.Router();
+
+const { caseAccessParam } = require('../middleware/caseAccess');
+router.use(authenticate);
+router.param('caseId', caseAccessParam);
 const ZIMMERMAN_DIR = process.env.ZIMMERMAN_TOOLS_DIR || '/app/zimmerman-tools';
 
 pool.query(`
@@ -67,13 +73,29 @@ pool.query(`
   pool.query(`CREATE INDEX        IF NOT EXISTS idx_ct_case_ext      ON collection_timeline(case_id, ext)      WHERE ext      IS NOT NULL`),
   pool.query(`CREATE INDEX        IF NOT EXISTS idx_ct_case_sha1     ON collection_timeline(case_id, sha1)     WHERE sha1     IS NOT NULL`),
   pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS uq_ct_case_dedupe    ON collection_timeline(case_id, dedupe_hash) WHERE dedupe_hash IS NOT NULL`),
-])).catch(e => logger.warn('[collection] auto-migration warning:', e.message));
+
+  // v2.26 — per-row threat engine detections
+  pool.query(`ALTER TABLE collection_timeline ADD COLUMN IF NOT EXISTS detections JSONB`),
+  pool.query(`CREATE INDEX IF NOT EXISTS idx_ct_detections ON collection_timeline(case_id) WHERE detections IS NOT NULL`),
+]))
+  // EVTX & other artifacts can carry values longer than the legacy varchar caps; a single
+  // overflow fails the whole UNNEST batch (pg 22001) → 0 rows. Widen forensic text columns
+  // to TEXT (metadata-only change, runs after the ADD COLUMNs above to avoid a race).
+  .then(() => pool.query(`ALTER TABLE collection_timeline
+                ALTER COLUMN host_name     TYPE text,
+                ALTER COLUMN user_name     TYPE text,
+                ALTER COLUMN source_device TYPE text,
+                ALTER COLUMN process_name  TYPE text`))
+  .catch(e => logger.warn('[collection] auto-migration warning:', e.message));
 const COLLECTIONS_DIR = '/app/collections';
 const TEMP_DIR = '/app/temp';
 
 const WINDOWS_ONLY_PARSERS = new Set([]);
 
-const PYTHON_FALLBACK_PARSERS = new Set(['prefetch', 'srum', 'sqle', 'wxtcmd']);
+const PYTHON_FALLBACK_PARSERS = new Set(['prefetch', 'srum', 'sqle', 'wxtcmd',
+  // Custom Python parsers in /app/parsers (not Zimmerman) — bypass the ZIMMERMAN_DIR tool check.
+  'userassist', 'netprofile', 'usb', 'schtasks', 'pwsh', 'dns', 'webcache', 'pcap', 'wmi', 'rdpcache',
+  'auditd', 'syslog', 'bash_history', 'unified_log']);
 
 const LARGE_CSV_THRESHOLD = 5 * 1024 * 1024;
 
@@ -101,7 +123,7 @@ const upload = multer({
       }
     },
     filename: (_req, file, cb) => {
-      cb(null, `${Date.now()}-${file.originalname}`);
+      cb(null, `${uuidv4()}-${file.originalname}`);
     },
   }),
 });
@@ -113,6 +135,7 @@ const ARTIFACT_PATTERNS = {
     toolKey: 'evtx',
     name: 'Event Logs',
     argsBuilder: (input, output) => ['dotnet', path.join(ZIMMERMAN_DIR, 'EvtxECmd.dll'), '-d', input, '--csv', output, '--csvf', 'evtx_results.csv'],
+    toolEnv: { DOTNET_SYSTEM_THREADING_THREADPOOL_MINTHREADS: '4', DOTNET_SYSTEM_THREADING_THREADPOOL_MINCOMPLETIONPORTTHREADS: '4' },
     timestampColumns: ['TimeCreated', 'SystemTime'],
     descriptionColumns: ['MapDescription', 'PayloadData1'],
     sourceColumn: 'Channel',
@@ -136,9 +159,31 @@ const ARTIFACT_PATTERNS = {
     toolKey: 'mft',
     name: '$MFT',
     argsBuilder: (input, output) => ['dotnet', path.join(ZIMMERMAN_DIR, 'MFTECmd.dll'), '-f', input, '--csv', output, '--csvf', 'mft_results.csv'],
+    toolEnv: { DOTNET_SYSTEM_THREADING_THREADPOOL_MINTHREADS: '2', DOTNET_SYSTEM_THREADING_THREADPOOL_MINCOMPLETIONPORTTHREADS: '2' },
     timestampColumns: ['Created0x10', 'Created0x30', 'LastModified0x10', 'LastAccess0x10'],
     descriptionColumns: ['FileName'],
-    sourceColumn: 'FolderPath',
+    sourceColumn: 'ParentPath',
+  },
+  usn: {
+    patterns: ['**/$Extend/$UsnJrnl*', '**/$UsnJrnl*$J', '**/$UsnJrnl_$J', '**/$J'],
+    tool: 'MFTECmd.dll',
+    toolKey: 'usn',
+    name: '$J (USN Journal)',
+    // -f $J ; parent-path resolution would need -m $MFT (added later if a sibling $MFT is collected).
+    argsBuilder: (input, output) => ['dotnet', path.join(ZIMMERMAN_DIR, 'MFTECmd.dll'), '-f', input, '--csv', output, '--csvf', 'usn_results.csv'],
+    timestampColumns: ['UpdateTimestamp'],
+    descriptionColumns: ['Name', 'UpdateReasons'],
+    sourceColumn: 'ParentPath',
+  },
+  indx: {
+    patterns: ['**/$I30', '**/*_$I30', '**/$I30*'],
+    tool: 'MFTECmd.dll',
+    toolKey: 'indx',
+    name: '$I30 (INDX)',
+    argsBuilder: (input, output) => ['dotnet', path.join(ZIMMERMAN_DIR, 'MFTECmd.dll'), '-f', input, '--csv', output, '--csvf', 'indx_results.csv'],
+    timestampColumns: ['LastModified0x10', 'Created0x10', 'LastAccess0x10'],
+    descriptionColumns: ['FileName'],
+    sourceColumn: 'ParentPath',
   },
   lnk: {
     patterns: ['**/Recent/**/*.lnk', '**/*.lnk'],
@@ -167,7 +212,7 @@ const ARTIFACT_PATTERNS = {
     name: 'Amcache',
     argsBuilder: (input, output) => ['dotnet', path.join(ZIMMERMAN_DIR, 'AmcacheParser.dll'), '-f', input, '--csv', output, '--csvf', 'amcache_results.csv'],
     timestampColumns: ['FileKeyLastWriteTimestamp', 'LinkDate'],
-    descriptionColumns: ['FileDescription', 'FullPath', 'ProgramName'],
+    descriptionColumns: ['FileDescription', 'FullPath', 'ProgramName', 'KeyName'],
     sourceColumn: 'ProgramName',
   },
   appcompat: {
@@ -225,6 +270,108 @@ const ARTIFACT_PATTERNS = {
     descriptionColumns: ['DisplayText', 'Description', 'AppId'],
     sourceColumn: 'AppId',
   },
+  userassist: {
+    patterns: ['**/NTUSER.DAT', '**/NTUSER.dat'],
+    tool: 'parse_userassist.py',
+    toolKey: 'userassist',
+    name: 'UserAssist',
+    argsBuilder: (input, output) => ['python3', '/app/parsers/parse_userassist.py', '-f', input, '--csv', output, '--csvf', 'userassist_results.csv'],
+    timestampColumns: ['LastExecuted'],
+    descriptionColumns: ['ProgramName'],
+    sourceColumn: 'ProgramName',
+  },
+  netprofile: {
+    patterns: ['**/SOFTWARE', '**/Software', '**/config/SOFTWARE'],
+    tool: 'parse_networklist.py',
+    toolKey: 'netprofile',
+    name: 'Profils réseau',
+    argsBuilder: (input, output) => ['python3', '/app/parsers/parse_networklist.py', '-f', input, '--csv', output, '--csvf', 'networklist_results.csv'],
+    timestampColumns: ['DateLastConnected', 'DateCreated'],
+    descriptionColumns: ['ProfileName', 'DnsSuffix', 'GatewayMac'],
+    sourceColumn: 'ProfileName',
+  },
+  usb: {
+    patterns: ['**/setupapi.dev.log', '**/INF/setupapi.dev.log', '**/inf/setupapi.dev.log'],
+    tool: 'parse_usb.py',
+    toolKey: 'usb',
+    name: 'Historique USB',
+    argsBuilder: (input, output) => ['python3', '/app/parsers/parse_usb.py', '-f', input, '--csv', output, '--csvf', 'usb_results.csv'],
+    timestampColumns: ['Timestamp'],
+    descriptionColumns: ['DeviceDescription', 'DeviceInstanceId'],
+    sourceColumn: 'DeviceInstanceId',
+  },
+  schtasks: {
+    patterns: ['**/System32/Tasks/**', '**/Windows/Tasks/**', '**/Tasks/**'],
+    tool: 'parse_schtasks.py',
+    toolKey: 'schtasks',
+    name: 'Tâches planifiées',
+    argsBuilder: (input, output) => ['python3', '/app/parsers/parse_schtasks.py', '-d', input, '--csv', output, '--csvf', 'schtasks_results.csv'],
+    timestampColumns: ['Date'],
+    descriptionColumns: ['TaskName', 'Command'],
+    sourceColumn: 'TaskName',
+  },
+  pwsh: {
+    patterns: ['**/ConsoleHost_history.txt'],
+    tool: 'parse_pwsh_history.py',
+    toolKey: 'pwsh',
+    name: 'Historique PowerShell',
+    argsBuilder: (input, output) => ['python3', '/app/parsers/parse_pwsh_history.py', '-d', input, '--csv', output, '--csvf', 'pwsh_history_results.csv'],
+    timestampColumns: ['Timestamp'],
+    descriptionColumns: ['Command'],
+    sourceColumn: 'UserName',
+  },
+  dns: {
+    patterns: ['**/drivers/etc/hosts', '**/etc/hosts', '**/*displaydns*.txt', '**/*DnsCache*.txt'],
+    tool: 'parse_dns.py',
+    toolKey: 'dns',
+    name: 'DNS / hosts',
+    argsBuilder: (input, output) => ['python3', '/app/parsers/parse_dns.py', '-d', input, '--csv', output, '--csvf', 'dns_results.csv'],
+    timestampColumns: ['Timestamp'],
+    descriptionColumns: ['Entry'],
+    sourceColumn: 'Type',
+  },
+  webcache: {
+    patterns: ['**/WebCacheV01.dat', '**/WebCacheV*.dat', '**/WebCache/WebCacheV*.dat'],
+    tool: 'parse_webcache.py',
+    toolKey: 'webcache',
+    name: 'WebCache (IE/Edge)',
+    argsBuilder: (input, output) => ['python3', '/app/parsers/parse_webcache.py', '-f', input, '--csv', output, '--csvf', 'webcache_results.csv'],
+    timestampColumns: ['AccessedTime', 'ModifiedTime'],
+    descriptionColumns: ['Url'],
+    sourceColumn: 'ContainerType',
+  },
+  pcap: {
+    patterns: ['**/*.pcap', '**/*.pcapng', '**/*.cap'],
+    tool: 'parse_pcap.py',
+    toolKey: 'pcap',
+    name: 'Capture réseau (PCAP)',
+    // Custom dispatch in the parse route inserts flows into network_connections (not the timeline).
+    argsBuilder: (input, output) => ['python3', '/app/parsers/parse_pcap.py', '-d', input, '--csv', output, '--csvf', 'pcap_results.csv'],
+    timestampColumns: ['first_seen'],
+    descriptionColumns: [],
+    sourceColumn: '',
+  },
+  wmi: {
+    patterns: ['**/wbem/Repository/**/OBJECTS.DATA', '**/OBJECTS.DATA'],
+    tool: 'parse_wmi.py',
+    toolKey: 'wmi',
+    name: 'Persistance WMI',
+    argsBuilder: (input, output) => ['python3', '/app/parsers/parse_wmi.py', '-d', path.dirname(input), '--csv', output, '--csvf', 'wmi_results.csv'],
+    timestampColumns: ['Timestamp'],
+    descriptionColumns: ['Type', 'Name', 'Detail'],
+    sourceColumn: 'Type',
+  },
+  rdpcache: {
+    patterns: ['**/bcache*.bmc', '**/Cache/Cache*.bin', '**/Terminal Server Client/Cache/**', '**/Cache????.bin'],
+    tool: 'bmc-tools.py',
+    toolKey: 'rdpcache',
+    name: 'RDP Bitmap Cache',
+    // Custom dispatch reconstructs PNG tiles into a served dir (not the timeline).
+    argsBuilder: (input, output) => ['python3', '/app/tools/bmc-tools.py', '-s', path.dirname(input), '-d', output, '-b'],
+    timestampColumns: [],
+    descriptionColumns: [],
+    sourceColumn: '',
+  },
   recycle: {
     patterns: ['**/$Recycle.Bin/**/$I*', '**/$I*'],
     tool: 'RBCmd.dll',
@@ -267,6 +414,60 @@ const ARTIFACT_PATTERNS = {
     descriptionColumns: ['Title', 'URL'],
     sourceColumn: 'SourceFile',
   },
+  auditd: {
+    patterns: ['**/audit/audit.log', '**/audit/audit.log.*', '**/log/audit/**'],
+    tool: 'parse_auditd.py',
+    toolKey: 'auditd',
+    name: 'Linux Auditd',
+    argsBuilder: (input, output) => {
+      const dir = require('fs').statSync(input).isDirectory() ? input : require('path').dirname(input);
+      return ['python3', '/app/parsers/parse_auditd.py', '-d', dir, '--csv', output, '--csvf', 'auditd_results.csv'];
+    },
+    timestampColumns: ['Timestamp'],
+    descriptionColumns: ['AuditType', 'Exe', 'Args'],
+    sourceColumn: 'HostName',
+  },
+  syslog: {
+    patterns: ['**/log/syslog', '**/log/messages', '**/log/auth.log', '**/log/secure',
+               '**/log/syslog.*', '**/log/messages.*'],
+    tool: 'parse_syslog.py',
+    toolKey: 'syslog',
+    name: 'Linux Syslog',
+    argsBuilder: (input, output) => {
+      const dir = require('fs').statSync(input).isDirectory() ? input : require('path').dirname(input);
+      return ['python3', '/app/parsers/parse_syslog.py', '-d', dir, '--csv', output, '--csvf', 'syslog_results.csv'];
+    },
+    timestampColumns: ['Timestamp'],
+    descriptionColumns: ['Program', 'Message'],
+    sourceColumn: 'Program',
+  },
+  bash_history: {
+    patterns: ['**/.bash_history', '**/.zsh_history', '**/.zhistory', '**/bash_history'],
+    tool: 'parse_bash_history.py',
+    toolKey: 'bash_history',
+    name: 'Bash/Zsh History',
+    argsBuilder: (input, output) => {
+      const dir = require('fs').statSync(input).isDirectory() ? input : require('path').dirname(input);
+      return ['python3', '/app/parsers/parse_bash_history.py', '-d', dir, '--csv', output, '--csvf', 'bash_history_results.csv'];
+    },
+    timestampColumns: ['Timestamp'],
+    descriptionColumns: ['Command'],
+    sourceColumn: 'UserName',
+  },
+  unified_log: {
+    patterns: ['**/*.logarchive/**', '**/unified_log*.json', '**/unified_log*.txt',
+               '**/system.log', '**/system.log.*'],
+    tool: 'parse_unified_log.py',
+    toolKey: 'unified_log',
+    name: 'macOS Unified Log',
+    argsBuilder: (input, output) => {
+      const dir = require('fs').statSync(input).isDirectory() ? input : require('path').dirname(input);
+      return ['python3', '/app/parsers/parse_unified_log.py', '-d', dir, '--csv', output, '--csvf', 'unified_log_results.csv'];
+    },
+    timestampColumns: ['Timestamp'],
+    descriptionColumns: ['ProcessName', 'Message'],
+    sourceColumn: 'ProcessName',
+  },
 };
 
 const MITRE_MAP = {
@@ -285,6 +486,21 @@ const MITRE_MAP = {
   recycle:   { technique_id: 'T1070.004', technique_name: 'Indicator Removal: File Deletion',               tactic: 'defense-evasion' },
   bits:      { technique_id: 'T1197',     technique_name: 'BITS Jobs',                                     tactic: 'persistence' },
   sum:       { technique_id: 'T1021',     technique_name: 'Remote Services',                               tactic: 'lateral-movement' },
+  usn:       { technique_id: 'T1070.004', technique_name: 'Indicator Removal: File Deletion',               tactic: 'defense-evasion' },
+  indx:      { technique_id: 'T1070.004', technique_name: 'Indicator Removal: File Deletion',               tactic: 'defense-evasion' },
+  userassist:{ technique_id: 'T1204',     technique_name: 'User Execution',                                 tactic: 'execution' },
+  netprofile:{ technique_id: 'T1016',     technique_name: 'System Network Configuration Discovery',         tactic: 'discovery' },
+  usb:       { technique_id: 'T1052.001', technique_name: 'Exfiltration over USB',                          tactic: 'exfiltration' },
+  schtasks:  { technique_id: 'T1053.005', technique_name: 'Scheduled Task/Job: Scheduled Task',            tactic: 'persistence' },
+  pwsh:      { technique_id: 'T1059.001', technique_name: 'Command and Scripting Interpreter: PowerShell', tactic: 'execution' },
+  dns:       { technique_id: 'T1071.004', technique_name: 'Application Layer Protocol: DNS',               tactic: 'command-and-control' },
+  webcache:  { technique_id: 'T1217',     technique_name: 'Browser Information Discovery',                 tactic: 'collection' },
+  wmi:       { technique_id: 'T1546.003', technique_name: 'Event Triggered Execution: WMI Event Subscription', tactic: 'persistence' },
+  rdpcache:  { technique_id: 'T1021.001', technique_name: 'Remote Services: RDP',                          tactic: 'lateral-movement' },
+  auditd:    { technique_id: 'T1059.004', technique_name: 'Command and Scripting Interpreter: Unix Shell', tactic: 'execution' },
+  syslog:    { technique_id: 'T1562.002', technique_name: 'Impair Defenses: Disable Windows Event Logging', tactic: 'defense-evasion' },
+  bash_history: { technique_id: 'T1059.004', technique_name: 'Command and Scripting Interpreter: Unix Shell', tactic: 'execution' },
+  unified_log: { technique_id: 'T1059',   technique_name: 'Command and Scripting Interpreter',              tactic: 'execution' },
 };
 
 // EVTX per-EventID MITRE override — Windows Security log common events.
@@ -301,19 +517,33 @@ const ECS_COLUMNS = {
   evtx:      { host: ['Computer', 'ComputerName'], user: ['SubjectUserName', 'TargetUserName', 'RemoteUserName', 'SourceUserName', 'UserName'], process: ['ProcessName', 'NewProcessName', 'Image'] },
   prefetch:  { host: ['Computer', 'ComputerName'], user: ['OSUser', 'UserName'], process: ['ExecutableName'] },
   mft:       { host: ['ComputerName'], user: ['UserName', 'OwnerSid'], process: [] },
-  lnk:       { host: ['MachineID', 'NetBiosMachineName', 'ComputerName'], user: ['UserName', 'LocalUser'], process: ['Name', 'TargetFilenameLastPart'] },
-  jumplist:  { host: ['MachineID', 'NetBiosMachineName'], user: ['UserName'], process: ['AppId', 'AppIdDescription'] },
+  lnk:       { host: ['MachineID', 'NetBiosMachineName', 'ComputerName'], user: ['UserName', 'LocalUser'], process: [] },
+  jumplist:  { host: ['MachineID', 'NetBiosMachineName'], user: ['UserName'], process: ['AppIdDescription'] },
   shellbags: { host: ['ComputerName'], user: ['UserName', 'HiveUser'], process: [] },
-  amcache:   { host: ['ComputerName'], user: ['UserName', 'OSUser'], process: ['ProgramName', 'FullPath'] },
+  amcache:   { host: ['ComputerName'], user: ['UserName', 'OSUser'], process: ['ProgramName'] },
   appcompat: { host: ['ComputerName', 'SourceFile'], user: ['UserName'], process: [] },
   registry:  { host: ['ComputerName', 'HiveName'], user: ['UserName', 'HiveUser'], process: [] },
   srum:      { host: ['ComputerName'], user: ['UserSid', 'UserName'], process: ['ExeInfo'] },
   sqle:      { host: ['ComputerName', 'HostName'], user: ['Profile', 'UserName'], process: [] },
-  wxtcmd:    { host: ['ComputerName', 'DeviceId'], user: ['Sid', 'UserName'], process: ['AppId', 'DisplayText'] },
+  wxtcmd:    { host: ['ComputerName', 'DeviceId'], user: ['Sid', 'UserName'], process: [] },
   recycle:   { host: ['ComputerName'], user: ['UserName', 'DeletedBy'], process: [] },
   bits:      { host: ['ComputerName'], user: ['UserName', 'Owner'], process: ['JobName'] },
   sum:       { host: ['ClientName', 'ComputerName'], user: ['UserName', 'AuthenticatedUserName'], process: [] },
+  usn:       { host: ['ComputerName'], user: [], process: [] },
+  indx:      { host: ['ComputerName'], user: [], process: [] },
+  userassist:{ host: ['ComputerName'], user: ['UserName'], process: ['ProgramName'] },
+  netprofile:{ host: ['ComputerName'], user: [], process: [] },
+  usb:       { host: ['ComputerName'], user: [], process: [] },
+  schtasks:  { host: ['ComputerName'], user: ['RunAs', 'Author'], process: ['Command'] },
+  pwsh:      { host: ['ComputerName'], user: ['UserName'], process: [] },
+  dns:       { host: ['ComputerName'], user: [], process: [] },
+  webcache:  { host: ['ComputerName'], user: [], process: [] },
+  wmi:       { host: ['ComputerName'], user: [], process: [] },
   hayabusa:  { host: ['Computer', 'ComputerName'], user: ['SubjectUserName', 'TargetUserName', 'UserName'], process: ['ProcessName', 'Image'] },
+  auditd:    { host: ['HostName'], user: ['UserName'], process: ['Exe'] },
+  syslog:    { host: ['HostName'], user: [], process: ['Program'] },
+  bash_history: { host: [], user: ['UserName'], process: [] },
+  unified_log: { host: ['HostName'], user: [], process: ['ProcessName'] },
 };
 
 function extractEcsFields(record, artifactType) {
@@ -385,12 +615,22 @@ function extractForensicFields(record, artifactType, config, tsColumn, descripti
   }
   if (details) details = details.slice(0, 500);
 
+  // EVTX: EventRecordId+Computer make the record globally unique without relying on description truncation.
+  // MFT: EntryNumber+SequenceNumber is the stable per-file identity in the MFT.
+  // Without these, high-frequency events (same EventId+Channel+second) collide and are silently dropped.
+  const extraUnique =
+    artifactType === 'evtx'
+      ? `|${record['EventRecordId'] || record['RecordNumber'] || ''}|${record['Computer'] || ''}`
+      : artifactType === 'mft'
+      ? `|${record['EntryNumber'] || ''}|${record['SequenceNumber'] || ''}`
+      : '';
+
   const dedupeHash = crypto
     .createHash('md5')
     .update([
       tsColumn || '', source || '', artifactType || '',
       (description || '').slice(0, 200), eventId == null ? '' : String(eventId),
-    ].join('|'))
+    ].join('|') + extraUnique)
     .digest('hex')
     .slice(0, 16);
 
@@ -592,7 +832,62 @@ function findCsvFilesRecursive(dir) {
 }
 
 const CT_DB_BATCH = 5000;
-const PARSE_CONCURRENCY = 3;
+// All selected parsers start at once by default (runConcurrent caps to the item count).
+// Tunable via env if a host needs to throttle CPU. DB writes are bounded separately below.
+const PARSE_CONCURRENCY = parseInt(process.env.PARSE_CONCURRENCY, 10) || 99;
+
+// Shared semaphore bounding TOTAL concurrent DB stream-inserts across ALL parsers, so
+// launching every parser in parallel can't exhaust the pg pool (max 30). Default 20 leaves
+// headroom for other queries. Tunable via DB_WRITE_CONCURRENCY.
+const DB_WRITE_CONCURRENCY = parseInt(process.env.DB_WRITE_CONCURRENCY, 10) || 20;
+function makeSemaphore(max) {
+  let active = 0;
+  const waiters = [];
+  return {
+    async acquire() {
+      if (active >= max) await new Promise(res => waiters.push(res));
+      active++;
+    },
+    release() {
+      active--;
+      const next = waiters.shift();
+      if (next) next();
+    },
+  };
+}
+const dbWriteSem = makeSemaphore(DB_WRITE_CONCURRENCY);
+
+// In-memory per-case parse progress so the UI can re-attach after navigation.
+// Work itself runs detached server-side and survives the page; this just lets a
+// returning client poll the current state. Lost on backend restart (acceptable).
+const PARSE_PROGRESS = new Map(); // caseId -> { parsers:{key:{status,records,name}}, globalPct, updatedAt }
+
+function updateParseProgress(caseId, validTypes, data) {
+  if (!caseId) return;
+  let e = PARSE_PROGRESS.get(caseId);
+  if (data.type === 'start' || !e) {
+    e = {
+      parsers: Object.fromEntries((validTypes || []).map(k => [k, { status: 'queued', records: 0, name: ARTIFACT_PATTERNS[k]?.name || k }])),
+      globalPct: 0,
+      updatedAt: Date.now(),
+    };
+    PARSE_PROGRESS.set(caseId, e);
+  }
+  if (data.type === 'artifact_start' && data.artifact) {
+    if (!e.parsers[data.artifact]) e.parsers[data.artifact] = { status: 'queued', records: 0, name: data.name || data.artifact };
+    e.parsers[data.artifact].status = 'parsing';
+  }
+  if (data.type === 'artifact_done' && data.artifact) {
+    const st = data.status === 'success' ? 'done' : data.status === 'skipped' ? 'skipped' : 'error';
+    e.parsers[data.artifact] = { ...(e.parsers[data.artifact] || { name: data.name || data.artifact }), status: st, records: data.records ?? 0 };
+  }
+  // Global % from the COUNT of finished parsers — robust to parallel start order.
+  // (The event `current` is a start index, not a completion count, so it can't drive %.)
+  const states = Object.values(e.parsers);
+  const finished = states.filter(p => p.status === 'done' || p.status === 'skipped' || p.status === 'error').length;
+  e.globalPct = states.length ? Math.round((finished / states.length) * 100) : 0;
+  e.updatedAt = Date.now();
+}
 
 async function runConcurrent(items, fn, concurrency) {
   let next = 0;
@@ -710,7 +1005,23 @@ async function streamNormalizeToDB(csvPath, caseId, resultId, artifactType, conf
       const tsResult = extractTimestamp(clean, config.timestampColumns);
       if (!tsResult) { csvParser.resume(); return; }
 
-      const slimRaw = Object.fromEntries(Object.entries(clean).slice(0, 15));
+      // Always include the first 15 fields, plus any critical forensic fields that may appear later
+      const CRITICAL_FIELDS = new Set([
+        'PayloadData1', 'PayloadData2', 'PayloadData3', 'PayloadData4', 'PayloadData5', 'PayloadData6',
+        'MapDescription', 'EventId', 'EventID', 'Channel', 'Computer', 'Provider',
+        'RuleTitle', 'Details', 'Level', 'ExtraFieldInfo', 'MitreTags',
+        'FullPath', 'FilePath', 'FileDescription', 'ProgramName',
+        'ValueName', 'ValueData', 'KeyPath', 'Description',
+        'ExecutableName', 'RunCount', 'LastRun',
+        'FileName', 'ParentPath', 'FolderPath',
+        'AbsolutePath', 'HivePath',
+        'URL', 'Url', 'Title',
+        'ExeInfo', 'AppId', 'UserId',
+        'LocalPath', 'TargetPath',
+      ]);
+      const baseEntries = Object.entries(clean).slice(0, 15);
+      const extraEntries = Object.entries(clean).slice(15).filter(([k]) => CRITICAL_FIELDS.has(k));
+      const slimRaw = Object.fromEntries([...baseEntries, ...extraEntries]);
 
       if (artifactType === 'evtx') {
         const eventId = parseInt(clean['EventId'] || clean['EventID'] || '0', 10);
@@ -735,8 +1046,16 @@ async function streamNormalizeToDB(csvPath, caseId, resultId, artifactType, conf
       }
 
       const ecs = extractEcsFields(clean, artifactType);
-      const baseDesc = extractDescription(clean, config.descriptionColumns);
-      const baseSource = clean[config.sourceColumn] || '';
+      let baseDesc = extractDescription(clean, config.descriptionColumns);
+      // AmcacheParser KeyName format: "ProgramName|hexhash" — strip the hash suffix
+      if (artifactType === 'amcache' && baseDesc && /\|[0-9a-f]{8,}$/i.test(baseDesc)) {
+        baseDesc = baseDesc.replace(/\|[0-9a-f]{8,}$/i, '').trim();
+      }
+      let baseSource = clean[config.sourceColumn] || '';
+      // amcache ShortCuts CSV has no ProgramName — fall back to LnkName path
+      if (artifactType === 'amcache' && !baseSource && clean['LnkName']) {
+        baseSource = clean['LnkName'];
+      }
       const forensic = extractForensicFields(clean, artifactType, config, tsResult.column, baseDesc, baseSource);
       batch.push({
         timestamp:     tsResult.timestamp,
@@ -858,6 +1177,7 @@ function spawnTool(args, options = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn(binary, rest, {
       cwd:   options.cwd,
+      env:   options.env,
       stdio: ['ignore', 'pipe', 'pipe'],
     });
 
@@ -923,10 +1243,6 @@ function extractDescription(record, descriptionColumns) {
     const val = (record[col] || '').toString().trim();
     if (val && val !== '-' && val !== 'N/A') return val;
   }
-  for (const val of Object.values(record)) {
-    const s = (val || '').toString().trim();
-    if (s && s !== '-' && s !== 'N/A') return s;
-  }
   return '';
 }
 
@@ -935,7 +1251,7 @@ router.post('/:caseId/import', authenticate, upload.single('collection'), async 
 
   const socketId = req.body?.socketId || null;
   const io = req.app.locals.io;
-  const collectionDir = path.join(COLLECTIONS_DIR, `case-${caseId}-${Date.now()}`);
+  const collectionDir = path.join(COLLECTIONS_DIR, `case-${caseId}-${uuidv4()}`);
 
   try {
 
@@ -945,9 +1261,11 @@ router.post('/:caseId/import', authenticate, upload.single('collection'), async 
     if (!req.file) return res.status(400).json({ error: 'Aucun fichier uploadé' });
 
     const ext = path.extname(req.file.originalname).toLowerCase();
-    if (!['.zip', '.tar', '.gz', '.tgz', '.7z'].includes(ext)) {
+    const RAW_ARTIFACT_EXTS = ['.evtx', '.pf', '.lnk', '.dat', '.hve', '.db', '.sqlite', '.pcap', '.pcapng', '.cap'];
+    const isRawArtifact = RAW_ARTIFACT_EXTS.includes(ext);
+    if (!['.zip', '.tar', '.gz', '.tgz', '.7z'].includes(ext) && !isRawArtifact) {
       try { fs.unlinkSync(req.file.path); } catch (_) {}
-      return res.status(400).json({ error: 'Format non supporté. Utilisez .zip, .tar.gz ou .7z' });
+      return res.status(400).json({ error: 'Format non supporté. Utilisez .zip, .tar.gz ou .7z (ou déposez directement un fichier .evtx, .pf, .lnk, .dat, .pcap…)' });
     }
 
     fs.mkdirSync(collectionDir, { recursive: true });
@@ -973,7 +1291,12 @@ router.post('/:caseId/import', authenticate, upload.single('collection'), async 
           logger.warn('[collection] hash computation failed:', e.message);
         }
 
-        if (ext === '.zip') {
+        if (isRawArtifact) {
+          // Single raw artifact file — copy directly into collectionDir, no extraction needed
+          const destPath = path.join(collectionDir, req.file.originalname);
+          fs.copyFileSync(uploadedPath, destPath);
+          logger.info(`[collection] raw artifact copied: ${req.file.originalname} → ${destPath}`);
+        } else if (ext === '.zip') {
           try {
             await spawnTool(['unzip', '-o', '-q', uploadedPath, '-d', collectionDir], { timeout: 3600000 });
           } catch (unzipErr) {
@@ -1028,6 +1351,18 @@ router.post('/:caseId/import', authenticate, upload.single('collection'), async 
             }
           }
         }
+
+        // Anti-duplication: drop prior import rows whose extracted collection dir no longer
+        // exists on disk (orphans from re-imports) so they stop inflating the synthesis count.
+        try {
+          const priorImports = await pool.query(
+            `SELECT id, input_file FROM parser_results WHERE case_id = $1 AND parser_name = 'MagnetRESPONSE_Import'`, [caseId]);
+          const orphanIds = priorImports.rows.filter(r => !r.input_file || !fs.existsSync(r.input_file)).map(r => r.id);
+          if (orphanIds.length) {
+            await pool.query('DELETE FROM parser_results WHERE id = ANY($1::uuid[])', [orphanIds]);
+            logger.info(`[import] cleaned ${orphanIds.length} orphan import rows for case ${caseId}`);
+          }
+        } catch (e) { logger.warn('[import] orphan cleanup failed:', e.message); }
 
         const collectionResult = await pool.query(
           `INSERT INTO parser_results (case_id, parser_name, parser_version, input_file, output_data, record_count, created_by)
@@ -1098,6 +1433,81 @@ router.post('/:caseId/import', authenticate, upload.single('collection'), async 
   }
 });
 
+// Current parse progress for a case — lets the UI re-attach the monitor after navigation.
+router.get('/:caseId/parse-progress', authenticate, async (req, res) => {
+  const { caseId } = req.params;
+  const e = PARSE_PROGRESS.get(caseId);
+  if (!e) return res.json({ active: false, live: false, globalPct: 0, parsers: {} });
+  const age = Date.now() - e.updatedAt;
+  // A finished parse (explicit done flag or 100%) or a long-idle orphan is no
+  // longer "active" — clear it so the cockpit doesn't linger as a frozen
+  // snapshot after the job ends, dies, or is interrupted by navigation.
+  if (e.done || e.globalPct >= 100 || age > 5 * 60 * 1000) {
+    PARSE_PROGRESS.delete(caseId);
+    return res.json({ active: false, live: false, globalPct: 0, parsers: {} });
+  }
+  res.json({ active: true, live: age < 15000, globalPct: e.globalPct, parsers: e.parsers });
+});
+
+// Event-density histogram of the case timeline — buckets for the live parsing sparkline.
+// Bounds are clamped to a sane window so forensic junk timestamps (year 2069…) don't skew it.
+router.get('/:caseId/timeline-histogram', authenticate, async (req, res) => {
+  const { caseId } = req.params;
+  const N = Math.min(80, Math.max(12, parseInt(req.query.buckets, 10) || 48));
+  // This sparkline aggregates the whole case timeline (can be millions of rows)
+  // and is polled live during parsing. A dedicated client with a hard
+  // statement_timeout guarantees a slow scan aborts instead of piling up into
+  // zombie queries that exhaust the pool and block schema migrations / deletes.
+  const client = await pool.connect();
+  try {
+    await client.query("SET statement_timeout = '8000'");
+    const r = await client.query(
+      `WITH b AS (
+         SELECT MIN(timestamp) lo, MAX(timestamp) hi FROM collection_timeline
+         WHERE case_id = $1 AND timestamp BETWEEN '1990-01-01' AND '2100-01-01'
+       )
+       SELECT width_bucket(EXTRACT(EPOCH FROM ct.timestamp),
+                           EXTRACT(EPOCH FROM b.lo), EXTRACT(EPOCH FROM b.hi) + 1, $2) AS bkt,
+              COUNT(*)::int AS n
+         FROM collection_timeline ct, b
+        WHERE ct.case_id = $1 AND ct.timestamp BETWEEN b.lo AND b.hi
+        GROUP BY bkt ORDER BY bkt`, [caseId, N]);
+    const bnd = await client.query(
+      `SELECT MIN(timestamp) lo, MAX(timestamp) hi, COUNT(*)::int total FROM collection_timeline
+        WHERE case_id = $1 AND timestamp BETWEEN '1990-01-01' AND '2100-01-01'`, [caseId]);
+    const buckets = new Array(N).fill(0);
+    for (const row of r.rows) { const i = (row.bkt || 1) - 1; if (i >= 0 && i < N) buckets[i] = row.n; }
+    res.json({ buckets, total: bnd.rows[0]?.total || 0, lo: bnd.rows[0]?.lo || null, hi: bnd.rows[0]?.hi || null });
+  } catch (err) {
+    logger.warn('[timeline-histogram]', err.message);
+    res.json({ buckets: [], total: 0, lo: null, hi: null });
+  } finally {
+    // Clear the timeout before returning the connection to the pool so it
+    // doesn't leak onto the next query that borrows this client.
+    await client.query('RESET statement_timeout').catch(() => {});
+    client.release();
+  }
+});
+
+// RDP bitmap-cache reconstructed images — list + serve (path-traversal guarded).
+router.get('/:caseId/rdp-cache', authenticate, async (req, res) => {
+  const dir = path.join(COLLECTIONS_DIR, 'rdp-cache', req.params.caseId);
+  try {
+    const images = fs.existsSync(dir) ? fs.readdirSync(dir).filter(f => /\.(bmp|png)$/i.test(f)).sort() : [];
+    res.json({ images });
+  } catch { res.json({ images: [] }); }
+});
+
+router.get('/:caseId/rdp-cache/:name', authenticate, async (req, res) => {
+  const { name } = req.params;
+  if (!/^[\w.-]+\.(bmp|png)$/i.test(name)) return res.status(400).end();
+  const base = path.join(COLLECTIONS_DIR, 'rdp-cache', req.params.caseId);
+  const fp = path.join(base, name);
+  if (!fp.startsWith(base + path.sep) || !fs.existsSync(fp)) return res.status(404).end();
+  res.setHeader('Content-Type', name.toLowerCase().endsWith('.png') ? 'image/png' : 'image/bmp');
+  res.sendFile(fp);
+});
+
 router.post('/:caseId/parse', authenticate, async (req, res) => {
   const { caseId } = req.params;
   const { collection_dir, artifact_types, types, evidence_id: bodyEvidenceId } = req.body;
@@ -1150,39 +1560,15 @@ router.post('/:caseId/parse', authenticate, async (req, res) => {
 
   function emitProgress(data) {
     if (socketId && io) io.to(socketId).emit('collection:progress', data);
+    // Mirror into the in-memory store so a returning client can re-attach the live view.
+    try { updateParseProgress(caseId, validTypes, data); } catch (_e) {}
   }
   emitProgress({ type: 'start', total: totalTypes, artifacts: validTypes });
 
   const results = {};
   let totalRecords = 0;
 
-  const oldPrRows = await pool.query(
-    `SELECT id FROM parser_results WHERE case_id = $1 AND input_file = $2 AND parser_name != 'MagnetRESPONSE_Import'`,
-    [caseId, collDir]
-  );
-  const oldResultIds = oldPrRows.rows.map(r => r.id);
-  if (oldResultIds.length > 0) {
-
-    await pool.query(
-      `DELETE FROM collection_timeline WHERE result_id = ANY($1::uuid[])`,
-      [oldResultIds]
-    );
-
-    for (const rid of oldResultIds) {
-      await esService.deleteByResultId(caseId, rid).catch(e =>
-        logger.warn(`[ES] deleteByResultId warn (${caseId}/${rid}): ${String(e.message).substring(0, 100)}`));
-    }
-
-    await pool.query(
-      `DELETE FROM parser_results WHERE id = ANY($1::uuid[])`,
-      [oldResultIds]
-    );
-  } else {
-
-    await esService.ensureIndex(caseId).catch(e =>
-      logger.warn(`[ES] ensureIndex warn (${caseId}): ${String(e.message).substring(0, 100)}`));
-  }
-
+  // Read-only lookups — no concurrency risk, done before the transaction
   let evidenceId = evidenceIdFromBody;
   if (!evidenceId) {
     try {
@@ -1200,7 +1586,6 @@ router.post('/:caseId/parse', authenticate, async (req, res) => {
       const evNameRow = await pool.query(`SELECT name FROM evidence WHERE id = $1`, [evidenceId]);
       if (evNameRow.rows.length > 0) {
         const evName = path.basename(evNameRow.rows[0].name || '').replace(/\.(zip|tar\.gz|7z|tgz|gz)$/i, '');
-
         const m = evName.match(/^([A-Za-z0-9][-A-Za-z0-9]{2,})/);
         if (m) sourceDevice = m[1].toUpperCase();
       }
@@ -1212,16 +1597,55 @@ router.post('/:caseId/parse', authenticate, async (req, res) => {
     }
   } catch (_e) {}
 
+  // Atomic: lock previous results → delete stale data → insert new result record.
+  // FOR UPDATE prevents two concurrent re-parsings from both deleting and double-inserting.
+  let oldResultIds = [];
   let resultId;
-  try {
-    const prRow = await pool.query(
-      `INSERT INTO parser_results (case_id, evidence_id, parser_name, parser_version, input_file, output_data, record_count, created_by)
-       VALUES ($1, $2, 'UnifiedTimeline', '2.0', $3, '{"status":"parsing"}'::jsonb, 0, $4) RETURNING id`,
-      [caseId, evidenceId || null, collDir, req.user.id]
-    );
-    resultId = prRow.rows[0].id;
-  } catch (initErr) {
-    return res.status(500).json({ error: 'Erreur initialisation DB', details: initErr.message });
+  {
+    const dbClient = await pool.connect();
+    try {
+      await dbClient.query('BEGIN');
+      const oldPrRows = await dbClient.query(
+        `SELECT id FROM parser_results
+         WHERE case_id = $1 AND input_file = $2 AND parser_name != 'MagnetRESPONSE_Import'
+         FOR UPDATE`,
+        [caseId, collDir]
+      );
+      oldResultIds = oldPrRows.rows.map(r => r.id);
+      if (oldResultIds.length > 0) {
+        await dbClient.query(
+          `DELETE FROM collection_timeline WHERE result_id = ANY($1::uuid[])`,
+          [oldResultIds]
+        );
+        await dbClient.query(
+          `DELETE FROM parser_results WHERE id = ANY($1::uuid[])`,
+          [oldResultIds]
+        );
+      }
+      const prRow = await dbClient.query(
+        `INSERT INTO parser_results (case_id, evidence_id, parser_name, parser_version, input_file, output_data, record_count, created_by)
+         VALUES ($1, $2, 'UnifiedTimeline', '2.0', $3, '{"status":"parsing"}'::jsonb, 0, $4) RETURNING id`,
+        [caseId, evidenceId || null, collDir, req.user.id]
+      );
+      resultId = prRow.rows[0].id;
+      await dbClient.query('COMMIT');
+    } catch (initErr) {
+      await dbClient.query('ROLLBACK').catch(() => {});
+      dbClient.release();
+      return res.status(500).json({ error: 'Erreur initialisation DB', details: initErr.message });
+    }
+    dbClient.release();
+  }
+
+  // ES cleanup outside the transaction — best-effort, non-blocking for the DB
+  if (oldResultIds.length > 0) {
+    for (const rid of oldResultIds) {
+      await esService.deleteByResultId(caseId, rid).catch(e =>
+        logger.warn(`[ES] deleteByResultId warn (${caseId}/${rid}): ${String(e.message).substring(0, 100)}`));
+    }
+  } else {
+    await esService.ensureIndex(caseId).catch(e =>
+      logger.warn(`[ES] ensureIndex warn (${caseId}): ${String(e.message).substring(0, 100)}`));
   }
 
     res.json({ id: resultId, status: 'parsing' });
@@ -1259,7 +1683,7 @@ router.post('/:caseId/parse', authenticate, async (req, res) => {
       return;
     }
 
-    const outputDir = path.join(TEMP_DIR, `parse-${caseId}-${artifactType}-${Date.now()}`);
+    const outputDir = path.join(TEMP_DIR, `parse-${caseId}-${artifactType}-${uuidv4()}`);
     fs.mkdirSync(outputDir, { recursive: true });
 
     try {
@@ -1280,6 +1704,7 @@ router.post('/:caseId/parse', authenticate, async (req, res) => {
       }
 
       let toolArgs = null;
+      let toolEnv = null;
       let toolError = null;
       let toolStdout = '';
 
@@ -1311,6 +1736,60 @@ router.post('/:caseId/parse', authenticate, async (req, res) => {
       } else if (artifactType === 'sqle') {
 
         toolArgs = ['python3', '/app/parsers/parse_sqle.py', '-d', collDir, '--csv', outputDir, '--csvf', 'sqle_results.csv'];
+      } else if (artifactType === 'schtasks') {
+
+        toolArgs = ['python3', '/app/parsers/parse_schtasks.py', '-d', collDir, '--csv', outputDir, '--csvf', 'schtasks_results.csv'];
+      } else if (artifactType === 'pwsh') {
+
+        toolArgs = ['python3', '/app/parsers/parse_pwsh_history.py', '-d', collDir, '--csv', outputDir, '--csvf', 'pwsh_history_results.csv'];
+      } else if (artifactType === 'dns') {
+
+        toolArgs = ['python3', '/app/parsers/parse_dns.py', '-d', collDir, '--csv', outputDir, '--csvf', 'dns_results.csv'];
+      } else if (artifactType === 'wmi') {
+
+        const repoDir = files.length ? path.dirname(files[0]) : collDir;
+        toolArgs = ['python3', '/app/parsers/parse_wmi.py', '-d', repoDir, '--csv', outputDir, '--csvf', 'wmi_results.csv'];
+      } else if (artifactType === 'pcap') {
+
+        // PCAP feeds network_connections (the network map), not the timeline.
+        let inserted = 0;
+        try {
+          const pr = spawnSync('python3', ['/app/parsers/parse_pcap.py', '-d', collDir, '--csv', outputDir, '--csvf', 'pcap_results.csv'],
+            { encoding: 'utf8', maxBuffer: 1 << 28, timeout: 1800000 });
+          toolStdout = (pr.stdout || pr.stderr || '').slice(0, 1500);
+          const csvPath = path.join(outputDir, 'pcap_results.csv');
+          if (fs.existsSync(csvPath)) {
+            const rows = fs.readFileSync(csvPath, 'utf8').split('\n').filter(Boolean);
+            rows.shift(); // header
+            for (const line of rows) {
+              const c = line.split(',');
+              if (c.length < 10 || !c[0] || !c[2]) continue;
+              const toInt = v => { const n = parseInt(v, 10); return Number.isFinite(n) ? n : 0; };
+              await pool.query(
+                `INSERT INTO network_connections (case_id, src_ip, src_port, dst_ip, dst_port, protocol, bytes_sent, bytes_received, packet_count, first_seen, last_seen)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+                [caseId, c[0], c[1] || null, c[2], c[3] || null, c[4] || null, toInt(c[5]), toInt(c[6]), toInt(c[7]), c[8] || null, c[9] || null]);
+              inserted++;
+            }
+          }
+        } catch (e) { logger.warn('[pcap] insert error:', e.message); }
+        results[artifactType] = { status: inserted > 0 ? 'ok' : 'empty', name: config?.name || 'PCAP', records: inserted };
+        toolArgs = null;
+      } else if (artifactType === 'rdpcache') {
+
+        // RDP bitmap cache → reconstructed PNG tiles in a served per-case dir (not the timeline).
+        const RDP_BASE = path.join(COLLECTIONS_DIR, 'rdp-cache', caseId);
+        let count = 0;
+        try {
+          fs.mkdirSync(RDP_BASE, { recursive: true });
+          const cacheDir = files.length ? path.dirname(files[0]) : collDir;
+          const pr = spawnSync('python3', ['/app/tools/bmc-tools.py', '-s', cacheDir, '-d', RDP_BASE, '-b'],
+            { encoding: 'utf8', timeout: 600000 });
+          toolStdout = (pr.stdout || pr.stderr || '').slice(0, 1500);
+          count = fs.existsSync(RDP_BASE) ? fs.readdirSync(RDP_BASE).filter(f => /\.(bmp|png)$/i.test(f)).length : 0;
+        } catch (e) { logger.warn('[rdpcache]', e.message); }
+        results[artifactType] = { status: count > 0 ? 'ok' : 'empty', name: config?.name || 'RDP Bitmap Cache', records: count };
+        toolArgs = null;
       } else if (isDirectory && DIRECTORY_MODE_PARSERS.includes(artifactType)) {
 
         let dirInput = path.dirname(files[0]);
@@ -1337,10 +1816,14 @@ router.post('/:caseId/parse', authenticate, async (req, res) => {
           const mapsBase = path.join(ZIMMERMAN_DIR, 'Maps');
           if (fs.existsSync(mapsBase)) {
             const hasDirect = fs.readdirSync(mapsBase).some(f => f.endsWith('.map') || f.endsWith('.json'));
-            const subDir = path.join(mapsBase, 'Maps');
-            const hasSub = fs.existsSync(subDir) && fs.readdirSync(subDir).some(f => f.endsWith('.map') || f.endsWith('.json'));
-            if (hasDirect) mapsDir = mapsBase;
+            const subDir    = path.join(mapsBase, 'Maps');
+            const hasSub    = fs.existsSync(subDir) && fs.readdirSync(subDir).some(f => f.endsWith('.map') || f.endsWith('.json'));
+            // Zimmerman layout: Maps/EvtxeCmd/Maps/*.map
+            const evtxSubDir = path.join(mapsBase, 'EvtxeCmd', 'Maps');
+            const hasEvtxSub = fs.existsSync(evtxSubDir) && fs.readdirSync(evtxSubDir).some(f => f.endsWith('.map') || f.endsWith('.json'));
+            if (hasDirect)   mapsDir = mapsBase;
             else if (hasSub) mapsDir = subDir;
+            else if (hasEvtxSub) mapsDir = evtxSubDir;
           }
           const mapsFlag = mapsDir ? ` --maps "${mapsDir}"` : '';
           logger.info(`[parse] evtx maps: ${mapsDir || 'none found'}`);
@@ -1348,8 +1831,10 @@ router.post('/:caseId/parse', authenticate, async (req, res) => {
           const evtxDirArgs = ['dotnet', path.join(ZIMMERMAN_DIR, 'EvtxECmd.dll'), '-d', dirInput, '--csv', '.'];
           if (mapsDir) evtxDirArgs.push('--maps', mapsDir);
           toolArgs = evtxDirArgs;
+          toolEnv = { ...process.env, DOTNET_SYSTEM_THREADING_THREADPOOL_MINTHREADS: '4', DOTNET_SYSTEM_THREADING_THREADPOOL_MINCOMPLETIONPORTTHREADS: '4' };
         } else {
           toolArgs = config.argsBuilder(dirInput, outputDir);
+          if (config.toolEnv) toolEnv = { ...process.env, ...config.toolEnv };
         }
       } else {
 
@@ -1387,18 +1872,24 @@ router.post('/:caseId/parse', authenticate, async (req, res) => {
           const mapsBase = path.join(ZIMMERMAN_DIR, 'Maps');
           if (fs.existsSync(mapsBase)) {
             const hasDirect = fs.readdirSync(mapsBase).some(f => f.endsWith('.map') || f.endsWith('.json'));
-            const subDir = path.join(mapsBase, 'Maps');
-            const hasSub = fs.existsSync(subDir) && fs.readdirSync(subDir).some(f => f.endsWith('.map') || f.endsWith('.json'));
-            if (hasDirect) mapsDir = mapsBase;
+            const subDir    = path.join(mapsBase, 'Maps');
+            const hasSub    = fs.existsSync(subDir) && fs.readdirSync(subDir).some(f => f.endsWith('.map') || f.endsWith('.json'));
+            // Zimmerman layout: Maps/EvtxeCmd/Maps/*.map
+            const evtxSubDir = path.join(mapsBase, 'EvtxeCmd', 'Maps');
+            const hasEvtxSub = fs.existsSync(evtxSubDir) && fs.readdirSync(evtxSubDir).some(f => f.endsWith('.map') || f.endsWith('.json'));
+            if (hasDirect)   mapsDir = mapsBase;
             else if (hasSub) mapsDir = subDir;
+            else if (hasEvtxSub) mapsDir = evtxSubDir;
           }
           const mapsFlag = mapsDir ? ` --maps "${mapsDir}"` : '';
           logger.info(`[parse] evtx single-file maps: ${mapsDir || 'none found'}`);
           const evtxFileArgs = ['dotnet', path.join(ZIMMERMAN_DIR, 'EvtxECmd.dll'), '-f', bestFile, '--csv', '.'];
           if (mapsDir) evtxFileArgs.push('--maps', mapsDir);
           toolArgs = evtxFileArgs;
+          toolEnv = { ...process.env, DOTNET_SYSTEM_THREADING_THREADPOOL_MINTHREADS: '4', DOTNET_SYSTEM_THREADING_THREADPOOL_MINCOMPLETIONPORTTHREADS: '4' };
         } else {
           toolArgs = config.argsBuilder(bestFile, outputDir);
+          if (config.toolEnv) toolEnv = { ...process.env, ...config.toolEnv };
         }
       }
 
@@ -1418,6 +1909,7 @@ router.post('/:caseId/parse', authenticate, async (req, res) => {
           timeout: 3600000,
           maxBuffer: 1024 * 1024 * 512,
           cwd: outputDir,
+          env: toolEnv || undefined,
         });
         logger.info(`[BENCH] ${artifactType} tool: ${Date.now() - toolT0}ms`);
 
@@ -1474,13 +1966,21 @@ router.post('/:caseId/parse', authenticate, async (req, res) => {
 
       const csvT0 = Date.now();
       await runConcurrent(csvFiles, async (csvFilePath) => {
+        // Global DB-write semaphore: bounds total concurrent inserts across all parsers.
+        await dbWriteSem.acquire();
         try {
           const r = await streamNormalizeToDB(csvFilePath, caseId, resultId, artifactType, config, evidenceId, sourceDevice);
           csvRawCount  += r.rawCount;
           csvNormCount += r.normalized;
           if (firstCols.length === 0) firstCols = r.columns;
         } catch (streamErr) {
-          logger.warn(`[parse] Stream insert error ${path.basename(csvFilePath)}:`, streamErr.message?.substring(0, 100));
+          // Full error inline so winston actually surfaces it (pg errors carry code/detail/where).
+          logger.warn(`[parse] Stream insert error ${artifactType}/${path.basename(csvFilePath)}: ` +
+            `${streamErr.message || streamErr} | code=${streamErr.code || '?'}` +
+            `${streamErr.detail ? ' | detail=' + String(streamErr.detail).slice(0, 200) : ''}` +
+            `${streamErr.where ? ' | where=' + String(streamErr.where).slice(0, 150) : ''}`);
+        } finally {
+          dbWriteSem.release();
         }
       }, 3);
       const csvMs = Date.now() - csvT0;
@@ -1630,6 +2130,31 @@ router.post('/:caseId/parse', authenticate, async (req, res) => {
       logger.warn('[SOAR] trigger error:', e.message);
     }
 
+    try {
+      const { autoTriageArtifact } = require('../services/autoTriageService');
+      autoTriageArtifact({
+        pool, caseId, resultId,
+        artifactTypes: typesToParse,
+        totalRecords,
+        userId: req.user.id,
+        io,
+      });
+    } catch (e) {
+      logger.warn('[auto-triage] trigger error:', e.message);
+    }
+
+    // Auto-run all detection engines in the background now that parsing is done.
+    try {
+      const { startRunAll } = require('../services/runAllService');
+      startRunAll(caseId, req.user, 'auto');
+      if (io) io.to(`user:${req.user.id}`).emit('notification:job_done', {
+        type: 'detection', caseId, status: 'started',
+        message: 'Détection automatique lancée en arrière-plan',
+      });
+    } catch (e) {
+      logger.warn('[run-all] auto-trigger error:', e.message);
+    }
+
     if (io) {
       const donePayload = {
         id: resultId,
@@ -1678,6 +2203,12 @@ router.post('/:caseId/parse', authenticate, async (req, res) => {
             message: `Erreur parsing : ${parseErr.message.substring(0, 120)}`,
           });
         }
+      } finally {
+        // The job has settled (done / DB-error / crash) — mark the progress
+        // entry terminal so the live cockpit clears instead of lingering as a
+        // frozen snapshot. The next /parse-progress poll returns active:false.
+        const e = PARSE_PROGRESS.get(caseId);
+        if (e) { e.done = true; e.updatedAt = Date.now(); }
       }
     })();
 });
@@ -1744,11 +2275,12 @@ router.get('/:caseId/timeline', authenticate, async (req, res) => {
             evidence_ids,
             tool, event_id, ext, tag, tags: tagsParam, dedupe,
             detections: detectionsParam, detection_severity, detection_category,
+            host_name_op = 'contains', user_name_op = 'contains', tool_op, ext_op,
             page = 1, limit = 200, sort_dir = 'asc', sort_col = 'timestamp',
             sort_multi } = req.query;
 
-    const toolList    = tool    ? String(tool).split(',').map(s => s.trim()).filter(Boolean)    : null;
-    const extList     = ext     ? String(ext).split(',').map(s => s.trim().toLowerCase()).filter(Boolean) : null;
+    const toolList    = (!tool_op && tool) ? String(tool).split(',').map(s => s.trim()).filter(Boolean) : null;
+    const extList     = (!ext_op  && ext)  ? String(ext).split(',').map(s => s.trim().toLowerCase()).filter(Boolean) : null;
     const eventIdList = event_id
       ? String(event_id).split(',').map(s => parseInt(s, 10)).filter(Number.isFinite)
       : null;
@@ -1834,35 +2366,27 @@ router.get('/:caseId/timeline', authenticate, async (req, res) => {
       conditions.push(`artifact_type = ANY($${pi++})`);
       params.push(artifact_types.split(','));
     }
-    if (search) {
-
-      const safe = search.replace(/[%_]/g, '\\$&');
-      if (search_op === 'equals') {
-        conditions.push(`(description ILIKE $${pi} OR source ILIKE $${pi} OR artifact_type ILIKE $${pi})`);
-        params.push(safe);
-      } else if (search_op === 'starts_with') {
-        conditions.push(`(description ILIKE $${pi} OR source ILIKE $${pi} OR artifact_type ILIKE $${pi})`);
-        params.push(safe + '%');
-      } else if (search_op === 'regex') {
-
-        conditions.push(`(description ~* $${pi} OR source ~* $${pi} OR artifact_type ~* $${pi})`);
-        params.push(search);
-      } else {
-
-        conditions.push(`(description ILIKE $${pi} OR source ILIKE $${pi} OR artifact_type ILIKE $${pi})`);
-        params.push('%' + safe + '%');
-      }
-      pi++;
+    if (search || search_op === 'empty' || search_op === 'not_empty') {
+      pi = pushSearchFilter(search || '', search_op, pi, conditions, params);
     }
     if (start_time) { conditions.push(`timestamp >= $${pi++}`); params.push(start_time); }
     if (end_time)   { conditions.push(`timestamp <= $${pi++}`); params.push(end_time);   }
-    if (host_name)   { conditions.push(`host_name ILIKE $${pi++}`);  params.push(host_name);  }
-    if (user_name)   { conditions.push(`user_name ILIKE $${pi++}`);  params.push(user_name);  }
+    if (host_name || host_name_op === 'empty' || host_name_op === 'not_empty')
+      pi = pushTextFilter('host_name', host_name || '', host_name_op, pi, conditions, params);
+    if (user_name || user_name_op === 'empty' || user_name_op === 'not_empty')
+      pi = pushTextFilter('user_name', user_name || '', user_name_op, pi, conditions, params);
     if (result_id)   { conditions.push(`result_id = $${pi++}`);      params.push(result_id);  }
     if (evidence_id) { conditions.push(`evidence_id = $${pi++}`);    params.push(evidence_id); }
     if (validatedEvidenceIds) { conditions.push(`evidence_id = ANY($${pi++}::uuid[])`); params.push(validatedEvidenceIds); }
-    if (toolList && toolList.length)       { conditions.push(`tool = ANY($${pi++}::text[])`);    params.push(toolList); }
-    if (extList && extList.length)         { conditions.push(`lower(ext) = ANY($${pi++}::text[])`); params.push(extList); }
+    if (tool_op && (tool || tool_op === 'empty' || tool_op === 'not_empty'))
+      pi = pushTextFilter('tool', tool || '', tool_op, pi, conditions, params);
+    else if (toolList && toolList.length)
+      { conditions.push(`tool = ANY($${pi++}::text[])`); params.push(toolList); }
+
+    if (ext_op && (ext || ext_op === 'empty' || ext_op === 'not_empty'))
+      pi = pushTextFilter('ext', ext || '', ext_op, pi, conditions, params);
+    else if (extList && extList.length)
+      { conditions.push(`lower(ext) = ANY($${pi++}::text[])`); params.push(extList); }
     if (eventIdList && eventIdList.length) { conditions.push(`event_id = ANY($${pi++}::int[])`);  params.push(eventIdList); }
     if (tagList && tagList.length)         { conditions.push(`tags && $${pi++}::text[]`);         params.push(tagList); }
 
@@ -1910,7 +2434,7 @@ router.get('/:caseId/timeline', authenticate, async (req, res) => {
 
     const rowsSql = collapseDupes
       ? `SELECT DISTINCT ON (COALESCE(dedupe_hash, id::text))
-                id, timestamp, artifact_type, artifact_name, description, source, raw,
+                id, timestamp, artifact_type, artifact_name, description, source,
                 host_name, user_name, process_name, mitre_technique_id, mitre_technique_name, mitre_tactic,
                 tool, timestamp_kind, details, "path", ext, event_id, file_size,
                 src_ip::text AS src_ip, dst_ip::text AS dst_ip, sha1, tags, detections
@@ -1921,7 +2445,7 @@ router.get('/:caseId/timeline', authenticate, async (req, res) => {
                    length(COALESCE(description, '')) DESC,
                    ${safeCol} ${direction}
           LIMIT $${pi} OFFSET $${pi + 1}`
-      : `SELECT id, timestamp, artifact_type, artifact_name, description, source, raw,
+      : `SELECT id, timestamp, artifact_type, artifact_name, description, source,
                 host_name, user_name, process_name, mitre_technique_id, mitre_technique_name, mitre_tactic,
                 tool, timestamp_kind, details, "path", ext, event_id, file_size,
                 src_ip::text AS src_ip, dst_ip::text AS dst_ip, sha1, tags, detections
@@ -2007,21 +2531,59 @@ router.get('/:caseId/timeline', authenticate, async (req, res) => {
       });
     }
 
-    rowsRes.rows.forEach(hydrateTimelineRow);
-    res.json({
-      records:                  rowsRes.rows,
-      total,
-      page:                     pg,
-      limit:                    lim,
-      total_pages:              Math.ceil(total / lim),
-      artifact_types_available: typesRes.rows.map(r => r.artifact_type),
-      artifact_types_counts:    Object.fromEntries(typesRes.rows.map(r => [r.artifact_type, r.cnt])),
-      hosts_available:          hostsRes.rows.map(r => r.host_name),
-      users_available:          usersRes.rows.map(r => r.user_name),
-    });
+    // Stream the response to avoid JSON.stringify string-length limit on large pages
+    res.setHeader('Content-Type', 'application/json');
+    res.write('{"records":[');
+    for (let i = 0; i < rowsRes.rows.length; i++) {
+      hydrateTimelineRow(rowsRes.rows[i]);
+      if (i > 0) res.write(',');
+      res.write(JSON.stringify(rowsRes.rows[i]));
+    }
+    res.write(']');
+    res.write(`,"total":${total}`);
+    res.write(`,"page":${pg}`);
+    res.write(`,"limit":${lim}`);
+    res.write(`,"total_pages":${Math.ceil(total / lim)}`);
+    res.write(`,"artifact_types_available":${JSON.stringify(typesRes.rows.map(r => r.artifact_type))}`);
+    res.write(`,"artifact_types_counts":${JSON.stringify(Object.fromEntries(typesRes.rows.map(r => [r.artifact_type, r.cnt])))}`);
+    res.write(`,"hosts_available":${JSON.stringify(hostsRes.rows.map(r => r.host_name))}`);
+    res.write(`,"users_available":${JSON.stringify(usersRes.rows.map(r => r.user_name))}`);
+    res.end('}');
   } catch (err) {
     logger.error('Timeline fetch error:', err);
     res.status(500).json({ error: 'Erreur récupération timeline' });
+  }
+});
+
+// Ordinal position of a row under the canonical focus ordering
+// (timestamp ASC NULLS LAST, id ASC). Lets the client convert rank -> page.
+router.get('/:caseId/timeline/locate', authenticate, async (req, res) => {
+  try {
+    const { caseId } = req.params;
+    const rowId = req.query.rowId;
+    if (!rowId) return res.status(400).json({ error: 'rowId requis' });
+    const tgt = await pool.query(
+      'SELECT timestamp FROM collection_timeline WHERE id = $1 AND case_id = $2',
+      [rowId, caseId]
+    );
+    if (tgt.rowCount === 0) return res.status(404).json({ error: 'Ligne introuvable' });
+    const ts = tgt.rows[0].timestamp;
+    // Count rows that sort strictly before the target under
+    // (timestamp ASC NULLS LAST, id ASC). NULL timestamps sort last.
+    const rank = await pool.query(
+      `SELECT COUNT(*)::int AS rank FROM collection_timeline
+        WHERE case_id = $1
+          AND (
+            (timestamp IS NOT NULL AND $2::timestamptz IS NOT NULL AND
+              (timestamp < $2 OR (timestamp = $2 AND id < $3)))
+            OR (timestamp IS NOT NULL AND $2::timestamptz IS NULL)
+            OR (timestamp IS NULL AND $2::timestamptz IS NULL AND id < $3)
+          )`,
+      [caseId, ts, rowId]
+    );
+    res.json({ rank: rank.rows[0].rank });
+  } catch (err) {
+    res.status(500).json({ error: 'locate: ' + err.message });
   }
 });
 
@@ -2057,6 +2619,19 @@ router.delete('/:caseId/timeline/session', authenticate, async (req, res) => {
   } catch (err) {
     logger.error('PIT session close error:', err);
     res.status(500).json({ error: 'Erreur fermeture session PIT' });
+  }
+});
+
+router.get('/:caseId/timeline-row/:id/raw', authenticate, async (req, res) => {
+  try {
+    const r = await pool.query(
+      `SELECT raw FROM collection_timeline WHERE id = $1 AND case_id = $2`,
+      [req.params.id, req.params.caseId]
+    );
+    if (r.rows.length === 0) return res.status(404).json({ error: 'Record introuvable' });
+    res.json({ raw: r.rows[0].raw });
+  } catch (err) {
+    res.status(500).json({ error: 'Erreur serveur' });
   }
 });
 
@@ -2173,11 +2748,13 @@ router.get('/:caseId/timeline/groups', authenticate, async (req, res) => {
       start_time, end_time,
       host_name, user_name, result_id, evidence_id, evidence_ids,
       tool, event_id, ext, tag, tags: tagsParam, dedupe,
+      host_name_op = 'contains', user_name_op = 'contains', tool_op, ext_op,
     } = req.query;
 
     const ALLOWED = new Set([
       'tool', 'event_id', 'artifact_type', 'host_name', 'user_name',
       'ext', 'mitre_technique_id', 'source', 'process_name',
+      'timestamp_kind', 'sha1', 'src_ip', 'dst_ip',
     ]);
     const groupCols = String(by || '').split(',').map(s => s.trim()).filter(Boolean).slice(0, 3);
     if (groupCols.length === 0) {
@@ -2199,18 +2776,15 @@ router.get('/:caseId/timeline/groups', authenticate, async (req, res) => {
       conditions.push(`artifact_type = ANY($${pi++})`);
       params.push(String(artifact_types).split(','));
     }
-    if (search) {
-      const safe = String(search).replace(/[%_]/g, '\\$&');
-      if (search_op === 'regex')        { conditions.push(`(description ~* $${pi} OR source ~* $${pi} OR artifact_type ~* $${pi})`); params.push(search); }
-      else if (search_op === 'equals')  { conditions.push(`(description ILIKE $${pi} OR source ILIKE $${pi} OR artifact_type ILIKE $${pi})`); params.push(safe); }
-      else if (search_op === 'starts_with') { conditions.push(`(description ILIKE $${pi} OR source ILIKE $${pi} OR artifact_type ILIKE $${pi})`); params.push(safe + '%'); }
-      else                              { conditions.push(`(description ILIKE $${pi} OR source ILIKE $${pi} OR artifact_type ILIKE $${pi})`); params.push('%' + safe + '%'); }
-      pi++;
+    if (search || search_op === 'empty' || search_op === 'not_empty') {
+      pi = pushSearchFilter(search || '', search_op, pi, conditions, params);
     }
     if (start_time) { conditions.push(`timestamp >= $${pi++}`); params.push(start_time); }
     if (end_time)   { conditions.push(`timestamp <= $${pi++}`); params.push(end_time); }
-    if (host_name)  { conditions.push(`host_name ILIKE $${pi++}`); params.push(host_name); }
-    if (user_name)  { conditions.push(`user_name ILIKE $${pi++}`); params.push(user_name); }
+    if (host_name || host_name_op === 'empty' || host_name_op === 'not_empty')
+      pi = pushTextFilter('host_name', host_name || '', host_name_op, pi, conditions, params);
+    if (user_name || user_name_op === 'empty' || user_name_op === 'not_empty')
+      pi = pushTextFilter('user_name', user_name || '', user_name_op, pi, conditions, params);
     if (result_id)  { conditions.push(`result_id = $${pi++}`);    params.push(result_id); }
 
     const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -2224,11 +2798,15 @@ router.get('/:caseId/timeline/groups', authenticate, async (req, res) => {
       if (ids.length) { conditions.push(`evidence_id = ANY($${pi++}::uuid[])`); params.push(ids); }
     }
 
-    if (tool) {
+    if (tool_op && (tool || tool_op === 'empty' || tool_op === 'not_empty')) {
+      pi = pushTextFilter('tool', tool || '', tool_op, pi, conditions, params);
+    } else if (tool) {
       const list = String(tool).split(',').map(s => s.trim()).filter(Boolean);
       if (list.length) { conditions.push(`tool = ANY($${pi++}::text[])`); params.push(list); }
     }
-    if (ext) {
+    if (ext_op && (ext || ext_op === 'empty' || ext_op === 'not_empty')) {
+      pi = pushTextFilter('ext', ext || '', ext_op, pi, conditions, params);
+    } else if (ext) {
       const list = String(ext).split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
       if (list.length) { conditions.push(`lower(ext) = ANY($${pi++}::text[])`); params.push(list); }
     }
@@ -2541,34 +3119,55 @@ router.post('/:caseId/hayabusa', authenticate, async (req, res) => {
     const { caseId } = req.params;
     const HAYABUSA_BIN = process.env.HAYABUSA_BIN || '/app/hayabusa/hayabusa';
 
+    // Resolve collection directory — try MagnetRESPONSE_Import first, then fall back to
+    // individual EVTX evidence files so cases imported without a RESPONSE package still work.
+    let collectionDir = null;
+    let hayEvidenceId = null;
+
     const importRecord = await pool.query(
       `SELECT input_file FROM parser_results
        WHERE case_id = $1 AND parser_name = 'MagnetRESPONSE_Import'
        ORDER BY created_at DESC LIMIT 1`,
       [caseId]
     );
-
-    if (importRecord.rows.length === 0) {
-      return res.status(400).json({ error: 'Aucune collecte importée pour ce cas. Importez d\'abord une collecte Magnet RESPONSE.' });
+    if (importRecord.rows.length > 0 && importRecord.rows[0].input_file &&
+        fs.existsSync(importRecord.rows[0].input_file)) {
+      collectionDir = importRecord.rows[0].input_file;
+      try {
+        const evRow = await pool.query(
+          `SELECT id FROM evidence WHERE case_id = $1 AND file_path = $2 LIMIT 1`,
+          [caseId, collectionDir]
+        );
+        if (evRow.rows.length > 0) hayEvidenceId = evRow.rows[0].id;
+      } catch (_e) {}
     }
 
-    const collectionDir = importRecord.rows[0].input_file;
-    if (!collectionDir || !fs.existsSync(collectionDir)) {
-      return res.status(400).json({ error: 'Répertoire de collecte introuvable sur le disque. Ré-importez la collecte.' });
-    }
+    // Fallback: look for .evtx files registered directly in the evidence table
+    let evtxFiles = collectionDir
+      ? findFiles(collectionDir, ['**/*.evtx', '**/winevt/Logs/*.evtx'])
+      : [];
 
-    let hayEvidenceId = null;
-    try {
-      const evRow = await pool.query(
-        `SELECT id FROM evidence WHERE case_id = $1 AND file_path = $2 LIMIT 1`,
-        [caseId, collectionDir]
-      );
-      if (evRow.rows.length > 0) hayEvidenceId = evRow.rows[0].id;
-    } catch (_e) {}
-
-    const evtxFiles = findFiles(collectionDir, ['**/*.evtx', '**/winevt/Logs/*.evtx']);
     if (evtxFiles.length === 0) {
-      return res.status(400).json({ error: 'Aucun fichier .evtx trouvé dans la collecte importée.' });
+      try {
+        const evRows = await pool.query(
+          `SELECT id, file_path FROM evidence
+           WHERE case_id = $1 AND (file_path ILIKE '%.evtx' OR file_name ILIKE '%.evtx')
+           ORDER BY created_at DESC`,
+          [caseId]
+        );
+        const existing = evRows.rows.filter(r => r.file_path && fs.existsSync(r.file_path));
+        if (existing.length > 0) {
+          evtxFiles = existing.map(r => r.file_path);
+          hayEvidenceId = existing[0].id;
+          collectionDir = path.dirname(existing[0].file_path);
+        }
+      } catch (_e) {}
+    }
+
+    if (evtxFiles.length === 0) {
+      return res.status(400).json({
+        error: 'Aucun fichier .evtx trouvé pour ce cas. Importez une collecte Magnet RESPONSE ou des fichiers .evtx individuels.',
+      });
     }
 
     function evtxCommonAncestor(files) {
@@ -2584,72 +3183,295 @@ router.post('/:caseId/hayabusa', authenticate, async (req, res) => {
         : common;
     }
     const evtxParentDir = evtxCommonAncestor(evtxFiles);
-    const outputFile = path.join(TEMP_DIR, `hayabusa-${caseId}-${Date.now()}.jsonl`);
+    const outputFile = path.join(TEMP_DIR, `hayabusa-${caseId}-${uuidv4()}.jsonl`);
+
+    // Atomic helper: lock → wipe old Hayabusa data → insert fresh result record.
+    // FOR UPDATE blocks a concurrent Hayabusa run on the same case until we commit,
+    // ensuring exactly one result record exists at any time.
+    async function initHayabusaRecord(outputDataJson, recordCount = 0) {
+      const dbClient = await pool.connect();
+      try {
+        await dbClient.query('BEGIN');
+        const oldRows = await dbClient.query(
+          `SELECT id FROM parser_results WHERE case_id = $1 AND parser_name = 'Hayabusa' FOR UPDATE`,
+          [caseId]
+        );
+        const oldIds = oldRows.rows.map(r => r.id);
+        await dbClient.query(
+          `DELETE FROM collection_timeline WHERE case_id = $1 AND artifact_type = 'hayabusa'`,
+          [caseId]
+        );
+        if (oldIds.length > 0) {
+          await dbClient.query(`DELETE FROM parser_results WHERE id = ANY($1::uuid[])`, [oldIds]);
+        }
+        const newRow = await dbClient.query(
+          `INSERT INTO parser_results (case_id, parser_name, parser_version, input_file, output_data, record_count, created_by)
+           VALUES ($1, 'Hayabusa', '2.x', $2, $3::jsonb, $4, $5) RETURNING id`,
+          [caseId, evtxParentDir, outputDataJson, recordCount, req.user.id]
+        );
+        await dbClient.query('COMMIT');
+        return { newId: newRow.rows[0].id, oldIds };
+      } catch (err) {
+        await dbClient.query('ROLLBACK').catch(() => {});
+        throw err;
+      } finally {
+        dbClient.release();
+      }
+    }
 
     let hayabusaRecords = [];
+    let engineUsed      = 'sigma_fallback';
+    let rulesCount      = 0;
+    let hayStderrSnip   = '';
 
+    const HAYABUSA_RULES_DIR = process.env.HAYABUSA_RULES_DIR || path.join(path.dirname(HAYABUSA_BIN), 'rules');
+    const rulesPresent = fs.existsSync(HAYABUSA_RULES_DIR);
+    if (rulesPresent) {
+      try {
+        const countOut = require('child_process').spawnSync(
+          'find', [HAYABUSA_RULES_DIR, '-name', '*.yml'], { encoding: 'utf8', timeout: 10000 }
+        );
+        rulesCount = (countOut.stdout || '').split('\n').filter(Boolean).length;
+        logger.info(`[hayabusa] rules dir: ${HAYABUSA_RULES_DIR} — ${rulesCount} rules`);
+      } catch (_e) {}
+    } else {
+      logger.warn(`[hayabusa] rules dir not found: ${HAYABUSA_RULES_DIR}`);
+    }
+
+    // Run Hayabusa binary if available
+    let binaryFailed = false;
     try {
-
       if (!fs.existsSync(HAYABUSA_BIN)) throw new Error(`Hayabusa binary not found: ${HAYABUSA_BIN}`);
 
-      const HAYABUSA_RULES_DIR = process.env.HAYABUSA_RULES_DIR || path.join(path.dirname(HAYABUSA_BIN), 'rules');
+      // --min-level informational : inclut tous les niveaux (informational, low, medium, high, critical).
+      // --enable-all-rules : active toutes les règles quelle que soit la source EVTX.
+      // --enable-noisy-rules : active les règles rclone/cloud-exfil désactivées par défaut.
+      // --enable-deprecated-rules + --enable-unsupported-rules : couverture maximale.
+      // --scan-all-evtx-files : analyse tous les fichiers EVTX sans filtrage par règle.
+      // Sortie JSONL uniquement (-L) ; pas de CSV/HTML.
       const hayArgs = [
         HAYABUSA_BIN, 'json-timeline',
         '-d', evtxParentDir,
         '-o', outputFile,
         '--no-wizard', '-q',
+        '--min-level', 'informational',
+        '--enable-all-rules',
+        '--enable-noisy-rules',
+        '--enable-deprecated-rules',
+        '--enable-unsupported-rules',
+        '--scan-all-evtx-files',
+        '--threads', '4',
+        '-b',
+        '-L',
         '-p', 'all-field-info',
       ];
+      if (rulesPresent) hayArgs.push('-r', HAYABUSA_RULES_DIR);
 
-      if (fs.existsSync(HAYABUSA_RULES_DIR)) {
-        hayArgs.push('-r', HAYABUSA_RULES_DIR);
-        logger.info(`[hayabusa] using rules dir: ${HAYABUSA_RULES_DIR}`);
+      try {
+        await spawnTool(hayArgs, { timeout: 3600000 });
+      } catch (e) {
+        // Capture stderr snippet for diagnostic even on failure
+        hayStderrSnip = (e.stderr || e.message || '').substring(0, 400);
+        throw e;
+      }
+
+      // Guard: skip reading if output file is suspiciously large (> 500 MB → OOM risk)
+
+      if (fs.existsSync(outputFile) && fs.statSync(outputFile).size > 0) {
+        const outputSizeMb = (fs.statSync(outputFile).size / (1024 * 1024)).toFixed(1);
+        logger.info(`[hayabusa] output file: ${outputSizeMb} MB — stream-inserting to DB`);
+
+        // Atomically clear previous Hayabusa data and create the new result placeholder.
+        const { newId: streamResultId, oldIds: streamOldIds } = await initHayabusaRecord(
+          JSON.stringify({ evtx_dir: evtxParentDir, evtx_files_count: evtxFiles.length })
+        );
+        // Delete stale ES docs from previous run before inserting new ones.
+        for (const oid of streamOldIds) {
+          esService.deleteByResultId(caseId, oid).catch(e =>
+            logger.warn('[ES] hayabusa stale cleanup warn:', e.message?.substring(0, 80))
+          );
+        }
+        const streamStats    = { critical: 0, high: 0, medium: 0, low: 0, informational: 0 };
+        let   streamTotal    = 0;
+
+        // Insert one batch using UNNEST arrays — same pattern as generic insertBatch (line 621).
+        async function insertHayBatch(items) {
+          if (!items || items.length === 0) return;
+          const caseIds = [], resultIds = [], evidenceIds = [], timestamps = [];
+          const artTypes = [], artNames = [], descs = [], sources = [], raws = [];
+          const hostNames = [], userNames = [], processNames = [], mitreIds = [], mitreTactics = [];
+          const tools = [], tsKinds = [], eventIds = [], dedupeHashes = [], tagsArr = [];
+          const srcIps = [], dstIps = [], exts = [], paths = [], detailsArr = [];
+
+          for (const p of items) {
+            const lvl       = (p.Level || p.level || 'informational').toLowerCase();
+            const techRaw   = p.MitreTechniques || p.mitre_techniques || '';
+            const tacticRaw = p.MitreTactics    || p.mitre_tactics    || '';
+            const mId       = /^T\d{4}(\.\d{3})?$/i.test(techRaw.split(',')[0].trim())
+              ? (techRaw.split(',')[0].trim() || null)
+              : null;
+            const mTactic   = tacticRaw.split(',')[0].trim().toLowerCase() || null;
+            const evIdRaw  = p.EventID || p.event_id || '';
+            const evId     = /^\d+$/.test(String(evIdRaw).trim()) ? parseInt(evIdRaw, 10) : null;
+            const ruleTitle = p.RuleTitle || p.rule_title || '';
+            const desc     = `[${lvl}] ${ruleTitle}`;
+            const src      = p.Channel || p.channel || '';
+            // RecordID (EVTX record number) is the true unique key per event.
+            // Use Channel+RecordID when available so identical-looking events at the
+            // same millisecond (e.g. many 7045 service installs) are kept distinct.
+            const recId  = String(p.RecordID || p['Record ID'] || p.recordId || '');
+            const dedupe = recId
+              ? crypto.createHash('md5')
+                  .update([src, recId].join('|'))
+                  .digest('hex').slice(0, 16)
+              : crypto.createHash('md5')
+                  .update([(p.Timestamp || ''), src, ruleTitle.slice(0, 200), evId == null ? '' : String(evId)].join('|'))
+                  .digest('hex').slice(0, 16);
+            let tags = [];
+            try { tags = matchKeywordTags({ level: lvl, description: desc }, desc); } catch (_e) {}
+            if (lvl === 'critical') tags = Array.from(new Set([...tags, 'critical']));
+            else if (lvl === 'high') tags = Array.from(new Set([...tags, 'high']));
+            const ips  = desc.match(/\b(?:\d{1,3}\.){3}\d{1,3}\b/g) || [];
+            const extM = /\.([A-Za-z0-9]{1,10})(?=[\s"'\\\/)]|$)/.exec(desc);
+            const patM = /([A-Z]:\\[^\s"']+|\/[^\s"']+)/.exec(desc);
+
+            const afi = p.AllFieldInfo || p.all_field_info;
+            let hayDetails = null;
+            if (afi && typeof afi === 'object') {
+              hayDetails = Object.entries(afi)
+                .filter(([, v]) => v !== null && v !== '' && v !== undefined)
+                .map(([k, v]) => `${k}: ${String(v).slice(0, 200)}`)
+                .join(' | ')
+                .slice(0, 500) || null;
+            } else if (typeof afi === 'string' && afi.trim()) {
+              hayDetails = afi.slice(0, 500);
+            }
+
+            const userName    = p.UserName || p.SubjectUserName || p.TargetUserName || p.user_name || null;
+            const processName = p.ProcessName || p.NewProcessName || p.Image || p.process_name || null;
+
+            if (streamStats[lvl] !== undefined) streamStats[lvl]++;
+            caseIds.push(caseId);            resultIds.push(streamResultId);
+            evidenceIds.push(hayEvidenceId); timestamps.push(p.Timestamp || p.timestamp || null);
+            artTypes.push('hayabusa');        artNames.push(p.RuleTitle || p.rule_title || 'Hayabusa');
+            descs.push(desc);                sources.push(src);
+            raws.push(JSON.stringify(p));
+            hostNames.push(p.Computer || p.computer || null);
+            userNames.push(userName);        processNames.push(processName);
+            mitreIds.push(mId);              mitreTactics.push(mTactic);
+            tools.push('Hayabusa');           tsKinds.push('Timestamp');
+            eventIds.push(evId);             dedupeHashes.push(dedupe);
+            tagsArr.push(JSON.stringify(tags));
+            srcIps.push(ips[0] || null);     dstIps.push(ips[1] || null);
+            exts.push(extM ? ('.' + extM[1].toLowerCase()).slice(0, 16) : null);
+            paths.push(patM ? patM[1].slice(0, 500) : null);
+            detailsArr.push(hayDetails);
+          }
+
+          await pool.query(
+            `INSERT INTO collection_timeline
+               (case_id, result_id, evidence_id, timestamp, artifact_type, artifact_name,
+                description, source, raw, host_name, user_name, process_name,
+                mitre_technique_id, mitre_tactic,
+                tool, timestamp_kind, event_id, dedupe_hash, tags, src_ip, dst_ip, ext, path, details)
+             SELECT u.ci, u.ri, u.ei, u.ts, u.at, u.an, u.de, u.sr, u.rw, u.hn, u.un, u.pn,
+                    u.mi, u.mt, u.tl, u.tk, u.eid, u.dh,
+                    COALESCE(ARRAY(SELECT jsonb_array_elements_text(u.tg)), '{}')::text[],
+                    u.si, u.di, u.ex, u.pa, u.dt
+             FROM UNNEST(
+               $1::uuid[], $2::uuid[], $3::uuid[], $4::timestamptz[], $5::text[], $6::text[],
+               $7::text[], $8::text[], $9::jsonb[], $10::text[], $11::text[], $12::text[],
+               $13::text[], $14::text[],
+               $15::text[], $16::text[], $17::int[], $18::text[], $19::jsonb[],
+               $20::inet[], $21::inet[], $22::text[], $23::text[], $24::text[]
+             ) AS u(ci, ri, ei, ts, at, an, de, sr, rw, hn, un, pn, mi, mt, tl, tk, eid, dh, tg, si, di, ex, pa, dt)
+             ON CONFLICT (case_id, dedupe_hash) WHERE dedupe_hash IS NOT NULL DO NOTHING`,
+            [caseIds, resultIds, evidenceIds, timestamps, artTypes, artNames,
+             descs, sources, raws, hostNames, userNames, processNames,
+             mitreIds, mitreTactics,
+             tools, tsKinds, eventIds, dedupeHashes, tagsArr,
+             srcIps, dstIps, exts, paths, detailsArr]
+          );
+          streamTotal += items.length;
+          if (streamTotal % 10000 === 0) logger.info(`[hayabusa] streamed ${streamTotal} records…`);
+        }
+
+        // Pause/resume readline — 2000-item batches, yield every 2000 lines regardless
+        // of JSON validity to prevent event loop block on files with few/no detections.
+        let batch = []; let pendingInsert = null; let lineCount = 0;
+        await new Promise((resolve, reject) => {
+          const rl = readline.createInterface({
+            input: fs.createReadStream(outputFile, { encoding: 'utf-8' }),
+            crlfDelay: Infinity,
+          });
+          rl.on('line', (line) => {
+            if (!line.trim()) return;
+            lineCount++;
+            let p; try { p = JSON.parse(line); } catch (_e) {
+              // Yield every 2000 lines even when no valid JSON — prevents 4+ min event loop block
+              if (lineCount % 2000 === 0) {
+                rl.pause();
+                pendingInsert = new Promise(r => setImmediate(r)).then(() => rl.resume()).catch(reject);
+              }
+              return;
+            }
+            batch.push(p);
+            if (batch.length >= 2000) {
+              rl.pause();
+              const cur = batch; batch = [];
+              pendingInsert = new Promise(r => setImmediate(r))
+                .then(() => insertHayBatch(cur))
+                .then(() => rl.resume())
+                .catch(reject);
+            }
+          });
+          rl.on('close', async () => {
+            try {
+              if (pendingInsert) await pendingInsert;
+              if (batch.length > 0) {
+                await new Promise(r => setImmediate(r));
+                await insertHayBatch(batch);
+              }
+              resolve();
+            } catch (e) { reject(e); }
+          });
+          rl.on('error', reject);
+        });
+        try { fs.unlinkSync(outputFile); } catch (_e) {}
+
+        const finalDiag = {
+          engine_used: 'hayabusa_binary', rules_count: rulesCount, rules_present: rulesPresent,
+          evtx_files: evtxFiles.length, binary_path: HAYABUSA_BIN,
+          truncated: false, stderr_snippet: hayStderrSnip || null,
+        };
+        await pool.query(
+          `UPDATE parser_results SET record_count = $1, output_data = $2::jsonb WHERE id = $3`,
+          [streamTotal, JSON.stringify({
+            evtx_dir: evtxParentDir, evtx_files_count: evtxFiles.length,
+            stats: streamStats, diagnostic: finalDiag,
+          }), streamResultId]
+        );
+        logger.info(`[hayabusa] stream-insert complete — ${streamTotal} detections (${rulesCount} rules)`);
+        await auditLog(req.user.id, 'run_hayabusa', 'collection', streamResultId,
+          { evtx_count: evtxFiles.length, detections: streamTotal }, req.ip);
+        return res.json({
+          id: streamResultId, total_detections: streamTotal,
+          stats: streamStats, evtx_files_processed: evtxFiles.length, diagnostic: finalDiag,
+        });
+
       } else {
-        logger.warn(`[hayabusa] rules dir not found (${HAYABUSA_RULES_DIR}) — using embedded rules`);
+        engineUsed = 'hayabusa_binary';
+        logger.warn(`[hayabusa] binary ran with 0 detections — rules: ${rulesCount}, dir: ${rulesPresent ? 'present' : 'MISSING'}`);
       }
-
-      await spawnTool(hayArgs, {
-        timeout: 3600000,
-      });
-
-      if (!fs.existsSync(outputFile) || fs.statSync(outputFile).size === 0) {
-        throw new Error('Hayabusa produced no output (empty or missing file)');
-      }
-
-      await new Promise((resolve, reject) => {
-        const rl = readline.createInterface({
-          input: fs.createReadStream(outputFile, { encoding: 'utf-8' }),
-          crlfDelay: Infinity,
-        });
-        rl.on('line', (line) => {
-          if (!line.trim()) return;
-          try {
-            const parsed = JSON.parse(line);
-            hayabusaRecords.push({
-              timestamp: parsed.Timestamp || parsed.timestamp || null,
-              artifact_type: 'hayabusa',
-              artifact_name: 'Hayabusa',
-              rule_title: parsed.RuleTitle || parsed.rule_title || '',
-              level: (parsed.Level || parsed.level || 'informational').toLowerCase(),
-              event_id: parsed.EventID || parsed.event_id || '',
-              channel: parsed.Channel || parsed.channel || '',
-              computer: parsed.Computer || parsed.computer || '',
-              details: parsed.Details || parsed.details || '',
-              mitre_attack: parsed.MitreTactics || parsed.mitre_tactics || '',
-              rule_file: parsed.RuleFile || parsed.rule_file || '',
-              description: `[${(parsed.Level || 'info').toLowerCase()}] ${parsed.RuleTitle || parsed.rule_title || ''}`,
-              source: parsed.Channel || parsed.channel || '',
-              raw: parsed,
-            });
-          } catch (_e) {}
-        });
-        rl.on('close', resolve);
-        rl.on('error', reject);
-      });
-      fs.unlinkSync(outputFile);
-      logger.info(`[hayabusa] binary OK — ${hayabusaRecords.length} detections`);
+      try { if (fs.existsSync(outputFile)) fs.unlinkSync(outputFile); } catch (_e) {}
     } catch (execErr) {
-      logger.warn('[hayabusa] binary failed or produced no output — using sigma fallback:', execErr.message?.substring(0, 150));
+      binaryFailed = true;
+      hayStderrSnip = hayStderrSnip || (execErr.message || '').substring(0, 400);
+      logger.warn('[hayabusa] binary failed — falling back to Sigma rule engine:', execErr.message?.substring(0, 150));
+    }
+
+    // Sigma fallback — runs when binary failed OR 0 detections
+    if (binaryFailed || hayabusaRecords.length === 0) {
 
       let evtxRecords = [];
       try {
@@ -2665,18 +3487,64 @@ router.post('/:caseId/hayabusa', authenticate, async (req, res) => {
       } catch (e) {}
 
       const SIGMA_RULES = [
-        { title: 'Suspicious PowerShell Download Cradle', level: 'high', match: /invoke-webrequest|downloadstring|invoke-expression|iex\s*\(/i, mitre: 'T1059.001', tactic: 'Execution' },
-        { title: 'CobaltStrike Beacon Detection', level: 'critical', match: /cobaltstrike|cobalt\s*strike|beacon/i, mitre: 'T1055', tactic: 'Defense Evasion' },
-        { title: 'Privilege Escalation via Token Manipulation', level: 'critical', match: /sedebugprivilege|seimpersonateprivilege/i, mitre: 'T1134', tactic: 'Privilege Escalation' },
-        { title: 'DNS Tunneling Detected', level: 'high', match: /malware-c2|\.onion|high\s*entropy|dns.*tunnel/i, mitre: 'T1071.004', tactic: 'Command and Control' },
-        { title: 'Suspicious Service Installation', level: 'high', match: /service was installed|new service|7045/i, mitre: 'T1543.003', tactic: 'Persistence' },
-        { title: 'Security Audit Log Cleared', level: 'critical', match: /log was cleared|1102.*security|event\s*log.*clear/i, mitre: 'T1070.001', tactic: 'Defense Evasion' },
-        { title: 'Scheduled Task Created by Non-Admin', level: 'medium', match: /scheduled task.*created|schtasks|4698/i, mitre: 'T1053.005', tactic: 'Persistence' },
-        { title: 'Firewall Rule Modified', level: 'medium', match: /firewall rule|2004.*firewall/i, mitre: 'T1562.004', tactic: 'Defense Evasion' },
-        { title: 'RDP Lateral Movement', level: 'high', match: /rdp.*logon|1149.*terminal|mstsc/i, mitre: 'T1021.001', tactic: 'Lateral Movement' },
-        { title: 'Account Lockout (Brute Force)', level: 'medium', match: /account.*locked|4740/i, mitre: 'T1110', tactic: 'Credential Access' },
-        { title: 'Suspicious Encoded PowerShell', level: 'high', match: /-enc[o]?[d]?\s|frombase64string|encodedcommand/i, mitre: 'T1059.001', tactic: 'Execution' },
-        { title: 'Process Injection Indicators', level: 'critical', match: /virtualalloc|writeprocessmemory|createremotethread|ntmapviewofsection/i, mitre: 'T1055', tactic: 'Defense Evasion' },
+        // ── Original rules ──
+        { title: 'Suspicious PowerShell Download Cradle',    level: 'high',     match: /invoke-webrequest|downloadstring|invoke-expression|iex\s*\(/i,                           mitre: 'T1059.001', tactic: 'Execution' },
+        { title: 'CobaltStrike Beacon Detection',            level: 'critical', match: /cobaltstrike|cobalt\s*strike|beacon/i,                                                    mitre: 'T1055',     tactic: 'Defense Evasion' },
+        { title: 'Privilege Escalation via Token Manipulation', level: 'critical', match: /sedebugprivilege|seimpersonateprivilege/i,                                              mitre: 'T1134',     tactic: 'Privilege Escalation' },
+        { title: 'DNS Tunneling Detected',                   level: 'high',     match: /malware-c2|\.onion|high\s*entropy|dns.*tunnel/i,                                          mitre: 'T1071.004', tactic: 'Command and Control' },
+        { title: 'Suspicious Service Installation',          level: 'high',     match: /service was installed|new service|7045/i,                                                 mitre: 'T1543.003', tactic: 'Persistence' },
+        { title: 'Security Audit Log Cleared',               level: 'critical', match: /log was cleared|1102.*security|event\s*log.*clear/i,                                     mitre: 'T1070.001', tactic: 'Defense Evasion' },
+        { title: 'Scheduled Task Created',                   level: 'medium',   match: /scheduled task.*created|schtasks|4698/i,                                                  mitre: 'T1053.005', tactic: 'Persistence' },
+        { title: 'Firewall Rule Modified',                   level: 'medium',   match: /firewall rule|2004.*firewall/i,                                                            mitre: 'T1562.004', tactic: 'Defense Evasion' },
+        { title: 'RDP Lateral Movement',                     level: 'high',     match: /rdp.*logon|1149.*terminal|mstsc/i,                                                        mitre: 'T1021.001', tactic: 'Lateral Movement' },
+        { title: 'Account Lockout (Brute Force)',            level: 'medium',   match: /account.*locked|4740/i,                                                                   mitre: 'T1110',     tactic: 'Credential Access' },
+        { title: 'Suspicious Encoded PowerShell',            level: 'high',     match: /-enc[o]?[d]?\s|frombase64string|encodedcommand/i,                                        mitre: 'T1059.001', tactic: 'Execution' },
+        { title: 'Process Injection Indicators',             level: 'critical', match: /virtualalloc|writeprocessmemory|createremotethread|ntmapviewofsection/i,                  mitre: 'T1055',     tactic: 'Defense Evasion' },
+
+        // ── Data Exfiltration ──
+        { title: 'Rclone Data Exfiltration Tool',            level: 'critical', match: /\brclone\b|rclone\.exe|rclone\s+(copy|sync|move|mount|bisync)|remote:.*bucket/i,         mitre: 'T1567.002', tactic: 'Exfiltration' },
+        { title: 'Cloud Storage Exfiltration (S3/Azure/GCP)', level: 'high',   match: /aws\s+s3\s+cp|az\s+storage|gsutil\s+(cp|rsync)|azcopy|s3cmd\s+put|gdrive\s+upload/i,     mitre: 'T1567.002', tactic: 'Exfiltration' },
+        { title: 'MEGA Sync / MEGAcmd Exfiltration',         level: 'high',     match: /megacmd|mega\.exe|mega-put|mega-sync|\bmega\b.*upload/i,                                  mitre: 'T1567.002', tactic: 'Exfiltration' },
+        { title: 'Data Archiving Before Exfiltration',       level: 'medium',   match: /7z\s+a|winrar.*-r|compress-archive|rar\.exe\s+a\s|tar\s+czf.*\/tmp/i,                   mitre: 'T1560.001', tactic: 'Collection' },
+
+        // ── Credential Access ──
+        { title: 'LSASS Memory Dump (Credential Theft)',     level: 'critical', match: /procdump.*lsass|lsass.*procdump|comsvcs.*minidump|sekurlsa|werfault.*lsass|rundll32.*comsvcs/i, mitre: 'T1003.001', tactic: 'Credential Access' },
+        { title: 'Mimikatz Execution',                       level: 'critical', match: /mimikatz|sekurlsa::logonpasswords|lsadump::dcsync|privilege::debug|kerberos::ptt/i,      mitre: 'T1003',     tactic: 'Credential Access' },
+        { title: 'NTDS.dit Active Directory Database Access',level: 'critical', match: /ntds\.dit|ntdsutil.*activate.*ntds|vssadmin.*shadow.*ntds|copy.*ntds\.dit/i,             mitre: 'T1003.003', tactic: 'Credential Access' },
+        { title: 'SAM Database Dump',                        level: 'critical', match: /\bsam\b.*dump|reg\s+save.*\\sam|fgdump|pwdump|samdump2/i,                               mitre: 'T1003.002', tactic: 'Credential Access' },
+        { title: 'Credential Harvesting Tool',               level: 'high',     match: /lazagne|bloodhound|sharphound|crackmapexec|cme\s|ncrack|kerbrute|rubeus\b/i,             mitre: 'T1003',     tactic: 'Credential Access' },
+        { title: 'Kerberoasting Attack (EventID 4769)',      level: 'high',     match: /4769.*rc4|kerberos.*ticket.*0x17|4769.*0x17|ticket.*encryption.*rc4/i,                   mitre: 'T1558.003', tactic: 'Credential Access' },
+        { title: 'Pass-the-Hash / Pass-the-Ticket',         level: 'critical', match: /pass.*the.*hash|pth\b|sekurlsa::pth|pass.*the.*ticket|ptt\b/i,                           mitre: 'T1550.002', tactic: 'Lateral Movement' },
+
+        // ── Defense Evasion ──
+        { title: 'Volume Shadow Copy Deletion',              level: 'critical', match: /vssadmin.*delete.*shadows|wmic.*shadowcopy.*delete|wbadmin.*delete.*systemstatebackup|bcdedit.*recoveryenabled.*no/i, mitre: 'T1490', tactic: 'Impact' },
+        { title: 'Windows Defender Disabled/Tampered',       level: 'high',     match: /set-mppreference.*disable|add-mppreference.*exclusion|DisableRealtimeMonitoring|tamperprotection.*0/i, mitre: 'T1562.001', tactic: 'Defense Evasion' },
+        { title: 'UAC Bypass via Registry',                  level: 'high',     match: /eventvwr.*mmc|fodhelper|sdclt|computerdefaults.*shell.*open/i,                           mitre: 'T1548.002', tactic: 'Privilege Escalation' },
+        { title: 'AMSI Bypass',                              level: 'high',     match: /amsiutils.*class|amsi\.dll.*patch|reflection\.assembly.*amsi|amsicontext.*0/i,           mitre: 'T1562.001', tactic: 'Defense Evasion' },
+        { title: 'Timestomping (Timestamp Manipulation)',    level: 'medium',   match: /timestomp|setfiletime|fileinfo.*modificationtime|touch\s+-[tm]\s/i,                      mitre: 'T1070.006', tactic: 'Defense Evasion' },
+
+        // ── Execution / LOLBins ──
+        { title: 'Certutil Suspicious Usage (Download/Decode)', level: 'high', match: /certutil.*-(urlcache|decode|encode|decodehex)|certutil\.exe.*http/i,                     mitre: 'T1105',     tactic: 'Command and Control' },
+        { title: 'MSHTA Execution (LOLBin)',                 level: 'high',     match: /mshta\s+(http|vbscript|javascript)|mshta\.exe.*\.hta/i,                                  mitre: 'T1218.005', tactic: 'Defense Evasion' },
+        { title: 'Regsvr32 COM Bypass (Squiblydoo)',         level: 'high',     match: /regsvr32.*\/s.*\/n.*\/i.*http|regsvr32.*scrobj\.dll/i,                                   mitre: 'T1218.010', tactic: 'Defense Evasion' },
+        { title: 'WScript/CScript Suspicious Execution',    level: 'medium',   match: /wscript\s.*\.(vbs|js|vbe|jse)|cscript\s.*\.(vbs|js|vbe|jse)/i,                         mitre: 'T1059.005', tactic: 'Execution' },
+        { title: 'BITS Job Abuse (Background Transfer)',     level: 'medium',   match: /bitsadmin\s+\/transfer|bitsadmin\s+\/addfile|start-bitstransfer/i,                       mitre: 'T1197',     tactic: 'Persistence' },
+
+        // ── Lateral Movement ──
+        { title: 'PsExec / Remote Service Execution',       level: 'high',     match: /psexec\s|psexesvc|paexec|remcom|winexe\b/i,                                              mitre: 'T1021.002', tactic: 'Lateral Movement' },
+        { title: 'WMI Remote Execution',                    level: 'high',     match: /wmic\s+\/node:|invoke-wmimethod|invoke-cimmethod.*create|wmiprvse.*cmd\.exe/i,           mitre: 'T1047',     tactic: 'Lateral Movement' },
+        { title: 'SMB / Admin Share Lateral Movement',      level: 'high',     match: /net\s+use\s+\\\\|net\s+view\s+\\\\|copy.*\\\\.*admin\$|\\\\.*\\\$.*\\.exe/i,            mitre: 'T1021.002', tactic: 'Lateral Movement' },
+        { title: 'Remote PowerShell Session',               level: 'medium',   match: /new-pssession|enter-pssession|invoke-command.*-computername|wsmprovhost/i,              mitre: 'T1021.006', tactic: 'Lateral Movement' },
+
+        // ── Reconnaissance ──
+        { title: 'AD Enumeration (Net Commands)',           level: 'medium',   match: /net\s+(user|group|localgroup|accounts|computer)\s*(\/domain|\\s*$)|nltest\s+\/domain/i,  mitre: 'T1087',     tactic: 'Discovery' },
+        { title: 'Network Reconnaissance (Port Scan/Ping)', level: 'low',      match: /nmap\b|masscan\b|advanced\s*port\s*scanner|invoke-portscan|test-netconnection/i,         mitre: 'T1046',     tactic: 'Discovery' },
+        { title: 'System Information Discovery',            level: 'low',      match: /systeminfo\b|wmic\s+os\s+get|get-computerinfo|hostname\s*&&|ipconfig\s*\/all/i,          mitre: 'T1082',     tactic: 'Discovery' },
+
+        // ── Persistence ──
+        { title: 'Registry Run Key Persistence',            level: 'medium',   match: /currentversion\\run|currentversion\\runonce|software\\microsoft\\windows\\currentversion\\run/i, mitre: 'T1547.001', tactic: 'Persistence' },
+        { title: 'Startup Folder Persistence',              level: 'medium',   match: /appdata.*roaming.*microsoft.*windows.*start\s*menu.*programs.*startup|programdata.*microsoft.*windows.*start\s*menu/i, mitre: 'T1547.001', tactic: 'Persistence' },
+        { title: 'DLL Hijacking / Side-Loading',            level: 'high',     match: /dll\s*side.load|dll\s*hijack|phantom\s*dll|missing\s*dll\s*loaded/i,                     mitre: 'T1574.002', tactic: 'Persistence' },
       ];
 
       for (const record of evtxRecords) {
@@ -2706,30 +3574,46 @@ router.post('/:caseId/hayabusa', authenticate, async (req, res) => {
           }
         }
       }
+      if (engineUsed === 'sigma_fallback') {
+        logger.info(`[hayabusa] sigma fallback — ${hayabusaRecords.length} matches from ${evtxRecords.length} evtx records`);
+      }
     }
 
     hayabusaRecords.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
 
-    const storeResult = await pool.query(
-      `INSERT INTO parser_results (case_id, parser_name, parser_version, input_file, output_data, record_count, created_by)
-       VALUES ($1, 'Hayabusa', '2.x', $2, $3, $4, $5) RETURNING id`,
-      [caseId, evtxParentDir, JSON.stringify({
+    const stats = {
+      critical: hayabusaRecords.filter(r => r.level === 'critical').length,
+      high:     hayabusaRecords.filter(r => r.level === 'high').length,
+      medium:   hayabusaRecords.filter(r => r.level === 'medium').length,
+      low:      hayabusaRecords.filter(r => r.level === 'low').length,
+    };
+    const diagnostic = {
+      engine_used:    engineUsed,
+      rules_count:    rulesCount,
+      rules_present:  rulesPresent,
+      evtx_files:     evtxFiles.length,
+      binary_path:    HAYABUSA_BIN,
+      truncated:      false,
+      stderr_snippet: hayStderrSnip || null,
+    };
+
+    // Atomically clear previous Hayabusa data and insert the final result record.
+    const { newId: hayResultId, oldIds: hayOldIds } = await initHayabusaRecord(
+      JSON.stringify({
         hayabusa_timeline: hayabusaRecords,
         evtx_dir: evtxParentDir,
         evtx_files_count: evtxFiles.length,
-        stats: {
-          critical: hayabusaRecords.filter(r => r.level === 'critical').length,
-          high: hayabusaRecords.filter(r => r.level === 'high').length,
-          medium: hayabusaRecords.filter(r => r.level === 'medium').length,
-          low: hayabusaRecords.filter(r => r.level === 'low').length,
-        },
-      }), hayabusaRecords.length, req.user.id]
+        stats,
+        diagnostic,
+      }),
+      hayabusaRecords.length
     );
-
-    await pool.query(
-      `DELETE FROM collection_timeline WHERE case_id = $1 AND artifact_type = 'hayabusa'`,
-      [caseId]
-    );
+    // Delete stale ES docs from previous run.
+    for (const oid of hayOldIds) {
+      esService.deleteByResultId(caseId, oid).catch(e =>
+        logger.warn('[ES] hayabusa stale cleanup warn:', e.message?.substring(0, 80))
+      );
+    }
     if (hayabusaRecords.length > 0) {
       const CT_BATCH = 500;
       for (let i = 0; i < hayabusaRecords.length; i += CT_BATCH) {
@@ -2780,14 +3664,14 @@ router.post('/:caseId/hayabusa', authenticate, async (req, res) => {
           vals.push(`($${pi++},$${pi++},$${pi++},$${pi++},$${pi++},$${pi++},$${pi++},$${pi++},$${pi++},$${pi++},$${pi++},$${pi++},$${pi++},$${pi++},$${pi++},$${pi++},$${pi++},$${pi++},$${pi++},$${pi++}::text[],$${pi++},$${pi++},$${pi++},$${pi++},$${pi++})`);
           prms.push(
             caseId,
-            storeResult.rows[0].id,
+            hayResultId,
             hayEvidenceId,
             r.timestamp,
             'hayabusa',
             r.rule_title || 'Hayabusa',
             r.description || '',
             haySource,
-            JSON.stringify({ level: r.level, event_id: r.event_id, channel: r.channel, rule_file: r.rule_file }),
+            JSON.stringify(r.raw),
             r.computer || null,
             null,
             null,
@@ -2804,7 +3688,7 @@ router.post('/:caseId/hayabusa', authenticate, async (req, res) => {
             hayPath,
             haySrcIp,
             hayDstIp,
-            hayDetails,
+            (r.details || hayDetails || null),
           );
         }
         await pool.query(
@@ -2839,7 +3723,7 @@ router.post('/:caseId/hayabusa', authenticate, async (req, res) => {
             : (mitreRaw.split(',')[0].trim().toLowerCase() || null),
         };
       });
-      esService.bulkIndex(caseId, ctRows, storeResult.rows[0].id, hayEvidenceId).then(res => {
+      esService.bulkIndex(caseId, ctRows, hayResultId, hayEvidenceId).then(res => {
         if (res?.errors) {
           const failed = (res.items || []).filter(i => i.index?.error);
           if (failed.length) logger.warn(`[ES] hayabusa bulkIndex: ${failed.length} item errors`, failed[0]?.index?.error);
@@ -2849,19 +3733,15 @@ router.post('/:caseId/hayabusa', authenticate, async (req, res) => {
       );
     }
 
-    await auditLog(req.user.id, 'run_hayabusa', 'collection', storeResult.rows[0].id,
+    await auditLog(req.user.id, 'run_hayabusa', 'collection', hayResultId,
       { evtx_count: evtxFiles.length, detections: hayabusaRecords.length }, req.ip);
 
     res.json({
-      id: storeResult.rows[0].id,
+      id:               hayResultId,
       total_detections: hayabusaRecords.length,
-      stats: {
-        critical: hayabusaRecords.filter(r => r.level === 'critical').length,
-        high: hayabusaRecords.filter(r => r.level === 'high').length,
-        medium: hayabusaRecords.filter(r => r.level === 'medium').length,
-        low: hayabusaRecords.filter(r => r.level === 'low').length,
-      },
+      stats,
       evtx_files_processed: evtxFiles.length,
+      diagnostic,
       timeline: hayabusaRecords,
     });
   } catch (err) {
@@ -2870,28 +3750,85 @@ router.post('/:caseId/hayabusa', authenticate, async (req, res) => {
   }
 });
 
+// GET /hayabusa — reads detections from collection_timeline (paginated, cursor-based)
+// Never reads parser_results JSONB — safe for any volume of records.
 router.get('/:caseId/hayabusa', authenticate, async (req, res) => {
   try {
-    const result = await pool.query(
-      `SELECT output_data, record_count, created_at FROM parser_results
+    const { caseId } = req.params;
+    const limit  = Math.min(parseInt(req.query.limit) || 10000, 100000);
+    const cursor = req.query.cursor || null; // BIGINT id cursor
+
+    const meta = await pool.query(
+      `SELECT output_data, record_count, created_at, id FROM parser_results
        WHERE case_id = $1 AND parser_name = 'Hayabusa'
        ORDER BY created_at DESC LIMIT 1`,
-      [req.params.caseId]
+      [caseId]
     );
 
-    if (result.rows.length === 0) {
-      return res.json({ timeline: [], total_detections: 0, stats: { critical: 0, high: 0, medium: 0, low: 0 } });
+    if (meta.rows.length === 0) {
+      return res.json({ timeline: [], total_detections: 0, stats: { critical: 0, high: 0, medium: 0, low: 0 }, next_cursor: null });
     }
 
-    const data = result.rows[0].output_data;
+    const metaRow  = meta.rows[0];
+    const metaData = metaRow.output_data || {};
+
+    // Read detections from collection_timeline — cursor-paginated by row id
+    let ctQuery = `SELECT id, timestamp, artifact_name AS rule_title, description,
+                          source, source AS channel,
+                          raw, host_name AS computer, user_name, process_name,
+                          mitre_technique_id AS mitre_attack,
+                          mitre_tactic AS tactic, event_id, details, tags,
+                          COALESCE(raw->>'Level', raw->>'level') AS level,
+                          COALESCE(raw->>'event_id', raw->>'EventID') AS event_id_raw
+                   FROM collection_timeline
+                   WHERE case_id = $1 AND artifact_type = 'hayabusa'`;
+    const params = [caseId];
+    if (cursor) {
+      params.push(cursor);
+      ctQuery += ` AND id > $${params.length}`;
+    }
+    params.push(limit);
+    ctQuery += ` ORDER BY id ASC LIMIT $${params.length}`;
+
+    // Compute live stats from collection_timeline — always consistent with the grid
+    const [ctResult, liveStats] = await Promise.all([
+      pool.query(ctQuery, params),
+      pool.query(
+        `SELECT
+           COUNT(*)                                                                                                            AS total,
+           COUNT(*) FILTER (WHERE LOWER(COALESCE(raw->>'Level', raw->>'level')) IN ('critical', 'crit'))                      AS critical,
+           COUNT(*) FILTER (WHERE LOWER(COALESCE(raw->>'Level', raw->>'level')) = 'high')                                     AS high,
+           COUNT(*) FILTER (WHERE LOWER(COALESCE(raw->>'Level', raw->>'level')) IN ('medium', 'med'))                         AS medium,
+           COUNT(*) FILTER (WHERE LOWER(COALESCE(raw->>'Level', raw->>'level')) = 'low')                                      AS low,
+           COUNT(*) FILTER (WHERE LOWER(COALESCE(raw->>'Level', raw->>'level')) IN ('informational', 'info'))                 AS informational
+         FROM collection_timeline
+         WHERE case_id = $1 AND artifact_type = 'hayabusa'`,
+        [caseId]
+      ),
+    ]);
+
+    const rows       = ctResult.rows;
+    const nextCursor = rows.length === limit ? rows[rows.length - 1].id : null;
+    const ls         = liveStats.rows[0];
+    const stats = {
+      critical:      parseInt(ls.critical)      || 0,
+      high:          parseInt(ls.high)          || 0,
+      medium:        parseInt(ls.medium)        || 0,
+      low:           parseInt(ls.low)           || 0,
+      informational: parseInt(ls.informational) || 0,
+    };
+
     res.json({
-      timeline: data.hayabusa_timeline || [],
-      total_detections: result.rows[0].record_count,
-      stats: data.stats || {},
-      evtx_files_count: data.evtx_files_count || 0,
-      generated_at: result.rows[0].created_at,
+      timeline:         rows,
+      total_detections: parseInt(ls.total) || 0,
+      stats,
+      evtx_files_count: metaData.evtx_files_count || 0,
+      diagnostic:       metaData.diagnostic        || null,
+      generated_at:     metaRow.created_at,
+      next_cursor:      nextCursor,
     });
   } catch (err) {
+    logger.error('[hayabusa GET]', err.message);
     res.status(500).json({ error: 'Erreur serveur' });
   }
 });
@@ -3354,6 +4291,25 @@ router.post('/:caseId/pcap', authenticate, (req, res) => {
       }
 
       fs.unlink(pcapPath, () => {});
+
+      // Also insert TCP conversations into network_connections so the Network Map is populated.
+      if (convRows.length > 0) {
+        try {
+          for (let i = 0; i < convRows.length; i++) {
+            const raw = convRows[i].raw;
+            await pool.query(
+              `INSERT INTO network_connections (case_id, src_ip, src_port, dst_ip, dst_port, protocol, bytes_sent, bytes_received, packet_count, first_seen, last_seen)
+               VALUES ($1,$2,$3,$4,$5,'TCP',$6,$7,$8,NOW(),NOW())
+               ON CONFLICT DO NOTHING`,
+              [caseId, raw.src_ip, parseInt(raw.src_port) || null, raw.dst_ip, parseInt(raw.dst_port) || null,
+               parseInt(raw.fwd_bytes) || 0, parseInt(raw.rev_bytes) || 0,
+               (parseInt(raw.fwd_pkts) || 0) + (parseInt(raw.rev_pkts) || 0)]
+            );
+          }
+        } catch (ncErr) {
+          logger.warn('[pcap] network_connections insert error:', ncErr.message);
+        }
+      }
 
       await auditLog(req.user.id, 'pcap_parse', 'case', caseId,
         { source, dns: dnsRows.length, http: httpRows.length, tls: tlsRows.length, tcp_flows: convRows.length }, req.ip);

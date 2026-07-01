@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { uploadFile, formatBytes, formatSpeed } from '../../services/uploadService';
 import type { UploadState, CompleteUploadResult } from '../../types/forensic';
+import { useTranslation } from 'react-i18next';
 
 interface ChunkedUploaderProps {
   caseId: string;
@@ -59,14 +60,14 @@ const phaseBadge: Record<UploadState['phase'], string> = {
   error:        'bg-red-900 text-red-300',
 };
 
-const phaseLabel: Record<UploadState['phase'], string> = {
-  idle:         'Prêt',
-  initializing: 'Initialisation',
-  uploading:    'Envoi en cours',
-  assembling:   'Assemblage',
-  hashing:      'Calcul des hashes',
-  complete:     'Terminé',
-  error:        'Erreur',
+const phaseLabelKey: Record<UploadState['phase'], string> = {
+  idle:         'upload.phase_idle',
+  initializing: 'upload.phase_initializing',
+  uploading:    'upload.phase_uploading',
+  assembling:   'upload.phase_assembling',
+  hashing:      'upload.phase_hashing',
+  complete:     'upload.phase_complete',
+  error:        'upload.phase_error',
 };
 
 const ChunkedUploader: React.FC<ChunkedUploaderProps> = ({
@@ -76,6 +77,7 @@ const ChunkedUploader: React.FC<ChunkedUploaderProps> = ({
   accept,
   maxSize = 0,
 }) => {
+  const { t } = useTranslation();
   const [uploadState, setUploadState] = useState<UploadState>(defaultState);
   const [phaseMessage, setPhaseMessage] = useState('');
   const [evidenceType, setEvidenceType] = useState('other');
@@ -116,7 +118,7 @@ const ChunkedUploader: React.FC<ChunkedUploaderProps> = ({
         setUploadState((s) => ({
           ...s,
           phase: 'error',
-          errorMessage: `Fichier trop volumineux (max ${formatBytes(maxSize)})`,
+          errorMessage: t('upload.file_too_large', { max: formatBytes(maxSize) }),
         }));
         return;
       }
@@ -136,7 +138,7 @@ const ChunkedUploader: React.FC<ChunkedUploaderProps> = ({
         }
       );
     },
-    [caseId, evidenceType, notes, maxSize, handleStateUpdate, handlePhaseChange, handleComplete, handleError]
+    [caseId, evidenceType, notes, maxSize, handleStateUpdate, handlePhaseChange, handleComplete, handleError, t]
   );
 
   const { getRootProps, getInputProps, isDragActive, isDragReject } = useDropzone({
@@ -168,7 +170,7 @@ const ChunkedUploader: React.FC<ChunkedUploaderProps> = ({
       {uploadState.phase === 'idle' && (
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="block text-xs text-slate-400 mb-1">Type de preuve</label>
+            <label className="block text-xs text-slate-400 mb-1">{t('upload.evidence_type')}</label>
             <select
               value={evidenceType}
               onChange={(e) => setEvidenceType(e.target.value)}
@@ -180,12 +182,12 @@ const ChunkedUploader: React.FC<ChunkedUploaderProps> = ({
             </select>
           </div>
           <div>
-            <label className="block text-xs text-slate-400 mb-1">Notes (optionnel)</label>
+            <label className="block text-xs text-slate-400 mb-1">{t('upload.notes_optional')}</label>
             <input
               type="text"
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
-              placeholder="Description rapide…"
+              placeholder={t('upload.quick_description_ph')}
               className="w-full bg-slate-800 border border-slate-600 rounded px-2 py-1.5 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-cyan-500"
             />
           </div>
@@ -210,12 +212,12 @@ const ChunkedUploader: React.FC<ChunkedUploaderProps> = ({
             <p className="text-slate-300 text-sm">
               {isDragActive
                 ? isDragReject
-                  ? 'Fichier non supporté'
-                  : 'Déposez ici…'
-                : 'Glissez un fichier ou cliquez pour parcourir'}
+                  ? t('upload.unsupported_file')
+                  : t('upload.drop_here')
+                : t('upload.drop_or_browse')}
             </p>
             <p className="text-slate-500 text-xs">
-              Taille illimitée — upload par blocs de 50 Mo
+              {t('upload.unlimited_chunked')}
             </p>
           </div>
         )}
@@ -239,7 +241,7 @@ const ChunkedUploader: React.FC<ChunkedUploaderProps> = ({
           <div className="flex items-center gap-2">
             <PhaseIcon phase={uploadState.phase} />
             <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${phaseBadge[uploadState.phase]}`}>
-              {phaseLabel[uploadState.phase]}
+              {t(phaseLabelKey[uploadState.phase])}
             </span>
             {phaseMessage && (
               <span className="text-slate-400 text-xs truncate">{phaseMessage}</span>
@@ -262,7 +264,7 @@ const ChunkedUploader: React.FC<ChunkedUploaderProps> = ({
             <span>
               {uploadState.chunks.filter((c) => c.status === 'done').length}
               {' / '}
-              {uploadState.totalChunks} chunks
+              {uploadState.totalChunks} {t('upload.chunks')}
             </span>
             {uploadState.speed > 0 && <span>{formatSpeed(uploadState.speed)}</span>}
           </div>
@@ -272,7 +274,7 @@ const ChunkedUploader: React.FC<ChunkedUploaderProps> = ({
               {uploadState.chunks.map((chunk) => (
                 <div
                   key={chunk.index}
-                  title={`Chunk ${chunk.index}: ${chunk.status}${chunk.retries > 0 ? ` (${chunk.retries} retries)` : ''}`}
+                  title={t('upload.chunk_status', { index: chunk.index, status: chunk.status, retries: chunk.retries > 0 ? t('upload.chunk_retries', { count: chunk.retries }) : '' })}
                   className={`w-3 h-3 rounded-sm ${chunkColor(chunk.status)}`}
                 />
               ))}
@@ -290,7 +292,7 @@ const ChunkedUploader: React.FC<ChunkedUploaderProps> = ({
             <div className="bg-green-950/30 border border-green-800 rounded-md p-4 space-y-2">
               <div className="flex items-center gap-2 text-green-400">
                 <CheckCircle className="w-4 h-4" />
-                <span className="text-sm font-medium">Upload réussi</span>
+                <span className="text-sm font-medium">{t('upload.success')}</span>
               </div>
               <div className="space-y-1 font-mono text-xs text-slate-300">
                 <div className="flex gap-2">
@@ -304,7 +306,7 @@ const ChunkedUploader: React.FC<ChunkedUploaderProps> = ({
                   <span className="break-all">{uploadState.result.hash_sha256}</span>
                 </div>
                 <div className="text-slate-500">
-                  Taille: {formatBytes(uploadState.result.fileSize)}
+                  {t('upload.size')}: {formatBytes(uploadState.result.fileSize)}
                 </div>
               </div>
             </div>
@@ -316,7 +318,7 @@ const ChunkedUploader: React.FC<ChunkedUploaderProps> = ({
               className="flex items-center gap-2 text-xs text-slate-400 hover:text-slate-200 transition-colors"
             >
               <RefreshCw className="w-3 h-3" />
-              Nouvel upload
+              {t('upload.new_upload')}
             </button>
           )}
         </div>

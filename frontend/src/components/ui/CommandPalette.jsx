@@ -7,22 +7,23 @@ import {
   ChevronRight, Network, Clock, Activity,
 } from 'lucide-react';
 import { casesAPI } from '../../utils/api';
+import { useTranslation } from 'react-i18next';
 
 const RE_IP   = /^(\d{1,3}\.){3}\d{1,3}$/;
 const RE_HASH = /^[0-9a-fA-F]{32,}$/;
 const RE_DOMAIN = /^[a-zA-Z0-9.-]{4,}\.[a-zA-Z]{2,}$/;
 
 const NAV_ITEMS = [
-  { label: 'Dashboard',       path: '/',                icon: LayoutDashboard },
-  { label: 'Cas',             path: '/cases',           icon: FolderOpen },
-  { label: 'IOCs',            path: '/iocs',            icon: Crosshair },
-  { label: 'Hayabusa',        path: '/hayabusa',        icon: Activity },
-  { label: 'Threat Hunting',  path: '/threat-hunt',     icon: Shield },
-  { label: 'Threat Intel',    path: '/threat-intel',    icon: Globe },
-  { label: 'Sysmon Configs',  path: '/sysmon',          icon: MonitorCheck },
-  { label: 'Agent Collecte',  path: '/collection-agent',icon: Terminal },
-  { label: 'Calendrier',      path: '/calendar',        icon: CalendarDays },
-  { label: 'Administration',  path: '/admin',           icon: Settings },
+  { labelKey: 'nav.dashboard',     path: '/',                 icon: LayoutDashboard },
+  { labelKey: 'nav.cases',         path: '/cases',            icon: FolderOpen },
+  { labelKey: 'nav.iocs',          path: '/iocs',             icon: Crosshair },
+  { labelKey: 'nav.hayabusa',      path: '/hayabusa',         icon: Activity },
+  { labelKey: 'nav.threat_hunt',   path: '/threat-hunt',      icon: Shield },
+  { labelKey: 'nav.threat_intel',  path: '/threat-intel',     icon: Globe },
+  { labelKey: 'nav.sysmon',        path: '/sysmon',           icon: MonitorCheck },
+  { labelKey: 'nav.collection',    path: '/collection-agent', icon: Terminal },
+  { labelKey: 'nav.calendar',      path: '/calendar',         icon: CalendarDays },
+  { labelKey: 'nav.admin',         path: '/admin',            icon: Settings },
 ];
 
 function ResultItem({ item, active, onSelect }) {
@@ -40,25 +41,19 @@ function ResultItem({ item, active, onSelect }) {
     >
       <Icon size={14} style={{ color: active ? 'var(--fl-accent)' : 'var(--fl-dim)', flexShrink: 0 }} />
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontFamily: 'monospace', fontSize: 12, color: active ? 'var(--fl-text)' : 'var(--fl-dim)',
+        <div style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 12, color: active ? 'var(--fl-text)' : 'var(--fl-dim)',
           overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {item.label}
         </div>
         {item.sub && (
-          <div style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--fl-muted)',
+          <div style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10, color: 'var(--fl-muted)',
             overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {item.sub}
           </div>
         )}
       </div>
-      {item.category === 'nav' && (
-        <span style={{ fontSize: 9, fontFamily: 'monospace', color: 'var(--fl-border)', flexShrink: 0 }}>nav</span>
-      )}
-      {item.category === 'case' && (
-        <span style={{ fontSize: 9, fontFamily: 'monospace', color: 'var(--fl-border)', flexShrink: 0 }}>cas</span>
-      )}
-      {item.category === 'ioc' && (
-        <span style={{ fontSize: 9, fontFamily: 'monospace', color: 'var(--fl-gold)', flexShrink: 0 }}>IOC</span>
+      {item.categoryLabel && (
+        <span style={{ fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: item.category === 'ioc' ? 'var(--fl-gold)' : 'var(--fl-border)', flexShrink: 0 }}>{item.categoryLabel}</span>
       )}
     </div>
   );
@@ -67,7 +62,7 @@ function ResultItem({ item, active, onSelect }) {
 function SectionHeader({ label }) {
   return (
     <div style={{
-      padding: '6px 14px 2px', fontSize: 9, fontFamily: 'monospace',
+      padding: '6px 14px 2px', fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
       color: 'var(--fl-muted)', textTransform: 'uppercase', letterSpacing: '0.08em',
     }}>
       {label}
@@ -76,6 +71,7 @@ function SectionHeader({ label }) {
 }
 
 export default function CommandPalette({ open, onClose }) {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const [query, setQuery] = useState('');
   const [cases, setCases] = useState([]);
@@ -92,28 +88,29 @@ export default function CommandPalette({ open, onClose }) {
 
   const results = useMemo(() => {
     const q = query.trim().toLowerCase();
+    const navItems = NAV_ITEMS.map(item => ({ ...item, label: t(item.labelKey) }));
     const sections = [];
 
     if (RE_IP.test(query.trim()) || RE_HASH.test(query.trim()) || RE_DOMAIN.test(query.trim())) {
       sections.push({
         key: 'ioc',
-        label: 'Actions IOC',
+        label: t('commandPalette.actions_ioc'),
         items: [
-          { label: `Rechercher "${query.trim()}" dans les IOCs`, path: `/iocs?q=${encodeURIComponent(query.trim())}`, icon: Crosshair, category: 'ioc' },
-          { label: `Chercher dans la Super Timeline`, path: `/super-timeline?q=${encodeURIComponent(query.trim())}`, icon: Clock, category: 'ioc' },
-          { label: `Carte réseau — filtrer par "${query.trim()}"`, path: `/iocs?q=${encodeURIComponent(query.trim())}&view=network`, icon: Network, category: 'ioc' },
+          { label: t('commandPalette.search_iocs', { query: query.trim() }), path: `/iocs?q=${encodeURIComponent(query.trim())}`, icon: Crosshair, category: 'ioc', categoryLabel: 'IOC' },
+          { label: t('commandPalette.search_super_timeline'), path: `/super-timeline?q=${encodeURIComponent(query.trim())}`, icon: Clock, category: 'ioc', categoryLabel: 'IOC' },
+          { label: t('commandPalette.filter_network', { query: query.trim() }), path: `/iocs?q=${encodeURIComponent(query.trim())}&view=network`, icon: Network, category: 'ioc', categoryLabel: 'IOC' },
         ],
       });
     }
 
     const navFiltered = q
-      ? NAV_ITEMS.filter(n => n.label.toLowerCase().includes(q))
-      : NAV_ITEMS;
+      ? navItems.filter(n => n.label.toLowerCase().includes(q))
+      : navItems;
     if (navFiltered.length) {
       sections.push({
         key: 'nav',
-        label: 'Navigation',
-        items: navFiltered.slice(0, 6).map(n => ({ ...n, category: 'nav' })),
+        label: t('commandPalette.navigation'),
+        items: navFiltered.slice(0, 6).map(n => ({ ...n, category: 'nav', categoryLabel: t('commandPalette.nav_short') })),
       });
     }
 
@@ -127,19 +124,20 @@ export default function CommandPalette({ open, onClose }) {
     if (caseFiltered.length) {
       sections.push({
         key: 'cases',
-        label: 'Cas',
+        label: t('commandPalette.cases'),
         items: caseFiltered.slice(0, 5).map(c => ({
           label: c.title || c.case_number,
           sub: c.case_number,
           path: `/cases/${c.id}`,
           icon: FolderOpen,
           category: 'case',
+          categoryLabel: t('commandPalette.case_short'),
         })),
       });
     }
 
     return sections;
-  }, [query, cases]);
+  }, [query, cases, t]);
 
   const flatItems = useMemo(() => results.flatMap(s => s.items), [results]);
 
@@ -172,7 +170,7 @@ export default function CommandPalette({ open, onClose }) {
       <div
         role="dialog"
         aria-modal="true"
-        aria-label="Barre de commande"
+        aria-label={t('commandPalette.title')}
         style={{
           position: 'relative', zIndex: 1,
           width: '100%', maxWidth: 560,
@@ -191,13 +189,13 @@ export default function CommandPalette({ open, onClose }) {
             value={query}
             onChange={e => setQuery(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Naviguer, rechercher une IP / hash / cas…"
+            placeholder={t('commandPalette.placeholder')}
             style={{
               flex: 1, background: 'none', border: 'none', outline: 'none',
-              fontFamily: 'monospace', fontSize: 13, color: 'var(--fl-text)',
+              fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 13, color: 'var(--fl-text)',
             }}
           />
-          <kbd style={{ fontSize: 9, fontFamily: 'monospace', color: 'var(--fl-muted)',
+          <kbd style={{ fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-muted)',
             background: 'var(--fl-bg)', border: '1px solid var(--fl-border)', borderRadius: 4, padding: '2px 5px' }}>
             ESC
           </kbd>
@@ -205,8 +203,8 @@ export default function CommandPalette({ open, onClose }) {
 
         <div style={{ maxHeight: 380, overflowY: 'auto', padding: '6px 0 8px' }}>
           {flatItems.length === 0 ? (
-            <div style={{ padding: '20px 14px', fontFamily: 'monospace', fontSize: 12, color: 'var(--fl-muted)', textAlign: 'center' }}>
-              Aucun résultat
+            <div style={{ padding: '20px 14px', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 12, color: 'var(--fl-muted)', textAlign: 'center' }}>
+              {t('commandPalette.no_results')}
             </div>
           ) : (
             results.map(section => (
@@ -229,10 +227,10 @@ export default function CommandPalette({ open, onClose }) {
         </div>
 
         <div style={{ display: 'flex', gap: 14, padding: '6px 14px', borderTop: '1px solid var(--fl-panel)',
-          background: 'var(--fl-bg)', fontSize: 9, fontFamily: 'monospace', color: 'var(--fl-border)' }}>
-          <span><kbd style={{ marginRight: 4 }}>↑↓</kbd>naviguer</span>
-          <span><kbd style={{ marginRight: 4 }}>↵</kbd>ouvrir</span>
-          <span><kbd style={{ marginRight: 4 }}>ESC</kbd>fermer</span>
+          background: 'var(--fl-bg)', fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-border)' }}>
+          <span><kbd style={{ marginRight: 4 }}>↑↓</kbd>{t('commandPalette.navigate_hint')}</span>
+          <span><kbd style={{ marginRight: 4 }}>↵</kbd>{t('commandPalette.open_hint')}</span>
+          <span><kbd style={{ marginRight: 4 }}>ESC</kbd>{t('commandPalette.close_hint')}</span>
         </div>
       </div>
     </div>

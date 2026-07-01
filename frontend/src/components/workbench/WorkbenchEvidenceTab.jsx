@@ -23,8 +23,8 @@ function fmtUtc(ts) {
 
 const STATUS_OPTS = [
   { id: 'triage',    label: 'Triage',    color: 'var(--fl-dim)' },
-  { id: 'confirmed', label: 'Confirmé',  color: 'var(--fl-ok, #22c55e)' },
-  { id: 'reported',  label: 'Rapporté',  color: 'var(--fl-purple, #c96898)' },
+  { id: 'confirmed', label: 'Confirmed',  color: 'var(--fl-ok, var(--fl-ok))' },
+  { id: 'reported',  label: 'Reported',   color: 'var(--fl-purple, #c96898)' },
 ];
 
 export default function WorkbenchEvidenceTab({ caseId }) {
@@ -115,20 +115,20 @@ export default function WorkbenchEvidenceTab({ caseId }) {
         <section class="finding">
           <header>
             <span class="idx">#${idx + 1}</span>
-            <span class="chip" style="background:${accent}20;color:${accent};border-color:${accent}60">${escHtml(p.artifact_type || '—')}</span>
+            <span class="chip" style="background:color-mix(in srgb, ${accent} 13%, transparent);color:${accent};border-color:color-mix(in srgb, ${accent} 38%, transparent)">${escHtml(p.artifact_type || '—')}</span>
             ${p.tool ? `<span class="tool">${escHtml(p.tool)}</span>` : ''}
             ${p.event_id != null ? `<span class="eid">EID ${escHtml(p.event_id)}</span>` : ''}
             ${p.mitre_technique_id ? `<span class="mitre">${escHtml(p.mitre_technique_id)}</span>` : ''}
           </header>
-          <div class="ts"><strong>Timestamp événement:</strong> ${escHtml(fmtUtc(p.timestamp))}</div>
-          <div class="desc">${escHtml(p.description || '(aucune description)')}</div>
+          <div class="ts"><strong>Event timestamp:</strong> ${escHtml(fmtUtc(p.timestamp))}</div>
+          <div class="desc">${escHtml(p.description || '(no description)')}</div>
           ${p.source ? `<div class="src"><strong>Source:</strong> <code>${escHtml(p.source)}</code></div>` : ''}
-          ${(p.host_name || p.user_name) ? `<div class="ctx">${p.host_name ? `<span>⚙ Host: <code>${escHtml(p.host_name)}</code></span>` : ''}${p.user_name ? `<span>👤 Utilisateur: <code>${escHtml(p.user_name)}</code></span>` : ''}</div>` : ''}
-          ${p.note ? `<div class="note"><strong>Note analyste:</strong> ${escHtml(p.note)}</div>` : ''}
+          ${(p.host_name || p.user_name) ? `<div class="ctx">${p.host_name ? `<span>⚙ Host: <code>${escHtml(p.host_name)}</code></span>` : ''}${p.user_name ? `<span>👤 User: <code>${escHtml(p.user_name)}</code></span>` : ''}</div>` : ''}
+          ${p.note ? `<div class="note"><strong>Analyst note:</strong> ${escHtml(p.note)}</div>` : ''}
           <table class="coc">
             <tr><th>pin_id</th><td><code>${escHtml(p.pin_id)}</code></td></tr>
-            <tr><th>Épinglé le</th><td>${escHtml(fmtUtc(p.pinned_at))}</td></tr>
-            <tr><th>Épinglé par</th><td>${escHtml(p.pinned_by || 'analyste')}</td></tr>
+            <tr><th>Pinned at</th><td>${escHtml(fmtUtc(p.pinned_at))}</td></tr>
+            <tr><th>Pinned by</th><td>${escHtml(p.pinned_by || 'analyst')}</td></tr>
             <tr><th>collection_timeline_id</th><td>${escHtml(p.collection_timeline_id ?? '—')}</td></tr>
             <tr><th>dedupe_hash</th><td><code>${escHtml(p.dedupe_hash || '—')}</code></td></tr>
           </table>
@@ -160,43 +160,43 @@ export default function WorkbenchEvidenceTab({ caseId }) {
   .finding .idx { font-weight: 700; color: #888; font-size: 12px; }
   .finding .chip { font-size: 10px; padding: 2px 8px; border-radius: 3px; border: 1px solid; text-transform: uppercase; letter-spacing: 0.04em; font-weight: 700; }
   .finding .tool { font-size: 11px; color: #666; font-family: monospace; }
-  .finding .eid { font-size: 10px; padding: 2px 7px; background: #1c6ef215; color: #1c6ef2; border-radius: 3px; }
+  .finding .eid { font-size: 10px; padding: 2px 7px; background: var(--fl-accent)15; color: var(--fl-accent); border-radius: 3px; }
   .finding .mitre { font-size: 10px; padding: 2px 7px; background: #c9689815; color: #88296a; border-radius: 3px; }
   .finding .ts { font-size: 12px; font-family: monospace; margin: 4px 0; }
   .finding .desc { font-size: 12px; margin: 6px 0; line-height: 1.4; word-break: break-word; }
   .finding .src { font-size: 11px; margin: 4px 0; color: #444; word-break: break-all; }
   .finding .ctx { display: flex; gap: 14px; font-size: 11px; color: #444; margin: 4px 0; }
-  .finding .note { font-size: 12px; padding: 6px 10px; background: #fff8e1; border-left: 3px solid #f59e0b; margin: 6px 0; border-radius: 3px; }
+  .finding .note { font-size: 12px; padding: 6px 10px; background: #fff8e1; border-left: 3px solid var(--fl-warn); margin: 6px 0; border-radius: 3px; }
   .coc { font-size: 10px; border-collapse: collapse; width: 100%; margin-top: 8px; background: #fafafa; }
   .coc th { text-align: left; padding: 3px 8px; color: #666; font-weight: 600; width: 180px; border: 1px solid #eee; }
   .coc td { padding: 3px 8px; font-family: monospace; border: 1px solid #eee; word-break: break-all; }
   footer { margin-top: 40px; padding-top: 14px; border-top: 1px solid #ccc; color: #888; font-size: 11px; text-align: center; }
   @media print { body { padding: 0; } .finding { break-inside: avoid; } }
 </style></head><body>
-<h1>HEIMDALL DFIR — Rapport de preuves épinglées (Workbench)</h1>
+<h1>HEIMDALL DFIR — Pinned evidence report (Workbench)</h1>
 <div class="cover">
   <p><strong>${escHtml(title)}</strong></p>
   ${caseMeta ? `
-    <p>Statut: <strong>${escHtml(caseMeta.status || '—')}</strong> · Priorité: <strong>${escHtml(caseMeta.priority || '—')}</strong> · Investigateur: <strong>${escHtml(caseMeta.investigator_name || '—')}</strong></p>
+    <p>Status: <strong>${escHtml(caseMeta.status || '—')}</strong> · Priority: <strong>${escHtml(caseMeta.priority || '—')}</strong> · Investigator: <strong>${escHtml(caseMeta.investigator_name || '—')}</strong></p>
     ${caseMeta.description ? `<p>${escHtml(caseMeta.description)}</p>` : ''}
   ` : ''}
-  <p style="color:#666;font-size:11px">Rapport généré: ${escHtml(fmtUtc(new Date().toISOString()))}</p>
+  <p style="color:#666;font-size:11px">Report generated: ${escHtml(fmtUtc(new Date().toISOString()))}</p>
 </div>
 
 <div class="summary">
   <div class="stat" style="border-left-color:#999"><s>Triage</s><b>${byStatus.triage.length}</b></div>
-  <div class="stat" style="border-left-color:#22c55e"><s>Confirmé</s><b>${byStatus.confirmed.length}</b></div>
-  <div class="stat" style="border-left-color:#c96898"><s>Rapporté</s><b>${byStatus.reported.length}</b></div>
+  <div class="stat" style="border-left-color:var(--fl-ok)"><s>Confirmed</s><b>${byStatus.confirmed.length}</b></div>
+  <div class="stat" style="border-left-color:#c96898"><s>Reported</s><b>${byStatus.reported.length}</b></div>
 </div>
 
-${statusBlock('Rapporté', byStatus.reported, '#c96898')}
-${statusBlock('Confirmé', byStatus.confirmed, '#22c55e')}
+${statusBlock('Reported', byStatus.reported, '#c96898')}
+${statusBlock('Confirmed', byStatus.confirmed, 'var(--fl-ok)')}
 ${statusBlock('Triage', byStatus.triage, '#888')}
 
-${filtered.length === 0 ? '<p style="color:#888;font-style:italic">Aucune preuve épinglée à rapporter.</p>' : ''}
+${filtered.length === 0 ? '<p style="color:#888;font-style:italic">No pinned evidence to report.</p>' : ''}
 
 <footer>
-  Généré par Heimdall DFIR — Workbench Evidence Bridge · Chain of custody: chaque preuve liste pin_id, pinned_at UTC, pinned_by, collection_timeline_id, dedupe_hash.
+  Generated by Heimdall DFIR — Workbench Evidence Bridge · Chain of custody: each evidence entry lists pin_id, pinned_at UTC, pinned_by, collection_timeline_id, dedupe_hash.
 </footer>
 </body></html>`;
 
@@ -230,20 +230,20 @@ ${filtered.length === 0 ? '<p style="color:#888;font-style:italic">Aucune preuve
       <div style={{
         padding: '48px 24px', textAlign: 'center', color: 'var(--fl-dim)',
         border: '1px dashed var(--fl-sep)', borderRadius: 10, background: 'var(--fl-bg)',
-        fontFamily: 'monospace',
+        fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
       }}>
         <Pin size={28} style={{ opacity: 0.5, marginBottom: 12 }} />
-        <div style={{ fontSize: 13, color: 'var(--fl-on-dark)', marginBottom: 6 }}>Aucune preuve épinglée pour ce cas</div>
+        <div style={{ fontSize: 13, color: 'var(--fl-on-dark)', marginBottom: 6 }}>No pinned evidence for this case</div>
         <div style={{ fontSize: 11 }}>
-          Dans la <b>Super Timeline</b>, clic droit sur une cellule → <span style={{ color: 'var(--fl-purple, #c96898)' }}>📌 Épingler dans le Workbench</span>
-          <br />ou appuyer sur la touche <kbd style={{ padding: '1px 6px', border: '1px solid var(--fl-sep)', borderRadius: 3, background: 'var(--fl-card)' }}>P</kbd> sur une ligne sélectionnée.
+          In the <b>Super Timeline</b>, right-click a cell → <span style={{ color: 'var(--fl-purple, #c96898)' }}>📌 Pin to Workbench</span>
+          <br />or press <kbd style={{ padding: '1px 6px', border: '1px solid var(--fl-sep)', borderRadius: 3, background: 'var(--fl-card)' }}>P</kbd> on a selected row.
         </div>
       </div>
     );
   }
 
   return (
-    <div style={{ fontFamily: 'monospace' }}>
+    <div style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}>
       <div style={{
         display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, padding: '8px 12px',
         background: 'var(--fl-bg)', border: '1px solid var(--fl-card)', borderRadius: 8,
@@ -252,7 +252,7 @@ ${filtered.length === 0 ? '<p style="color:#888;font-style:italic">Aucune preuve
         <span style={{ fontSize: 12, color: 'var(--fl-on-dark)', fontWeight: 600 }}>
           {pins.length} / {PIN_MAX_PER_CASE}
         </span>
-        <span style={{ fontSize: 10, color: 'var(--fl-dim)' }}>épinglée(s)</span>
+        <span style={{ fontSize: 10, color: 'var(--fl-dim)' }}>pinned</span>
 
         <div style={{ display: 'flex', gap: 6, marginLeft: 10 }}>
           {['all', ...STATUS_OPTS.map(s => s.id)].map(s => {
@@ -262,13 +262,13 @@ ${filtered.length === 0 ? '<p style="color:#888;font-style:italic">Aucune preuve
             const active = statusFilter === s;
             return (
               <button key={s} onClick={() => setStatusFilter(s)} style={{
-                padding: '3px 10px', fontSize: 10, fontFamily: 'monospace',
+                padding: '3px 10px', fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
                 border: `1px solid ${active ? (opt?.color || 'var(--fl-accent)') : 'var(--fl-sep)'}`,
-                background: active ? `${opt?.color || 'var(--fl-accent)'}20` : 'var(--fl-card)',
+                background: active ? `color-mix(in srgb, ${opt?.color || 'var(--fl-accent)'} 13%, transparent)` : 'var(--fl-card)',
                 color: active ? (opt?.color || 'var(--fl-accent)') : 'var(--fl-dim)',
                 borderRadius: 4, cursor: 'pointer',
               }}>
-                {isAll ? 'Tous' : opt.label} · {n}
+            {isAll ? 'All' : opt.label} · {n}
               </button>
             );
           })}
@@ -276,24 +276,24 @@ ${filtered.length === 0 ? '<p style="color:#888;font-style:italic">Aucune preuve
 
         <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 6, border: '1px solid var(--fl-sep)', borderRadius: 5, padding: '3px 8px', background: 'var(--fl-card)' }}>
           <Search size={12} style={{ color: 'var(--fl-dim)' }} />
-          <input value={q} onChange={e => setQ(e.target.value)} placeholder="Rechercher…"
-            style={{ flex: 1, background: 'none', border: 'none', outline: 'none', color: 'var(--fl-on-dark)', fontFamily: 'monospace', fontSize: 11 }} />
+          <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search…"
+            style={{ flex: 1, background: 'none', border: 'none', outline: 'none', color: 'var(--fl-on-dark)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11 }} />
         </div>
 
         <div style={{ display: 'flex', gap: 0, border: '1px solid var(--fl-sep)', borderRadius: 4, overflow: 'hidden' }}>
           {[
-            { id: 'list',        label: 'Liste',       icon: LayoutList, color: 'var(--fl-accent)' },
+            { id: 'list',        label: 'List',        icon: LayoutList, color: 'var(--fl-accent)' },
             { id: 'board',       label: 'Board',       icon: LayoutGrid, color: 'var(--fl-purple, #c96898)' },
-            { id: 'persistence', label: 'Persistance', icon: Shield,     color: 'var(--fl-warn)' },
+            { id: 'persistence', label: 'Persistence', icon: Shield,     color: 'var(--fl-warn)' },
             { id: 'logons',      label: 'Sessions',    icon: LogIn,      color: 'var(--fl-gold)' },
-            { id: 'ledger',      label: 'Ledger',      icon: ShieldCheck,color: 'var(--fl-ok, #22c55e)' },
+            { id: 'ledger',      label: 'Ledger',      icon: ShieldCheck,color: 'var(--fl-ok, var(--fl-ok))' },
           ].map((m, i) => {
             const Icon = m.icon;
             const active = viewMode === m.id;
             return (
               <button key={m.id} onClick={() => setView(m.id)} title={m.label}
                 style={{
-                  padding: '3px 8px', fontSize: 10, fontFamily: 'monospace', cursor: 'pointer',
+                  padding: '3px 8px', fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', cursor: 'pointer',
                   background: active ? m.color : 'var(--fl-card)',
                   color: active ? 'var(--fl-bg)' : 'var(--fl-dim)',
                   border: 'none', borderLeft: i === 0 ? 'none' : '1px solid var(--fl-sep)',
@@ -306,26 +306,26 @@ ${filtered.length === 0 ? '<p style="color:#888;font-style:italic">Aucune preuve
         </div>
 
         <select value={sortBy} onChange={e => setSortBy(e.target.value)} style={{
-          fontSize: 10, fontFamily: 'monospace', padding: '3px 8px',
+          fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', padding: '3px 8px',
           background: 'var(--fl-card)', border: '1px solid var(--fl-sep)', color: 'var(--fl-on-dark)', borderRadius: 4, cursor: 'pointer',
         }}>
-          <option value="pinned_at">Trier: épinglé récemment</option>
-          <option value="timestamp">Trier: timestamp événement</option>
-          <option value="artifact">Trier: type artifact</option>
+          <option value="pinned_at">Sort: recently pinned</option>
+          <option value="timestamp">Sort: event timestamp</option>
+          <option value="artifact">Sort: artifact type</option>
         </select>
 
-        <button onClick={generateReport} title="Générer un rapport forensique (PDF via impression)"
+        <button onClick={generateReport} title="Generate a forensic report (PDF via print)"
           style={{ ...iconBtn, color: 'var(--fl-purple, #c96898)', borderColor: 'var(--fl-purple, #c96898)60' }}>
-          <FileText size={12} /> <span style={{ fontSize: 10 }}>Rapport</span>
+          <FileText size={12} /> <span style={{ fontSize: 10 }}>Report</span>
         </button>
-        <button onClick={copyMarkdown} title="Copier en Markdown" style={iconBtn}>
+        <button onClick={copyMarkdown} title="Copy as Markdown" style={iconBtn}>
           <Copy size={12} /> <span style={{ fontSize: 10 }}>MD</span>
         </button>
-        <button onClick={exportJSON} title="Exporter JSON" style={iconBtn}>
+        <button onClick={exportJSON} title="Export JSON" style={iconBtn}>
           <Download size={12} /> <span style={{ fontSize: 10 }}>JSON</span>
         </button>
-        <button onClick={() => { if (confirm(`Retirer les ${pins.length} épingles de ce cas ?`)) clear(caseId); }}
-          title="Vider le Workbench" style={{ ...iconBtn, color: 'var(--fl-danger)' }}>
+        <button onClick={() => { if (confirm(`Remove ${pins.length} pins from this case?`)) clear(caseId); }}
+          title="Clear Workbench" style={{ ...iconBtn, color: 'var(--fl-danger)' }}>
           <Trash2 size={12} />
         </button>
       </div>
@@ -351,7 +351,7 @@ ${filtered.length === 0 ? '<p style="color:#888;font-style:italic">Aucune preuve
               <div style={{ flex: 1, padding: '8px 12px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4, flexWrap: 'wrap' }}>
                   <span style={{
-                    fontSize: 9, padding: '1px 6px', borderRadius: 3, background: `${stripe}25`,
+                    fontSize: 9, padding: '1px 6px', borderRadius: 3, background: `color-mix(in srgb, ${stripe} 15%, transparent)`,
                     color: stripe, textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600,
                   }}>{p.artifact_type || '—'}</span>
                   {p.tool && (
@@ -367,7 +367,7 @@ ${filtered.length === 0 ? '<p style="color:#888;font-style:italic">Aucune preuve
                       {p.mitre_technique_id}
                     </span>
                   )}
-                  <span style={{ fontSize: 10, color: 'var(--fl-on-dark)', fontFamily: 'monospace' }}>
+                  <span style={{ fontSize: 10, color: 'var(--fl-on-dark)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}>
                     {p.timestamp ? fmtTsUtil(p.timestamp) : '—'}
                   </span>
                   {p.host_name && <span style={{ fontSize: 10, color: 'var(--fl-dim)' }}>⚙ {p.host_name}</span>}
@@ -392,7 +392,7 @@ ${filtered.length === 0 ? '<p style="color:#888;font-style:italic">Aucune preuve
                   style={{
                     width: '100%', resize: 'vertical', minHeight: 28,
                     background: 'var(--fl-card)', border: '1px solid var(--fl-sep)',
-                    color: 'var(--fl-on-dark)', fontFamily: 'monospace', fontSize: 11,
+                    color: 'var(--fl-on-dark)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11,
                     padding: '5px 8px', borderRadius: 4, outline: 'none', boxSizing: 'border-box',
                   }}
                 />
@@ -404,7 +404,7 @@ ${filtered.length === 0 ? '<p style="color:#888;font-style:italic">Aucune preuve
               }}>
                 <select value={p.status || 'triage'} onChange={e => updatePin(caseId, p.pin_id, { status: e.target.value })}
                   style={{
-                    fontSize: 10, fontFamily: 'monospace', padding: '3px 6px',
+                    fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', padding: '3px 6px',
                     background: 'var(--fl-bg)', border: `1px solid ${statusOpt?.color || 'var(--fl-sep)'}`,
                     color: statusOpt?.color || 'var(--fl-on-dark)', borderRadius: 3, cursor: 'pointer',
                   }}>
@@ -484,7 +484,7 @@ function BoardView({ pins, caseId, updatePin, unpin, navigate }) {
             }}>
               <span style={{
                 width: 8, height: 8, borderRadius: '50%', background: col.color,
-                boxShadow: `0 0 6px ${col.color}80`,
+                boxShadow: `0 0 6px color-mix(in srgb, ${col.color} 50%, transparent)`,
               }} />
               <span style={{ fontSize: 11, color: col.color, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                 {col.label}
@@ -497,7 +497,7 @@ function BoardView({ pins, caseId, updatePin, unpin, navigate }) {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
               {items.length === 0 && (
                 <div style={{ padding: '16px 8px', textAlign: 'center', fontSize: 10, color: 'var(--fl-dim)', fontStyle: 'italic' }}>
-                  {isOver ? '↓ relâcher ici' : 'vide'}
+                  {isOver ? '↓ release here' : 'empty'}
                 </div>
               )}
               {items.map(p => {
@@ -515,7 +515,7 @@ function BoardView({ pins, caseId, updatePin, unpin, navigate }) {
                     }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 4, flexWrap: 'wrap' }}>
                       <span style={{
-                        fontSize: 9, padding: '1px 5px', borderRadius: 3, background: `${stripe}25`,
+                        fontSize: 9, padding: '1px 5px', borderRadius: 3, background: `color-mix(in srgb, ${stripe} 15%, transparent)`,
                         color: stripe, textTransform: 'uppercase', letterSpacing: '0.04em', fontWeight: 600,
                       }}>{p.artifact_type || '—'}</span>
                       {p.event_id != null && (
@@ -580,7 +580,7 @@ function BoardView({ pins, caseId, updatePin, unpin, navigate }) {
 
 const miniBtn = {
   display: 'flex', alignItems: 'center', justifyContent: 'center',
-  padding: '3px 6px', fontSize: 9, fontFamily: 'monospace',
+  padding: '3px 6px', fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
   background: 'var(--fl-bg)', border: '1px solid var(--fl-sep)', color: 'var(--fl-on-dark)',
   borderRadius: 3, cursor: 'pointer',
 };
@@ -588,12 +588,12 @@ const miniBtn = {
 const iconBtn = {
   display: 'flex', alignItems: 'center', gap: 4, padding: '3px 8px', fontSize: 10,
   background: 'var(--fl-card)', border: '1px solid var(--fl-sep)', color: 'var(--fl-on-dark)',
-  borderRadius: 4, cursor: 'pointer', fontFamily: 'monospace',
+  borderRadius: 4, cursor: 'pointer', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
 };
 
 const rowBtn = {
   display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4,
-  padding: '3px 6px', fontSize: 10, fontFamily: 'monospace',
+  padding: '3px 6px', fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
   background: 'var(--fl-bg)', border: '1px solid var(--fl-sep)', color: 'var(--fl-on-dark)',
   borderRadius: 3, cursor: 'pointer',
 };

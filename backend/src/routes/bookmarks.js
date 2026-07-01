@@ -9,7 +9,7 @@ router.get('/', authenticate, async (req, res) => {
     const { caseId } = req.params;
     const result = await pool.query(
       `SELECT b.id, b.case_id, b.artifact_ref, b.event_timestamp, b.title, b.description,
-              b.mitre_technique, b.mitre_tactic, b.color, b.author_id, b.created_at,
+              b.mitre_technique, b.mitre_tactic, b.color, b.significance, b.confidence, b.links_to, b.author_id, b.created_at,
               u.full_name as author_name, u.username,
               'bookmark' as source
        FROM timeline_bookmarks b
@@ -39,7 +39,7 @@ router.get('/', authenticate, async (req, res) => {
                 WHEN 'TA0040' THEN 'Impact'
                 ELSE m.tactic
               END as mitre_tactic,
-              '#8b72d6' as color,
+              '#8b72d6' as color, m.significance, m.confidence, m.links_to,
               m.created_by as author_id, m.created_at,
               u.full_name as author_name, u.username,
               'mitre' as source
@@ -59,16 +59,16 @@ router.get('/', authenticate, async (req, res) => {
 router.post('/', authenticate, async (req, res) => {
   try {
     const { caseId } = req.params;
-    const { artifact_ref, event_timestamp, title, description, mitre_technique, mitre_tactic, color } = req.body;
+    const { artifact_ref, event_timestamp, title, description, mitre_technique, mitre_tactic, color, significance, confidence, links_to } = req.body;
     if (!title?.trim()) return res.status(400).json({ error: 'Titre requis' });
 
     const result = await pool.query(
       `INSERT INTO timeline_bookmarks
-         (case_id, artifact_ref, event_timestamp, title, description, mitre_technique, mitre_tactic, color, author_id)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
+         (case_id, artifact_ref, event_timestamp, title, description, mitre_technique, mitre_tactic, color, significance, confidence, links_to, author_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *`,
       [caseId, artifact_ref || null, event_timestamp || null,
        title.trim(), description || null, mitre_technique || null,
-       mitre_tactic || null, color || '#4d82c0', req.user.id]
+       mitre_tactic || null, color || '#4d82c0', significance || null, confidence || null, links_to || null, req.user.id]
     );
 
     await auditLog(req.user.id, 'create_bookmark', 'bookmark', result.rows[0].id,
@@ -83,14 +83,15 @@ router.post('/', authenticate, async (req, res) => {
 router.put('/:id', authenticate, async (req, res) => {
   try {
     const { id, caseId } = req.params;
-    const { title, description, mitre_technique, mitre_tactic, color } = req.body;
+    const { title, description, mitre_technique, mitre_tactic, color, significance, confidence, links_to } = req.body;
 
     const result = await pool.query(
       `UPDATE timeline_bookmarks SET
-         title=$1, description=$2, mitre_technique=$3, mitre_tactic=$4, color=$5, updated_at=NOW()
-       WHERE id=$6 AND case_id=$7 RETURNING *`,
+         title=$1, description=$2, mitre_technique=$3, mitre_tactic=$4, color=$5,
+         significance=$6, confidence=$7, links_to=$8, updated_at=NOW()
+       WHERE id=$9 AND case_id=$10 RETURNING *`,
       [title, description || null, mitre_technique || null, mitre_tactic || null,
-       color || '#4d82c0', id, caseId]
+       color || '#4d82c0', significance || null, confidence || null, links_to || null, id, caseId]
     );
     if (!result.rows.length) return res.status(404).json({ error: 'Bookmark non trouvé' });
     res.json(result.rows[0]);

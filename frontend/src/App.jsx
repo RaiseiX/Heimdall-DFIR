@@ -3,7 +3,7 @@ import { Routes, Route, Navigate, useNavigate, useParams } from 'react-router-do
 import { ThemeProvider } from './utils/theme';
 import { ToastProvider } from './components/ui/Toast';
 import { PreferencesProvider, usePreferences } from './utils/preferences';
-import { authAPI } from './utils/api';
+import { authAPI, settingsAPI } from './utils/api';
 import i18n from './i18n/index.js';
 import { I18nextProvider } from 'react-i18next';
 import Layout from './components/Layout';
@@ -11,6 +11,8 @@ import GuidedTour from './components/GuidedTour';
 import LoginPage from './pages/LoginPage';
 import DashboardPage from './pages/DashboardPage';
 import CasesPage from './pages/CasesPage';
+import TriagePage from './pages/TriagePage';
+import SettingsPage from './pages/SettingsPage';
 import CaseDetailPage from './pages/CaseDetailPage';
 import CaseShell from './pages/CaseShell';
 import CollectionPage from './pages/CollectionPage';
@@ -21,16 +23,17 @@ import IOCsPage from './pages/IOCsPage';
 import ThreatHuntPage from './pages/ThreatHuntPage';
 import ThreatIntelPage from './pages/ThreatIntelPage';
 import CaseIntelligencePage from './pages/CaseIntelligencePage';
-
-function NetworkMapRedirect() {
-  const { caseId } = useParams();
-  return <Navigate to={`/cases/${caseId}/graph?view=network`} replace />;
-}
+import GlobalNetworkMapPage from './pages/GlobalNetworkMapPage';
 import AdminPage from './pages/AdminPage';
 import ParsedDataPage from './pages/ParsedDataPage';
 import CalendarPage from './pages/CalendarPage';
 import CollectionAgentPage from './pages/CollectionAgentPage';
 import DocumentationPage from './pages/DocumentationPage';
+
+function NetworkMapRedirect() {
+  const { caseId } = useParams();
+  return <Navigate to={`/cases/${caseId}/graph?view=network`} replace />;
+}
 
 function AppInner() {
   const [user, setUser] = useState(() => {
@@ -78,6 +81,25 @@ function AppInner() {
     localStorage.setItem('heimdall_tour_done', '1');
   };
 
+  // Auto-logout on inactivity, driven by the admin security policy (0 = disabled).
+  useEffect(() => {
+    if (!user) return;
+    let timer = null;
+    let cancelled = false;
+    let cleanup = null;
+    settingsAPI.getSecurityClient().then(r => {
+      const mins = Number(r.data?.inactivityTimeoutMin) || 0;
+      if (cancelled || mins <= 0) return;
+      const ms = mins * 60_000;
+      const reset = () => { if (timer) clearTimeout(timer); timer = setTimeout(() => logout(), ms); };
+      const events = ['mousemove', 'mousedown', 'keydown', 'scroll', 'touchstart'];
+      events.forEach(e => window.addEventListener(e, reset, { passive: true }));
+      reset();
+      cleanup = () => { events.forEach(e => window.removeEventListener(e, reset)); if (timer) clearTimeout(timer); };
+    }).catch(() => {});
+    return () => { cancelled = true; if (cleanup) cleanup(); else if (timer) clearTimeout(timer); };
+  }, [user]); // eslint-disable-line react-hooks/exhaustive-deps
+
   return (
     <ThemeProvider>
       <ToastProvider>
@@ -90,6 +112,8 @@ function AppInner() {
               <Routes>
                 <Route path="/" element={<DashboardPage />} />
                 <Route path="/cases" element={<CasesPage user={user} />} />
+                <Route path="/triage" element={<TriagePage />} />
+                <Route path="/settings" element={<SettingsPage />} />
                 <Route path="/cases/:id" element={<CaseShell user={user} />}>
                   <Route index element={<Navigate to="evidence" replace />} />
                   <Route path="graph" element={<CaseIntelligencePage />} />
@@ -99,21 +123,28 @@ function AppInner() {
                     <Route path="logs" element={<ParserLogsPage />} />
                     <Route path=":tab" element={<CaseDetailPage user={user} />} />
                   </Route>
+                  <Route path="global-map" element={<GlobalNetworkMapPage />} />
                   <Route path=":tab" element={<CaseDetailPage user={user} />} />
                 </Route>
                 <Route path="/collection" element={<CollectionPage />} />
                 <Route path="/super-timeline" element={<SuperTimelinePage />} />
                 <Route path="/parsed-data" element={<ParsedDataPage />} />
-                <Route path="/iocs" element={<IOCsPage />} />
-                <Route path="/threat-hunt" element={<Navigate to="/threat-hunt/yara-rules" replace />} />
-                <Route path="/threat-hunt/:tab" element={<ThreatHuntPage />} />
+                {/* IOCs & Threat Hunting are admin-only; analysts hunt within a case. */}
+                <Route path="/iocs" element={user.role === 'admin' ? <IOCsPage /> : <Navigate to="/" replace />} />
+                <Route path="/threat-hunt" element={user.role === 'admin' ? <Navigate to="/threat-hunt/yara-rules" replace /> : <Navigate to="/" replace />} />
+                <Route path="/threat-hunt/:tab" element={user.role === 'admin' ? <ThreatHuntPage /> : <Navigate to="/" replace />} />
                 <Route path="/threat-intel" element={<Navigate to="/threat-intel/feeds" replace />} />
                 <Route path="/threat-intel/:tab" element={<ThreatIntelPage />} />
                 <Route path="/network/:caseId" element={<NetworkMapRedirect />} />
                 <Route path="/calendar" element={<CalendarPage />} />
                 <Route path="/collection-agent" element={<CollectionAgentPage />} />
                 <Route path="/documentation" element={<DocumentationPage />} />
-                {user.role === 'admin' && <Route path="/admin" element={<Navigate to="/admin/users" replace />} />}
+                {user.role === 'admin' && <Route path="/admin" element={<Navigate to="/admin/health" replace />} />}
+                {/* Account/Audit/RGPD/SLA were moved to Settings — redirect legacy /admin URLs. */}
+                {user.role === 'admin' && <Route path="/admin/users" element={<Navigate to="/settings" replace />} />}
+                {user.role === 'admin' && <Route path="/admin/audit" element={<Navigate to="/settings" replace />} />}
+                {user.role === 'admin' && <Route path="/admin/rgpd" element={<Navigate to="/settings" replace />} />}
+                {user.role === 'admin' && <Route path="/admin/settings" element={<Navigate to="/settings" replace />} />}
                 {user.role === 'admin' && <Route path="/admin/:tab" element={<AdminPage />} />}
                 <Route path="*" element={<Navigate to="/" />} />
               </Routes>

@@ -13,10 +13,24 @@ api.interceptors.request.use((config) => {
 
 let _refreshing = null;
 
+const _forceLogout = () => {
+  localStorage.removeItem('heimdall_token');
+  localStorage.removeItem('heimdall_refresh_token');
+  localStorage.removeItem('heimdall_user');
+  if (!window.location.pathname.startsWith('/login')) {
+    window.location.href = '/login';
+  }
+};
+
 api.interceptors.response.use(
   (response) => response,
   async (error) => {
     const orig = error.config;
+    // Skip interceptor for auth/refresh calls to prevent recursive refresh loops
+    if (orig?.url?.includes('/auth/refresh') || orig?.url?.includes('/auth/logout')) {
+      if (error.response?.status === 401) _forceLogout();
+      return Promise.reject(error);
+    }
     if (error.response?.status === 401 && !orig._retry) {
       orig._retry = true;
       const refreshToken = localStorage.getItem('heimdall_refresh_token');
@@ -31,13 +45,11 @@ api.interceptors.response.use(
           orig.headers.Authorization = `Bearer ${data.token}`;
           return api(orig);
         } catch {
-
+          _forceLogout();
+          return Promise.reject(error);
         }
       }
-      localStorage.removeItem('heimdall_token');
-      localStorage.removeItem('heimdall_refresh_token');
-      localStorage.removeItem('heimdall_user');
-      window.location.href = '/login';
+      _forceLogout();
     }
     return Promise.reject(error);
   }
@@ -63,6 +75,8 @@ export const adminAPI = {
   deleteSchedule:   ()           => api.delete('/admin/backups/schedule'),
   dockerContainers: ()           => api.get('/admin/docker/containers'),
   jobs:             (params)     => api.get('/admin/jobs', { params }),
+  accessLogs:       (params)     => api.get('/admin/access-logs', { params }),
+  serverLogs:       (params)     => api.get('/admin/logs', { params }),
 };
 
 export const casesAPI = {
@@ -71,6 +85,10 @@ export const casesAPI = {
   create: (data) => api.post('/cases', data),
   update: (id, data) => api.put(`/cases/${id}`, data),
   stats: () => api.get('/cases/stats/dashboard'),
+  assignableUsers: () => api.get('/cases/assignable-users'),
+  assignees: (id) => api.get(`/cases/${id}/assignees`),
+  assignUser: (id, userId) => api.post(`/cases/${id}/assignees`, { user_id: userId }),
+  unassignUser: (id, userId) => api.delete(`/cases/${id}/assignees/${userId}`),
   audit: (id, params) => api.get(`/cases/${id}/audit`, { params }),
   hardDelete: (id) => api.delete(`/cases/${id}/hard-delete`),
   runTriage: (id) => api.post(`/cases/${id}/triage`),
@@ -83,15 +101,6 @@ export const casesAPI = {
   timeStats: (id) => api.get(`/cases/${id}/time`),
 };
 
-export const workbenchPinsAPI = {
-  list:   (caseId)                => api.get(`/workbench-pins/${caseId}`),
-  create: (caseId, pin)           => api.post(`/workbench-pins/${caseId}`, pin),
-  update: (caseId, pinId, patch)  => api.patch(`/workbench-pins/${caseId}/${pinId}`, patch),
-  remove: (caseId, pinId)         => api.delete(`/workbench-pins/${caseId}/${pinId}`),
-  clear:  (caseId)                => api.delete(`/workbench-pins/${caseId}`),
-  audit:  (caseId)                => api.get(`/workbench-pins/${caseId}/audit`),
-};
-
 export const attributionAPI = {
   getCaseAttribution: (caseId) => api.get(`/attribution/${caseId}`),
 };
@@ -102,6 +111,13 @@ export const detectionsAPI = {
   beaconing:       (id, params) => api.get(`/cases/${id}/detections/beaconing`,       { params }),
   persistence:     (id)         => api.get(`/cases/${id}/detections/persistence`),
   sysmonBehavior:  (id)         => api.get(`/cases/${id}/detections/sysmon-behavior`),
+  antiForensic:    (id)         => api.get(`/cases/${id}/detections/anti-forensic`),
+  executionAnomaly:(id)         => api.get(`/cases/${id}/detections/execution-anomaly`),
+  attackTechniques:(id)         => api.get(`/cases/${id}/detections/attack-techniques`),
+  vulnDrivers:     (id)         => api.get(`/cases/${id}/detections/vuln-drivers`, { timeout: 120_000 }),
+  exceptions:      (id)         => api.get(`/cases/${id}/detections/exceptions`),
+  addException:    (id, data)   => api.post(`/cases/${id}/detections/exceptions`, data),
+  deleteException: (id, exId)   => api.delete(`/cases/${id}/detections/exceptions/${exId}`),
 };
 
 export const evidenceAPI = {
@@ -132,6 +148,7 @@ export const iocsAPI = {
   crossCases: (value) => api.get(`/iocs/${encodeURIComponent(value)}/cross-cases`),
   topShared: () => api.get('/iocs/top-shared'),
   confirmIOC: (id, data) => api.post(`/iocs/${id}/confirm`, data),
+  remove: (id) => api.delete(`/iocs/${id}`),
   internalIntel: (params) => api.get('/iocs/internal-intel', { params }),
   importStix: (caseId, bundles) => api.post(`/iocs/${caseId}/import-stix`, { bundles }),
 
@@ -150,8 +167,13 @@ export const networkAPI = {
     form.append('file', file);
     return api.post(`/network/${caseId}/import-csv`, form, { headers: { 'Content-Type': 'multipart/form-data' } });
   },
-  dgaAnalysis: (caseId) => api.get(`/network/${caseId}/dga-analysis`),
-  beacons:     (caseId, params) => api.get(`/network/${caseId}/beacons`, { params }),
+  dgaAnalysis:     (caseId)        => api.get(`/network/${caseId}/dga-analysis`),
+  beacons:         (caseId, params) => api.get(`/network/${caseId}/beacons`, { params }),
+  analytics:       (caseId)         => api.get(`/network/${caseId}/analytics`),
+  getAnnotations:        (caseId)       => api.get(`/network/${caseId}/annotations`),
+  saveAnnotations:       (caseId, data) => api.put(`/network/${caseId}/annotations`, data),
+  saveGlobalAnnotations: (caseId, data) => api.put(`/network/${caseId}/annotations/global`, data),
+  globalGraph:           (caseId)       => api.get(`/network/${caseId}/global-graph`),
 };
 
 export const parsersAPI = {
@@ -165,7 +187,9 @@ export const parsersAPI = {
 };
 
 export const reportsAPI = {
-  generate: (caseId, templateId = null) => api.post(`/reports/${caseId}/generate`, { templateId }),
+  // opts: { templateId } | { sections: string[], notes: string, ... }. A bare string is treated as templateId (back-compat).
+  generate: (caseId, opts = {}) => api.post(`/reports/${caseId}/generate`, typeof opts === 'string' ? { templateId: opts } : (opts || {})),
+  aiDraft: (caseId, opts = {}) => api.post(`/reports/${caseId}/ai-draft`, opts || {}),
   list: (caseId) => api.get(`/reports/${caseId}`),
   download: (id) => api.get(`/reports/download/${id}`, { responseType: 'blob' }),
 
@@ -173,6 +197,12 @@ export const reportsAPI = {
   createTemplate: (data) => api.post('/reports/templates', data),
   updateTemplate: (id, data) => api.put(`/reports/templates/${id}`, data),
   deleteTemplate: (id) => api.delete(`/reports/templates/${id}`),
+  bookmarkNarrative: (caseId) => api.post(`/reports/${caseId}/bookmark-narrative`),
+};
+
+export const notebookAPI = {
+  get:  (caseId)          => api.get(`/notebook/${caseId}`),
+  save: (caseId, content) => api.put(`/notebook/${caseId}`, { content }),
 };
 
 export const usersAPI = {
@@ -183,16 +213,26 @@ export const usersAPI = {
   changePassword: (id, password) => api.put(`/users/${id}/password`, { password }),
   audit: (params) => api.get('/users/audit', { params }),
   updatePreferences: (prefs) => api.patch('/users/me/preferences', prefs),
+  tokens:      ()     => api.get('/users/me/tokens'),
+  createToken: (name) => api.post('/users/me/tokens', { name }),
+  revokeToken: (id)   => api.delete(`/users/me/tokens/${id}`),
+  sessions:    ()     => api.get('/users/me/sessions'),
+  revokeAllSessions: () => api.post('/users/me/sessions/revoke-all'),
+  verifyAudit: () => api.get('/users/audit/verify'),
 };
 
 export const collectionAPI = {
   import: (caseId, formData, onUploadProgress) => api.post(`/collection/${caseId}/import`, formData, { headers: { 'Content-Type': 'multipart/form-data' }, onUploadProgress }),
   parse: (caseId, data) => api.post(`/collection/${caseId}/parse`, data),
+  parseProgress: (caseId) => api.get(`/collection/${caseId}/parse-progress`),
+  timelineHistogram: (caseId, buckets = 48) => api.get(`/collection/${caseId}/timeline-histogram`, { params: { buckets } }),
+  rdpCacheList: (caseId) => api.get(`/collection/${caseId}/rdp-cache`),
+  rdpCacheImage: (caseId, name) => api.get(`/collection/${caseId}/rdp-cache/${name}`, { responseType: 'blob' }),
   timeline: (caseId, params) => api.get(`/collection/${caseId}/timeline`, { params }),
   detectionsSummary: (caseId) => api.get(`/collection/${caseId}/detections/summary`),
   record: (caseId, index) => api.get(`/collection/${caseId}/record/${index}`),
-  runHayabusa: (caseId) => api.post(`/collection/${caseId}/hayabusa`),
-  getHayabusa: (caseId) => api.get(`/collection/${caseId}/hayabusa`),
+  runHayabusa: (caseId)         => api.post(`/collection/${caseId}/hayabusa`),
+  getHayabusa: (caseId, params) => api.get(`/collection/${caseId}/hayabusa`, { params }),
   deleteData:  (caseId) => api.delete(`/collection/${caseId}/data`),
   exportCsv: (caseId, params) => api.get(`/collection/${caseId}/export/csv`, { params, responseType: 'blob' }),
 
@@ -212,6 +252,7 @@ export const collectionAPI = {
   setVerdict:     (caseId, data)               => api.post(`/collection/${caseId}/verdicts`, data),
   deleteVerdict:  (caseId, eventRef)           => api.delete(`/collection/${caseId}/verdicts/${encodeURIComponent(eventRef)}`),
 
+  timelineRowRaw: (caseId, id)                 => api.get(`/collection/${caseId}/timeline-row/${id}/raw`),
   timelineMappings: (caseId)                   => api.get(`/collection/${caseId}/timeline/mappings`),
   timelineGroups: (caseId, by, params = {})    => api.get(`/collection/${caseId}/timeline/groups`, { params: { by: Array.isArray(by) ? by.join(',') : by, ...params } }),
   updateTimelineTags: (caseId, id, tags)       => api.patch(`/collection/${caseId}/timeline/${id}/tags`, { tags }),
@@ -263,6 +304,7 @@ export const threatHuntingAPI = {
   scanEvidence:    (evidenceId)    => api.post(`/threat-hunting/yara/scan/${evidenceId}`),
   scanCase:        (caseId)        => api.post(`/threat-hunting/yara/scan-case/${caseId}`),
   yaraResultsCase: (caseId)        => api.get(`/threat-hunting/yara/results/${caseId}`),
+  yaraResultsEvidence: (evidenceId) => api.get(`/threat-hunting/yara/results/evidence/${evidenceId}`),
 
   sigmaRules:      ()              => api.get('/threat-hunting/sigma/rules'),
   createSigmaRule: (data)          => api.post('/threat-hunting/sigma/rules', data),
@@ -277,6 +319,12 @@ export const threatHuntingAPI = {
   githubTree:      (owner, repo, branch, type)   => api.get(`/threat-hunting/github/tree?owner=${encodeURIComponent(owner)}&repo=${encodeURIComponent(repo)}&branch=${encodeURIComponent(branch)}&type=${type}`),
   githubImport:    (data)                        => api.post('/threat-hunting/github/import', data),
   githubImportZip: (data)                        => api.post('/threat-hunting/github/import-zip', data, { timeout: 600_000 }),
+  sysmonImport:    (key)                         => api.post(`/threat-hunting/sysmon/configs/${key}/import`, {}, { timeout: 30_000 }),
+  sysmonLibrary:   ()                            => api.get('/threat-hunting/sysmon/library'),
+  sysmonLibraryContent: (key)                    => api.get(`/threat-hunting/sysmon/library/${key}/content`, { responseType: 'blob' }),
+  sysmonLibraryDelete:  (key)                    => api.delete(`/threat-hunting/sysmon/library/${key}`),
+  runAll:          (caseId)                      => api.post(`/threat-hunting/run-all/${caseId}`),
+  runAllStatus:    (caseId)                      => api.get(`/threat-hunting/run-all/${caseId}/status`),
 };
 
 export const sysmonAPI = {
@@ -292,6 +340,15 @@ export const bookmarksAPI = {
   remove: (caseId, id)       => api.delete(`/cases/${caseId}/bookmarks/${id}`),
 };
 
+export const investigationAPI = {
+  get:        (caseId)            => api.get(`/cases/${caseId}/investigation`),
+  seed:       (caseId)            => api.post(`/cases/${caseId}/investigation/seed`),
+  addStep:    (caseId, data)      => api.post(`/cases/${caseId}/investigation/steps`, data),
+  updateStep: (caseId, id, data)  => api.put(`/cases/${caseId}/investigation/steps/${id}`, data),
+  removeStep: (caseId, id)        => api.delete(`/cases/${caseId}/investigation/steps/${id}`),
+  navigator:  (caseId)            => api.get(`/cases/${caseId}/investigation/navigator`),
+};
+
 export const threatIntelAPI = {
   feeds:        ()               => api.get('/threat-intel/feeds'),
   addFeed:      (data)           => api.post('/threat-intel/feeds', data),
@@ -303,10 +360,19 @@ export const threatIntelAPI = {
   correlations: (caseId)         => api.get(`/threat-intel/correlations/${caseId}`),
 };
 
+export const mispAPI = {
+  instances:      ()      => api.get('/misp/instances'),
+  addInstance:    (data)  => api.post('/misp/instances', data),
+  deleteInstance: (id)    => api.delete(`/misp/instances/${id}`),
+  testInstance:   (id)    => api.post(`/misp/instances/${id}/test`),
+  syncInstance:   (id)    => api.post(`/misp/instances/${id}/sync`),
+};
+
 export const playbooksAPI = {
 
   list:          ()                          => api.get('/playbooks'),
   get:           (id)                        => api.get(`/playbooks/${id}`),
+  myOpenSteps:   ()                          => api.get('/playbooks/my-open-steps'),
 
   caseInstances: (caseId)                    => api.get(`/playbooks/cases/${caseId}`),
   instanceSteps: (caseId, instanceId)        => api.get(`/playbooks/cases/${caseId}/${instanceId}/steps`),
@@ -361,4 +427,30 @@ export const soarAPI = {
   ack:     (caseId, alertId, acknowledged = true) => api.put(`/cases/${caseId}/soar/alerts/${alertId}/ack`, { acknowledged }),
   ackAll:  (caseId)         => api.put(`/cases/${caseId}/soar/alerts/ack-all`),
   run:     (caseId)         => api.post(`/cases/${caseId}/soar/run`),
+};
+
+export const settingsAPI = {
+  getDashboard: ()     => api.get('/settings/dashboard'),
+  setDashboard: (data) => api.put('/settings/dashboard', data),
+  getIntegrations: ()     => api.get('/settings/integrations'),
+  setIntegrations: (data) => api.put('/settings/integrations', data),
+  getSecurity:       ()     => api.get('/settings/security'),
+  setSecurity:       (data) => api.put('/settings/security', data),
+  getSecurityClient: ()     => api.get('/settings/security/client'),
+  getRetention:      ()       => api.get('/settings/retention'),
+  setRetention:      (data)   => api.put('/settings/retention', data),
+  previewRetention:  (days)   => api.get('/settings/retention/preview', { params: days ? { days } : {} }),
+  runRetention:      ()       => api.post('/settings/retention/run'),
+  setCaseExempt:     (caseId, exempt) => api.patch(`/settings/retention/exempt/${caseId}`, { exempt }),
+};
+
+export const triageAPI = {
+  queue: () => api.get('/triage'),
+  // Persistent alert inbox
+  alerts:       (params)   => api.get('/triage/alerts', { params }),
+  alertStats:   ()         => api.get('/triage/alerts/stats'),
+  createAlert:  (data)     => api.post('/triage/alerts', data),
+  updateAlert:  (id, data) => api.patch(`/triage/alerts/${id}`, data),
+  dismissAlert: (id, data) => api.post(`/triage/alerts/${id}/dismiss`, data),
+  deleteAlert:  (id)       => api.delete(`/triage/alerts/${id}`),
 };

@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import {
   Crosshair, Plus, AlertTriangle, Globe, Hash, FileText,
   User, Server, Search, X, Shield, ShieldAlert, RefreshCw,
-  CheckCircle, HelpCircle, Zap, Download, GitBranch
+  CheckCircle, HelpCircle, Zap, Download, GitBranch, Info, Trash2, Loader2
 } from 'lucide-react';
 import { iocsAPI, casesAPI, networkAPI } from '../utils/api';
 import { Button, Modal, Badge, EmptyState, Spinner } from '../components/ui';
@@ -19,13 +19,14 @@ const TYPE_ICON = {
 const TYPE_LABEL = {
   ip: 'IP', domain: 'Domain', url: 'URL',
   hash_md5: 'MD5', hash_sha1: 'SHA1', hash_sha256: 'SHA256',
-  filename: 'Fichier', registry_key: 'Registry', mutex: 'Mutex',
-  user_agent: 'UserAgent', email: 'Email', other: 'Autre',
+  filename: 'File', registry_key: 'Registry', mutex: 'Mutex',
+  user_agent: 'UserAgent', email: 'Email', other: 'Other',
 };
 
 const SEV_VARIANT = (s) => s >= 8 ? 'danger' : s >= 5 ? 'warn' : 'dim';
 
 function VTBadge({ ioc }) {
+  const { t } = useTranslation();
   if (!ioc.vt_verdict) return null;
   const variant = {
     malicious: 'danger', suspicious: 'warn',
@@ -37,7 +38,7 @@ function VTBadge({ ioc }) {
   return (
     <Badge
       variant={variant}
-      title={`VirusTotal — ${ioc.vt_malicious ?? '?'} moteurs malveillants sur ${ioc.vt_total ?? '?'}`}
+      title={t('iocs.vt_title', { malicious: ioc.vt_malicious ?? '?', total: ioc.vt_total ?? '?' })}
     >
       <Shield size={9} className="inline mr-1" />{label}
     </Badge>
@@ -45,13 +46,14 @@ function VTBadge({ ioc }) {
 }
 
 function AbuseIPDBBadge({ ioc }) {
+  const { t } = useTranslation();
   if (ioc.ioc_type !== 'ip' || ioc.abuseipdb_score == null) return null;
   const s = ioc.abuseipdb_score;
   const variant = s >= 80 ? 'danger' : s >= 40 ? 'warn' : s > 0 ? 'gold' : 'ok';
   return (
     <Badge
       variant={variant}
-      title={`AbuseIPDB — Score de confiance : ${s}%`}
+      title={t('iocs.abuse_title', { score: s })}
     >
       <ShieldAlert size={9} className="inline mr-1" />Abuse {s}%
     </Badge>
@@ -59,17 +61,18 @@ function AbuseIPDBBadge({ ioc }) {
 }
 
 function ShodanBadge({ ioc }) {
+  const { t } = useTranslation();
   if (ioc.ioc_type !== 'ip') return null;
   const ports = ioc.enrichment_data?.shodan_ports ?? ioc.shodan_ports;
   const vulns = ioc.enrichment_data?.shodan_vulns ?? ioc.shodan_vulns;
   if (!Array.isArray(ports) || ports.length === 0) return null;
   const hasVulns = Array.isArray(vulns) && vulns.length > 0;
   const variant = hasVulns ? 'danger' : 'dim';
-  const portsLabel = `${ports.length} port${ports.length > 1 ? 's' : ''}`;
-  const vulnsLabel = hasVulns ? ` / ${vulns.length} CVE${vulns.length > 1 ? 's' : ''}` : '';
+  const portsLabel = t('iocs.ports_count', { count: ports.length });
+  const vulnsLabel = hasVulns ? ` / ${t('iocs.cves_count', { count: vulns.length })}` : '';
   const title = [
-    `Shodan — Ports ouverts : ${ports.join(', ')}`,
-    hasVulns ? `CVEs : ${vulns.join(', ')}` : '',
+    t('iocs.shodan_ports_title', { ports: ports.join(', ') }),
+    hasVulns ? t('iocs.shodan_cves_title', { cves: vulns.join(', ') }) : '',
   ].filter(Boolean).join('\n');
   return (
     <Badge variant={variant} title={title}>
@@ -90,13 +93,14 @@ function GeoBadge({ ioc }) {
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11, color: 'var(--fl-dim)' }}>
       <span style={{ fontSize: 14 }}>{flag}</span>
       <span>{ioc.geo_country || ioc.geo_country_code}</span>
-      {ioc.geo_is_proxy && <span style={{ fontSize: 10, padding: '1px 4px', background: '#d97c2020', color: 'var(--fl-warn)', borderRadius: 3, border: '1px solid #d97c2040' }}>PROXY</span>}
-      {ioc.geo_is_hosting && <span style={{ fontSize: 10, padding: '1px 4px', background: '#8b5cf620', color: '#8b5cf6', borderRadius: 3, border: '1px solid #8b5cf640' }}>HOSTING</span>}
+      {ioc.geo_is_proxy && <span style={{ fontSize: 10, padding: '1px 4px', background: 'color-mix(in srgb, var(--fl-warn) 13%, transparent)', color: 'var(--fl-warn)', borderRadius: 3, border: '1px solid color-mix(in srgb, var(--fl-warn) 25%, transparent)' }}>PROXY</span>}
+      {ioc.geo_is_hosting && <span style={{ fontSize: 10, padding: '1px 4px', background: 'color-mix(in srgb, var(--fl-accent) 13%, transparent)', color: 'var(--fl-accent)', borderRadius: 3, border: '1px solid color-mix(in srgb, var(--fl-accent) 25%, transparent)' }}>HOSTING</span>}
     </span>
   );
 }
 
 function DgaPanel({ caseId }) {
+  const { t } = useTranslation();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
 
@@ -116,18 +120,18 @@ function DgaPanel({ caseId }) {
     <div style={{ marginTop: 16, background: 'var(--fl-panel)', border: '1px solid var(--fl-border)', borderRadius: 8, overflow: 'hidden' }}>
       <div style={{ padding: '10px 16px', borderBottom: '1px solid var(--fl-panel)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--fl-text)', display: 'flex', alignItems: 'center', gap: 6 }}>
-          <span>🧬</span> Détection DGA (Domain Generation Algorithm)
-          {data && <span style={{ fontSize: 11, color: 'var(--fl-dim)', fontWeight: 400 }}>— {data.total} domaines, {data.suspicious_count} suspects</span>}
+          <span>🧬</span> {t('iocs.dga_title')}
+          {data && <span style={{ fontSize: 11, color: 'var(--fl-dim)', fontWeight: 400 }}>— {t('iocs.dga_summary', { total: data.total, suspicious: data.suspicious_count })}</span>}
         </div>
-        <button onClick={analyze} disabled={loading} style={{ fontSize: 11, padding: '4px 10px', background: '#1c6ef2', color: '#fff', border: 'none', borderRadius: 5, cursor: 'pointer' }}>
-          {loading ? '…' : 'Analyser'}
+        <button onClick={analyze} disabled={loading} style={{ fontSize: 11, padding: '4px 10px', background: 'var(--fl-accent)', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer' }}>
+          {loading ? '…' : t('iocs.analyze')}
         </button>
       </div>
       {data && data.domains.length > 0 && (
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
           <thead>
             <tr style={{ background: 'var(--fl-bg)' }}>
-              {['Domaine', 'Entropie', 'Ratio consonnes', 'Longueur', 'Score DGA', 'Statut'].map(h => (
+              {[t('iocs.col_domain'), t('iocs.col_entropy'), t('iocs.col_consonants'), t('iocs.col_length'), t('iocs.col_dga_score'), t('iocs.col_status')].map(h => (
                 <th key={h} style={{ padding: '6px 12px', textAlign: 'left', color: 'var(--fl-dim)', fontWeight: 600, borderBottom: '1px solid var(--fl-panel)' }}>{h}</th>
               ))}
             </tr>
@@ -135,22 +139,22 @@ function DgaPanel({ caseId }) {
           <tbody>
             {data.domains.map((d, i) => (
               <tr key={d.domain} style={{ background: d.is_suspicious ? '#2d1515' : i % 2 === 0 ? 'var(--fl-panel)' : 'var(--fl-bg)', borderBottom: '1px solid #21303f10' }}>
-                <td style={{ padding: '5px 12px', color: 'var(--fl-text)', fontFamily: 'monospace' }}>{d.domain}</td>
-                <td style={{ padding: '5px 12px', color: d.entropy > 3.5 ? '#f97316' : 'var(--fl-dim)' }}>{d.entropy}</td>
-                <td style={{ padding: '5px 12px', color: d.consonant_ratio > 0.65 ? '#f97316' : 'var(--fl-dim)' }}>{(d.consonant_ratio * 100).toFixed(0)}%</td>
+                <td style={{ padding: '5px 12px', color: 'var(--fl-text)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}>{d.domain}</td>
+                <td style={{ padding: '5px 12px', color: d.entropy > 3.5 ? 'var(--fl-warn)' : 'var(--fl-dim)' }}>{d.entropy}</td>
+                <td style={{ padding: '5px 12px', color: d.consonant_ratio > 0.65 ? 'var(--fl-warn)' : 'var(--fl-dim)' }}>{(d.consonant_ratio * 100).toFixed(0)}%</td>
                 <td style={{ padding: '5px 12px', color: 'var(--fl-dim)' }}>{d.length}</td>
                 <td style={{ padding: '5px 12px' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                     <div style={{ flex: 1, height: 6, background: 'var(--fl-panel)', borderRadius: 3, overflow: 'hidden' }}>
-                      <div style={{ height: '100%', width: `${d.dga_score}%`, background: d.dga_score >= 60 ? 'var(--fl-danger)' : d.dga_score >= 40 ? 'var(--fl-warn)' : '#22c55e', borderRadius: 3 }} />
+                      <div style={{ height: '100%', width: `${d.dga_score}%`, background: d.dga_score >= 60 ? 'var(--fl-danger)' : d.dga_score >= 40 ? 'var(--fl-warn)' : 'var(--fl-ok)', borderRadius: 3 }} />
                     </div>
                     <span style={{ fontSize: 11, color: 'var(--fl-dim)', minWidth: 28 }}>{d.dga_score}</span>
                   </div>
                 </td>
                 <td style={{ padding: '5px 12px' }}>
                   {d.is_suspicious
-                    ? <span style={{ fontSize: 10, padding: '2px 6px', background: '#da363320', color: 'var(--fl-danger)', borderRadius: 4, border: '1px solid #da363340' }}>SUSPECT</span>
-                    : <span style={{ fontSize: 10, padding: '2px 6px', background: '#22c55e20', color: '#22c55e', borderRadius: 4 }}>OK</span>
+                    ? <span style={{ fontSize: 10, padding: '2px 6px', background: 'color-mix(in srgb, var(--fl-danger) 13%, transparent)', color: 'var(--fl-danger)', borderRadius: 4, border: '1px solid color-mix(in srgb, var(--fl-danger) 25%, transparent)' }}>SUSPECT</span>
+                    : <span style={{ fontSize: 10, padding: '2px 6px', background: 'color-mix(in srgb, var(--fl-ok) 13%, transparent)', color: 'var(--fl-ok)', borderRadius: 4 }}>OK</span>
                   }
                 </td>
               </tr>
@@ -159,19 +163,20 @@ function DgaPanel({ caseId }) {
         </table>
       )}
       {data && data.domains.length === 0 && (
-        <div style={{ padding: 24, textAlign: 'center', color: 'var(--fl-dim)', fontSize: 12 }}>Aucun domaine IOC trouvé dans ce cas</div>
+        <div style={{ padding: 24, textAlign: 'center', color: 'var(--fl-dim)', fontSize: 12 }}>{t('iocs.no_domain')}</div>
       )}
     </div>
   );
 }
 
 export default function IOCsPage() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [iocs, setIocs] = useState([]);
   const [cases, setCases] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState('all');
+  const [verdictFilter, setVerdictFilter] = useState('all');
   const [showAdd, setShowAdd] = useState(false);
   const [newIOC, setNewIOC] = useState({ ioc_type: 'ip', value: '', description: '', severity: 5, is_malicious: false, case_id: '' });
   const [enriching, setEnriching] = useState({});
@@ -181,6 +186,7 @@ export default function IOCsPage() {
   const [pivotResults, setPivotResults] = useState([]);
   const [pivotLoading, setPivotLoading] = useState(false);
   const [confirmingId, setConfirmingId] = useState(null);
+  const [deletingId, setDeletingId] = useState(null);
   const [confirmConf, setConfirmConf] = useState('confirmed');
   const [confirmNote, setConfirmNote] = useState('');
   const [confirmedIds, setConfirmedIds] = useState(new Set());
@@ -202,7 +208,7 @@ export default function IOCsPage() {
       setSharedCountMap(map);
       setCases(casesRes.data?.cases || casesRes.data || []);
     } catch {
-      setError('Erreur de chargement des IOCs.');
+      setError(t('iocs.load_error'));
     } finally {
       setLoading(false);
     }
@@ -286,6 +292,19 @@ export default function IOCsPage() {
     }
   }
 
+  async function handleDelete(ioc) {
+    if (!confirm(t('iocs.delete_confirm', { value: ioc.value }))) return;
+    setDeletingId(ioc.id);
+    try {
+      await iocsAPI.remove(ioc.id);
+      setIocs(prev => prev.filter(i => i.id !== ioc.id));
+    } catch (e) {
+      setError(e.response?.data?.error || t('iocs.delete_error'));
+    } finally {
+      setDeletingId(null);
+    }
+  }
+
   async function handleCreate() {
     if (!newIOC.value.trim() || !newIOC.case_id) return;
     try {
@@ -300,7 +319,7 @@ export default function IOCsPage() {
       setShowAdd(false);
       setNewIOC({ ioc_type: 'ip', value: '', description: '', severity: 5, is_malicious: false, case_id: '' });
     } catch {
-      setError('Erreur lors de la création de l\'IOC.');
+      setError(t('iocs.create_error'));
     }
   }
 
@@ -308,19 +327,34 @@ export default function IOCsPage() {
 
   const malCount = iocs.filter(i => i.is_malicious).length;
   const enrichedCount = iocs.filter(i => i.enriched_at).length;
+  const benignCount  = iocs.filter(i => i.is_malicious === false).length;
+  const suspectCount = iocs.filter(i => i.is_malicious == null).length;
   const types = [...new Set(iocs.map(i => i.ioc_type))].filter(Boolean);
+
+  const VERDICT_TABS = [
+    { key: 'all',       label: t('common.all'), count: iocs.length },
+    { key: 'malicious', label: t('iocs.tab_malicious'), count: malCount, color: 'var(--fl-danger)' },
+    { key: 'suspect',   label: t('iocs.tab_suspect'), count: suspectCount, color: 'var(--fl-gold)' },
+    { key: 'benign',    label: t('iocs.tab_benign'), count: benignCount, color: 'var(--fl-ok)' },
+  ];
+  const visibleIocs = iocs.filter(i =>
+    verdictFilter === 'all' ? true
+    : verdictFilter === 'malicious' ? i.is_malicious === true
+    : verdictFilter === 'benign' ? i.is_malicious === false
+    : i.is_malicious == null);
 
   return (
     <div className="p-6">
       
-      <div className="fl-header">
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, marginBottom: 18 }}>
         <div>
-          <h1 className="fl-header-title">Indicateurs de Compromission</h1>
-          <p className="fl-header-sub">
-            {iocs.length} IOCs
-            {malCount > 0 && <> · <span style={{ color: 'var(--fl-danger)' }}>{malCount} malveillants</span></>}
-            {enrichedCount > 0 && <> · <span style={{ color: 'var(--fl-ok)' }}>{enrichedCount} enrichis</span></>}
-            {typeFilter !== 'all' && <span style={{ color: 'var(--fl-accent)' }}> · filtre : {typeFilter}</span>}
+          <h1 style={{ fontFamily: 'var(--f-display, var(--f-ui))', fontSize: 22, fontWeight: 600, letterSpacing: '-0.02em', color: 'var(--fl-text)', margin: 0 }}>
+            {t('iocs.explorer_title')}
+          </h1>
+          <p style={{ margin: '5px 0 0', fontSize: 12.5, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-muted)', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <span><span style={{ color: 'var(--fl-dim)', fontFeatureSettings: '"tnum"' }}>{iocs.length.toLocaleString(i18n.language)}</span> {t('iocs.indicators')}</span>
+            {malCount > 0 && <span>· <span style={{ color: 'var(--fl-danger)' }}>{t('iocs.malicious_count', { count: malCount })}</span></span>}
+            {enrichedCount > 0 && <span>· <span style={{ color: 'var(--fl-ok)' }}>{t('iocs.enriched_count', { count: enrichedCount })}</span></span>}
           </p>
         </div>
         <div className="flex gap-2">
@@ -330,15 +364,15 @@ export default function IOCsPage() {
             disabled={iocs.length === 0}
             onClick={() => downloadCSV(iocs, [
               { key: 'ioc_type',    label: 'Type' },
-              { key: 'value',       label: 'Valeur' },
+              { key: 'value',       label: t('iocs.value') },
               { key: 'description', label: 'Description' },
-              { key: 'severity',    label: 'Sévérité' },
-              { key: 'is_malicious',label: 'Malveillant' },
+              { key: 'severity',    label: t('iocs.severity') },
+              { key: 'is_malicious',label: t('iocs.malicious') },
               { key: 'source',      label: 'Source' },
               { key: 'tags',        label: 'Tags' },
-              { key: 'case_id',     label: 'Cas' },
+              { key: 'case_id',     label: t('iocs.case_label') },
               { key: 'vt_verdict',  label: 'VT Verdict' },
-              { key: 'created_at',  label: 'Créé le' },
+              { key: 'created_at',  label: t('settings.api_keys.created_at') },
             ], `iocs_${new Date().toISOString().slice(0,10)}.csv`)}
             title={t('iocs.tooltip_export_iocs')}
           >
@@ -379,7 +413,7 @@ export default function IOCsPage() {
         </div>
         <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)} className="fl-select">
           <option value="all">{t('iocs.all_types')}</option>
-          {types.map(tp => <option key={tp} value={tp}>{TYPE_LABEL[tp] || tp}</option>)}
+          {types.map(tp => <option key={tp} value={tp}>{t(`iocs.types.${tp}`, { defaultValue: TYPE_LABEL[tp] || tp })}</option>)}
         </select>
         {(search || typeFilter !== 'all') && (
           <Button variant="ghost" size="sm" icon={X} onClick={() => { setSearch(''); setTypeFilter('all'); }}>
@@ -389,8 +423,26 @@ export default function IOCsPage() {
         <Button variant="ghost" size="sm" icon={RefreshCw} onClick={loadData} title={t('iocs.tooltip_refresh')} />
       </div>
 
-      <div className="mb-4 p-3 rounded-lg text-xs" style={{ background: 'color-mix(in srgb, var(--fl-accent) 5%, transparent)', border: '1px solid color-mix(in srgb, var(--fl-accent) 15%, transparent)', color: 'var(--fl-accent)' }}>
-        Enrichissement via VirusTotal et AbuseIPDB — cache 24h. Les clés API se configurent dans <code>.env</code> (VIRUSTOTAL_API_KEY, ABUSEIPDB_API_KEY).
+      <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 14, borderBottom: '1px solid var(--fl-border2)' }}>
+        {VERDICT_TABS.map(tab => {
+          const active = verdictFilter === tab.key;
+          return (
+            <button key={tab.key} onClick={() => setVerdictFilter(tab.key)}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '8px 12px', background: 'none', border: 'none', cursor: 'pointer',
+                fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 12, fontWeight: 600,
+                color: active ? 'var(--fl-text)' : 'var(--fl-muted)',
+                borderBottom: `2px solid ${active ? 'var(--fl-accent)' : 'transparent'}`, marginBottom: -1 }}>
+              {tab.color && <span style={{ width: 7, height: 7, borderRadius: 2, background: tab.color, flexShrink: 0 }} />}
+              {tab.label}
+              <span style={{ fontSize: 10.5, color: active ? 'var(--fl-dim)' : 'var(--fl-subtle)', fontFeatureSettings: '"tnum"' }}>{tab.count.toLocaleString(i18n.language)}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="mb-4" style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-muted)' }}>
+        <Info size={12} style={{ flexShrink: 0, color: 'var(--fl-subtle)' }} />
+        {t('iocs.enrichment_hint')} <code style={{ color: 'var(--fl-dim)' }}>.env</code>.
       </div>
 
       {loading ? (
@@ -413,37 +465,38 @@ export default function IOCsPage() {
           <table className="fl-table">
             <thead>
               <tr>
-                <th style={{ width: 44 }}>Sév.</th>
-                <th>Type / Valeur</th>
+                <th style={{ width: 44 }}>{t('iocs.severity_short')}</th>
+                <th>{t('iocs.type_value')}</th>
                 <th>Description</th>
-                <th>Enrichissement</th>
-                <th>Cas</th>
+                <th>{t('iocs.enrichment')}</th>
+                <th>{t('iocs.case_label')}</th>
                 <th>Tags</th>
                 <th style={{ width: 80 }}></th>
               </tr>
             </thead>
             <tbody>
-              {iocs.map(ioc => {
+              {visibleIocs.map(ioc => {
                 const Icon = TYPE_ICON[ioc.ioc_type] || Globe;
-                const sevVariant = SEV_VARIANT(ioc.severity || 5);
                 const isEnriching = enriching[ioc.id];
+                const sev = ioc.severity || 5;
+                const sevColor = sev >= 8 ? 'var(--fl-danger)' : sev >= 6 ? 'var(--fl-warn)' : sev >= 4 ? 'var(--fl-gold)' : 'var(--fl-ok)';
                 return (
-                  <tr key={ioc.id} style={{ borderLeft: `3px solid ${ioc.is_malicious ? 'var(--fl-danger)' : 'var(--fl-border)'}` }}>
-                    
+                  <tr key={ioc.id}>
+
                     <td>
-                      <Badge variant={sevVariant} style={{ minWidth: 32, justifyContent: 'center', display: 'inline-flex' }}>
-                        {ioc.severity || 5}
-                      </Badge>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', minWidth: 30, padding: '3px 6px', borderRadius: 5, fontFamily: 'var(--f-mono, monospace)', fontSize: 12, fontWeight: 700, background: `color-mix(in srgb, ${sevColor} 12%, transparent)`, color: sevColor, border: `1px solid color-mix(in srgb, ${sevColor} 25%, transparent)` }}>
+                        {sev}
+                      </span>
                     </td>
 
                     <td>
                       <div className="flex items-center gap-2 mb-1 flex-wrap">
                         <Badge variant="accent">
-                          <Icon size={10} className="inline mr-1" />{TYPE_LABEL[ioc.ioc_type] || ioc.ioc_type}
+                          <Icon size={10} className="inline mr-1" />{t(`iocs.types.${ioc.ioc_type}`, { defaultValue: TYPE_LABEL[ioc.ioc_type] || ioc.ioc_type })}
                         </Badge>
                         {ioc.is_malicious && (
                           <Badge variant="danger">
-                            <AlertTriangle size={9} className="inline mr-1" />MALVEILLANT
+                            <AlertTriangle size={9} className="inline mr-1" />{t('iocs.malicious_badge')}
                           </Badge>
                         )}
                       </div>
@@ -464,7 +517,7 @@ export default function IOCsPage() {
                             <GeoBadge ioc={ioc} />
                             {!ioc.vt_verdict && !ioc.abuseipdb_score && !(ioc.shodan_ports?.length) && !ioc.geo_country_code && (
                               <span className="text-xs" style={{ color: 'var(--fl-muted)' }}>
-                                <CheckCircle size={12} className="inline mr-1" />enrichi
+                                <CheckCircle size={12} className="inline mr-1" />{t('iocs.enriched')}
                               </span>
                             )}
                           </>
@@ -480,7 +533,7 @@ export default function IOCsPage() {
                       {sharedCountMap[ioc.value] > 1 && (
                         <button
                           onClick={() => handleCrossCase(ioc)}
-                          title="Voir tous les cas partageant cet IOC"
+                          title={t('iocs.view_shared_cases')}
                           style={{
                             marginTop: 4, display: 'inline-flex', alignItems: 'center', gap: 4,
                             fontSize: 10, padding: '1px 6px', borderRadius: 4, cursor: 'pointer',
@@ -489,7 +542,7 @@ export default function IOCsPage() {
                             fontFamily: 'JetBrains Mono, monospace', fontWeight: 700,
                           }}
                         >
-                          🔗 {sharedCountMap[ioc.value]} cas
+                          🔗 {t('iocs.shared_cases_count', { count: sharedCountMap[ioc.value] })}
                         </button>
                       )}
                     </td>
@@ -501,70 +554,57 @@ export default function IOCsPage() {
                     </td>
 
                     <td>
-                      <div style={{ display: 'flex', gap: 4, alignItems: 'center', flexWrap: 'wrap' }}>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          icon={isEnriching ? undefined : Shield}
-                          loading={isEnriching}
-                          onClick={() => handleEnrich(ioc)}
-                          title={t('iocs.enrich_title')}
-                          style={{ whiteSpace: 'nowrap' }}
-                        >
-                          {ioc.enriched_at ? 'Ré-enrichir' : 'Enrichir'}
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          icon={GitBranch}
-                          onClick={() => handleCrossCase(ioc)}
-                          title={t('iocs.search_all')}
-                        />
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 5 }}>
+                        {/* Enrich */}
+                        <button onClick={() => handleEnrich(ioc)} disabled={isEnriching} title={t('iocs.enrich_title')}
+                          style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 8px', borderRadius: 4, cursor: isEnriching ? 'wait' : 'pointer', fontFamily: 'var(--f-mono, monospace)', fontSize: 10.5, background: 'none', color: 'var(--fl-muted)', border: 'none', whiteSpace: 'nowrap' }}
+                          onMouseEnter={e => e.currentTarget.style.color = 'var(--fl-text)'}
+                          onMouseLeave={e => e.currentTarget.style.color = 'var(--fl-muted)'}>
+                          {isEnriching ? <Loader2 size={11} style={{ animation: 'spin 1s linear infinite' }} /> : <Shield size={11} />}
+                          {ioc.enriched_at ? t('iocs.reenrich') : t('iocs.enrich')}
+                        </button>
+                        {/* Cross-case */}
+                        <button onClick={() => handleCrossCase(ioc)} title={t('iocs.search_all')}
+                          style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: '3px 6px', borderRadius: 4, cursor: 'pointer', background: 'none', color: 'var(--fl-subtle)', border: 'none' }}
+                          onMouseEnter={e => e.currentTarget.style.color = 'var(--fl-accent)'}
+                          onMouseLeave={e => e.currentTarget.style.color = 'var(--fl-subtle)'}>
+                          <GitBranch size={12} />
+                        </button>
+                        {/* Confirm */}
                         {confirmedIds.has(ioc.id) ? (
-                          <span style={{ fontSize: 10, padding: '2px 7px', background: '#22c55e20', color: '#22c55e', borderRadius: 4, border: '1px solid #22c55e40', fontWeight: 700, whiteSpace: 'nowrap' }}>
-                            CONFIRMÉ ✓
+                          <span style={{ fontSize: 10, padding: '2px 8px', background: 'color-mix(in srgb, var(--fl-ok) 13%, transparent)', color: 'var(--fl-ok)', borderRadius: 4, border: '1px solid color-mix(in srgb, var(--fl-ok) 25%, transparent)', fontWeight: 700 }}>
+                            {t('iocs.confirmed_badge')}
                           </span>
                         ) : confirmingId === ioc.id ? (
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, padding: '4px 0' }}>
-                            <select
-                              value={confirmConf}
-                              onChange={e => setConfirmConf(e.target.value)}
-                              style={{ fontSize: 10, padding: '2px 4px', background: 'var(--fl-panel)', color: 'var(--fl-text)', border: '1px solid var(--fl-border)', borderRadius: 3 }}
-                            >
-                              <option value="confirmed">Confirmé</option>
-                              <option value="high">Haute confiance</option>
-                              <option value="medium">Confiance moyenne</option>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'flex-end' }}>
+                            <select value={confirmConf} onChange={e => setConfirmConf(e.target.value)}
+                              style={{ fontSize: 10, padding: '2px 4px', background: 'var(--fl-panel)', color: 'var(--fl-text)', border: '1px solid var(--fl-border)', borderRadius: 3 }}>
+                              <option value="confirmed">{t('iocs.conf_confirmed')}</option>
+                              <option value="high">{t('iocs.conf_high')}</option>
+                              <option value="medium">{t('iocs.conf_medium')}</option>
                             </select>
-                            <input
-                              value={confirmNote}
-                              onChange={e => setConfirmNote(e.target.value)}
-                              placeholder={t('iocs.note_ph')}
-                              style={{ fontSize: 10, padding: '2px 4px', background: 'var(--fl-panel)', color: 'var(--fl-text)', border: '1px solid var(--fl-border)', borderRadius: 3 }}
-                            />
+                            <input value={confirmNote} onChange={e => setConfirmNote(e.target.value)} placeholder={t('iocs.note_ph')}
+                              style={{ fontSize: 10, padding: '2px 4px', background: 'var(--fl-panel)', color: 'var(--fl-text)', border: '1px solid var(--fl-border)', borderRadius: 3 }} />
                             <div style={{ display: 'flex', gap: 4 }}>
-                              <button
-                                onClick={() => handleConfirmIOC(ioc)}
-                                style={{ fontSize: 10, padding: '2px 6px', background: '#22c55e20', color: '#22c55e', border: '1px solid #22c55e40', borderRadius: 3, cursor: 'pointer' }}
-                              >
-                                OK
-                              </button>
-                              <button
-                                onClick={() => { setConfirmingId(null); setConfirmConf('confirmed'); setConfirmNote(''); }}
-                                style={{ fontSize: 10, padding: '2px 6px', background: 'transparent', color: 'var(--fl-dim)', border: '1px solid var(--fl-border)', borderRadius: 3, cursor: 'pointer' }}
-                              >
-                                ✕
-                              </button>
+                              <button onClick={() => handleConfirmIOC(ioc)}
+                                style={{ fontSize: 10, padding: '2px 6px', background: 'color-mix(in srgb, var(--fl-ok) 13%, transparent)', color: 'var(--fl-ok)', border: '1px solid color-mix(in srgb, var(--fl-ok) 25%, transparent)', borderRadius: 3, cursor: 'pointer' }}>OK</button>
+                              <button onClick={() => { setConfirmingId(null); setConfirmConf('confirmed'); setConfirmNote(''); }}
+                                style={{ fontSize: 10, padding: '2px 6px', background: 'transparent', color: 'var(--fl-dim)', border: '1px solid var(--fl-border)', borderRadius: 3, cursor: 'pointer' }}>✕</button>
                             </div>
                           </div>
                         ) : (
-                          <button
-                            onClick={() => setConfirmingId(ioc.id)}
-                            title={t('iocs.confirm_ioc_title')}
-                            style={{ fontSize: 10, padding: '2px 7px', background: '#22c55e10', color: '#22c55e', border: '1px solid #22c55e30', borderRadius: 4, cursor: 'pointer', whiteSpace: 'nowrap' }}
-                          >
-                            Confirmer
+                          <button onClick={() => setConfirmingId(ioc.id)} title={t('iocs.confirm_ioc_title')}
+                            style={{ fontSize: 10, padding: '2px 8px', background: 'color-mix(in srgb, var(--fl-ok) 6%, transparent)', color: 'var(--fl-ok)', border: '1px solid color-mix(in srgb, var(--fl-ok) 19%, transparent)', borderRadius: 4, cursor: 'pointer', fontFamily: 'var(--f-mono, monospace)' }}>
+                            {t('common.confirm')}
                           </button>
                         )}
+                        {/* Delete */}
+                        <button onClick={() => handleDelete(ioc)} disabled={deletingId === ioc.id} title={t('iocs.delete_title')}
+                          style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: '3px 6px', background: 'none', color: 'var(--fl-subtle)', border: 'none', borderRadius: 4, cursor: deletingId === ioc.id ? 'wait' : 'pointer', opacity: deletingId === ioc.id ? 0.5 : 1 }}
+                          onMouseEnter={e => e.currentTarget.style.color = 'var(--fl-danger)'}
+                          onMouseLeave={e => e.currentTarget.style.color = 'var(--fl-subtle)'}>
+                          <Trash2 size={13} />
+                        </button>
                       </div>
                     </td>
                   </tr>
@@ -584,13 +624,13 @@ export default function IOCsPage() {
         <Modal.Body>
           <div className="space-y-4">
             <div>
-              <label className="fl-label">Cas <span style={{ color: 'var(--fl-danger)' }}>*</span></label>
+              <label className="fl-label">{t('iocs.case_label')} <span style={{ color: 'var(--fl-danger)' }}>*</span></label>
               <select
                 value={newIOC.case_id}
                 onChange={e => setNewIOC(p => ({ ...p, case_id: e.target.value }))}
                 className="fl-select w-full"
               >
-                <option value="">— Sélectionner un cas —</option>
+                <option value="">{t('iocs.select_case')}</option>
                 {cases.map(c => (
                   <option key={c.id} value={c.id}>{c.case_number} — {c.title}</option>
                 ))}
@@ -604,12 +644,12 @@ export default function IOCsPage() {
                 className="fl-select w-full"
               >
                 {Object.entries(TYPE_LABEL).map(([v, l]) => (
-                  <option key={v} value={v}>{l}</option>
+                  <option key={v} value={v}>{t(`iocs.types.${v}`, { defaultValue: l })}</option>
                 ))}
               </select>
             </div>
             <div>
-              <label className="fl-label">Valeur <span style={{ color: 'var(--fl-danger)' }}>*</span></label>
+              <label className="fl-label">{t('iocs.value')} <span style={{ color: 'var(--fl-danger)' }}>*</span></label>
               <input
                 value={newIOC.value}
                 onChange={e => setNewIOC(p => ({ ...p, value: e.target.value }))}
@@ -629,7 +669,7 @@ export default function IOCsPage() {
             </div>
             <div className="flex gap-4 items-center">
               <div className="flex-1">
-                <label className="fl-label">Sévérité (1–10)</label>
+                <label className="fl-label">{t('iocs.severity_range')}</label>
                 <input
                   type="number" min={1} max={10}
                   value={newIOC.severity}
@@ -638,27 +678,27 @@ export default function IOCsPage() {
                 />
               </div>
               <div>
-                <label className="fl-label">Malveillant</label>
+                <label className="fl-label">{t('iocs.malicious')}</label>
                 <label className="flex items-center gap-2 cursor-pointer mt-2 text-sm" style={{ color: newIOC.is_malicious ? 'var(--fl-danger)' : 'var(--fl-muted)' }}>
                   <input
                     type="checkbox"
                     checked={newIOC.is_malicious}
                     onChange={e => setNewIOC(p => ({ ...p, is_malicious: e.target.checked }))}
                   />
-                  {newIOC.is_malicious ? 'Oui' : 'Non'}
+                  {newIOC.is_malicious ? t('common.yes') : t('common.no')}
                 </label>
               </div>
             </div>
           </div>
         </Modal.Body>
         <Modal.Footer>
-          <Button variant="secondary" onClick={() => setShowAdd(false)}>Annuler</Button>
+          <Button variant="secondary" onClick={() => setShowAdd(false)}>{t('common.cancel')}</Button>
           <Button
             variant="primary"
             onClick={handleCreate}
             disabled={!newIOC.value.trim() || !newIOC.case_id}
           >
-            Ajouter
+            {t('common.add')}
           </Button>
         </Modal.Footer>
       </Modal>
@@ -666,14 +706,14 @@ export default function IOCsPage() {
       {cases.length > 0 && (
         <div style={{ marginTop: 24 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-            <span style={{ fontSize: 12, color: 'var(--fl-muted)' }}>Cas pour l'analyse DGA :</span>
+            <span style={{ fontSize: 12, color: 'var(--fl-muted)' }}>{t('iocs.dga_label')}</span>
             <select
               value={dgaCaseId}
               onChange={e => setDgaCaseId(e.target.value)}
               className="fl-select"
               style={{ fontSize: 12 }}
             >
-              <option value="">— Sélectionner un cas —</option>
+              <option value="">{t('iocs.select_case')}</option>
               {cases.map(c => (
                 <option key={c.id} value={c.id}>{c.case_number} — {c.title}</option>
               ))}
@@ -687,32 +727,32 @@ export default function IOCsPage() {
       {pivotIOC && (
         <Modal
           open={!!pivotIOC}
-          title="Pivot Multi-Cas"
+          title={t('iocs.pivot_title')}
           onClose={() => { setPivotIOC(null); setPivotResults([]); }}
           size="md"
         >
           <Modal.Body>
-            <div style={{ marginBottom: 12, padding: '8px 12px', borderRadius: 6, background: 'color-mix(in srgb, var(--fl-accent) 6%, transparent)', border: '1px solid color-mix(in srgb, var(--fl-accent) 20%, transparent)', fontFamily: 'monospace', fontSize: 12, wordBreak: 'break-all', color: 'var(--fl-accent)' }}>
+            <div style={{ marginBottom: 12, padding: '8px 12px', borderRadius: 6, background: 'color-mix(in srgb, var(--fl-accent) 6%, transparent)', border: '1px solid color-mix(in srgb, var(--fl-accent) 20%, transparent)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 12, wordBreak: 'break-all', color: 'var(--fl-accent)' }}>
               {pivotIOC.value}
             </div>
             {pivotLoading ? (
               <div style={{ textAlign: 'center', padding: '24px 0' }}>
-                <span style={{ color: 'var(--fl-muted)', fontFamily: 'monospace', fontSize: 12 }}>Recherche en cours…</span>
+                <span style={{ color: 'var(--fl-muted)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 12 }}>{t('iocs.searching')}</span>
               </div>
             ) : pivotResults.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: '24px 0', color: 'var(--fl-muted)', fontFamily: 'monospace', fontSize: 12 }}>
-                Aucun autre cas ne partage cet indicateur.
+              <div style={{ textAlign: 'center', padding: '24px 0', color: 'var(--fl-muted)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 12 }}>
+                {t('iocs.no_shared_case')}
               </div>
             ) : (
               <>
                 <p style={{ fontSize: 12, color: 'var(--fl-dim)', marginBottom: 10 }}>
-                  {pivotResults.length} cas partage{pivotResults.length > 1 ? 'nt' : ''} cet indicateur :
+                  {t('iocs.shared_case_summary', { count: pivotResults.length })}
                 </p>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                   <thead>
                     <tr style={{ borderBottom: '1px solid var(--fl-border)' }}>
-                      {['Cas', 'Titre', 'Statut', 'Type IOC', 'Première vue'].map(h => (
-                        <th key={h} style={{ textAlign: 'left', padding: '4px 8px', fontFamily: 'monospace', fontSize: 10, color: 'var(--fl-muted)', fontWeight: 700, textTransform: 'uppercase' }}>{h}</th>
+                      {[t('iocs.col_case'), t('iocs.col_title'), t('iocs.col_status'), t('iocs.col_type'), t('iocs.col_first_seen')].map(h => (
+                        <th key={h} style={{ textAlign: 'left', padding: '4px 8px', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10, color: 'var(--fl-muted)', fontWeight: 700, textTransform: 'uppercase' }}>{h}</th>
                       ))}
                     </tr>
                   </thead>
@@ -720,15 +760,15 @@ export default function IOCsPage() {
                     {pivotResults.map((r, i) => (
                       <tr key={`${r.id}-${i}`} style={{ borderBottom: '1px solid var(--fl-border)' }}>
                         <td style={{ padding: '6px 8px' }}>
-                          <a href={`/cases/${r.id}`} style={{ color: 'var(--fl-accent)', textDecoration: 'none', fontFamily: 'monospace', fontSize: 11 }} onClick={e => { e.preventDefault(); window.location.href = `/cases/${r.id}`; }}>
+                          <a href={`/cases/${r.id}`} style={{ color: 'var(--fl-accent)', textDecoration: 'none', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11 }} onClick={e => { e.preventDefault(); window.location.href = `/cases/${r.id}`; }}>
                             {r.case_number}
                           </a>
                         </td>
                         <td style={{ padding: '6px 8px', color: 'var(--fl-dim)', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.title}</td>
-                        <td style={{ padding: '6px 8px', fontFamily: 'monospace', fontSize: 10, color: 'var(--fl-muted)' }}>{r.status}</td>
-                        <td style={{ padding: '6px 8px', fontFamily: 'monospace', fontSize: 10, color: 'var(--fl-dim)' }}>{TYPE_LABEL[r.ioc_type] || r.ioc_type}</td>
-                        <td style={{ padding: '6px 8px', fontFamily: 'monospace', fontSize: 10, color: 'var(--fl-muted)', whiteSpace: 'nowrap' }}>
-                          {r.ioc_created_at ? new Date(r.ioc_created_at).toLocaleDateString('fr-FR') : '—'}
+                        <td style={{ padding: '6px 8px', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10, color: 'var(--fl-muted)' }}>{r.status}</td>
+                        <td style={{ padding: '6px 8px', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10, color: 'var(--fl-dim)' }}>{t(`iocs.types.${r.ioc_type}`, { defaultValue: TYPE_LABEL[r.ioc_type] || r.ioc_type })}</td>
+                        <td style={{ padding: '6px 8px', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10, color: 'var(--fl-muted)', whiteSpace: 'nowrap' }}>
+                          {r.ioc_created_at ? new Date(r.ioc_created_at).toLocaleDateString(i18n.language) : '—'}
                         </td>
                       </tr>
                     ))}
@@ -738,7 +778,7 @@ export default function IOCsPage() {
             )}
           </Modal.Body>
           <Modal.Footer>
-            <Button variant="secondary" onClick={() => { setPivotIOC(null); setPivotResults([]); }}>Fermer</Button>
+            <Button variant="secondary" onClick={() => { setPivotIOC(null); setPivotResults([]); }}>{t('common.close')}</Button>
           </Modal.Footer>
         </Modal>
       )}

@@ -2,7 +2,29 @@
 import * as http from 'http';
 
 const OLLAMA_URL  = process.env.OLLAMA_URL || 'http://ollama:11434';
-const DEFAULT_MODEL = process.env.AI_MODEL || 'qwen3.5:4b';
+const DEFAULT_MODEL = process.env.AI_MODEL || 'qwen2.5:7b';
+
+// Timeouts (ms) — a hung Ollama (model load / OOM) must never block a request forever.
+const PROBE_TIMEOUT_MS = parseInt(process.env.AI_PROBE_TIMEOUT_MS || '8000', 10);   // /api/tags is fast
+const GEN_TIMEOUT_MS   = parseInt(process.env.AI_GEN_TIMEOUT_MS   || '180000', 10); // generation: generous (slow hosts)
+const STREAM_IDLE_MS   = parseInt(process.env.AI_STREAM_IDLE_MS   || '120000', 10);  // no token for 60s = stalled
+
+// In-process semaphore: caps concurrent Ollama generations so a modest host
+// doesn't thrash when several chats/reports fire at once.
+const MAX_CONCURRENT = parseInt(process.env.AI_MAX_CONCURRENT || '2', 10);
+const MAX_QUEUE      = parseInt(process.env.AI_MAX_QUEUE      || '8', 10);
+let _aiActive = 0;
+const _aiWaiters: Array<() => void> = [];
+function acquireAi(): Promise<void> {
+  if (_aiActive < MAX_CONCURRENT) { _aiActive++; return Promise.resolve(); }
+  if (_aiWaiters.length >= MAX_QUEUE) return Promise.reject(new Error('IA saturée : trop de demandes en attente, réessayez dans un instant.'));
+  return new Promise<void>((resolve) => { _aiWaiters.push(resolve); });
+}
+function releaseAi(): void {
+  const next = _aiWaiters.shift();
+  if (next) next();                 // hand the active slot directly to the next waiter
+  else if (_aiActive > 0) _aiActive--;
+}
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -189,7 +211,9 @@ export async function streamChat(config: StreamConfig): Promise<void> {
     options: { temperature },
   });
 
-  return new Promise((resolve, reject) => {
+  await acquireAi();
+  try {
+  await new Promise<void>((resolve, reject) => {
     const url = new URL('/api/chat', OLLAMA_URL);
     const req = http.request(
       {
@@ -254,9 +278,13 @@ export async function streamChat(config: StreamConfig): Promise<void> {
       onError(err);
       reject(err);
     });
+    req.setTimeout(STREAM_IDLE_MS, () => { req.destroy(new Error('Ollama: flux interrompu (aucune réponse, timeout).')); });
     req.write(body);
     req.end();
   });
+  } finally {
+    releaseAi();
+  }
 }
 
 // ── Non-streaming chat via /api/chat ──────────────────────────────────────────
@@ -266,8 +294,9 @@ export async function chat(config: {
   messages:      OllamaMessage[];
   thinkingMode?: ThinkingMode;
   temperature?:  number;
+  format?:       'json' | string;   // pass 'json' to constrain Ollama to valid JSON output
 }): Promise<string> {
-  const { model, thinkingMode = 'no_think', temperature = 0.1 } = config;
+  const { model, thinkingMode = 'no_think', temperature = 0.1, format } = config;
   const messages = applyThinkingMode(config.messages, thinkingMode);
 
   const body = JSON.stringify({
@@ -275,36 +304,76 @@ export async function chat(config: {
     messages,
     stream:  false,
     options: { temperature },
+    ...(format ? { format } : {}),
   });
 
-  const data = await ollamaPost('/api/chat', body);
-  const raw: string = (data as any).message?.content ?? '';
+  await acquireAi();
+  try {
+    const data = await ollamaPost('/api/chat', body);
+    const raw: string = (data as any).message?.content ?? '';
+    // Strip thinking blocks from non-streaming response
+    const out = raw.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+    if (!out) throw new Error(`Le modèle « ${model} » n'a renvoyé aucune réponse (modèle absent ou non chargé ?).`);
+    return out;
+  } finally {
+    releaseAi();
+  }
+}
 
-  // Strip thinking blocks from non-streaming response
-  return raw.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+// ── Tool-calling (agentic) ────────────────────────────────────────────────────
+// One non-streaming round: the model decides which case tools to call.
+
+function safeJson(s: string): any { try { return JSON.parse(s); } catch { return {}; } }
+
+export async function chatWithTools(config: {
+  model:       string;
+  messages:    OllamaMessage[];
+  tools:       any[];
+  temperature?: number;
+}): Promise<{ content: string; toolCalls: Array<{ name: string; args: any }> }> {
+  const { model, messages, tools, temperature = 0 } = config;
+  const body = JSON.stringify({ model, messages, tools, stream: false, options: { temperature } });
+  await acquireAi();
+  try {
+    const data: any = await ollamaPost('/api/chat', body);
+    const msg = data.message || {};
+    const toolCalls = (msg.tool_calls || [])
+      .map((tc: any) => ({
+        name: tc.function?.name,
+        args: typeof tc.function?.arguments === 'string' ? safeJson(tc.function.arguments) : (tc.function?.arguments || {}),
+      }))
+      .filter((t: any) => t.name);
+    return { content: msg.content || '', toolCalls };
+  } finally {
+    releaseAi();
+  }
 }
 
 // ── HTTP helpers ──────────────────────────────────────────────────────────────
 
-function ollamaGet(path: string): Promise<unknown> {
+function ollamaGet(path: string, timeoutMs: number = PROBE_TIMEOUT_MS): Promise<unknown> {
   return new Promise((resolve, reject) => {
     const url = new URL(path, OLLAMA_URL);
-    http.get(
+    const req = http.get(
       { hostname: url.hostname, port: parseInt(url.port) || 11434, path: url.pathname },
       (res) => {
         let data = '';
         res.on('data', (c: string) => { data += c; });
         res.on('end', () => {
-          try   { resolve(JSON.parse(data)); }
-          catch { reject(new Error('Invalid JSON from Ollama')); }
+          let parsed: any;
+          try { parsed = JSON.parse(data); } catch { return reject(new Error('Réponse Ollama invalide')); }
+          if (parsed && parsed.error) return reject(new Error(`Ollama: ${parsed.error}`));
+          resolve(parsed);
         });
         res.on('error', reject);
       }
-    ).on('error', reject);
+    );
+    req.on('error', reject);
+    req.setTimeout(timeoutMs, () => { req.destroy(new Error(`Ollama: délai dépassé (${timeoutMs} ms)`)); });
   });
 }
 
-function ollamaPost(path: string, body: string): Promise<unknown> {
+function ollamaPost(path: string, body: string, timeoutMs: number = GEN_TIMEOUT_MS): Promise<unknown> {
   return new Promise((resolve, reject) => {
     const url = new URL(path, OLLAMA_URL);
     const req = http.request(
@@ -322,13 +391,16 @@ function ollamaPost(path: string, body: string): Promise<unknown> {
         let data = '';
         res.on('data', (c: string) => { data += c; });
         res.on('end', () => {
-          try   { resolve(JSON.parse(data)); }
-          catch { reject(new Error('Invalid JSON from Ollama')); }
+          let parsed: any;
+          try { parsed = JSON.parse(data); } catch { return reject(new Error('Réponse Ollama invalide')); }
+          if (parsed && parsed.error) return reject(new Error(`Ollama: ${parsed.error}`));
+          resolve(parsed);
         });
         res.on('error', reject);
       }
     );
     req.on('error', reject);
+    req.setTimeout(timeoutMs, () => { req.destroy(new Error(`Ollama: délai dépassé (${timeoutMs} ms)`)); });
     req.write(body);
     req.end();
   });

@@ -16,24 +16,24 @@ const PHASES = [
   { id: 'Lateral Movement',     short: 'LATERAL',  color: 'var(--fl-warn)' },
   { id: 'Collection',           short: 'COLLECT',  color: 'var(--fl-ok)' },
   { id: 'Command and Control',  short: 'C2',       color: 'var(--fl-danger)' },
-  { id: 'Exfiltration',         short: 'EXFIL',    color: '#f43f5e' },
+  { id: 'Exfiltration',         short: 'EXFIL',    color: 'var(--fl-danger)' },
   { id: 'Impact',               short: 'IMPACT',   color: 'var(--fl-danger)' },
 ];
 
 function BookmarkCard({ b, color }) {
   return (
     <div style={{
-      borderRadius: 5, border: `1px solid ${b.color || color}30`,
+      borderRadius: 5, border: `1px solid color-mix(in srgb, ${b.color || color} 19%, transparent)`,
       borderLeft: `2px solid ${b.color || color}`,
       background: '#0a1625', padding: '5px 8px',
       display: 'flex', flexDirection: 'column', gap: 2,
     }}>
       <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--fl-on-dark)', lineHeight: 1.3 }}>{b.title}</span>
       {b.mitre_technique && (
-        <span style={{ fontSize: 9, fontFamily: 'monospace', color: 'var(--fl-subtle)' }}>{b.mitre_technique}</span>
+        <span style={{ fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-subtle)' }}>{b.mitre_technique}</span>
       )}
       {b.event_timestamp && (
-        <span style={{ fontSize: 9, fontFamily: 'monospace', color: 'var(--fl-muted)' }}>
+        <span style={{ fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-muted)' }}>
           {fmtLocal(b.event_timestamp)}
         </span>
       )}
@@ -53,13 +53,13 @@ function PhaseColumn({ phase, bookmarks, compact }) {
         style={{
           display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3,
           padding: '6px 4px', borderRadius: 6, cursor: active ? 'pointer' : 'default',
-          background: active ? `${phase.color}15` : 'var(--fl-bg)',
+          background: active ? `color-mix(in srgb, ${phase.color} 8%, transparent)` : 'var(--fl-bg)',
           border: `1px solid ${active ? phase.color + '40' : 'var(--fl-sep)'}`,
           minWidth: 52, position: 'relative',
         }}
       >
         <span style={{
-          fontSize: 8, fontFamily: 'monospace', fontWeight: 700, letterSpacing: '0.05em',
+          fontSize: 8, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontWeight: 700, letterSpacing: '0.05em',
           color: active ? phase.color : 'var(--fl-card)', textAlign: 'center',
         }}>
           {phase.short}
@@ -84,7 +84,7 @@ function PhaseColumn({ phase, bookmarks, compact }) {
       border: `1px solid ${active ? phase.color + '35' : 'var(--fl-sep)'}`,
       borderTop: `2px solid ${active ? phase.color : 'var(--fl-sep)'}`,
       borderRadius: '0 0 6px 6px',
-      background: active ? `${phase.color}08` : 'var(--fl-bg)',
+      background: active ? `color-mix(in srgb, ${phase.color} 3%, transparent)` : 'var(--fl-bg)',
       minWidth: 160, maxWidth: 200, flex: '0 0 160px',
     }}>
       
@@ -93,20 +93,20 @@ function PhaseColumn({ phase, bookmarks, compact }) {
         style={{
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
           padding: '6px 8px', background: 'none', border: 'none', cursor: active ? 'pointer' : 'default',
-          borderBottom: active && open ? `1px solid ${phase.color}20` : 'none',
+          borderBottom: active && open ? `1px solid color-mix(in srgb, ${phase.color} 13%, transparent)` : 'none',
           gap: 4,
         }}
       >
         <span style={{
-          fontSize: 9, fontFamily: 'monospace', fontWeight: 700, letterSpacing: '0.08em',
+          fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontWeight: 700, letterSpacing: '0.08em',
           color: active ? phase.color : 'var(--fl-card)', textTransform: 'uppercase',
         }}>
           {phase.short}
         </span>
         {active && (
           <span style={{
-            fontSize: 9, fontFamily: 'monospace', fontWeight: 700,
-            background: `${phase.color}25`, color: phase.color,
+            fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontWeight: 700,
+            background: `color-mix(in srgb, ${phase.color} 15%, transparent)`, color: phase.color,
             padding: '1px 5px', borderRadius: 10,
           }}>
             {bookmarks.length}
@@ -161,11 +161,11 @@ export default function AttackChain({ caseId }) {
 
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ fontFamily: 'monospace', fontSize: 11, fontWeight: 700, color: '#8aa0bc', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-            Chaîne d'Attaque MITRE ATT&CK
+          <span style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11, fontWeight: 700, color: '#8aa0bc', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+            MITRE ATT&CK attack chain
           </span>
           {activePhasesCount > 0 && (
-            <span style={{ fontSize: 10, fontFamily: 'monospace', color: 'var(--fl-dim)' }}>
+            <span style={{ fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-dim)' }}>
               · {activePhasesCount} phase{activePhasesCount > 1 ? 's' : ''} · {bookmarks.length} bookmark{bookmarks.length > 1 ? 's' : ''}
             </span>
           )}
@@ -176,10 +176,10 @@ export default function AttackChain({ caseId }) {
             style={{
               padding: '3px 8px', borderRadius: 4, background: 'none',
               border: '1px solid var(--fl-sep)', color: 'var(--fl-subtle)', fontSize: 10,
-              fontFamily: 'monospace', cursor: 'pointer',
+              fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', cursor: 'pointer',
             }}
           >
-            {view === 'full' ? 'Vue compacte' : 'Vue complète'}
+            {view === 'full' ? 'Compact view' : 'Full view'}
           </button>
           <button onClick={load} style={{ background: 'none', border: '1px solid var(--fl-sep)', borderRadius: 4, cursor: 'pointer', padding: '3px 7px', color: 'var(--fl-subtle)' }}>
             <RefreshCw size={11} />
@@ -188,17 +188,17 @@ export default function AttackChain({ caseId }) {
       </div>
 
       {loading && (
-        <div style={{ textAlign: 'center', color: 'var(--fl-subtle)', fontFamily: 'monospace', fontSize: 11, padding: 12 }}>
-          Chargement…
+        <div style={{ textAlign: 'center', color: 'var(--fl-subtle)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11, padding: 12 }}>
+          Loading…
         </div>
       )}
 
       {!loading && bookmarks.length === 0 && (
         <div style={{
-          textAlign: 'center', color: 'var(--fl-muted)', fontFamily: 'monospace', fontSize: 11,
+          textAlign: 'center', color: 'var(--fl-muted)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11,
           padding: '28px 16px', border: '1px dashed var(--fl-sep)', borderRadius: 8,
         }}>
-          Aucun bookmark — créez des bookmarks avec la tactique MITRE pour construire la chaîne d'attaque.
+          No bookmarks — create bookmarks with a MITRE tactic to build the attack chain.
         </div>
       )}
 
@@ -246,8 +246,8 @@ export default function AttackChain({ caseId }) {
                     borderRadius: 6, border: '1px solid #2a3045', background: 'var(--fl-bg)',
                     minWidth: 160, padding: '8px 10px',
                   }}>
-                    <div style={{ fontSize: 9, fontFamily: 'monospace', fontWeight: 700, color: 'var(--fl-subtle)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-                      Non classifié
+                    <div style={{ fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontWeight: 700, color: 'var(--fl-subtle)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                      Unclassified
                     </div>
                     {(byTactic['__none__'] || []).map(b => (
                       <BookmarkCard key={b.id} b={b} color="var(--fl-dim)" />
@@ -263,10 +263,10 @@ export default function AttackChain({ caseId }) {
       {bookmarks.length > 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 4 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <span style={{ fontSize: 9, fontFamily: 'monospace', color: 'var(--fl-subtle)', textTransform: 'uppercase' }}>
+            <span style={{ fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-subtle)', textTransform: 'uppercase' }}>
               Couverture kill chain
             </span>
-            <span style={{ fontSize: 9, fontFamily: 'monospace', color: 'var(--fl-dim)' }}>
+            <span style={{ fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-dim)' }}>
               {activePhasesCount}/{PHASES.length} phases
             </span>
           </div>
@@ -274,7 +274,7 @@ export default function AttackChain({ caseId }) {
             <div style={{
               height: '100%', borderRadius: 2,
               width: `${(activePhasesCount / PHASES.length) * 100}%`,
-              background: 'linear-gradient(90deg, var(--fl-accent), #da3633)',
+              background: 'linear-gradient(90deg, var(--fl-accent), var(--fl-danger))',
               transition: 'width 0.4s',
             }} />
           </div>

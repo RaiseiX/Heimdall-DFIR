@@ -1,6 +1,20 @@
 import { useState, useMemo } from 'react';
-import { Copy, CheckCheck, ChevronDown, ChevronRight, Star } from 'lucide-react';
+import { Copy, CheckCheck, ChevronDown, ChevronRight, Star, Sparkles, ArrowDownUp, Search } from 'lucide-react';
 import { useTheme } from '../../utils/theme';
+
+// Open the global AI chat pre-filled with a question about an artifact.
+function askAi(artifact) {
+  const prompt = `Explique l'artefact forensique Windows « ${artifact.name} »`
+    + (artifact.mitre?.length ? ` (MITRE ${artifact.mitre.join(', ')})` : '')
+    + ` : ce qu'il contient, où le trouver, et comment l'exploiter dans une investigation DFIR.`;
+  window.dispatchEvent(new CustomEvent('heimdall:ai-open', { detail: { prompt } }));
+}
+
+// MITRE technique → attack.mitre.org (handles sub-techniques like T1059.001).
+function mitreUrl(id) {
+  const [base, sub] = id.split('.');
+  return `https://attack.mitre.org/techniques/${base}${sub ? `/${sub}` : ''}/`;
+}
 
 function CopyBtn({ text, small }) {
   const [ok, setOk] = useState(false);
@@ -17,10 +31,10 @@ function CopyBtn({ text, small }) {
         display: 'inline-flex', alignItems: 'center', gap: 3,
         padding: small ? '1px 5px' : '2px 7px',
         borderRadius: 4, fontSize: small ? 9 : 10,
-        fontFamily: 'monospace', cursor: 'pointer',
-        background: ok ? '#22c55e18' : 'var(--fl-card)',
-        color: ok ? '#22c55e' : 'var(--fl-dim)',
-        border: `1px solid ${ok ? '#22c55e40' : 'var(--fl-border)'}`,
+        fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', cursor: 'pointer',
+        background: ok ? 'color-mix(in srgb, var(--fl-ok) 9%, transparent)' : 'var(--fl-card)',
+        color: ok ? 'var(--fl-ok)' : 'var(--fl-dim)',
+        border: `1px solid ${ok ? 'color-mix(in srgb, var(--fl-ok) 25%, transparent)' : 'var(--fl-border)'}`,
         transition: 'all .15s', flexShrink: 0,
       }}>
       {ok ? <CheckCheck size={size} /> : <Copy size={size} />}
@@ -31,20 +45,30 @@ function CopyBtn({ text, small }) {
 
 function MitreBadge({ id }) {
   return (
-    <span style={{
-      fontFamily: 'monospace', fontSize: 9, fontWeight: 700,
-      padding: '1px 5px', borderRadius: 3,
-      background: 'color-mix(in srgb, var(--fl-accent) 15%, transparent)',
-      color: 'var(--fl-accent)',
-      border: '1px solid color-mix(in srgb, var(--fl-accent) 35%, transparent)',
-    }}>{id}</span>
+    <a
+      href={mitreUrl(id)}
+      target="_blank"
+      rel="noopener noreferrer"
+      onClick={e => e.stopPropagation()}
+      title={`Voir ${id} sur attack.mitre.org`}
+      style={{
+        fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 9, fontWeight: 700,
+        padding: '1px 5px', borderRadius: 3, textDecoration: 'none', cursor: 'pointer',
+        background: 'color-mix(in srgb, var(--fl-accent) 15%, transparent)',
+        color: 'var(--fl-accent)',
+        border: '1px solid color-mix(in srgb, var(--fl-accent) 35%, transparent)',
+        transition: 'background 0.12s',
+      }}
+      onMouseEnter={e => { e.currentTarget.style.background = 'color-mix(in srgb, var(--fl-accent) 28%, transparent)'; }}
+      onMouseLeave={e => { e.currentTarget.style.background = 'color-mix(in srgb, var(--fl-accent) 15%, transparent)'; }}
+    >{id}</a>
   );
 }
 
 function ToolBadge({ name }) {
   return (
     <span style={{
-      fontFamily: 'monospace', fontSize: 9,
+      fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 9,
       padding: '1px 6px', borderRadius: 3,
       background: 'color-mix(in srgb, var(--fl-gold) 12%, transparent)',
       color: 'var(--fl-gold)',
@@ -58,7 +82,7 @@ function Path({ value }) {
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6,
       flexWrap: 'wrap', rowGap: 4 }}>
       <code style={{
-        fontFamily: 'monospace', fontSize: 11,
+        fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11,
         background: 'var(--fl-card)', padding: '2px 6px', borderRadius: 4,
         color: 'var(--fl-text)', border: '1px solid var(--fl-border)',
         wordBreak: 'break-all',
@@ -312,9 +336,11 @@ const ARTIFACTS = [
   },
 ];
 
-function ArtifactCard({ artifact, search, defaultOpen }) {
+function ArtifactCard({ artifact, search, defaultOpen, compact }) {
   const T = useTheme();
   const [open, setOpen] = useState(defaultOpen);
+  const [hover, setHover] = useState(false);
+  const highValue = !!artifact.forensic;
 
   const matches = useMemo(() => {
     if (!search) return true;
@@ -333,43 +359,66 @@ function ArtifactCard({ artifact, search, defaultOpen }) {
 
   if (!matches) return null;
 
+  const pad = compact ? '8px 14px' : '12px 16px';
+
   return (
-    <div style={{
-      border: `1px solid ${artifact.star ? 'color-mix(in srgb, var(--fl-accent) 35%, var(--fl-border))' : T.border}`,
-      borderRadius: 8,
-      background: T.panel,
-      overflow: 'hidden',
-    }}>
-      
+    <div
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      style={{
+        border: `1px solid ${open || hover ? 'color-mix(in srgb, var(--fl-accent) 30%, var(--fl-border))' : 'var(--fl-border)'}`,
+        borderRadius: 10,
+        background: 'var(--fl-panel)',
+        overflow: 'hidden',
+        transition: 'border-color 0.14s',
+      }}
+    >
       <button
         onClick={() => setOpen(o => !o)}
         className="w-full text-left"
-        style={{ padding: '12px 16px', background: 'transparent', border: 'none', cursor: 'pointer' }}
+        style={{ padding: pad, background: 'transparent', border: 'none', cursor: 'pointer' }}
       >
         <div className="flex items-start justify-between gap-3">
           <div className="flex items-center gap-2 flex-wrap">
-            {artifact.star && (
-              <Star size={12} style={{ color: 'var(--fl-gold)', flexShrink: 0 }} fill="currentColor" />
-            )}
-            <span className="font-mono font-semibold text-sm" style={{ color: T.text }}>
+            {open
+              ? <ChevronDown size={14} style={{ color: 'var(--fl-accent)', flexShrink: 0 }} />
+              : <ChevronRight size={14} style={{ color: hover ? 'var(--fl-dim)' : 'var(--fl-muted)', flexShrink: 0, transition: 'color 0.12s' }} />}
+            <span className="font-mono font-semibold" style={{ color: 'var(--fl-text)', fontSize: compact ? 12.5 : 13.5 }}>
               {artifact.name}
             </span>
             {(artifact.mitre || []).map(m => <MitreBadge key={m} id={m} />)}
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
-            {artifact.forensic && (
+            {highValue && (
               <span style={{
-                fontSize: 9, fontFamily: 'monospace', padding: '1px 5px', borderRadius: 3,
-                background: 'color-mix(in srgb, var(--fl-danger) 12%, transparent)',
-                color: 'var(--fl-danger)',
-                border: '1px solid color-mix(in srgb, var(--fl-danger) 30%, transparent)',
-              }}>Haute valeur</span>
+                display: 'inline-flex', alignItems: 'center', gap: 4,
+                fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontWeight: 600,
+                padding: '1px 6px', borderRadius: 999, letterSpacing: '0.02em',
+                background: 'color-mix(in srgb, var(--fl-gold) 11%, transparent)',
+                color: 'var(--fl-gold)',
+                border: '1px solid color-mix(in srgb, var(--fl-gold) 26%, transparent)',
+              }}>
+                <Star size={9} fill="currentColor" /> Haute valeur
+              </span>
             )}
-            {open ? <ChevronDown size={14} style={{ color: T.dim }} /> : <ChevronRight size={14} style={{ color: T.dim }} />}
+            {/* Ask AI — opens the global chat pre-filled */}
+            <button
+              onClick={(e) => { e.stopPropagation(); askAi(artifact); }}
+              title="Demander à l'IA d'expliquer cet artefact"
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 7px', borderRadius: 6,
+                fontSize: 9.5, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', cursor: 'pointer',
+                background: 'transparent', color: hover ? 'var(--fl-accent)' : 'var(--fl-muted)',
+                border: `1px solid ${hover ? 'color-mix(in srgb, var(--fl-accent) 30%, transparent)' : 'var(--fl-border)'}`,
+                transition: 'all 0.12s', opacity: hover || open ? 1 : 0.55,
+              }}
+            >
+              <Sparkles size={10} /> IA
+            </button>
           </div>
         </div>
-        
-        <div className="flex flex-wrap gap-1 mt-2">
+
+        <div className="flex flex-wrap gap-1 mt-2" style={{ paddingLeft: 22 }}>
           {artifact.tools.map(t => <ToolBadge key={t} name={t} />)}
         </div>
       </button>
@@ -415,7 +464,7 @@ function ArtifactCard({ artifact, search, defaultOpen }) {
               <ul className="space-y-1">
                 {artifact.indicators.map((ind, i) => (
                   <li key={i} className="flex items-start gap-2" style={{ color: T.text }}>
-                    <code style={{ fontSize: 11, fontFamily: 'monospace', color: 'var(--fl-warn)' }}>→</code>
+                    <code style={{ fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-warn)' }}>→</code>
                     <span className="text-xs font-mono">{ind}</span>
                   </li>
                 ))}
@@ -443,8 +492,25 @@ function ArtifactCard({ artifact, search, defaultOpen }) {
   );
 }
 
+function matchesArtifact(a, q) {
+  if (!q) return true;
+  q = q.toLowerCase();
+  return a.name.toLowerCase().includes(q) ||
+    a.cat.toLowerCase().includes(q) ||
+    a.paths.some(p => p.toLowerCase().includes(q)) ||
+    a.content.some(c => c.toLowerCase().includes(q)) ||
+    (a.note || '').toLowerCase().includes(q) ||
+    (a.forensic || '').toLowerCase().includes(q) ||
+    a.tools.some(t => t.toLowerCase().includes(q)) ||
+    (a.mitre || []).some(m => m.toLowerCase().includes(q));
+}
+
+export const DOC_INDEX = ARTIFACTS.map(a => ({ title: a.name, sub: a.cat }));
+
 export default function WindowsArtifactsDoc({ search }) {
-  const T = useTheme();
+  const [hidden, setHidden] = useState(() => new Set());
+  const [compact, setCompact] = useState(false);
+  const [sortValue, setSortValue] = useState(false);
 
   const categories = useMemo(() => {
     const cats = {};
@@ -454,68 +520,95 @@ export default function WindowsArtifactsDoc({ search }) {
     }
     return cats;
   }, []);
+  const catNames = Object.keys(categories);
 
-  const totalVisible = useMemo(() => {
-    if (!search) return ARTIFACTS.length;
-    const q = search.toLowerCase();
-    return ARTIFACTS.filter(a =>
-      a.name.toLowerCase().includes(q) ||
-      a.cat.toLowerCase().includes(q) ||
-      a.paths.some(p => p.toLowerCase().includes(q)) ||
-      a.content.some(c => c.toLowerCase().includes(q)) ||
-      (a.note || '').toLowerCase().includes(q) ||
-      a.tools.some(t => t.toLowerCase().includes(q)) ||
-      (a.mitre || []).some(m => m.toLowerCase().includes(q))
-    ).length;
-  }, [search]);
+  const totalVisible = useMemo(
+    () => ARTIFACTS.filter(a => matchesArtifact(a, search)).length,
+    [search],
+  );
+
+  const toggleCat = (cat) => setHidden(h => {
+    const n = new Set(h);
+    n.has(cat) ? n.delete(cat) : n.add(cat);
+    return n;
+  });
+
+  // Premium toggle button used for density / sort controls.
+  const Toggle = ({ active, onClick, icon: Icon, children, title }) => (
+    <button onClick={onClick} title={title} style={{
+      display: 'inline-flex', alignItems: 'center', gap: 6, padding: '5px 11px', borderRadius: 8, cursor: 'pointer',
+      fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11,
+      background: active ? 'color-mix(in srgb, var(--fl-accent) 12%, transparent)' : 'transparent',
+      border: `1px solid ${active ? 'color-mix(in srgb, var(--fl-accent) 30%, transparent)' : 'var(--fl-border)'}`,
+      color: active ? 'var(--fl-accent)' : 'var(--fl-dim)', transition: 'all 0.12s',
+    }}>
+      {Icon && <Icon size={12} />} {children}
+    </button>
+  );
 
   return (
-    <div style={{ padding: '24px 32px', maxWidth: 900 }}>
-      
-      <div className="mb-6">
-        <h1 className="text-lg font-mono font-bold mb-1" style={{ color: T.text }}>
+    <div style={{ padding: '26px 34px', maxWidth: 920 }}>
+
+      {/* Editorial header */}
+      <div style={{ marginBottom: 18 }}>
+        <h1 style={{ fontFamily: 'var(--f-display, "Space Grotesk", "Inter", sans-serif)', fontSize: 26, fontWeight: 600, letterSpacing: '-0.02em', color: 'var(--fl-text)', margin: 0 }}>
           Artefacts Windows
         </h1>
-        <p className="text-sm" style={{ color: T.muted }}>
-          {search ? `${totalVisible} artefact${totalVisible > 1 ? 's' : ''} trouvé${totalVisible > 1 ? 's' : ''}` : `${ARTIFACTS.length} artefacts — 3 catégories`}
-          {' '}·{' '}
-          <span style={{ color: 'var(--fl-gold)', fontSize: 11 }}>
-            ★ Haute valeur forensique
-          </span>
+        <p style={{ fontSize: 13, color: 'var(--fl-dim)', marginTop: 5, fontFamily: 'var(--f-ui, "Inter", sans-serif)' }}>
+          {search
+            ? `${totalVisible} artefact${totalVisible > 1 ? 's' : ''} trouvé${totalVisible > 1 ? 's' : ''} pour « ${search} »`
+            : `${ARTIFACTS.length} artefacts · ${catNames.length} catégories`}
+          {' · '}
+          <span style={{ color: 'var(--fl-gold)' }}>★ valeur forensique</span>
         </p>
       </div>
 
+      {/* Controls: category chips + density + sort */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 22, paddingBottom: 16, borderBottom: '1px solid var(--fl-border)' }}>
+        {catNames.map(cat => {
+          const on = !hidden.has(cat);
+          return (
+            <button key={cat} onClick={() => toggleCat(cat)} style={{
+              padding: '5px 11px', borderRadius: 999, cursor: 'pointer',
+              fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10.5, letterSpacing: '0.02em',
+              background: on ? 'color-mix(in srgb, var(--fl-accent) 12%, transparent)' : 'transparent',
+              border: `1px solid ${on ? 'color-mix(in srgb, var(--fl-accent) 28%, transparent)' : 'var(--fl-border)'}`,
+              color: on ? 'var(--fl-accent)' : 'var(--fl-muted)',
+              textDecoration: on ? 'none' : 'line-through', opacity: on ? 1 : 0.7, transition: 'all 0.12s',
+            }}>{cat}</button>
+          );
+        })}
+        <div style={{ flex: 1 }} />
+        <Toggle active={sortValue} onClick={() => setSortValue(v => !v)} icon={ArrowDownUp} title="Trier par valeur forensique (haute valeur en premier)">Valeur</Toggle>
+        <Toggle active={compact} onClick={() => setCompact(v => !v)} title="Affichage compact">{compact ? 'Compact' : 'Confort'}</Toggle>
+      </div>
+
       {Object.entries(categories).map(([cat, items]) => {
-        const visibleCount = items.filter(a => {
-          if (!search) return true;
-          const q = search.toLowerCase();
-          return a.name.toLowerCase().includes(q) ||
-            a.paths.some(p => p.toLowerCase().includes(q)) ||
-            a.content.some(c => c.toLowerCase().includes(q)) ||
-            (a.note || '').toLowerCase().includes(q) ||
-            a.tools.some(t => t.toLowerCase().includes(q)) ||
-            (a.mitre || []).some(m => m.toLowerCase().includes(q));
-        }).length;
-        if (visibleCount === 0) return null;
+        if (hidden.has(cat)) return null;
+        const shown = items.filter(a => matchesArtifact(a, search));
+        if (shown.length === 0) return null;
+        const ordered = sortValue
+          ? [...shown].sort((a, b) => (b.forensic ? 1 : 0) - (a.forensic ? 1 : 0))
+          : shown;
         return (
-          <div key={cat} className="mb-8">
-            <div className="flex items-center gap-3 mb-3">
-              <h2 className="text-sm font-mono font-bold uppercase tracking-widest"
-                style={{ color: T.accent }}>
+          <div key={cat} style={{ marginBottom: compact ? 22 : 32 }}>
+            <div className="flex items-center gap-3" style={{ marginBottom: 12 }}>
+              <h2 style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.14em', color: 'var(--fl-accent)' }}>
                 {cat}
               </h2>
-              <div style={{ flex: 1, height: 1, background: T.border }} />
-              <span className="text-xs font-mono" style={{ color: T.muted }}>
-                {visibleCount}/{items.length}
+              <div style={{ flex: 1, height: 1, background: 'var(--fl-border)' }} />
+              <span style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11, color: 'var(--fl-muted)' }}>
+                {shown.length}/{items.length}
               </span>
             </div>
-            <div className="space-y-2">
-              {items.map(a => (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: compact ? 6 : 8 }}>
+              {ordered.map(a => (
                 <ArtifactCard
                   key={a.name}
                   artifact={a}
                   search={search}
                   defaultOpen={false}
+                  compact={compact}
                 />
               ))}
             </div>
@@ -524,8 +617,9 @@ export default function WindowsArtifactsDoc({ search }) {
       })}
 
       {totalVisible === 0 && (
-        <div className="text-center py-16" style={{ color: T.muted }}>
-          <p className="text-sm font-mono">Aucun artefact ne correspond à "{search}"</p>
+        <div style={{ textAlign: 'center', padding: '64px 0', color: 'var(--fl-muted)' }}>
+          <Search size={28} style={{ opacity: 0.35, marginBottom: 10 }} />
+          <p style={{ fontSize: 13, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}>Aucun artefact ne correspond à « {search} »</p>
         </div>
       )}
     </div>

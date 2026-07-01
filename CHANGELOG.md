@@ -5,7 +5,17 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — Semantic Ve
 
 ---
 
-## [1.1.0] — 2026-05-05 — AI Engine Overhaul, Forensics Agents & Network Map Rebuild
+## [Unreleased]
+
+### Added (Lateral Movement)
+
+- **Propagation latérale dérivée du réseau** — la vue « Propagation Latérale » construit désormais des arêtes depuis `network_connections` (imports PCAP / CSV), et plus seulement depuis les events de logon Windows EVTX. Les connexions internes↔internes sur les protocoles latéraux (SMB 445, NetBIOS 139, WMI/RPC 135, RDP 3389, WinRM 5985/5986, SSH 22, VNC 5900) sont injectées dans le graphe latéral, de sorte qu'un cas alimenté uniquement par un PCAP fait apparaître le pivoting au lieu d'une vue vide (`backend/src/services/lateralMovementService.ts`, `backend/src/routes/cases.js`)
+- **Origine des arêtes** — chaque arête latérale porte une `origin` (`evtx` / `network` / `both`) ; les arêtes réseau s'affichent en pointillés avec une couleur par protocole et une entrée de légende dédiée (`frontend/src/components/network/LateralMovementD3.jsx`)
+- **Facteurs de score réseau** — un nœud atteint via RDP/SSH/VNC gagne un facteur « Accès distant réseau » (+10) ; un nœud n'ayant que des preuves réseau est marqué « Preuve réseau seule (non confirmée par auth) »
+
+---
+
+## [0.9.11] — 2026-05-05 — AI Engine Overhaul, Forensics Agents & Network Map Rebuild
 
 ### Added (AI Engine — Architecture)
 
@@ -64,7 +74,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — Semantic Ve
 
 ---
 
-## [1.0.0] — 2026-05-05 — Production Hardening: Codebase Audit, Docker Stack & Traefik TLS
+## [0.9.10] — 2026-05-05 — Production Hardening: Codebase Audit, Docker Stack & Traefik TLS
 
 ### Fixed (Codebase Health Check — Critical)
 

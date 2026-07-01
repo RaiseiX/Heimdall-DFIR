@@ -23,7 +23,7 @@ export default function FilterChip({
         padding: '3px 10px',
         borderRadius: 'var(--fl-radius-sm)',
         fontSize: 11,
-        fontFamily: 'monospace',
+        fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
         background: bg,
         border: `1px solid ${border}`,
         color: textColor,

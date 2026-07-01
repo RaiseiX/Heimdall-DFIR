@@ -10,10 +10,10 @@ function CopyBtn({ text }) {
       style={{
         display: 'inline-flex', alignItems: 'center', gap: 3,
         padding: '2px 6px', borderRadius: 4, cursor: 'pointer',
-        fontSize: 9, fontFamily: 'monospace', flexShrink: 0,
-        background: ok ? '#22c55e18' : 'var(--fl-card)',
-        color: ok ? '#22c55e' : 'var(--fl-dim)',
-        border: `1px solid ${ok ? '#22c55e40' : 'var(--fl-border)'}`,
+        fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', flexShrink: 0,
+        background: ok ? 'color-mix(in srgb, var(--fl-ok) 9%, transparent)' : 'var(--fl-card)',
+        color: ok ? 'var(--fl-ok)' : 'var(--fl-dim)',
+        border: `1px solid ${ok ? 'color-mix(in srgb, var(--fl-ok) 25%, transparent)' : 'var(--fl-border)'}`,
       }}>
       {ok ? <CheckCheck size={9} /> : <Copy size={9} />}
     </button>
@@ -28,7 +28,7 @@ function ChecklistSection({ title, items, color }) {
 
   return (
     <div style={{ marginBottom: 16 }}>
-      <div style={{ fontFamily: 'monospace', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: c, marginBottom: 8 }}>{title}</div>
+      <div style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: c, marginBottom: 8 }}>{title}</div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
         {items.map((item, i) => (
           <button key={i} onClick={() => toggle(i)}
@@ -39,7 +39,7 @@ function ChecklistSection({ title, items, color }) {
             {checked[i]
               ? <CheckSquare size={12} style={{ color: 'var(--fl-ok)', flexShrink: 0, marginTop: 1 }} />
               : <Square size={12} style={{ color: T.dim, flexShrink: 0, marginTop: 1 }} />}
-            <span style={{ fontFamily: 'monospace', fontSize: 11, color: checked[i] ? T.dim : T.text, textDecoration: checked[i] ? 'line-through' : 'none', lineHeight: 1.5 }}>{item}</span>
+            <span style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11, color: checked[i] ? T.dim : T.text, textDecoration: checked[i] ? 'line-through' : 'none', lineHeight: 1.5 }}>{item}</span>
           </button>
         ))}
       </div>
@@ -57,16 +57,16 @@ function PhaseCard({ phase }) {
         style={{ padding: '12px 16px', background: phase.bgColor, border: 'none', cursor: 'pointer', display: 'block', width: '100%' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <div style={{ fontFamily: 'monospace', fontSize: 9, fontWeight: 700, padding: '2px 7px', borderRadius: 3,
+            <div style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 9, fontWeight: 700, padding: '2px 7px', borderRadius: 3,
               background: phase.badgeBg, color: phase.badgeColor, border: `1px solid ${phase.borderColor}` }}>
               {phase.number}
             </div>
             <span style={{ fontSize: 15 }}>{phase.icon}</span>
-            <span style={{ fontFamily: 'monospace', fontWeight: 700, fontSize: 13, color: T.text }}>{phase.title}</span>
+            <span style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontWeight: 700, fontSize: 13, color: T.text }}>{phase.title}</span>
           </div>
           {open ? <ChevronDown size={13} style={{ color: T.dim, flexShrink: 0 }} /> : <ChevronRight size={13} style={{ color: T.dim, flexShrink: 0 }} />}
         </div>
-        <p style={{ fontSize: 11, marginTop: 5, marginLeft: 55, color: T.muted, fontFamily: 'monospace', lineHeight: 1.5 }}>{phase.desc}</p>
+        <p style={{ fontSize: 11, marginTop: 5, marginLeft: 55, color: T.muted, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', lineHeight: 1.5 }}>{phase.desc}</p>
       </button>
 
       {open && (
@@ -78,12 +78,12 @@ function PhaseCard({ phase }) {
             if (s.type === 'commands') {
               return (
                 <div key={i} style={{ marginBottom: 16 }}>
-                  <div style={{ fontFamily: 'monospace', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: phase.badgeColor, marginBottom: 8 }}>{s.label}</div>
+                  <div style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: phase.badgeColor, marginBottom: 8 }}>{s.label}</div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
                     {s.items.map((cmd, j) => (
                       <div key={j} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '5px 9px', borderRadius: 4,
                         background: T.panel, border: '1px solid var(--fl-border)' }}>
-                        <code style={{ fontFamily: 'monospace', fontSize: 11, color: cmd.startsWith('#') ? T.dim : 'var(--fl-ok)', wordBreak: 'break-all', flex: 1, lineHeight: 1.5 }}>{cmd}</code>
+                        <code style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11, color: cmd.startsWith('#') ? T.dim : 'var(--fl-ok)', wordBreak: 'break-all', flex: 1, lineHeight: 1.5 }}>{cmd}</code>
                         {!cmd.startsWith('#') && <CopyBtn text={cmd} />}
                       </div>
                     ))}
@@ -94,10 +94,10 @@ function PhaseCard({ phase }) {
             if (s.type === 'text') {
               return (
                 <div key={i} style={{ marginBottom: 16 }}>
-                  <div style={{ fontFamily: 'monospace', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: phase.badgeColor, marginBottom: 8 }}>{s.label}</div>
+                  <div style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: phase.badgeColor, marginBottom: 8 }}>{s.label}</div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                     {s.items.map((item, j) => (
-                      <div key={j} style={{ display: 'flex', alignItems: 'flex-start', gap: 6, fontSize: 11, fontFamily: 'monospace', color: T.text }}>
+                      <div key={j} style={{ display: 'flex', alignItems: 'flex-start', gap: 6, fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: T.text }}>
                         <span style={{ color: phase.badgeColor, flexShrink: 0 }}>›</span>
                         <span>{item}</span>
                       </div>
@@ -120,10 +120,10 @@ const PHASES = [
     icon: '🚨',
     title: 'Détection & Triage Initial',
     desc: 'Confirmer ou infirmer l\'incident, estimer le périmètre, activer la cellule de crise. Ne pas contaminer les preuves.',
-    bgColor: 'color-mix(in srgb, #f97316 6%, transparent)',
-    borderColor: 'color-mix(in srgb, #f97316 30%, transparent)',
-    badgeBg: 'color-mix(in srgb, #f97316 15%, transparent)',
-    badgeColor: '#f97316',
+    bgColor: 'color-mix(in srgb, var(--fl-warn) 6%, transparent)',
+    borderColor: 'color-mix(in srgb, var(--fl-warn) 30%, transparent)',
+    badgeBg: 'color-mix(in srgb, var(--fl-warn) 15%, transparent)',
+    badgeColor: 'var(--fl-warn)',
     sections: [
       {
         type: 'checklist',
@@ -171,10 +171,10 @@ const PHASES = [
     icon: '🔒',
     title: 'Confinement',
     desc: 'Limiter la propagation sans détruire les preuves. Confinement court terme puis long terme.',
-    bgColor: 'color-mix(in srgb, #ef4444 6%, transparent)',
-    borderColor: 'color-mix(in srgb, #ef4444 30%, transparent)',
-    badgeBg: 'color-mix(in srgb, #ef4444 15%, transparent)',
-    badgeColor: '#ef4444',
+    bgColor: 'color-mix(in srgb, var(--fl-danger) 6%, transparent)',
+    borderColor: 'color-mix(in srgb, var(--fl-danger) 30%, transparent)',
+    badgeBg: 'color-mix(in srgb, var(--fl-danger) 15%, transparent)',
+    badgeColor: 'var(--fl-danger)',
     sections: [
       {
         type: 'checklist',
@@ -311,10 +311,10 @@ const PHASES = [
     icon: '🔍',
     title: 'Investigation & Analyse',
     desc: 'Reconstruire la chronologie, identifier le vecteur initial, cartographier la compromission.',
-    bgColor: 'color-mix(in srgb, #a855f7 6%, transparent)',
-    borderColor: 'color-mix(in srgb, #a855f7 30%, transparent)',
-    badgeBg: 'color-mix(in srgb, #a855f7 15%, transparent)',
-    badgeColor: '#a855f7',
+    bgColor: 'color-mix(in srgb, var(--fl-accent) 6%, transparent)',
+    borderColor: 'color-mix(in srgb, var(--fl-accent) 30%, transparent)',
+    badgeBg: 'color-mix(in srgb, var(--fl-accent) 15%, transparent)',
+    badgeColor: 'var(--fl-accent)',
     sections: [
       {
         type: 'text',
@@ -379,10 +379,10 @@ const PHASES = [
     icon: '🛠️',
     title: 'Éradication',
     desc: 'Supprimer tous les artefacts malveillants, persistence, accès backdoor de l\'environnement.',
-    bgColor: 'color-mix(in srgb, #10b981 6%, transparent)',
-    borderColor: 'color-mix(in srgb, #10b981 30%, transparent)',
-    badgeBg: 'color-mix(in srgb, #10b981 15%, transparent)',
-    badgeColor: '#10b981',
+    bgColor: 'color-mix(in srgb, var(--fl-ok) 6%, transparent)',
+    borderColor: 'color-mix(in srgb, var(--fl-ok) 30%, transparent)',
+    badgeBg: 'color-mix(in srgb, var(--fl-ok) 15%, transparent)',
+    badgeColor: 'var(--fl-ok)',
     sections: [
       {
         type: 'checklist',
@@ -418,10 +418,10 @@ const PHASES = [
     icon: '🔄',
     title: 'Remédiation & Durcissement',
     desc: 'Corriger les faiblesses exploitées et renforcer l\'environnement pour prévenir une récidive.',
-    bgColor: 'color-mix(in srgb, #06b6d4 6%, transparent)',
-    borderColor: 'color-mix(in srgb, #06b6d4 30%, transparent)',
-    badgeBg: 'color-mix(in srgb, #06b6d4 15%, transparent)',
-    badgeColor: '#06b6d4',
+    bgColor: 'color-mix(in srgb, var(--fl-purple) 6%, transparent)',
+    borderColor: 'color-mix(in srgb, var(--fl-purple) 30%, transparent)',
+    badgeBg: 'color-mix(in srgb, var(--fl-purple) 15%, transparent)',
+    badgeColor: 'var(--fl-purple)',
     sections: [
       {
         type: 'checklist',
@@ -511,11 +511,13 @@ const PHASES = [
 ];
 
 const SEVERITY_MATRIX = [
-  { level: 'P1 — Critique', color: '#ef4444', trigger: 'Ransomware actif, DC compromis, exfiltration confirmée, infrastructure critique', response: '< 15 min', escalade: 'RSSI + Direction + Juridique + Assureur cyber' },
-  { level: 'P2 — Haute',    color: '#f97316', trigger: 'Mouvement latéral détecté, credentials admin compromis, C2 actif', response: '< 1h', escalade: 'RSSI + Équipe IR' },
-  { level: 'P3 — Moyenne',  color: '#eab308', trigger: 'Endpoint compromis (malware isolé), phishing réussi sans propagation', response: '< 4h', escalade: 'Équipe sécurité' },
-  { level: 'P4 — Basse',    color: '#84cc16', trigger: 'Tentative bloquée, scan externe, phishing bloqué', response: '< 24h', escalade: 'SOC analyst' },
+  { level: 'P1 — Critique', color: 'var(--fl-danger)', trigger: 'Ransomware actif, DC compromis, exfiltration confirmée, infrastructure critique', response: '< 15 min', escalade: 'RSSI + Direction + Juridique + Assureur cyber' },
+  { level: 'P2 — Haute',    color: 'var(--fl-warn)', trigger: 'Mouvement latéral détecté, credentials admin compromis, C2 actif', response: '< 1h', escalade: 'RSSI + Équipe IR' },
+  { level: 'P3 — Moyenne',  color: 'var(--fl-warn)', trigger: 'Endpoint compromis (malware isolé), phishing réussi sans propagation', response: '< 4h', escalade: 'Équipe sécurité' },
+  { level: 'P4 — Basse',    color: 'var(--fl-ok)', trigger: 'Tentative bloquée, scan externe, phishing bloqué', response: '< 24h', escalade: 'SOC analyst' },
 ];
+
+export const DOC_INDEX = PHASES.map(p => ({ title: p.title, sub: 'Phase IR' }));
 
 export default function DFIRMethodologyDoc({ search }) {
   const T = useTheme();
@@ -529,26 +531,26 @@ export default function DFIRMethodologyDoc({ search }) {
   });
 
   return (
-    <div style={{ padding: '24px 28px', maxWidth: 960 }}>
-      <div style={{ marginBottom: 20 }}>
-        <h1 style={{ fontFamily: 'monospace', fontSize: 16, fontWeight: 700, color: T.text, marginBottom: 3 }}>Méthodologie DFIR</h1>
-        <p style={{ fontFamily: 'monospace', fontSize: 11, color: T.muted }}>
-          Cycle complet de réponse à incident — 7 phases · checklists interactives · matrice de sévérité
+    <div style={{ padding: '26px 34px', maxWidth: 960 }}>
+      <div style={{ marginBottom: 22 }}>
+        <h1 style={{ fontFamily: 'var(--f-display, "Space Grotesk", "Inter", sans-serif)', fontSize: 26, fontWeight: 600, letterSpacing: '-0.02em', color: 'var(--fl-text)', margin: 0 }}>Méthodologie DFIR</h1>
+        <p style={{ fontFamily: 'var(--f-ui, "Inter", sans-serif)', fontSize: 13, color: 'var(--fl-dim)', marginTop: 5 }}>
+          Cycle complet de réponse à incident · 7 phases · checklists interactives · matrice de sévérité
         </p>
       </div>
 
       {/* Severity Matrix */}
       {!search && (
         <div style={{ marginBottom: 22 }}>
-          <div style={{ fontFamily: 'monospace', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: T.dim, marginBottom: 10 }}>Matrice de Sévérité & Escalade</div>
+          <div style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: T.dim, marginBottom: 10 }}>Matrice de Sévérité & Escalade</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             {SEVERITY_MATRIX.map((row, i) => (
               <div key={i} style={{ display: 'grid', gridTemplateColumns: '160px 1fr 80px 200px', gap: 8, padding: '8px 12px', borderRadius: 6,
                 background: T.panel, border: '1px solid var(--fl-border)' }}>
-                <span style={{ fontFamily: 'monospace', fontSize: 10, fontWeight: 700, color: row.color }}>{row.level}</span>
-                <span style={{ fontFamily: 'monospace', fontSize: 10, color: T.text }}>{row.trigger}</span>
-                <span style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--fl-ok)', textAlign: 'center' }}>{row.response}</span>
-                <span style={{ fontFamily: 'monospace', fontSize: 9, color: T.muted }}>{row.escalade}</span>
+                <span style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10, fontWeight: 700, color: row.color }}>{row.level}</span>
+                <span style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10, color: T.text }}>{row.trigger}</span>
+                <span style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10, color: 'var(--fl-ok)', textAlign: 'center' }}>{row.response}</span>
+                <span style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 9, color: T.muted }}>{row.escalade}</span>
               </div>
             ))}
           </div>
@@ -562,7 +564,7 @@ export default function DFIRMethodologyDoc({ search }) {
             {PHASES.map((phase, i) => (
               <div key={phase.number} style={{ display: 'flex', alignItems: 'center' }}>
                 <div style={{
-                  padding: '4px 10px', fontSize: 9, fontFamily: 'monospace', fontWeight: 700,
+                  padding: '4px 10px', fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontWeight: 700,
                   background: phase.badgeBg, color: phase.badgeColor,
                   border: `1px solid ${phase.borderColor}`,
                   borderRadius: i === 0 ? '4px 0 0 4px' : i === PHASES.length - 1 ? '0 4px 4px 0' : 0,
@@ -586,7 +588,7 @@ export default function DFIRMethodologyDoc({ search }) {
 
       {filtered.length === 0 && (
         <div style={{ textAlign: 'center', padding: '60px 0', color: T.muted }}>
-          <p style={{ fontFamily: 'monospace', fontSize: 13 }}>Aucune phase ne correspond à "{search}"</p>
+          <p style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 13 }}>Aucune phase ne correspond à "{search}"</p>
         </div>
       )}
     </div>

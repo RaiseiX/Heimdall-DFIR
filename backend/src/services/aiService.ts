@@ -4,7 +4,7 @@ import * as aiRouter from './aiRouter';
 import type { ThinkingMode } from './aiRouter';
 
 const OLLAMA_URL  = process.env.OLLAMA_URL;
-const AI_MODEL    = process.env.AI_MODEL            || 'qwen3.5:4b';
+const AI_MODEL    = process.env.AI_MODEL            || 'qwen2.5:3b';
 const MAX_HISTORY = parseInt(process.env.AI_MAX_HISTORY_MESSAGES || '30', 10);
 const TEMPERATURE = parseFloat(process.env.AI_TEMPERATURE || '0.1');
 // Max conversation turns included in the messages array sent to Ollama.
@@ -38,6 +38,69 @@ interface CaseContext {
     mitre_technique_id: string;
     level:              string;
   }>;
+  // Question-relevant items retrieved by keyword (RAG-lite) — present only when a query is given.
+  relevant?: {
+    artifacts: Array<{ artifact_type: string; description: string; timestamp: string; host_name: string; user_name: string; mitre_technique_id: string; level: string }>;
+    iocs:      Array<{ value: string; type: string; verdict: string }>;
+    notes:     Array<{ content: string; author: string }>;
+  } | null;
+}
+
+// ── RAG-lite: pull case items that match the user's question by keyword ────────
+
+const RAG_STOPWORDS = new Set([
+  'les','des','une','que','qui','quoi','dans','pour','avec','est','sur','par','quel','quelle','quels','quelles',
+  'comment','pourquoi','est-ce','y','t-il','il','elle','ils','elles','sont','ce','cette','ces','cas','the','and',
+  'que','est','son','ses','leur','plus','moins','tout','tous','toute','toutes','fait','faire','peux','peut','dois',
+  'donne','montre','liste','analyse','explique','dis','moi','nous','vous','aux','des','une','est','était','être',
+]);
+
+function ragKeywords(query?: string): string[] {
+  if (!query) return [];
+  const words = (query.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').match(/[a-z0-9._:/\\-]{3,}/g) || []);
+  return [...new Set(words)].filter((w) => !RAG_STOPWORDS.has(w)).slice(0, 8);
+}
+
+async function retrieveRelevant(pool: Pool, caseId: number, query?: string): Promise<CaseContext['relevant']> {
+  const kw = ragKeywords(query);
+  if (!kw.length) return null;
+  const pats = kw.map((k) => `%${k}%`);
+  const [arts, iocs, notes] = await Promise.all([
+    pool.query(
+      `SELECT artifact_type, description, timestamp,
+              COALESCE(host_name,'') AS host_name, COALESCE(user_name,'') AS user_name,
+              COALESCE(mitre_technique_id,'') AS mitre_technique_id, COALESCE(raw->>'level','') AS level
+       FROM collection_timeline
+       WHERE case_id=$1 AND (description ILIKE ANY($2) OR host_name ILIKE ANY($2) OR user_name ILIKE ANY($2)
+                              OR artifact_type ILIKE ANY($2) OR mitre_technique_id ILIKE ANY($2))
+       ORDER BY CASE raw->>'level' WHEN 'critical' THEN 1 WHEN 'high' THEN 2 WHEN 'medium' THEN 3 ELSE 4 END, timestamp DESC
+       LIMIT 18`, [caseId, pats]).catch(() => ({ rows: [] })),
+    pool.query(
+      `SELECT value, ioc_type AS type,
+              CASE WHEN is_malicious THEN 'malveillant' ELSE 'inconnu' END AS verdict
+       FROM iocs WHERE case_id=$1 AND value ILIKE ANY($2) ORDER BY severity DESC LIMIT 12`, [caseId, pats]).catch(() => ({ rows: [] })),
+    pool.query(
+      `SELECT an.note AS content, u.username AS author
+       FROM artifact_notes an LEFT JOIN users u ON u.id=an.author_id
+       WHERE an.case_id=$1 AND an.note ILIKE ANY($2) ORDER BY an.created_at DESC LIMIT 8`, [caseId, pats]).catch(() => ({ rows: [] })),
+  ]);
+  if (!arts.rows.length && !iocs.rows.length && !notes.rows.length) return null;
+  return { artifacts: arts.rows as any, iocs: iocs.rows as any, notes: notes.rows as any };
+}
+
+// Resolve the model to use: explicit request → operator's active model (Opérations
+// tab, if installed) → best auto-selected installed model.
+export async function resolveModel(pool: Pool, requested?: string): Promise<string> {
+  if (requested) return requested;
+  try {
+    const r = await pool.query("SELECT value FROM system_settings WHERE key='ai'");
+    const configured: string | undefined = r.rows[0]?.value?.active_model;
+    if (configured) {
+      const status = await aiRouter.probe();
+      if (status.models.some((m) => m.name === configured)) return configured;
+    }
+  } catch (_e) { /* fall through to auto-select */ }
+  return aiRouter.selectModel('fast');
 }
 
 export async function getConversationHistory(
@@ -117,7 +180,7 @@ export async function clearInvestigatorContext(pool: Pool, caseId: number): Prom
   await pool.query('DELETE FROM ai_investigator_context WHERE case_id = $1', [caseId]);
 }
 
-export async function buildCaseContext(pool: Pool, caseId: number): Promise<CaseContext> {
+export async function buildCaseContext(pool: Pool, caseId: number, query?: string): Promise<CaseContext> {
 
   const caseRes = await pool.query(
     'SELECT id, title, description, status FROM cases WHERE id = $1',
@@ -143,7 +206,6 @@ export async function buildCaseContext(pool: Pool, caseId: number): Promise<Case
   const iocsRes = await pool.query(
     `SELECT value, ioc_type AS type,
        CASE WHEN is_malicious THEN 'malveillant'
-            WHEN vt_verdict IS NOT NULL THEN vt_verdict
             ELSE 'inconnu' END AS verdict
      FROM iocs
      WHERE case_id = $1
@@ -198,6 +260,7 @@ export async function buildCaseContext(pool: Pool, caseId: number): Promise<Case
     evidences:           evidenceRes.rows,
     alerts:              alertsRes.rows,
     timelineArtifacts:   artifactsRes.rows,
+    relevant:            await retrieveRelevant(pool, caseId, query),
   };
 }
 
@@ -220,7 +283,11 @@ ${ctx.investigatorContext || 'Aucun contexte renseigné par l\'analyste.'}
 
 ⚠ Ce contexte est la priorité. Il oriente toute ton analyse.
   Utilise-le pour interpréter les artifacts et formuler tes hypothèses.
-
+${ctx.relevant ? `
+=== ÉLÉMENTS PERTINENTS À LA QUESTION (recherche ciblée) ===
+Ces éléments correspondent directement aux mots-clés de la question — PRIVILÉGIE-les pour répondre précisément et cite-les.
+${ctx.relevant.artifacts.length ? 'Artefacts :\n' + ctx.relevant.artifacts.map((a) => `  [${a.level || '?'}] ${a.artifact_type} | ${a.timestamp} | ${a.host_name || '?'} | ${a.user_name || '?'} | ${(a.description || '').slice(0, 150)}`).join('\n') : ''}${ctx.relevant.iocs.length ? '\nIOCs :\n' + ctx.relevant.iocs.map((i) => `  [${i.type}] ${i.value} — ${i.verdict}`).join('\n') : ''}${ctx.relevant.notes.length ? '\nNotes :\n' + ctx.relevant.notes.map((n) => `  [${n.author}] ${(n.content || '').slice(0, 160)}`).join('\n') : ''}
+` : ''}
 === ALERTES HAYABUSA/SIGMA (${ctx.alerts.length}) ===
 ${fmt(ctx.alerts, a => `  [${a.level?.toUpperCase()}] ${a.rule_title} | ${a.timestamp} | MITRE: ${a.mitre_id || '-'}`)}
 
@@ -301,19 +368,20 @@ export async function chat(
   caseId: number,
   userId: number,
   message: string,
-  model         = AI_MODEL,
+  model         = '',
   thinkingMode: ThinkingMode = 'no_think',
   agentType:    AgentType    = 'analysis'
 ): Promise<string> {
   if (!OLLAMA_URL) throw new Error('OLLAMA_URL not configured');
 
-  const ctx    = await buildCaseContext(pool, caseId);
+  const useModel = await resolveModel(pool, model);
+  const ctx    = await buildCaseContext(pool, caseId, message);
   const { system, temperature } = applyAgentConfig(buildSystemPrompt(ctx), agentType);
 
   // Fetch history BEFORE saving the new user message to avoid duplicating it.
   const history = await getConversationHistory(pool, caseId, HISTORY_FOR_CONTEXT);
 
-  await saveMessage(pool, caseId, userId, 'user', message, model);
+  await saveMessage(pool, caseId, userId, 'user', message, useModel);
 
   const messages: aiRouter.OllamaMessage[] = [
     { role: 'system',    content: system },
@@ -321,9 +389,9 @@ export async function chat(
     { role: 'user',      content: message },
   ];
 
-  const response = await aiRouter.chat({ model, messages, thinkingMode, temperature });
+  const response = await aiRouter.chat({ model: useModel, messages, thinkingMode, temperature });
 
-  await saveMessage(pool, caseId, userId, 'assistant', response, model);
+  await saveMessage(pool, caseId, userId, 'assistant', response, useModel);
   return response;
 }
 
@@ -333,7 +401,7 @@ export async function chatStream(
   userId: number,
   message: string,
   res: import('express').Response,
-  model         = AI_MODEL,
+  model         = '',
   thinkingMode: ThinkingMode = 'no_think',
   agentType:    AgentType    = 'analysis'
 ): Promise<void> {
@@ -341,6 +409,8 @@ export async function chatStream(
     res.status(503).json({ error: 'OLLAMA_URL not configured' });
     return;
   }
+
+  const useModel = await resolveModel(pool, model);
 
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
@@ -393,7 +463,6 @@ export async function chatStream(
   const iocsRes = await pool.query(
     `SELECT value, ioc_type AS type,
        CASE WHEN is_malicious THEN 'malveillant'
-            WHEN vt_verdict IS NOT NULL THEN vt_verdict
             ELSE 'inconnu' END AS verdict
      FROM iocs
      WHERE case_id = $1
@@ -465,6 +534,12 @@ export async function chatStream(
   );
   think('🗒️', "Notes d'investigation", 'done', { count: notesRes.rows.length });
 
+  think('🔎', 'Recherche ciblée (question)', 'loading');
+  const relevant = await retrieveRelevant(pool, caseId, message);
+  think('🔎', 'Recherche ciblée (question)', 'done', {
+    detail: relevant ? `${relevant.artifacts.length + relevant.iocs.length + relevant.notes.length} élément(s) pertinent(s)` : 'aucun',
+  });
+
   const ctx: CaseContext = {
     caseId:            c.id,
     caseName:          c.title,
@@ -476,16 +551,34 @@ export async function chatStream(
     evidences:         evidenceRes.rows,
     alerts:            alertsRes.rows,
     timelineArtifacts: artifactsRes.rows,
+    relevant,
   };
 
-  const { system, temperature } = applyAgentConfig(buildSystemPrompt(ctx), agentType);
+  const agentCfg = applyAgentConfig(buildSystemPrompt(ctx), agentType);
+  let system = agentCfg.system;
+  const temperature = agentCfg.temperature;
+
+  // Agentic mode (opt-in): let the model call read-only case tools (counts, distributions,
+  // targeted searches) and fold the exact results into the prompt before answering.
+  if (agentType === 'agentic') {
+    think('🔧', 'Outils du cas', 'loading');
+    try {
+      const aiAgent = require('./aiAgent');
+      const toolOut = await aiAgent.runTools(pool, caseId, message, useModel,
+        (name: string, _args: any, resStr: string) => think('🔧', `Outil : ${name}`, 'done', { detail: String(resStr).slice(0, 80) }));
+      if (toolOut) system += `\n\n=== RÉSULTATS D'OUTILS (calculés sur le cas — chiffres exacts) ===\n${toolOut}\n\nUtilise ces résultats chiffrés tels quels dans ta réponse ; ne les recalcule pas.`;
+      think('🔧', 'Outils du cas', 'done', { detail: toolOut ? 'résultats intégrés' : 'aucun outil pertinent' });
+    } catch (_e) {
+      think('🔧', 'Outils du cas', 'done', { detail: 'indisponible' });
+    }
+  }
 
   think('🤖', "Génération de l'analyse", 'generating');
 
   // Fetch history BEFORE saving the new user message to avoid duplicating it.
   const history = await getConversationHistory(pool, caseId, HISTORY_FOR_CONTEXT);
 
-  await saveMessage(pool, caseId, userId, 'user', message, model);
+  await saveMessage(pool, caseId, userId, 'user', message, useModel);
 
   const messages: aiRouter.OllamaMessage[] = [
     { role: 'system', content: system },
@@ -501,7 +594,7 @@ export async function chatStream(
 
   try {
     await aiRouter.streamChat({
-      model,
+      model: useModel,
       messages,
       thinkingMode,
       temperature,
@@ -511,7 +604,7 @@ export async function chatStream(
         emit({ done: true, hasContext: Boolean(ctx.investigatorContext) });
         res.write('data: [DONE]\n\n');
         if (full) {
-          await saveMessage(pool, caseId, userId, 'assistant', full, model).catch(() => {});
+          await saveMessage(pool, caseId, userId, 'assistant', full, useModel).catch(() => {});
         }
       },
       onError: (err) => {

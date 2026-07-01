@@ -10,27 +10,27 @@ export default function CommandPalette({ onClose, onCommand, recordCount, availT
   }, []);
 
   const COMMANDS = useMemo(() => [
-    { id: 'view:timeline',  label: 'Afficher vue Timeline',        icon: '⏱',  group: 'Vues' },
+    { id: 'view:timeline',  label: 'Show Timeline view',           icon: '⏱',  group: 'Views' },
     { id: 'view:gantt',     label: 'Afficher vue Gantt',           icon: '📊', group: 'Vues' },
     { id: 'view:heatmap',   label: 'Afficher Heatmap temporelle',  icon: '🔥', group: 'Vues' },
     { id: 'view:mitre',     label: 'Afficher MITRE ATT&CK Live',   icon: '🎯', group: 'Vues' },
     { id: 'view:playback',  label: 'Lancer la lecture chronologique', icon: '▶', group: 'Vues' },
-    { id: 'tab:timeline',   label: 'Onglet Timeline',              icon: '🕐', group: 'Navigation' },
+    { id: 'tab:timeline',   label: 'Timeline tab',                 icon: '🕐', group: 'Navigation' },
     { id: 'tab:persistence',label: 'Onglet Persistance',           icon: '🛡', group: 'Navigation' },
     { id: 'tab:dissim',     label: 'Onglet Dissimulation',         icon: '👁', group: 'Navigation' },
-    { id: 'filter:critical',label: 'Filtrer Hayabusa critical',    icon: '🔴', group: 'Filtres' },
-    { id: 'filter:high',    label: 'Filtrer Hayabusa high',        icon: '🟠', group: 'Filtres' },
-    { id: 'filter:malware', label: 'Rechercher "malware"',         icon: '🔍', group: 'Filtres' },
-    { id: 'filter:lsass',   label: 'Rechercher "lsass"',           icon: '🔍', group: 'Filtres' },
-    { id: 'filter:powershell', label: 'Rechercher "powershell"',  icon: '🔍', group: 'Filtres' },
+    { id: 'filter:critical',label: 'Filter Hayabusa critical',     icon: '🔴', group: 'Filters' },
+    { id: 'filter:high',    label: 'Filter Hayabusa high',         icon: '🟠', group: 'Filters' },
+    { id: 'filter:malware', label: 'Search "malware"',             icon: '🔍', group: 'Filters' },
+    { id: 'filter:lsass',   label: 'Search "lsass"',               icon: '🔍', group: 'Filters' },
+    { id: 'filter:powershell', label: 'Search "powershell"',      icon: '🔍', group: 'Filters' },
     ...(availTypes || []).map(t => ({
       id: `type:${t}`,
-      label: `Filtrer par type: ${t}`,
+      label: `Filter by type: ${t}`,
       icon: '🏷',
       group: 'Types',
     })),
-    { id: 'copy:all',       label: `Copier ${recordCount ?? 0} événements en CSV`, icon: '📋', group: 'Actions' },
-    { id: 'export:stix',    label: 'Exporter STIX 2.1',            icon: '📦', group: 'Actions' },
+    { id: 'copy:all',       label: `Copy ${recordCount ?? 0} events to CSV`, icon: '📋', group: 'Actions' },
+    { id: 'export:stix',    label: 'Export STIX 2.1',              icon: '📦', group: 'Actions' },
     { id: 'exit',           label: 'Quitter le mode Investigation', icon: '✕',  group: 'Navigation' },
   ], [availTypes, recordCount]);
 
@@ -71,7 +71,7 @@ export default function CommandPalette({ onClose, onCommand, recordCount, availT
     >
       <div
         style={{
-          width: 520, background: '#0a1520', border: '1px solid var(--fl-accent)',
+          width: 520, background: '#0e1118', border: '1px solid var(--fl-accent)',
           borderRadius: 10, boxShadow: '0 20px 60px rgba(0,0,0,0.8)',
           overflow: 'hidden',
         }}
@@ -88,23 +88,23 @@ export default function CommandPalette({ onClose, onCommand, recordCount, availT
             placeholder="Commande ou filtre…"
             style={{
               flex: 1, background: 'transparent', border: 'none', outline: 'none',
-              fontFamily: 'monospace', fontSize: 13, color: 'var(--fl-on-dark)',
+              fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 13, color: 'var(--fl-on-dark)',
             }}
           />
-          <span style={{ fontSize: 9, fontFamily: 'monospace', color: 'var(--fl-accent)', border: '1px solid var(--fl-accent)', borderRadius: 3, padding: '1px 5px' }}>
+          <span style={{ fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-accent)', border: '1px solid var(--fl-accent)', borderRadius: 3, padding: '1px 5px' }}>
             ESC
           </span>
         </div>
 
         <div style={{ maxHeight: 360, overflowY: 'auto', padding: '4px 0' }}>
           {grouped.length === 0 && (
-            <div style={{ padding: '16px 14px', fontFamily: 'monospace', fontSize: 11, color: '#2a5a8a', textAlign: 'center' }}>
-              Aucune commande trouvée
+            <div style={{ padding: '16px 14px', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11, color: '#2a5a8a', textAlign: 'center' }}>
+              No commands found
             </div>
           )}
           {grouped.map(([group, cmds]) => (
             <div key={group}>
-              <div style={{ padding: '4px 14px 2px', fontFamily: 'monospace', fontSize: 8, color: 'var(--fl-accent)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+              <div style={{ padding: '4px 14px 2px', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 8, color: 'var(--fl-accent)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
                 {group}
               </div>
               {cmds.map(cmd => {
@@ -122,7 +122,7 @@ export default function CommandPalette({ onClose, onCommand, recordCount, availT
                     }}
                   >
                     <span style={{ fontSize: 12, flexShrink: 0 }}>{cmd.icon}</span>
-                    <span style={{ fontFamily: 'monospace', fontSize: 11, color: isSel ? 'var(--fl-on-dark)' : '#7abfff' }}>
+                    <span style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11, color: isSel ? 'var(--fl-on-dark)' : '#7abfff' }}>
                       {cmd.label}
                     </span>
                   </div>
@@ -133,10 +133,10 @@ export default function CommandPalette({ onClose, onCommand, recordCount, availT
         </div>
 
         <div style={{ padding: '6px 14px', borderTop: '1px solid var(--fl-bg)', display: 'flex', gap: 12 }}>
-          {[['↑↓', 'naviguer'], ['↵', 'exécuter'], ['Esc', 'fermer']].map(([k, l]) => (
+          {[['↑↓', 'navigate'], ['↵', 'execute'], ['Esc', 'close']].map(([k, l]) => (
             <div key={k} style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-              <span style={{ fontSize: 8, fontFamily: 'monospace', border: '1px solid var(--fl-accent)', borderRadius: 2, padding: '1px 4px', color: '#2a5a8a' }}>{k}</span>
-              <span style={{ fontSize: 8, fontFamily: 'monospace', color: 'var(--fl-accent)' }}>{l}</span>
+              <span style={{ fontSize: 8, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', border: '1px solid var(--fl-accent)', borderRadius: 2, padding: '1px 4px', color: '#2a5a8a' }}>{k}</span>
+              <span style={{ fontSize: 8, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-accent)' }}>{l}</span>
             </div>
           ))}
         </div>

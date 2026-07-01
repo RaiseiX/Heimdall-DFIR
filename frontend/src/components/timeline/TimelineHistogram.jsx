@@ -5,11 +5,11 @@ import {
 } from 'recharts';
 
 const ARTIFACT_COLORS = {
-  evtx:      'var(--fl-accent)', prefetch:  '#22c55e', mft:       'var(--fl-purple)',
+  evtx:      'var(--fl-accent)', prefetch:  'var(--fl-ok)', mft:       'var(--fl-purple)',
   lnk:       'var(--fl-warn)', registry:  'var(--fl-pink)', amcache:   'var(--fl-gold)',
-  appcompat: '#f59e0b', shellbags: '#06b6d4', jumplist:  '#8b5cf6',
-  srum:      '#f43f5e', recycle:   '#84cc16', wxtcmd:    '#d946ef',
-  bits:      '#64748b', sum:       '#0ea5e9', hayabusa:  'var(--fl-danger)',
+  appcompat: 'var(--fl-warn)', shellbags: 'var(--fl-purple)', jumplist:  'var(--fl-accent)',
+  srum:      'var(--fl-danger)', recycle:   'var(--fl-ok)', wxtcmd:    'var(--fl-pink)',
+  bits:      '#64748b', sum:       'var(--fl-purple)', hayabusa:  'var(--fl-danger)',
 
 };
 function ac(t) { return ARTIFACT_COLORS[t] || 'var(--fl-dim)'; }
@@ -23,7 +23,7 @@ function bucketKey(ts, monthly) {
 function shortLabel(k) {
 
   const parts = k.split('-');
-  const MONTHS = ['Jan','Fév','Mar','Avr','Mai','Jui','Jul','Aoû','Sep','Oct','Nov','Déc'];
+  const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   if (parts.length === 2) return `${MONTHS[+parts[1]-1]} ${parts[0]}`;
   return `${+parts[2]} ${MONTHS[+parts[1]-1]}`;
 }
@@ -35,14 +35,14 @@ const CustomTooltip = ({ active, payload, label }) => {
   const isAnomaly = payload[0]?.payload?._anomaly;
   return (
     <div style={{
-      background: 'var(--fl-bg)', border: `1px solid ${isAnomaly ? '#da363360' : 'var(--fl-card)'}`, borderRadius: 6,
-      padding: '8px 12px', fontFamily: 'monospace', fontSize: 11,
+      background: 'var(--fl-bg)', border: `1px solid ${isAnomaly ? 'color-mix(in srgb, var(--fl-danger) 38%, transparent)' : 'var(--fl-card)'}`, borderRadius: 6,
+      padding: '8px 12px', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11,
       boxShadow: '0 8px 24px rgba(0,0,0,0.6)',
     }}>
       <div style={{ color: '#8aa0bc', marginBottom: 6, fontWeight: 700 }}>{label}</div>
       {isAnomaly && (
         <div style={{ marginBottom: 6, color: 'var(--fl-danger)', fontSize: 10, fontWeight: 700 }}>
-          ⚠ Activité anormale · Z-score: {zScore?.toFixed(1)}σ
+          ⚠ Anomalous activity · Z-score: {zScore?.toFixed(1)}σ
         </div>
       )}
       {payload.map(p => (
@@ -124,7 +124,7 @@ export default function TimelineHistogram({ records, availTypes, compact = false
 
     return (
       <div style={{ marginBottom: 6, borderRadius: 6, overflow: 'hidden', border: '1px solid var(--fl-sep)', flexShrink: 0 }}
-           title="Mini-map : distribution des événements dans le temps. Cliquez sur une barre pour filtrer.">
+           title="Mini-map: event distribution over time. Click a bar to filter.">
         <ResponsiveContainer width="100%" height={52}>
           <BarChart data={data} margin={{ top: 2, right: 0, left: 0, bottom: 0 }} barCategoryGap="8%"
                     onClick={handleClick} style={{ cursor: onBucketClick ? 'pointer' : 'default' }}>
@@ -136,7 +136,7 @@ export default function TimelineHistogram({ records, availTypes, compact = false
                    radius={idx === types.length - 1 ? [1, 1, 0, 0] : [0, 0, 0, 0]}>
                 {idx === types.length - 1 && data.map((entry, i) => (
                   <Cell key={`cell-${i}`}
-                    fill={entry._anomaly ? '#da363390' : ac(t)}
+                    fill={entry._anomaly ? 'color-mix(in srgb, var(--fl-danger) 56%, transparent)' : ac(t)}
                     stroke={entry._anomaly ? 'var(--fl-danger)' : 'none'}
                     strokeWidth={entry._anomaly ? 1 : 0}
                   />
@@ -157,7 +157,7 @@ export default function TimelineHistogram({ records, availTypes, compact = false
         padding: '7px 14px', background: 'var(--fl-bg)',
         borderBottom: collapsed ? 'none' : '1px solid var(--fl-sep)',
       }}>
-        <span style={{ fontFamily: 'monospace', fontSize: 12, fontWeight: 600, color: '#8aa0bc', letterSpacing: '0.03em' }}>
+        <span style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 12, fontWeight: 600, color: '#8aa0bc', letterSpacing: '0.03em' }}>
           Histogramme Chronologique Pliable
         </span>
         <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
@@ -165,7 +165,7 @@ export default function TimelineHistogram({ records, availTypes, compact = false
           {!collapsed && types.length > 0 && (
             <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', maxHeight: 36, overflowY: 'auto', overflowX: 'hidden' }}>
               {types.map(t => (
-                <span key={t} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, fontFamily: 'monospace', color: 'var(--fl-muted)', flexShrink: 0 }}>
+                <span key={t} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-muted)', flexShrink: 0 }}>
                   <span style={{ width: 8, height: 8, borderRadius: 2, background: ac(t), display: 'inline-block', flexShrink: 0 }} />
                   {t}
                 </span>
@@ -189,13 +189,13 @@ export default function TimelineHistogram({ records, availTypes, compact = false
               <BarChart data={data} margin={{ top: 4, right: 14, left: -10, bottom: 0 }} barCategoryGap="12%">
                 <XAxis
                   dataKey="label"
-                  tick={{ fontSize: 9, fontFamily: 'monospace', fill: 'var(--fl-subtle)' }}
+                  tick={{ fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fill: 'var(--fl-subtle)' }}
                   axisLine={{ stroke: 'var(--fl-sep)' }}
                   tickLine={false}
                   interval="preserveStartEnd"
                 />
                 <YAxis
-                  tick={{ fontSize: 9, fontFamily: 'monospace', fill: 'var(--fl-subtle)' }}
+                  tick={{ fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fill: 'var(--fl-subtle)' }}
                   axisLine={false}
                   tickLine={false}
                   width={28}
@@ -213,7 +213,7 @@ export default function TimelineHistogram({ records, availTypes, compact = false
                     {idx === types.length - 1 && data.map((entry, i) => (
                       <Cell
                         key={`cell-${i}`}
-                        fill={entry._anomaly ? '#da363390' : ac(t)}
+                        fill={entry._anomaly ? 'color-mix(in srgb, var(--fl-danger) 56%, transparent)' : ac(t)}
                         stroke={entry._anomaly ? 'var(--fl-danger)' : 'none'}
                         strokeWidth={entry._anomaly ? 1 : 0}
                       />
@@ -224,8 +224,8 @@ export default function TimelineHistogram({ records, availTypes, compact = false
             </ResponsiveContainer>
             </div>
           ) : (
-            <div style={{ padding: '22px 0', textAlign: 'center', fontFamily: 'monospace', fontSize: 11, color: 'var(--fl-muted)' }}>
-              Chargez des données pour afficher l'histogramme
+            <div style={{ padding: '22px 0', textAlign: 'center', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11, color: 'var(--fl-muted)' }}>
+              Load data to display the histogram
             </div>
           )}
         </div>

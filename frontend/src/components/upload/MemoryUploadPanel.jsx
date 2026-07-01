@@ -1,12 +1,15 @@
+
 import React, { useState, useRef, useCallback } from 'react';
-import { Upload, Cpu, X, AlertCircle, CheckCircle2, FileArchive, Plus, Trash2 } from 'lucide-react';
-import api from '../../utils/api';
+import { Upload, Cpu, X, AlertCircle, CheckCircle2, Loader2, FileArchive, Paperclip } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 const OS_OPTIONS = [
   { value: 'windows', label: 'Windows' },
   { value: 'linux',   label: 'Linux' },
   { value: 'mac',     label: 'macOS' },
 ];
+const ADDITIONAL_ACCEPT = '.vmsn,.vmss,.pdb,.json,.xz,.zip,.gz,.isf,.lzma,.dwarf,.sym,.symbols';
+
 const ADDITIONAL_ACCEPT = '.vmsn,.vmss,.pdb,.json,.xz,.zip,.gz,.isf,.lzma,.dwarf,.sym,.symbols';
 
 function formatBytes(bytes) {
@@ -17,6 +20,7 @@ function formatBytes(bytes) {
 }
 
 export default function MemoryUploadPanel({ caseId, onDone, onClose }) {
+  const { t } = useTranslation();
   const [file,            setFile]            = useState(null);
   const [additionalFiles, setAdditionalFiles] = useState([]);
   const [dumpOs,          setDumpOs]          = useState('windows');
@@ -25,15 +29,13 @@ export default function MemoryUploadPanel({ caseId, onDone, onClose }) {
   const [statusMsg,       setStatusMsg]       = useState('');
   const [error,           setError]           = useState(null);
 
-  const xhrRef      = useRef(null);
-  const dropRef     = useRef(null);
+  const xhrRef    = useRef(null);
+  const dropRef   = useRef(null);
   const addInputRef = useRef(null);
-  const fileRef     = useRef(null);
-  const dumpOsRef   = useRef('windows');
 
-  const guessOs = useCallback((name) => {
-    if (/linux/i.test(name))          return 'linux';
-    if (/mac|osx|darwin/i.test(name)) return 'mac';
+  const guessOs = useCallback((filename) => {
+    if (/linux/i.test(filename))          return 'linux';
+    if (/mac|osx|darwin/i.test(filename)) return 'mac';
     return 'windows';
   }, []);
 
@@ -49,188 +51,252 @@ export default function MemoryUploadPanel({ caseId, onDone, onClose }) {
     setProgress(0);
   }, [guessOs]);
 
-  // Pas de ref pour additionalFiles — on lit directement le state via la closure de startUpload
-  const handleAdditionalFiles = useCallback((files) => {
-    // Snapshot du FileList AVANT le setState (le FileList est live et vidé par e.target.value='')
-    const snapshot = Array.from(files || []);
-    setAdditionalFiles(prev => {
-      const ex = new Set(prev.map(f => f.name));
-      return [...prev, ...snapshot.filter(f => !ex.has(f.name))];
-    });
-  }, []);
+  const onDrop = useCallback((e) => {
+    e.preventDefault();
+    dropRef.current?.classList.remove('dragover');
+    handleFile(e.dataTransfer.files?.[0]);
+  }, [handleFile]);
 
-  const removeAdditional = useCallback((name) => {
-    setAdditionalFiles(prev => prev.filter(f => f.name !== name));
-  }, []);
+  const onDragOver  = useCallback((e) => { e.preventDefault(); dropRef.current?.classList.add('dragover'); }, []);
+  const onDragLeave = useCallback(() => { dropRef.current?.classList.remove('dragover'); }, []);
 
-  const handleOsChange = useCallback((value) => {
-    dumpOsRef.current = value;
-    setDumpOs(value);
-  }, []);
-
-  const clearAll = useCallback(() => {
-    fileRef.current   = null;
-    dumpOsRef.current = 'windows';
-    setFile(null);
-    setAdditionalFiles([]);
-    setDumpOs('windows');
-  }, []);
-
-  // startUpload reçoit additionalFiles en argument pour éviter le stale closure
-  const startUpload = useCallback(async (currentAdditionalFiles) => {
-    const currentFile = fileRef.current;
-    if (!currentFile) return;
-
+  const startUpload = useCallback(() => {
+    if (!file) return;
     setError(null);
     setStatus('uploading');
     setProgress(0);
-    setStatusMsg('Vérification de la session…');
+    setStatusMsg(t('upload.memory_status_uploading'));
 
-    try {
-      const rt = localStorage.getItem('heimdall_refresh_token');
-      if (rt) {
-        const { data } = await api.post('/auth/refresh', { refreshToken: rt });
-        localStorage.setItem('heimdall_token', data.token);
-        if (data.refreshToken) localStorage.setItem('heimdall_refresh_token', data.refreshToken);
-      }
-    } catch {
-      setStatus('error');
-      setError('Session expirée — veuillez vous reconnecter.');
-      return;
-    }
-
-    const os        = dumpOsRef.current;
-    const totalSize = currentFile.size + currentAdditionalFiles.reduce((s, f) => s + f.size, 0);
-
+    const token = localStorage.getItem('heimdall_token');
     const formData = new FormData();
-    formData.append('dump_os', os);
+    formData.append('file', file, file.name);
+    formData.append('dump_os', dumpOs);
     formData.append('evidence_type', 'memory');
-    formData.append('file', currentFile, currentFile.name);
-    for (const extra of currentAdditionalFiles) {
+    for (const extra of additionalFiles) {
       formData.append('additionalFiles', extra, extra.name);
     }
 
-    setStatusMsg(`Envoi streaming (${formatBytes(totalSize)})…`);
+    const xhr = new XMLHttpRequest();
+    xhrRef.current = xhr;
 
-    await new Promise((resolve, reject) => {
-      const xhr = new XMLHttpRequest();
-      xhrRef.current = xhr;
-
-      xhr.upload.onprogress = (e) => {
-        if (e.lengthComputable) {
-          setProgress(Math.round((e.loaded / e.total) * 95));
-          setStatusMsg(`Envoi ${formatBytes(e.loaded)} / ${formatBytes(e.total)}…`);
-        }
-      };
-
-      xhr.onload = () => {
-        if (xhr.status >= 200 && xhr.status < 300) resolve();
-        else {
-          try { reject(new Error(JSON.parse(xhr.responseText)?.error || `HTTP ${xhr.status}`)); }
-          catch { reject(new Error(`HTTP ${xhr.status}`)); }
-        }
-      };
-      xhr.onerror = () => reject(new Error('Erreur réseau'));
-      xhr.onabort = () => reject(new Error('_aborted_'));
-
-      const token = localStorage.getItem('heimdall_token') || localStorage.getItem('token');
-      xhr.open('POST', `/api/evidence/${caseId}/upload-stream`);
-      if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
-      xhr.send(formData);
-    }).then(() => {
-      setProgress(100);
-      setStatus('done');
-      setStatusMsg('Upload terminé — Analyse Volatility 3 lancée dans VolWeb…');
-      onDone?.();
-    }).catch((err) => {
-      if (err.message === '_aborted_') {
-        setStatus('idle'); setStatusMsg(''); setProgress(0);
-      } else {
-        setStatus('error'); setError(err.message);
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) {
+        const pct = Math.round((e.loaded / e.total) * 95);
+        setProgress(pct);
+        setStatusMsg(t('upload.memory_status_progress', { loaded: formatBytes(e.loaded), total: formatBytes(e.total) }));
       }
-    });
-  }, [caseId, onDone]);
+    };
 
-  const cancel    = useCallback(() => xhrRef.current?.abort(), []);
+    xhr.onload = () => {
+      xhrRef.current = null;
+      if (xhr.status === 201) {
+        setProgress(100);
+        setStatus('done');
+        setStatusMsg(t('upload.memory_done_msg'));
+        try { onDone?.(JSON.parse(xhr.responseText)); } catch { onDone?.(); }
+      } else {
+        setStatus('error');
+        let msg = t('upload.memory_error');
+        try { msg = JSON.parse(xhr.responseText)?.error || msg; } catch {}
+        setError(msg);
+      }
+    };
+
+    xhr.onerror = () => {
+      xhrRef.current = null;
+      setStatus('error');
+      setError(t('upload.network_error'));
+    };
+
+    xhr.onabort = () => {
+      xhrRef.current = null;
+      setStatus('idle');
+      setStatusMsg('');
+    };
+
+    const base = (import.meta.env.VITE_API_URL || '/api').replace(/\/$/, '');
+    xhr.open('POST', `${base}/evidence/${caseId}/upload-stream`);
+    xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+    xhr.send(formData);
+  }, [file, dumpOs, additionalFiles, caseId, onDone, t]);
+
+  const cancel = () => { xhrRef.current?.abort(); };
+
+  const removeAdditional = (idx) => setAdditionalFiles(prev => prev.filter((_, i) => i !== idx));
+
+  const s = {
+    panel: {
+      background: 'var(--fl-bg)', border: '1px solid var(--fl-card)', borderRadius: 10,
+      padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: 16,
+    },
+    header: {
+      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+    },
+    title: {
+      display: 'flex', alignItems: 'center', gap: 8,
+      fontSize: 13, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontWeight: 700, color: 'var(--fl-purple)',
+    },
+    dropzone: {
+      border: '2px dashed var(--fl-card)', borderRadius: 8, padding: '28px 20px',
+      textAlign: 'center', cursor: 'pointer', transition: 'border-color 0.2s',
+      background: '#0a0f1a',
+    },
+    osRow: {
+      display: 'flex', gap: 8, alignItems: 'center',
+      fontSize: 12, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-dim)',
+    },
+    osBtnBase: {
+      padding: '4px 12px', borderRadius: 5, fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
+      cursor: 'pointer', border: '1px solid var(--fl-card)', transition: 'all 0.15s',
+    },
+    progressBar: {
+      background: 'var(--fl-card)', borderRadius: 4, height: 6, overflow: 'hidden',
+    },
+    progressFill: (pct) => ({
+      height: '100%', borderRadius: 4, transition: 'width 0.3s ease',
+      width: `${pct}%`,
+      background: status === 'done' ? 'var(--fl-ok)'
+        : status === 'error' ? 'var(--fl-danger)'
+        : 'linear-gradient(90deg, var(--fl-accent), var(--fl-purple))',
+    }),
+    uploadBtn: {
+      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7,
+      padding: '9px 20px', borderRadius: 7, cursor: 'pointer',
+      fontSize: 12, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontWeight: 700,
+      background: 'rgba(139,114,214,0.15)', color: 'var(--fl-purple)',
+      border: '1px solid rgba(139,114,214,0.35)', transition: 'all 0.15s',
+    },
+  };
+
   const isRunning = status === 'uploading';
 
-  const btn = (extra = {}) => ({
-    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7,
-    padding: '9px 20px', borderRadius: 7, cursor: 'pointer',
-    fontSize: 12, fontFamily: 'monospace', fontWeight: 700,
-    background: 'rgba(139,114,214,0.15)', color: 'var(--fl-purple)',
-    border: '1px solid rgba(139,114,214,0.35)', ...extra,
-  });
-
   return (
-    <div style={{ background: 'var(--fl-bg)', border: '1px solid var(--fl-card)', borderRadius: 10, padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: 16 }}>
-
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <span style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, fontFamily: 'monospace', fontWeight: 700, color: 'var(--fl-purple)' }}>
-          <Cpu size={14} /> Upload Dump Mémoire (RAM)
-        </span>
-        {onClose && <button onClick={onClose} style={{ color: 'var(--fl-subtle)', background: 'none', border: 'none', cursor: 'pointer' }}><X size={14} /></button>}
+    <div style={s.panel}>
+      <div style={s.header}>
+        <span style={s.title}><Cpu size={14} /> {t('upload.memory_title')}</span>
+        {onClose && (
+          <button onClick={onClose} style={{ color: 'var(--fl-subtle)', background: 'none', border: 'none', cursor: 'pointer' }}>
+            <X size={14} />
+          </button>
+        )}
       </div>
 
-      <div style={{ display: 'inline-flex', alignItems: 'center', gap: 5, alignSelf: 'flex-start', fontSize: 9, fontFamily: 'monospace', padding: '2px 8px', borderRadius: 4, background: 'rgba(34,197,94,0.08)', color: '#22c55e', border: '1px solid rgba(34,197,94,0.20)' }}>
-        ⚡ Streaming backend → MinIO (aucun stockage disque)
-      </div>
-
-      {!file && status === 'idle' && (
-        <div ref={dropRef}
-          style={{ border: '2px dashed var(--fl-card)', borderRadius: 8, padding: '28px 20px', textAlign: 'center', cursor: 'pointer', background: '#0a0f1a' }}
-          onDrop={(e) => { e.preventDefault(); dropRef.current?.classList.remove('dragover'); handleFile(e.dataTransfer.files?.[0]); }}
-          onDragOver={e => { e.preventDefault(); dropRef.current?.classList.add('dragover'); }}
-          onDragLeave={() => dropRef.current?.classList.remove('dragover')}
+      {/* Main file drop zone */}
+      {status === 'idle' && !file && (
+        <div
+          ref={dropRef}
+          style={s.dropzone}
+          onDrop={onDrop}
+          onDragOver={onDragOver}
+          onDragLeave={onDragLeave}
           onClick={() => document.getElementById(`mem-file-input-${caseId}`)?.click()}
         >
           <input id={`mem-file-input-${caseId}`} type="file" accept=".raw,.mem,.vmem,.dmp,.lime,.bin" style={{ display: 'none' }} onChange={e => handleFile(e.target.files?.[0])} />
           <Upload size={28} style={{ color: 'var(--fl-subtle)', marginBottom: 8 }} />
-          <div style={{ fontSize: 12, fontFamily: 'monospace', color: 'var(--fl-dim)' }}>Glisser-déposer un dump RAM ou cliquer</div>
-          <div style={{ fontSize: 10, color: 'var(--fl-subtle)', marginTop: 4 }}>.raw · .mem · .vmem · .dmp · .lime · .bin</div>
+          <div style={{ fontSize: 12, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-dim)' }}>
+            {t('upload.memory_drop')}
+          </div>
+          <div style={{ fontSize: 10, color: 'var(--fl-subtle)', marginTop: 4 }}>
+            {t('upload.memory_types_hint')}
+          </div>
         </div>
       )}
 
+      {/* Selected main file */}
       {file && status === 'idle' && (
-        <>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, fontFamily: 'monospace', color: 'var(--fl-text)' }}>
-            <FileArchive size={14} style={{ color: 'var(--fl-purple)' }} />
-            <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{file.name}</span>
-            <span style={{ color: 'var(--fl-dim)', flexShrink: 0 }}>{formatBytes(file.size)}</span>
-            <button onClick={clearAll} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--fl-subtle)' }}><X size={12} /></button>
-          </div>
-
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 12, fontFamily: 'monospace', color: 'var(--fl-dim)' }}>
-            <span>OS :</span>
-            {OS_OPTIONS.map(o => (
-              <button key={o.value} onClick={() => handleOsChange(o.value)} style={{ padding: '4px 12px', borderRadius: 5, fontSize: 11, fontFamily: 'monospace', cursor: 'pointer', background: dumpOs === o.value ? 'rgba(139,114,214,0.2)' : 'transparent', color: dumpOs === o.value ? 'var(--fl-purple)' : 'var(--fl-dim)', border: `1px solid ${dumpOs === o.value ? 'rgba(139,114,214,0.5)' : 'var(--fl-card)'}` }}>{o.label}</button>
-            ))}
-          </div>
-
-          <div style={{ border: '1px solid var(--fl-card)', borderRadius: 8, padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <div style={{ fontSize: 11, fontFamily: 'monospace', color: 'var(--fl-dim)', display: 'flex', alignItems: 'center', gap: 6 }}>
-              <Plus size={11} /> Fichiers additionnels
-              <span style={{ color: 'var(--fl-subtle)', fontSize: 10 }}>— symbols (.pdb, .json.xz, .isf), snapshot (.vmsn, .vmss)…</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', background: '#0a0f1a', borderRadius: 6, border: '1px solid var(--fl-card)' }}>
+          <FileArchive size={14} style={{ color: 'var(--fl-accent)', flexShrink: 0 }} />
+          <div style={{ flex: 1, overflow: 'hidden' }}>
+            <div style={{ fontSize: 12, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-dim)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {file.name}
             </div>
-            {additionalFiles.map(f => (
-              <div key={f.name} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'rgba(255,255,255,0.04)', borderRadius: 5, padding: '4px 8px', fontSize: 11, fontFamily: 'monospace', color: 'var(--fl-text)' }}>
-                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{f.name}</span>
-                <span style={{ color: 'var(--fl-dim)', marginLeft: 8, flexShrink: 0 }}>{formatBytes(f.size)}</span>
-                <button onClick={() => removeAdditional(f.name)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--fl-subtle)', marginLeft: 6 }}><Trash2 size={11} /></button>
-              </div>
-            ))}
-            <input ref={addInputRef} type="file" accept={ADDITIONAL_ACCEPT} multiple style={{ display: 'none' }} onChange={e => { handleAdditionalFiles(e.target.files); setTimeout(() => { e.target.value = ''; }, 0); }} />
-            <button style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, fontFamily: 'monospace', color: 'var(--fl-accent)', background: 'none', border: '1px dashed rgba(99,179,237,0.3)', borderRadius: 5, padding: '4px 10px', cursor: 'pointer' }} onClick={() => addInputRef.current?.click()}>
-              <Plus size={11} /> Ajouter un fichier
+            <div style={{ fontSize: 10, color: 'var(--fl-dim)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}>
+              {formatBytes(file.size)}
+            </div>
+          </div>
+          <button onClick={() => { setFile(null); setAdditionalFiles([]); }} style={{ color: 'var(--fl-subtle)', background: 'none', border: 'none', cursor: 'pointer', flexShrink: 0 }}>
+            <X size={12} />
+          </button>
+        </div>
+      )}
+
+      {/* OS selector */}
+      {file && status === 'idle' && (
+        <div style={s.osRow}>
+          <span>{t('upload.target_os')}</span>
+          {OS_OPTIONS.map(opt => (
+            <button
+              key={opt.value}
+              onClick={() => setDumpOs(opt.value)}
+              style={{
+                ...s.osBtnBase,
+                background:  dumpOs === opt.value ? 'rgba(139,114,214,0.15)' : 'transparent',
+                color:       dumpOs === opt.value ? 'var(--fl-purple)' : 'var(--fl-dim)',
+                borderColor: dumpOs === opt.value ? 'rgba(139,114,214,0.35)' : 'var(--fl-card)',
+              }}
+            >
+              {opt.label}
             </button>
           </div>
         </>
       )}
 
-      {(isRunning || status === 'done' || status === 'error') && (
+      {/* Additional files (symbols, snapshots…) */}
+      {file && status === 'idle' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          <div style={{ background: 'var(--fl-card)', borderRadius: 4, height: 6, overflow: 'hidden' }}>
-            <div style={{ height: '100%', borderRadius: 4, transition: 'width 0.3s ease', width: `${progress}%`, background: status === 'done' ? '#22c55e' : status === 'error' ? 'var(--fl-danger)' : 'linear-gradient(90deg, var(--fl-accent), #8b72d6)' }} />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-dim)' }}>
+            <Paperclip size={11} />
+            <span>{t('upload.additional_files')}</span>
+            <button
+              onClick={() => addInputRef.current?.click()}
+              style={{ marginLeft: 'auto', padding: '2px 8px', borderRadius: 4, fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', background: 'transparent', border: '1px solid var(--fl-card)', color: 'var(--fl-dim)', cursor: 'pointer' }}
+            >
+              {t('upload.add')}
+            </button>
+            <input
+              ref={addInputRef}
+              type="file"
+              accept={ADDITIONAL_ACCEPT}
+              multiple
+              style={{ display: 'none' }}
+              onChange={e => {
+                const picked = Array.from(e.target.files || []);
+                setAdditionalFiles(prev => [...prev, ...picked]);
+                e.target.value = '';
+              }}
+            />
+          </div>
+          {additionalFiles.length > 0 && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+              {additionalFiles.map((f, idx) => (
+                <span key={idx} style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 4,
+                  fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
+                  background: 'rgba(139,114,214,0.08)', borderRadius: 4,
+                  padding: '2px 6px', border: '1px solid rgba(139,114,214,0.2)',
+                  color: 'var(--fl-dim)',
+                }}>
+                  {f.name} · {formatBytes(f.size)}
+                  <button onClick={() => removeAdditional(idx)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--fl-subtle)', padding: 0, lineHeight: 1 }}>
+                    <X size={9} />
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Progress */}
+      {(isRunning || status === 'done' || status === 'error') && (
+        <div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+            <span style={{ fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-dim)' }}>
+              {statusMsg}
+            </span>
+            <span style={{ fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: status === 'done' ? 'var(--fl-ok)' : status === 'error' ? 'var(--fl-danger)' : 'var(--fl-purple)' }}>
+              {progress}%
+            </span>
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, fontFamily: 'monospace', color: 'var(--fl-dim)' }}>
             <span>{statusMsg}</span><span>{progress}%</span>
@@ -238,17 +304,41 @@ export default function MemoryUploadPanel({ caseId, onDone, onClose }) {
         </div>
       )}
 
-      {error && <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, fontFamily: 'monospace', color: 'var(--fl-danger)' }}><AlertCircle size={13} /> {error}</div>}
-      {status === 'done' && <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, fontFamily: 'monospace', color: '#22c55e' }}><CheckCircle2 size={13} /> Dump uploadé — analyse Volatility 3 lancée dans VolWeb</div>}
-
-      {status === 'idle' && file && (
-        <button style={btn()} onClick={() => startUpload(additionalFiles)}>
-          <Upload size={13} /> Lancer l'upload
-          {additionalFiles.length > 0 && <span style={{ opacity: 0.7, fontWeight: 400 }}>({1 + additionalFiles.length} fichiers)</span>}
-        </button>
+      {status === 'done' && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-ok)' }}>
+          <CheckCircle2 size={13} />
+          {t('upload.memory_done')}
+        </div>
       )}
-      {isRunning && <button onClick={cancel} style={btn({ color: 'var(--fl-danger)', borderColor: 'rgba(239,68,68,0.35)', background: 'rgba(239,68,68,0.08)' })}><X size={13} /> Annuler</button>}
-      {status === 'done' && onClose && <button style={btn({ color: '#22c55e', borderColor: 'rgba(34,197,94,0.35)', background: 'rgba(34,197,94,0.08)' })} onClick={onClose}><CheckCircle2 size={13} /> Fermer</button>}
+
+      {error && (
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6, fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-danger)', background: 'rgba(218,54,51,0.08)', padding: '8px 12px', borderRadius: 6, border: '1px solid rgba(218,54,51,0.2)' }}>
+          <AlertCircle size={13} style={{ flexShrink: 0, marginTop: 1 }} />
+          {error}
+        </div>
+      )}
+
+      <div style={{ display: 'flex', gap: 8 }}>
+        {file && status === 'idle' && (
+          <button style={s.uploadBtn} onClick={startUpload}>
+            <Upload size={13} /> {t('upload.start_upload')}
+          </button>
+        )}
+        {isRunning && (
+          <>
+            <button
+              onClick={cancel}
+              style={{ ...s.uploadBtn, color: 'var(--fl-danger)', borderColor: 'rgba(218,54,51,0.35)', background: 'rgba(218,54,51,0.08)' }}
+            >
+              <X size={13} /> {t('upload.cancel')}
+            </button>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-dim)' }}>
+              <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} />
+              {t('upload.memory_status_uploading')}
+            </div>
+          </>
+        )}
+      </div>
     </div>
   );
 }

@@ -76,9 +76,9 @@ export default function CasesPage({ user }) {
       setTimeStats(stats);
     } catch {
       setCases([
-        { id: '1', case_number: 'CASE-2026-001', title: 'Intrusion Serveur Principal', status: 'active', priority: 'critical', investigator_name: 'Agent Dupont', created_at: '2026-02-10T08:30:00Z', evidence_count: 5, ioc_count: 5, tags: ['intrusion', 'apt'] },
-        { id: '2', case_number: 'CASE-2026-002', title: 'Ransomware Département Finance', status: 'active', priority: 'high', investigator_name: 'Agent Martin', created_at: '2026-02-12T14:15:00Z', evidence_count: 3, ioc_count: 3, tags: ['ransomware', 'lockbit'] },
-        { id: '3', case_number: 'CASE-2026-003', title: 'Analyse Clé USB Suspecte', status: 'pending', priority: 'medium', investigator_name: 'Agent Lefèvre', created_at: '2026-02-14T09:00:00Z', evidence_count: 1, ioc_count: 0, tags: ['usb', 'malware'] },
+        { id: '1', case_number: 'CASE-2026-001', title: 'Main Server Intrusion', status: 'active', priority: 'critical', investigator_name: 'Agent Dupont', created_at: '2026-02-10T08:30:00Z', evidence_count: 5, ioc_count: 5, tags: ['intrusion', 'apt'] },
+        { id: '2', case_number: 'CASE-2026-002', title: 'Finance Department Ransomware', status: 'active', priority: 'high', investigator_name: 'Agent Martin', created_at: '2026-02-12T14:15:00Z', evidence_count: 3, ioc_count: 3, tags: ['ransomware', 'lockbit'] },
+        { id: '3', case_number: 'CASE-2026-003', title: 'Suspicious USB Analysis', status: 'pending', priority: 'medium', investigator_name: 'Agent Lefevre', created_at: '2026-02-14T09:00:00Z', evidence_count: 1, ioc_count: 0, tags: ['usb', 'malware'] },
       ]);
     }
   };
@@ -138,8 +138,8 @@ export default function CasesPage({ user }) {
       
       <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingBottom: 18, marginBottom: 20, borderBottom: '1px solid var(--fl-border)' }}>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <h1 style={{ fontFamily: 'monospace', fontSize: 17, fontWeight: 700, color: 'var(--fl-text)', lineHeight: 1.25 }}>{t('cases.title')}</h1>
-          <p style={{ fontFamily: 'monospace', fontSize: 13, color: 'var(--fl-dim)', marginTop: 3 }}>
+          <h1 style={{ fontFamily: 'var(--f-display, "Space Grotesk", "Inter", sans-serif)', fontSize: 16, fontWeight: 600, color: 'var(--fl-text)', lineHeight: 1.2, letterSpacing: '-0.02em' }}>{t('cases.title')}</h1>
+          <p style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11, color: 'var(--fl-dim)', marginTop: 4 }}>
             {t('cases.subtitle', { n: cases.length, m: activeCount })}
             {criticalCount > 0 && (
               <span style={{ color: 'var(--fl-danger)' }}>
@@ -163,7 +163,7 @@ export default function CasesPage({ user }) {
           border: '1px solid color-mix(in srgb, var(--fl-danger) 25%, transparent)',
         }}>
           <ShieldAlert size={15} style={{ color: 'var(--fl-danger)', flexShrink: 0 }} />
-          <span style={{ fontFamily: 'monospace', fontSize: 12, color: 'var(--fl-danger)', flex: 1 }}>
+          <span style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 12, color: 'var(--fl-danger)', flex: 1 }}>
             <strong>{selected.size}</strong> {t(selected.size > 1 ? 'cases.selected_rgpd_pl' : 'cases.selected_rgpd', { n: selected.size })}
           </span>
           <Button variant="danger" size="sm" icon={Trash2} onClick={() => { setShowBulkDelete(true); setDeleteResults(null); }}>
@@ -188,11 +188,11 @@ export default function CasesPage({ user }) {
         </div>
 
         <div style={{ display: 'flex', gap: 4, alignItems: 'center', flexWrap: 'wrap' }}>
-          <span style={{ fontSize: 10, color: 'var(--fl-subtle)', fontFamily: 'monospace' }}>Statut :</span>
-          {[['', 'Tous'], ['active', 'Actif'], ['pending', 'En attente'], ['closed', 'Fermé']].map(([val, lbl]) => (
+          <span style={{ fontSize: 10, color: 'var(--fl-subtle)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}>{t('cases.status_filter_label')}</span>
+          {[['', t('common.all')], ['active', t('case.status_active')], ['pending', t('case.status_pending')], ['closed', t('case.status_closed')]].map(([val, lbl]) => (
             <button key={val} onClick={() => setFilterStatus(val)}
               style={{
-                padding: '3px 10px', borderRadius: 20, fontSize: 10, fontFamily: 'monospace',
+                padding: '3px 10px', borderRadius: 20, fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
                 cursor: 'pointer', border: '1px solid',
                 background: filterStatus === val ? (val === '' ? 'var(--fl-accent)' : val === 'active' ? 'var(--fl-accent)' : val === 'pending' ? 'var(--fl-warn)' : 'var(--fl-dim)') + '20' : 'transparent',
                 color: filterStatus === val ? (val === '' ? 'var(--fl-accent)' : val === 'active' ? 'var(--fl-accent)' : val === 'pending' ? 'var(--fl-warn)' : 'var(--fl-dim)') : 'var(--fl-muted)',
@@ -205,17 +205,17 @@ export default function CasesPage({ user }) {
         </div>
 
         <div style={{ display: 'flex', gap: 4, alignItems: 'center', flexWrap: 'wrap' }}>
-          <span style={{ fontSize: 10, color: 'var(--fl-subtle)', fontFamily: 'monospace' }}>Priorité :</span>
+          <span style={{ fontSize: 10, color: 'var(--fl-subtle)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}>{t('cases.priority_filter_label')}</span>
           {[
-            ['', 'Toutes', 'var(--fl-dim)'],
-            ['critical', 'Critique', 'var(--fl-danger)'],
-            ['high', 'Haut', 'var(--fl-warn)'],
-            ['medium', 'Moyen', 'var(--fl-gold)'],
-            ['low', 'Faible', 'var(--fl-ok)'],
+            ['', t('common.all'), 'var(--fl-dim)'],
+            ['critical', t('cases.prio_critical'), 'var(--fl-danger)'],
+            ['high', t('cases.prio_high'), 'var(--fl-warn)'],
+            ['medium', t('cases.prio_medium'), 'var(--fl-gold)'],
+            ['low', t('cases.prio_low'), 'var(--fl-ok)'],
           ].map(([val, lbl, col]) => (
             <button key={val} onClick={() => setFilterPriority(val)}
               style={{
-                padding: '3px 10px', borderRadius: 20, fontSize: 10, fontFamily: 'monospace',
+                padding: '3px 10px', borderRadius: 20, fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
                 cursor: 'pointer', border: '1px solid',
                 background: filterPriority === val ? col + '20' : 'transparent',
                 color: filterPriority === val ? col : 'var(--fl-muted)',
@@ -246,83 +246,73 @@ export default function CasesPage({ user }) {
           />
         </div>
       ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: 12 }}>
-          {cases.map(c => {
-            const isSelected = selected.has(c.id);
-            const prioColor = c.priority === 'critical' ? 'var(--fl-danger)'
-              : c.priority === 'high' ? 'var(--fl-warn)'
-              : c.priority === 'medium' ? 'var(--fl-gold)'
-              : 'var(--fl-border)';
-            const ts = timeStats[c.id];
-            const deadlineSoon = c.report_deadline && new Date(c.report_deadline) < new Date(Date.now() + 48 * 3600 * 1000);
-            return (
-              <div
-                key={c.id}
-                onClick={() => navigate(`/cases/${c.id}`)}
-                style={{
-                  borderRadius: 10, overflow: 'hidden', cursor: 'pointer',
-                  background: isSelected ? 'color-mix(in srgb, var(--fl-danger) 5%, var(--fl-card))' : 'var(--fl-card)',
-                  border: `1px solid ${isSelected ? 'color-mix(in srgb, var(--fl-danger) 30%, transparent)' : 'var(--fl-border)'}`,
-                  borderLeft: `4px solid ${prioColor}`,
-                  transition: 'border-color 0.15s, box-shadow 0.15s',
-                }}
-                onMouseEnter={e => { e.currentTarget.style.boxShadow = `0 4px 16px rgba(0,0,0,0.35)`; e.currentTarget.style.borderColor = prioColor + '80'; }}
-                onMouseLeave={e => { e.currentTarget.style.boxShadow = ''; e.currentTarget.style.borderColor = isSelected ? 'color-mix(in srgb, var(--fl-danger) 30%, transparent)' : 'var(--fl-border)'; }}
-              >
-                {/* Card header */}
-                <div style={{ padding: '12px 14px 8px', display: 'flex', alignItems: 'flex-start', gap: 8 }}>
-                  {isAdmin && (
-                    <div onClick={e => toggleSelect(e, c.id)} style={{ paddingTop: 2, flexShrink: 0 }}>
-                      <input type="checkbox" checked={isSelected} onChange={() => {}}
-                        style={{ cursor: 'pointer', accentColor: 'var(--fl-danger)' }} />
-                    </div>
-                  )}
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-                      <span style={{ fontSize: 10, fontFamily: 'monospace', color: 'var(--fl-subtle)' }}>{c.case_number}</span>
-                      <StatusPill status={c.status} />
-                      <PriorityPill priority={c.priority} />
-                    </div>
-                    <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--fl-text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={c.title}>
-                      {c.title}
-                    </div>
-                    {(c.tags || []).length > 0 && (
-                      <div style={{ display: 'flex', gap: 4, marginTop: 5, flexWrap: 'wrap' }}>
-                        {(c.tags || []).map(tag => <span key={tag} className="fl-tag">{tag}</span>)}
-                      </div>
+        <div style={{ border: '1px solid var(--fl-border)', borderRadius: 8, overflow: 'hidden' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: 'var(--f-ui, "Inter", sans-serif)' }}>
+            <thead>
+              <tr style={{ background: 'var(--fl-bg)', borderBottom: '1px solid var(--fl-border)' }}>
+                {isAdmin && <th style={{ width: 34 }} />}
+                {[
+                  ['case_number', t('cases.col_number'), 110], ['title', t('cases.col_title'), null],
+                  ['status', t('cases.col_status'), 90], ['priority', t('cases.col_priority'), 100],
+                  ['investigator', t('cases.col_investigator'), 140], ['evid', t('cases.col_evidence'), 58],
+                  ['ioc', t('cases.col_iocs'), 58], ['deadline', t('cases.col_opened'), 90],
+                ].map(([k, label, w]) => (
+                  <th key={k} style={{
+                    textAlign: 'left', padding: '7px 10px', width: w || undefined,
+                    fontSize: 9.5, fontFamily: 'var(--f-mono, monospace)', textTransform: 'uppercase',
+                    letterSpacing: '0.1em', color: 'var(--fl-muted)', fontWeight: 600, whiteSpace: 'nowrap',
+                  }}>{label}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {cases.map(c => {
+                const isSelected = selected.has(c.id);
+                const prioColor = c.priority === 'critical' ? 'var(--fl-danger)'
+                  : c.priority === 'high' ? 'var(--fl-warn)'
+                  : c.priority === 'medium' ? 'var(--fl-gold)'
+                  : 'var(--fl-ok)';
+                const deadlineSoon = c.report_deadline && new Date(c.report_deadline) < new Date(Date.now() + 48 * 3600 * 1000);
+                const td = { padding: '0 10px', height: 40, borderBottom: '1px solid var(--fl-border2)', verticalAlign: 'middle' };
+                return (
+                  <tr key={c.id}
+                    onClick={() => navigate(`/cases/${c.id}`)}
+                    style={{ cursor: 'pointer', background: isSelected ? 'color-mix(in srgb, var(--fl-danger) 6%, transparent)' : 'transparent' }}
+                    onMouseEnter={e => { if (!isSelected) e.currentTarget.style.background = 'var(--fl-surface-hover)'; }}
+                    onMouseLeave={e => { e.currentTarget.style.background = isSelected ? 'color-mix(in srgb, var(--fl-danger) 6%, transparent)' : 'transparent'; }}
+                  >
+                    {isAdmin && (
+                      <td style={{ ...td, borderLeft: `3px solid ${prioColor}`, paddingLeft: 8 }} onClick={e => toggleSelect(e, c.id)}>
+                        <input type="checkbox" checked={isSelected} onChange={() => {}} style={{ cursor: 'pointer', accentColor: 'var(--fl-danger)' }} />
+                      </td>
                     )}
-                  </div>
-                  <RiskPill riskLevel={c.risk_level} riskScore={c.risk_score} />
-                </div>
-
-                {/* Card footer */}
-                <div style={{
-                  padding: '7px 14px 9px', borderTop: '1px solid var(--fl-sep)',
-                  display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap',
-                }}>
-                  {c.investigator_name && (
-                    <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, fontFamily: 'monospace', color: 'var(--fl-muted)' }}>
-                      <User size={9} />{c.investigator_name}
-                    </span>
-                  )}
-                  <span style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 10, fontFamily: 'monospace', color: 'var(--fl-accent)' }}>
-                    <FileText size={9} />{c.evidence_count || 0}
-                  </span>
-                  <span style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 10, fontFamily: 'monospace', color: c.ioc_count > 0 ? 'var(--fl-warn)' : 'var(--fl-muted)' }}>
-                    <Crosshair size={9} />{c.ioc_count || 0}
-                  </span>
-                  {ts && ts.grand_total_seconds > 0 && (
-                    <TimePill totalSeconds={ts.grand_total_seconds} analystCount={ts.analysts?.length || 0} compact />
-                  )}
-                  <span style={{ marginLeft: 'auto', fontSize: 10, fontFamily: 'monospace', color: deadlineSoon ? 'var(--fl-danger)' : 'var(--fl-subtle)', whiteSpace: 'nowrap' }}>
-                    {c.report_deadline
-                      ? (deadlineSoon ? '⚠ ' : '') + new Date(c.report_deadline).toLocaleDateString(i18n.language)
-                      : new Date(c.created_at).toLocaleDateString(i18n.language)}
-                  </span>
-                </div>
-              </div>
-            );
-          })}
+                    <td style={{ ...td, ...(isAdmin ? {} : { borderLeft: `3px solid ${prioColor}` }), fontSize: 10.5, fontFamily: 'var(--f-mono, monospace)', color: 'var(--fl-dim)', whiteSpace: 'nowrap' }}>
+                      {c.case_number}
+                    </td>
+                    <td style={{ ...td, maxWidth: 0 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                        <span style={{ fontSize: 12.5, color: 'var(--fl-text)', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={c.title}>{c.title}</span>
+                        {(c.tags || []).slice(0, 2).map(tag => <span key={tag} className="fl-tag" style={{ flexShrink: 0 }}>{tag}</span>)}
+                        <RiskPill riskLevel={c.risk_level} riskScore={c.risk_score} />
+                      </div>
+                    </td>
+                    <td style={td}><StatusPill status={c.status} /></td>
+                    <td style={td}><PriorityPill priority={c.priority} /></td>
+                    <td style={{ ...td, fontSize: 11, fontFamily: 'var(--f-mono, monospace)', color: 'var(--fl-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 140 }}>
+                      {c.investigator_name ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><User size={10} />{c.investigator_name}</span> : '—'}
+                    </td>
+                    <td style={{ ...td, fontSize: 11, fontFamily: 'var(--f-mono, monospace)', color: (c.evidence_count || 0) > 0 ? 'var(--fl-accent)' : 'var(--fl-subtle)' }}>{c.evidence_count || 0}</td>
+                    <td style={{ ...td, fontSize: 11, fontFamily: 'var(--f-mono, monospace)', color: c.ioc_count > 0 ? 'var(--fl-warn)' : 'var(--fl-subtle)' }}>{c.ioc_count || 0}</td>
+                    <td style={{ ...td, fontSize: 10.5, fontFamily: 'var(--f-mono, monospace)', color: deadlineSoon ? 'var(--fl-danger)' : 'var(--fl-subtle)', whiteSpace: 'nowrap' }}>
+                      {c.report_deadline
+                        ? (deadlineSoon ? '⚠ ' : '') + new Date(c.report_deadline).toLocaleDateString(i18n.language)
+                        : new Date(c.created_at).toLocaleDateString(i18n.language)}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
       )}
 
@@ -347,7 +337,7 @@ export default function CasesPage({ user }) {
                   <Button key={key} size="xs" variant={newCase.priority === key ? 'danger' : 'ghost'}
                     icon={key === 'critical' ? AlertTriangle : undefined}
                     onClick={() => setNewCase({ ...newCase, priority: key })}
-                    style={{ fontFamily: 'JetBrains Mono, monospace', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: newCase.priority === key ? 700 : 500 }}>
+                    style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: newCase.priority === key ? 700 : 500 }}>
                     {label}
                   </Button>
                 ))}
@@ -383,18 +373,18 @@ export default function CasesPage({ user }) {
                   border: '1px solid color-mix(in srgb, var(--fl-danger) 18%, transparent)',
                   fontSize: 12, color: 'var(--fl-muted)', lineHeight: 1.7 }}>
                   {t('cases.rgpd_warning').replace('DoD 5220.22-M', '')}
-                  <code style={{ color: 'var(--fl-danger)', fontFamily: 'monospace' }}>DoD 5220.22-M</code>.
+                  <code style={{ color: 'var(--fl-danger)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}>DoD 5220.22-M</code>.
                   {' '}{t('cases.rgpd_warning').split('.').slice(1).join('.').trim()}<br />
                   <span style={{ color: 'var(--fl-gold)' }}>{t('cases.rgpd_audit')}</span>
                 </div>
-                <div style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--fl-dim)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                <div style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11, color: 'var(--fl-dim)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                   {t('cases.selected_label', { n: selectedCases.length })}
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                   {selectedCases.map(c => (
                     <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', borderRadius: 6,
                       background: 'var(--fl-bg)', border: '1px solid color-mix(in srgb, var(--fl-danger) 15%, transparent)' }}>
-                      <span style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--fl-danger)', flexShrink: 0, minWidth: 120 }}>{c.case_number}</span>
+                      <span style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11, color: 'var(--fl-danger)', flexShrink: 0, minWidth: 120 }}>{c.case_number}</span>
                       <span style={{ fontSize: 12, color: 'var(--fl-muted)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.title}</span>
                       <Badge variant={PRIORITY[c.priority]?.variant || 'dim'}>{PRIORITY[c.priority]?.label || c.priority}</Badge>
                     </div>
@@ -405,8 +395,8 @@ export default function CasesPage({ user }) {
             {bulkDeleting && (
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '32px 0', gap: 14 }}>
                 <Spinner size={32} color="var(--fl-danger)" />
-                <div style={{ fontFamily: 'monospace', fontSize: 13, color: 'var(--fl-muted)' }}>{t('cases.destroying')}</div>
-                <div style={{ fontSize: 11, color: 'var(--fl-dim)', fontFamily: 'monospace' }}>DoD 5220.22-M · cascade delete · audit log</div>
+                <div style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 13, color: 'var(--fl-muted)' }}>{t('cases.destroying')}</div>
+                <div style={{ fontSize: 11, color: 'var(--fl-dim)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}>{t('cases.rgpd_method')}</div>
               </div>
             )}
             {deleteResults && (
@@ -417,26 +407,26 @@ export default function CasesPage({ user }) {
                     background: `color-mix(in srgb, ${r.ok && r.verified ? 'var(--fl-ok)' : 'var(--fl-danger)'} 5%, transparent)` }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: r.ok ? 6 : 0 }}>
                       {r.ok && r.verified ? <CheckCircle2 size={15} style={{ color: 'var(--fl-ok)', flexShrink: 0 }} /> : <XCircle size={15} style={{ color: 'var(--fl-danger)', flexShrink: 0 }} />}
-                      <span style={{ fontFamily: 'monospace', fontSize: 11, color: r.ok ? 'var(--fl-ok)' : 'var(--fl-danger)', fontWeight: 700 }}>{r.case_number}</span>
+                      <span style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11, color: r.ok ? 'var(--fl-ok)' : 'var(--fl-danger)', fontWeight: 700 }}>{r.case_number}</span>
                       <span style={{ fontSize: 12, color: 'var(--fl-muted)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.title}</span>
                     </div>
                     {r.ok && (
                       <div style={{ display: 'flex', gap: 16, marginLeft: 23, flexWrap: 'wrap' }}>
-                        <span style={{ fontSize: 11, fontFamily: 'monospace', color: 'var(--fl-ok)' }}>
+                        <span style={{ fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-ok)' }}>
                           ✓ {t(r.files_destroyed > 1 ? 'cases.files_destroyed_pl' : 'cases.files_destroyed', { n: r.files_destroyed })}
                         </span>
-                        <span style={{ fontSize: 11, fontFamily: 'monospace', color: r.verified ? 'var(--fl-ok)' : 'var(--fl-danger)' }}>
+                        <span style={{ fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: r.verified ? 'var(--fl-ok)' : 'var(--fl-danger)' }}>
                           {r.verified ? `✓ ${t('cases.db_confirmed')}` : `⚠ ${t('cases.db_still_exists')}`}
                         </span>
                         {r.files_errors?.length > 0 && (
-                          <span style={{ fontSize: 11, fontFamily: 'monospace', color: 'var(--fl-gold)' }}>
+                          <span style={{ fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-gold)' }}>
                             ⚠ {t('cases.file_errors', { n: r.files_errors.length })}
                           </span>
                         )}
                       </div>
                     )}
                     {!r.ok && (
-                      <div style={{ marginLeft: 23, fontSize: 11, fontFamily: 'monospace', color: 'var(--fl-danger)' }}>
+                      <div style={{ marginLeft: 23, fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-danger)' }}>
                         {t('common.error')}: {r.error}
                       </div>
                     )}
@@ -444,7 +434,7 @@ export default function CasesPage({ user }) {
                 ))}
                 <div style={{ marginTop: 4, padding: '8px 14px', borderRadius: 6,
                   background: 'var(--fl-bg)', border: '1px solid var(--fl-border)',
-                  fontSize: 11, fontFamily: 'monospace', color: 'var(--fl-dim)', display: 'flex', gap: 20 }}>
+                  fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-dim)', display: 'flex', gap: 20 }}>
                   <span style={{ color: 'var(--fl-ok)' }}>
                     ✓ {t(deleteResults.filter(r => r.ok).length > 1 ? 'cases.deleted_count_pl' : 'cases.deleted_count', { n: deleteResults.filter(r => r.ok).length })}
                   </span>

@@ -4,11 +4,12 @@ import { FileText, ChevronDown, ChevronRight, RefreshCw, AlertCircle, CheckCircl
 import { useTheme } from '../utils/theme';
 import apiClient from '../utils/api';
 import { fmtLocal } from '../utils/formatters';
+import { useTranslation } from 'react-i18next';
 
 const STATUS_CONFIG = {
-  ok:       { label: 'OK',       color: 'var(--fl-ok)',     icon: CheckCircle2 },
-  degraded: { label: 'Dégradé',  color: 'var(--fl-warn)',   icon: AlertTriangle },
-  error:    { label: 'Erreur',   color: 'var(--fl-danger)', icon: AlertCircle },
+  ok:       { key: 'parserLogs.status_ok',       color: 'var(--fl-ok)',     icon: CheckCircle2 },
+  degraded: { key: 'parserLogs.status_degraded', color: 'var(--fl-warn)',   icon: AlertTriangle },
+  error:    { key: 'parserLogs.status_error',    color: 'var(--fl-danger)', icon: AlertCircle },
 };
 
 function deriveStatus(parseResults = []) {
@@ -29,6 +30,7 @@ function fmtDuration(parsed_at, updated_at) {
 
 export default function ParserLogsPage() {
   const T = useTheme();
+  const { t } = useTranslation();
   const ctx = useOutletContext() || {};
   const { caseId, collectionId } = ctx;
 
@@ -45,7 +47,7 @@ export default function ParserLogsPage() {
       const { data } = await apiClient.get(`/collection/${caseId}/parser-results${params}`);
       setRows(data || []);
     } catch (e) {
-      setError(e.response?.data?.error || 'Erreur de chargement');
+      setError(e.response?.data?.error || t('parserLogs.load_error'));
       setRows([]);
     }
     setLoading(false);
@@ -65,8 +67,8 @@ export default function ParserLogsPage() {
     <div style={{ padding: 20 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
         <FileText size={16} style={{ color: T.accent }} />
-        <h2 style={{ margin: 0, fontFamily: 'monospace', fontSize: 14, color: T.text }}>
-          Logs de Parsing
+        <h2 style={{ margin: 0, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 14, color: T.text }}>
+          {t('parserLogs.title')}
         </h2>
         <button
           onClick={load}
@@ -74,12 +76,12 @@ export default function ParserLogsPage() {
           style={{
             marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 5,
             background: 'none', border: `1px solid ${T.border}`, borderRadius: 5,
-            padding: '3px 10px', cursor: 'pointer', fontSize: 11, fontFamily: 'monospace',
+            padding: '3px 10px', cursor: 'pointer', fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
             color: T.dim,
           }}
         >
           <RefreshCw size={11} style={{ animation: loading ? 'spin 1s linear infinite' : 'none' }} />
-          Actualiser
+          {t('common.refresh')}
         </button>
       </div>
 
@@ -87,14 +89,14 @@ export default function ParserLogsPage() {
         <div style={{ padding: '10px 14px', borderRadius: 6, marginBottom: 12,
           background: 'color-mix(in srgb, var(--fl-danger) 8%, transparent)',
           border: '1px solid color-mix(in srgb, var(--fl-danger) 25%, transparent)',
-          fontSize: 12, color: 'var(--fl-danger)', fontFamily: 'monospace' }}>
+          fontSize: 12, color: 'var(--fl-danger)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}>
           {error}
         </div>
       )}
 
       {!loading && rows.length === 0 && !error && (
-        <div style={{ textAlign: 'center', padding: '40px 0', color: T.muted, fontFamily: 'monospace', fontSize: 12 }}>
-          Aucun job de parsing trouvé pour cette collecte.
+        <div style={{ textAlign: 'center', padding: '40px 0', color: T.muted, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 12 }}>
+          {t('parserLogs.empty')}
         </div>
       )}
 
@@ -134,21 +136,21 @@ export default function ParserLogsPage() {
                 {isExpanded ? <ChevronDown size={13} style={{ color: T.muted, flexShrink: 0 }} /> : <ChevronRight size={13} style={{ color: T.muted, flexShrink: 0 }} />}
                 <Icon size={12} style={{ color: cfg.color, flexShrink: 0 }} />
                 <span style={{
-                  padding: '1px 7px', borderRadius: 4, fontSize: 10, fontWeight: 700, fontFamily: 'monospace',
-                  background: `${cfg.color}18`, color: cfg.color, border: `1px solid ${cfg.color}30`,
+                  padding: '1px 7px', borderRadius: 4, fontSize: 10, fontWeight: 700, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
+                  background: `color-mix(in srgb, ${cfg.color} 9%, transparent)`, color: cfg.color, border: `1px solid color-mix(in srgb, ${cfg.color} 19%, transparent)`,
                 }}>
-                  {cfg.label}
+                  {t(cfg.key)}
                 </span>
-                <span style={{ fontFamily: 'monospace', fontSize: 11, color: T.dim, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
+                <span style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11, color: T.dim, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
                   {row.evidence_name || row.evidence_id?.slice(0, 8) || '—'}
                 </span>
-                <span style={{ fontFamily: 'monospace', fontSize: 10, color: T.muted, flexShrink: 0, whiteSpace: 'nowrap' }}>
-                  {(row.record_count || 0).toLocaleString()} enreg.
+                <span style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10, color: T.muted, flexShrink: 0, whiteSpace: 'nowrap' }}>
+                  {(row.record_count || 0).toLocaleString()} {t('parserLogs.records_short')}
                 </span>
-                <span style={{ fontFamily: 'monospace', fontSize: 10, color: T.muted, flexShrink: 0, whiteSpace: 'nowrap' }}>
+                <span style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10, color: T.muted, flexShrink: 0, whiteSpace: 'nowrap' }}>
                   {fmtDuration(row.parsed_at, row.updated_at)}
                 </span>
-                <span style={{ fontFamily: 'monospace', fontSize: 10, color: T.muted, flexShrink: 0, whiteSpace: 'nowrap' }}>
+                <span style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10, color: T.muted, flexShrink: 0, whiteSpace: 'nowrap' }}>
                   {row.updated_at ? fmtLocal(row.updated_at) : '—'}
                 </span>
               </div>
@@ -156,13 +158,13 @@ export default function ParserLogsPage() {
               {isExpanded && (
                 <div style={{ padding: '8px 12px', background: T.bg, borderTop: `1px solid ${T.border}` }}>
                   {parseResults.length === 0 ? (
-                    <p style={{ margin: 0, fontSize: 11, color: T.muted, fontFamily: 'monospace' }}>Aucun détail disponible.</p>
+                    <p style={{ margin: 0, fontSize: 11, color: T.muted, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}>{t('parserLogs.no_details')}</p>
                   ) : (
                     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
                       <thead>
                         <tr style={{ borderBottom: `1px solid ${T.border}` }}>
-                          {['Parser', 'Statut', 'Enregistrements', 'Erreur'].map(h => (
-                            <th key={h} style={{ textAlign: 'left', padding: '4px 8px', fontFamily: 'monospace', fontSize: 10, color: T.muted, fontWeight: 700, textTransform: 'uppercase' }}>
+                          {[t('parserLogs.col_parser'), t('parserLogs.col_status'), t('parserLogs.col_records'), t('parserLogs.col_error')].map(h => (
+                            <th key={h} style={{ textAlign: 'left', padding: '4px 8px', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10, color: T.muted, fontWeight: 700, textTransform: 'uppercase' }}>
                               {h}
                             </th>
                           ))}
@@ -173,19 +175,19 @@ export default function ParserLogsPage() {
                           const pcfg = STATUS_CONFIG[pr.status] || STATUS_CONFIG.ok;
                           return (
                             <tr key={i} style={{ borderBottom: `1px solid ${T.border}` }}>
-                              <td style={{ padding: '4px 8px', fontFamily: 'monospace', color: T.dim }}>{pr.parser || pr.type || '—'}</td>
+                              <td style={{ padding: '4px 8px', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: T.dim }}>{pr.parser || pr.type || '—'}</td>
                               <td style={{ padding: '4px 8px' }}>
                                 <span style={{
-                                  padding: '1px 6px', borderRadius: 3, fontSize: 10, fontWeight: 700, fontFamily: 'monospace',
-                                  background: `${pcfg.color}18`, color: pcfg.color, border: `1px solid ${pcfg.color}30`,
+                                  padding: '1px 6px', borderRadius: 3, fontSize: 10, fontWeight: 700, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
+                                  background: `color-mix(in srgb, ${pcfg.color} 9%, transparent)`, color: pcfg.color, border: `1px solid color-mix(in srgb, ${pcfg.color} 19%, transparent)`,
                                 }}>
-                                  {pcfg.label}
+                                  {t(pcfg.key)}
                                 </span>
                               </td>
-                              <td style={{ padding: '4px 8px', fontFamily: 'monospace', color: T.text }}>
+                              <td style={{ padding: '4px 8px', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: T.text }}>
                                 {pr.record_count != null ? pr.record_count.toLocaleString() : '—'}
                               </td>
-                              <td style={{ padding: '4px 8px', fontFamily: 'monospace', color: 'var(--fl-danger)', fontSize: 10, maxWidth: 300, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              <td style={{ padding: '4px 8px', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-danger)', fontSize: 10, maxWidth: 300, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                 {pr.error || pr.warning || '—'}
                               </td>
                             </tr>
