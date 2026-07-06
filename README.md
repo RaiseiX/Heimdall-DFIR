@@ -246,15 +246,6 @@ docker exec odin chmod +x /app/hayabusa/hayabusa
 - [Changelog](CHANGELOG.md)
 - [User tutorial](TUTORIAL.md)
 
-## Security Notes
-
-- Do not commit `.env` or real investigation data.
-- Rotate generated secrets for any shared or production deployment.
-- Keep Heimdall behind trusted network controls when handling sensitive evidence.
-- Review Traefik, CORS, TLS, upload limits, and Docker socket access before exposing the service.
-- Treat evidence deletion, reset commands, and Docker volume removal as destructive operations.
-- Validate third-party parser binaries and rule packs before use in a sensitive environment.
-
 ## Credits
 
 Heimdall builds on open-source DFIR and infrastructure projects including Zimmerman Tools, Hayabusa, VolWeb, Volatility 3, ClamAV, Elasticsearch, SigmaHQ, YARA rule communities, Redis, PostgreSQL, React, Node.js, and MITRE ATT&CK.
