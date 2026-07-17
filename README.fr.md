@@ -1,6 +1,6 @@
 # Heimdall DFIR
 
-Workbench DFIR et threat hunting auto-hébergé pour gérer des investigations, ingérer des preuves, analyser des timelines, collaborer entre analystes et produire des rapports.
+Plateforme DFIR et threat hunting auto-hébergée pour gérer des dossiers, importer des preuves, reconstruire des timelines et sortir des rapports.
 
 [![EN](https://img.shields.io/badge/lang-EN-blue)](README.md)
 [![Docker Compose](https://img.shields.io/badge/runtime-Docker%20Compose-2496ED)](docker-compose.yml)
@@ -28,17 +28,17 @@ Workbench DFIR et threat hunting auto-hébergé pour gérer des investigations, 
 
 ## Objectif
 
-Heimdall donne aux équipes CSIRT, SOC et DFIR un cockpit unique pour:
+Heimdall donne aux équipes CSIRT, SOC et DFIR un endroit central pour:
 
 - gérer les dossiers d'investigation et les pièces à conviction;
 - importer et parser des artefacts forensiques;
 - construire des timelines recherchables;
 - exécuter des détections YARA, Sigma, threat-intelligence et règles internes;
-- collaborer avec notes, pins, chat et vues Workbench;
+- collaborer avec notes, pins, chat et vues de revue analyste;
 - analyser des dumps mémoire avec VolWeb et Volatility 3;
 - générer des rapports d'investigation avec contexte de preuve.
 
-Le projet cible les environnements auto-hébergés, souverains ou sensibles, où les preuves doivent rester sous contrôle de l'opérateur.
+Le projet vise les labs auto-hébergés, les SOC internes et les missions sensibles où les preuves doivent rester sous contrôle de l'opérateur.
 
 ## Fonctionnalités principales
 
@@ -52,7 +52,7 @@ Le projet cible les environnements auto-hébergés, souverains ou sensibles, où
 | Analyse mémoire | Intégration VolWeb, stockage MinIO, workers Volatility 3 |
 | Threat hunting | YARA, Sigma, TAXII/STIX, enrichissement IOC, résumés de détections |
 | Automatisation | Workers BullMQ, alertes SOAR, score de triage, playbooks |
-| Collaboration | Présence Socket.io, chat par cas, pins Workbench, ledger d'audit |
+| Collaboration | Présence Socket.io, chat par cas, pins de preuves, ledger d'audit |
 | IA locale | Copilot optionnel basé sur Ollama et contexte de cas |
 | Administration | Utilisateurs, backups, santé services, conteneurs Docker, journaux d'accès |
 

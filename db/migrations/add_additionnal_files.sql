@@ -1,2 +1,0 @@
-ALTER TABLE evidence
-  ADD COLUMN IF NOT EXISTS additional_files JSONB NOT NULL DEFAULT '[]';

@@ -7,13 +7,24 @@ import { getAvailableTools } from '../services/parserService';
 import { parserQueue } from '../config/queue';
 import { parserRateLimiter } from '../middleware/rateLimiter';
 
+const { authenticate } = require('../middleware/auth');
+const { caseAccessParam } = require('../middleware/caseAccess');
 const router = express.Router();
+router.use(authenticate);
+router.param('caseId', caseAccessParam);
 
 function getPool(res: Response): Pool {
   return res.app.locals.pool as Pool;
 }
 function getIO(res: Response): IOServer {
   return res.app.locals.io as IOServer;
+}
+
+// Collapses per-status row counts into a flat { status: count } map.
+// Deliberately keeps every ingestion_files status distinct — no green-washing
+// (empty/degraded/quarantined/skipped_duplicate must never be folded into a success count).
+function rollupCounts(rows: Array<{ status: string; n: number }>): Record<string, number> {
+  return Object.fromEntries(rows.map(r => [r.status, r.n]));
 }
 
 router.get('/available', (req: AuthRequest, res: Response) => {
@@ -66,6 +77,26 @@ router.post('/run', parserRateLimiter, async (req: AuthRequest, res: Response, n
       socketId,
       parser,
     });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Honest per-status rollup for one evidence's ingestion_files rows (all 11 states —
+// received/extracting/classified/queued/parsing/parsed/empty/degraded/error/quarantined/skipped_duplicate).
+router.get('/status/:caseId/:evidenceId', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const pool = getPool(res);
+    const { caseId, evidenceId } = req.params;
+    const result = await pool.query(
+      `SELECT status, COUNT(*)::int n
+       FROM ingestion_files
+       WHERE evidence_id = $1
+         AND case_id = $2
+       GROUP BY status`,
+      [evidenceId, caseId]
+    );
+    res.json({ evidence_id: evidenceId, counts: rollupCounts(result.rows) });
   } catch (err) {
     next(err);
   }
@@ -275,5 +306,7 @@ router.delete('/results/:resultId', async (req: AuthRequest, res: Response, next
     next(err);
   }
 });
+
+(router as any).rollupCounts = rollupCounts;
 
 export = router;

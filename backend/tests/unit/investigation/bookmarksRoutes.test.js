@@ -4,6 +4,10 @@ jest.mock('../../../src/middleware/auth', () => ({
   authenticate: (req, _res, next) => { req.user = { id: 'user-1' }; next(); },
   auditLog: jest.fn(),
 }));
+jest.mock('../../../src/middleware/caseAccess', () => ({
+  canAccessCase: jest.fn().mockResolvedValue(true),
+  ELEVATED: new Set(['admin', 'team_lead']),
+}));
 
 const express = require('express');
 const { request } = require('../../helpers/routeHarness');

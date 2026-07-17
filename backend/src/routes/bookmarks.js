@@ -1,8 +1,17 @@
 const express = require('express');
 const { pool } = require('../config/database');
 const { authenticate, auditLog } = require('../middleware/auth');
+const { canAccessCase } = require('../middleware/caseAccess');
 
 const router = express.Router({ mergeParams: true });
+
+router.use(authenticate);
+router.use(async (req, res, next) => {
+  try {
+    if (await canAccessCase(req.user, req.params.caseId)) return next();
+    return res.status(403).json({ error: 'Accès refusé : ce cas ne vous est pas attribué.' });
+  } catch { return res.status(500).json({ error: "Erreur de contrôle d'accès." }); }
+});
 
 router.get('/', authenticate, async (req, res) => {
   try {

@@ -8,7 +8,9 @@ import CommandBar  from '../components/supertimeline/CommandBar/CommandBar';
 import EventGrid   from '../components/supertimeline/EventGrid/EventGrid';
 import StatusBar   from '../components/supertimeline/StatusBar/StatusBar';
 import DetailPanel from '../components/supertimeline/DetailPanel/DetailPanel';
+import ContextPanel from '../components/supertimeline/ContextPanel/ContextPanel';
 import TipsTab     from '../components/supertimeline/ExplorerPanel/TipsTab';
+import TimelineDiff from '../components/supertimeline/TimelineDiff/TimelineDiff';
 
 export default function SuperTimelinePage() {
   const { id: routeId, caseId: routeCaseId_, collectionId: routeEvidenceId } = useParams();
@@ -16,6 +18,7 @@ export default function SuperTimelinePage() {
   const shellCtx = useOutletContext() || {};
   const routeCaseId = shellCtx.caseId || routeId || routeCaseId_;
   const { setCaseId, setFilter, setColorRules, loadTimeline } = useTimelineStore();
+  const [showDiff, setShowDiff] = useState(false);
 
   useEffect(() => {
     const caseId = routeCaseId || searchParams.get('caseId');
@@ -41,18 +44,20 @@ export default function SuperTimelinePage() {
 
   return (
     <div style={{ height: '100%', background: 'var(--fl-bg)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-      <HeaderStrip />
+      <HeaderStrip showDiff={showDiff} setShowDiff={setShowDiff} />
       <CommandBar />
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
         <EventGrid />
         <DetailPanel />
+        <ContextPanel />
       </div>
+      {showDiff && <TimelineDiff caseId={routeCaseId} />}
       <StatusBar />
     </div>
   );
 }
 
-function HeaderStrip() {
+function HeaderStrip({ showDiff, setShowDiff }) {
   const { total, caseId } = useTimelineStore();
   const [tipsOpen, setTipsOpen] = useState(false);
   const panelRef = useRef(null);
@@ -77,6 +82,16 @@ function HeaderStrip() {
         </span>
       )}
       <div style={{ flex: 1 }} />
+      <button
+        onClick={() => setShowDiff(v => !v)}
+        title="Comparer deux collectes"
+        style={{
+          padding: '3px 10px', borderRadius: 6, border: `1px solid ${showDiff ? 'color-mix(in srgb, var(--fl-accent) 30%, transparent)' : 'var(--fl-border)'}`,
+          background: showDiff ? 'var(--fl-card)' : 'transparent',
+          color: showDiff ? 'var(--fl-accent)' : 'var(--fl-muted)',
+          cursor: 'pointer', fontFamily: MONO, fontSize: 11, fontWeight: 600,
+        }}
+      >Diff</button>
       <div ref={panelRef} style={{ position: 'relative' }}>
         <button
           onClick={() => setTipsOpen(v => !v)}

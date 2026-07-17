@@ -1,7 +1,7 @@
 # Heimdall DFIR — Roadmap V2.0
 
 > *Mis à jour le 2026-04-20*
-> *Rédigé dans la perspective d'un Principal Staff Engineer / CPO Cybersécurité.*
+> *Maintenu comme plan d'ingénierie concret, pas comme support marketing.*
 >
 > Les contributions sont les bienvenues — ouvre une issue pour discuter d'une idée.
 
@@ -10,34 +10,32 @@
 
 ---
 
-## Positionnement stratégique
+## Direction
 
-### Pourquoi Heimdall doit constamment évoluer
+### Pourquoi la roadmap bouge
 
-Les adversaires font évoluer leurs TTPs en permanence. Un outil DFIR figé devient aveugle : de nouvelles sources de logs apparaissent (EDR, cloud, containers), les volumes d'événements explosent, et les équipes s'attendent à des outils qui **pensent avec elles**, pas juste pour elles.
+Le DFIR bouge vite. De nouvelles sources de logs arrivent, le volume d'événements augmente, et chaque incident montre un trou dans l'outillage. Heimdall doit suivre sans devenir un SIEM obèse ni un service cloud.
 
-### Axes de différenciation
+### Là où Heimdall doit être utile
 
 | Concurrent | Force | Notre réponse |
 |-----------|-------|---------------|
-| **Magnet AXIOM** | 1000+ parsers, mobile | Souveraineté des données, collab temps réel, IA locale |
-| **Elastic Security** | Scale, ML, SIEM | Self-hosted, air-gapped, simplicité déploiement |
-| **TheHive + Cortex** | Case management | Timeline native, threat hunting unifié, Investigation Graph |
-| **Timesketch** | Timeline Elasticsearch | Collaboration, SOAR, LLM Copilot, multi-cas |
-| **Velociraptor** | Live response | Forensique offline, interface accessible, rapport auto |
-| **Autopsy** | Carving, GUI | Web-native, multi-utilisateur, temps réel |
+| **Magnet AXIOM** | 1000+ parsers, mobile | Garder les preuves en local, faciliter la revue en équipe, ajouter une aide IA offline |
+| **Elastic Security** | Scale, ML, SIEM | Rester auto-hébergé, fonctionner en réseau fermé, garder un setup lisible |
+| **TheHive + Cortex** | Case management | Rapprocher timeline, hunting, preuves et graphe dans le même flux |
+| **Timesketch** | Timeline Elasticsearch | Ajouter workflow de cas, détections, rapports et contexte multi-cas |
+| **Velociraptor** | Live response | Se concentrer sur les preuves importées, l'analyse offline et des écrans de revue clairs |
+| **Autopsy** | Carving, GUI | Proposer une interface web, multi-utilisateur, pratique pendant un incident |
 
-### Vision V2.0
+### Cible V2.0
 
-> *"Heimdall est le seul workbench DFIR open-source qui combine forensique offline,
-> collaboration temps réel, threat hunting unifié et intelligence IA locale souveraine —
-> conçu pour les équipes qui ne peuvent pas se permettre de mettre leurs données dans le cloud."*
+Heimdall doit permettre à un analyste d'importer une collecte, lire la timeline, lancer des détections, poser des notes et produire un rapport sans perdre la chaîne de preuve.
 
-L'ambition V2.0 est de passer de *"bon outil de timeline DFIR"* à *"plateforme d'intelligence sur les menaces collaborative, IA-augmentée et souveraine"* — un outil que les équipes DFIR ne veulent plus quitter, que les MSSPs peuvent proposer à leurs clients, et que les universités utilisent pour former la prochaine génération d'analystes.
+Pour la V2.0, l'objectif est simple : garder la timeline solide, ajouter les pièces de workflow qui manquent, rendre la collaboration utilisable sous pression, et garder l'IA locale et optionnelle. Si une fonction ne fait pas gagner du temps à l'analyste ou ne protège pas mieux les preuves, elle n'a rien à faire dans la roadmap court terme.
 
 ---
 
-## ✅ v0.9.9 — Threat Engine & Workbench Foundation (actuel — Avril 2026)
+## ✅ v0.9.9 — Threat Engine & Revue analyste (actuel — Avril 2026)
 
 ### 0.9.9 — Threat Engine automatisé & Greyware Tagging
 - [x] **Threat Engine v2.26** — moteur de règles YAML, matcher bucketed par artifact/event-id, hot-path ≤ 5 µs/record, hot-reload mtime (`backend/src/services/threatEngine.js`)
@@ -46,14 +44,14 @@ L'ambition V2.0 est de passer de *"bon outil de timeline DFIR"* à *"plateforme 
 - [x] **Câblage ingest** — le moteur évalue chaque record dans la boucle COPY, fusionne les tags des règles dans `tags[]`, persiste `detections[]` en DB
 - [x] **Filtres timeline** — `?detections=hits_only`, `?detection_severity=critical|high|medium|greyware`, `?detection_category=…` via `jsonb @>` containment safe
 - [x] **`GET /api/collection/:caseId/detections/summary`** — `{ total, by_severity, by_category, top_rules[10] }`
-- [x] **UI** — colonne `🎯 Detections` (pastilles de sévérité + tooltip), bordure gauche 3px (règle "No-Christmas-Tree"), toggle `🎯 Hits uniquement` + dropdown sévérité-min, bannière `DetectionsSummaryBanner` dans le Workbench
+- [x] **UI** — colonne `🎯 Detections` (pastilles de sévérité + tooltip), bordure gauche 3px (règle "No-Christmas-Tree"), toggle `🎯 Hits uniquement` + dropdown sévérité-min, bannière de résumé des détections
 
-### 0.9.8 — Evidence Bridge & Workbench Foundation
+### 0.9.8 — Evidence Bridge & Revue analyste
 - [x] **Evidence Bridge** (Zustand + localStorage `heimdall.evidenceBridge.v1`, 500 pins/case)
-- [x] **Onglet Workbench** — cartes colorées par artefact, notes analyste, statut tri-state, fuzzy search, export MD/JSON
+- [x] **Onglet revue analyste** — cartes colorées par artefact, notes analyste, statut tri-state, fuzzy search, export MD/JSON
 - [x] **Findings Board kanban** — 3 colonnes, drag-and-drop HTML5 natif, persistance par cas
-- [x] **Sync backend** — `workbench_evidence_pins` (v2.25), REST + broadcast WebSocket `workbench:pin:*`
-- [x] **Ledger inviolable** — `workbench_evidence_audit` chaîne SHA-256, endpoint `GET /audit`, bannière de vérification
+- [x] **Sync backend** — persistance des pins de preuves (v2.25), endpoint REST + broadcast WebSocket
+- [x] **Ledger inviolable** — chaîne SHA-256, endpoint `GET /audit`, bannière de vérification
 - [x] **Persistence Sweep analyzer** — 11 règles MITRE, Persistence Score pondéré
 - [x] **Reconstruction de sessions logon** — groupe les EID 4624/4625/4634/4647/4648 par `LogonId`
 - [x] **Pin → Rapport** — document de findings imprimable avec table chain-of-custody
@@ -71,7 +69,7 @@ L'ambition V2.0 est de passer de *"bon outil de timeline DFIR"* à *"plateforme 
 - [x] **M3** — Collaboration temps réel (Socket.io rooms, présence, dashboard:update)
 - [x] **M4** — Architecture Workers BullMQ (file parser-jobs, Redis pub/sub, service worker isolé)
 - [x] **M5** — ClamAV + VolWeb (Volatility 3, MinIO, SSO Magic Link, upload chunked 256 GB)
-- [x] **M6** — Workbench UI + Notes d'investigation (TanStack Table, Split-Pane, sanitisation XSS)
+- [x] **M6** — UI de notes d'investigation (TanStack Table, Split-Pane, sanitisation XSS)
 - [x] **M7** — Revue sécurité complète (injection SQL/cmd, secrets, CORS, Docker, Nginx headers)
 - [x] **M8** — YARA / Sigma Threat Hunting + import depuis GitHub (Neo23x0, Yara-Rules, SigmaHQ)
 - [x] **M9** — TAXII / STIX Threat Intel (index ES `threat_intel`, corrélation automatique)
@@ -114,7 +112,7 @@ L'ambition V2.0 est de passer de *"bon outil de timeline DFIR"* à *"plateforme 
 ```
 Quick Wins    : ▓▓▓▓▓▓░░░░  6/9  implémentés  (1 partiel · 2 non démarrés)
 Core Features : ▓▓▓▓▓░░░░░  5/25 implémentés  (5 partiels · 15 non démarrés)
-Moonshots     : ░░░░░░░░░░  0/7  (vision long terme)
+Long terme   : ░░░░░░░░░░  0/7  (plus tard, non commencé)
 Hors roadmap  : ▓▓▓▓▓▓▓▓▓▓ 13 features supplémentaires livrées
 ```
 
@@ -162,7 +160,7 @@ Hors roadmap  : ▓▓▓▓▓▓▓▓▓▓ 13 features supplémentaires livr
 | CF-24 | NIS2/RGPD Breach Notification | ❌ | Non commencé |
 | CF-25 | Similar Case Detection | ❌ | Non commencé |
 
-### Moonshots
+### Paris long terme
 
 | ID | Feature | Statut |
 |----|---------|:------:|
@@ -238,7 +236,7 @@ Hors roadmap  : ▓▓▓▓▓▓▓▓▓▓ 13 features supplémentaires livr
   ├─ Scaling horizontal BullMQ workers (0–10)
   └─ MS-1 : Campaign Intelligence
 
-2027 Q2-Q3 — Moonshots
+2027 Q2-Q3 — Paris long terme
   ├─ MS-2 : Architecture Big Data (ClickHouse)
   ├─ MS-5 : Multi-tenancy MSSP
   ├─ MS-3 : AI Copilot avancé (proactif)

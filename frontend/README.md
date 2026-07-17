@@ -35,7 +35,6 @@ frontend/src/
 │   ├── ui/              Reusable UI primitives
 │   ├── timeline/        Timeline and investigation timeline components
 │   ├── supertimeline/   Super Timeline modules when present
-│   ├── workbench/       Evidence curation and audit ledger views
 │   ├── networkmap/      Network exploration UI
 │   ├── upload/          Upload and memory upload components
 │   └── ...
@@ -61,9 +60,9 @@ frontend/src/
 
 ## Product Expectations
 
-Heimdall is an investigation cockpit. Frontend changes should preserve density, scannability, case context, evidence state, and analyst speed.
+Heimdall is an investigation interface. Frontend changes should preserve density, scannability, case context, evidence state, and analyst speed.
 
-Avoid moving domain rules into JSX when they belong in services, utilities, or backend contracts. Case-scoped preferences and Workbench/Timeline state should be explicit about what is local-only and what is synchronized with the backend.
+Avoid moving domain rules into JSX when they belong in services, utilities, or backend contracts. Case-scoped preferences and timeline state should be explicit about what is local-only and what is synchronized with the backend.
 
 ## Related Docs
 

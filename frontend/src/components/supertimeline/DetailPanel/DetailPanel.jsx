@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Maximize2, Minimize2, X } from 'lucide-react';
+import { Maximize2, Minimize2, X, History } from 'lucide-react';
 import { useTimelineStore } from '../store/useTimelineStore';
 import { artifactColor } from '../../../constants/artifactColors';
 import { fmtTs } from '../../../utils/formatters';
@@ -32,7 +32,7 @@ export default function DetailPanel() {
   const {
     selectedRowId, detailOpen, records, tagData,
     detailTab, setDetailTab, closeDetail, setSelectedRow,
-    bookmarks, toggleBookmark,
+    bookmarks, toggleBookmark, openContext,
   } = useTimelineStore();
   const [expanded, setExpanded] = useState(false);
 
@@ -100,6 +100,18 @@ export default function DetailPanel() {
               style={{ width: 20, height: 18, borderRadius: 3, background: 'transparent',
                 border: '1px solid var(--fl-border)', color: 'var(--fl-muted)', cursor: 'pointer', fontSize: 10,
                 display: 'flex', alignItems: 'center', justifyContent: 'center' }}>↓</button>
+            {record?.id > 0 && (
+              <button
+                onClick={() => openContext(record.id)}
+                title="Contexte (événements voisins)"
+                style={{ width: 20, height: 18, borderRadius: 3, background: 'transparent',
+                  border: '1px solid var(--fl-border)', color: 'var(--fl-muted)', cursor: 'pointer',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                onMouseEnter={e => { e.currentTarget.style.color = 'var(--fl-accent)'; e.currentTarget.style.borderColor = 'color-mix(in srgb, var(--fl-accent) 25%, transparent)'; }}
+                onMouseLeave={e => { e.currentTarget.style.color = 'var(--fl-muted)'; e.currentTarget.style.borderColor = 'var(--fl-border)'; }}>
+                <History size={10} />
+              </button>
+            )}
             <button
               onClick={() => record && toggleBookmark(record)}
               title={isBookmarked ? 'Remove bookmark' : 'Bookmark this event'}

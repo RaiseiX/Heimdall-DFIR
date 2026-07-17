@@ -1,21 +1,38 @@
 import { useState, useEffect } from 'react';
 import { useOutletContext } from 'react-router-dom';
-import { FileText, ChevronDown, ChevronRight, RefreshCw, AlertCircle, CheckCircle2, AlertTriangle } from 'lucide-react';
+import { FileText, ChevronDown, ChevronRight, RefreshCw, AlertCircle, CheckCircle2, AlertTriangle, MinusCircle, ShieldAlert, CopyX, Loader2 } from 'lucide-react';
 import { useTheme } from '../utils/theme';
-import apiClient from '../utils/api';
+import apiClient, { parsersAPI } from '../utils/api';
 import { fmtLocal } from '../utils/formatters';
 import { useTranslation } from 'react-i18next';
 
+// Honest status vocabulary — every ingestion/parse state gets its own badge.
+// NEVER collapse empty/degraded/quarantined/skipped(_duplicate) into a green "ok" badge.
 const STATUS_CONFIG = {
-  ok:       { key: 'parserLogs.status_ok',       color: 'var(--fl-ok)',     icon: CheckCircle2 },
-  degraded: { key: 'parserLogs.status_degraded', color: 'var(--fl-warn)',   icon: AlertTriangle },
-  error:    { key: 'parserLogs.status_error',    color: 'var(--fl-danger)', icon: AlertCircle },
+  ok:                { key: 'parserLogs.status_ok',        color: 'var(--fl-ok)',     icon: CheckCircle2 },
+  parsed:            { key: 'parserLogs.status_ok',        color: 'var(--fl-ok)',     icon: CheckCircle2 },
+  empty:             { key: 'parserLogs.status_empty',     color: 'var(--fl-muted)',  icon: MinusCircle },
+  degraded:          { key: 'parserLogs.status_degraded',  color: 'var(--fl-warn)',   icon: AlertTriangle },
+  error:             { key: 'parserLogs.status_error',     color: 'var(--fl-danger)', icon: AlertCircle },
+  quarantined:       { key: 'parserLogs.status_quarantined', color: 'var(--fl-purple)', icon: ShieldAlert },
+  skipped:           { key: 'parserLogs.status_skipped',   color: 'var(--fl-artifact-registry)', icon: CopyX },
+  skipped_duplicate: { key: 'parserLogs.status_skipped',   color: 'var(--fl-artifact-registry)', icon: CopyX },
+  received:          { key: 'parserLogs.status_progress',  color: 'var(--fl-dim)',    icon: Loader2 },
+  extracting:        { key: 'parserLogs.status_progress',  color: 'var(--fl-dim)',    icon: Loader2 },
+  classified:        { key: 'parserLogs.status_progress',  color: 'var(--fl-dim)',    icon: Loader2 },
+  queued:            { key: 'parserLogs.status_progress',  color: 'var(--fl-dim)',    icon: Loader2 },
+  parsing:           { key: 'parserLogs.status_progress',  color: 'var(--fl-dim)',    icon: Loader2 },
 };
+
+// Priority order for rolling many per-parser statuses up into one header badge —
+// worst / most-informative status wins. Nothing here folds into "ok".
+const STATUS_PRIORITY = ['error', 'quarantined', 'degraded', 'empty', 'skipped_duplicate', 'skipped', 'parsing', 'queued', 'classified', 'extracting', 'received', 'ok', 'parsed'];
 
 function deriveStatus(parseResults = []) {
   if (!parseResults.length) return 'ok';
-  if (parseResults.some(r => r.status === 'error')) return 'error';
-  if (parseResults.some(r => r.status === 'degraded')) return 'degraded';
+  for (const s of STATUS_PRIORITY) {
+    if (parseResults.some(r => r.status === s)) return s;
+  }
   return 'ok';
 }
 
@@ -38,6 +55,7 @@ export default function ParserLogsPage() {
   const [loading, setLoading] = useState(false);
   const [expanded, setExpanded] = useState(new Set());
   const [error, setError] = useState(null);
+  const [ingestionCounts, setIngestionCounts] = useState(null);
 
   async function load() {
     if (!caseId) return;
@@ -53,7 +71,19 @@ export default function ParserLogsPage() {
     setLoading(false);
   }
 
-  useEffect(() => { load(); }, [caseId, collectionId]);
+  // Honest 11-state ingestion rollup (received…parsed/empty/degraded/error/quarantined/skipped_duplicate)
+  // for the selected evidence — distinct from the per-parser-run statuses in the table below.
+  async function loadIngestionCounts() {
+    if (!caseId || !collectionId) { setIngestionCounts(null); return; }
+    try {
+      const { data } = await parsersAPI.status(caseId, collectionId);
+      setIngestionCounts(data?.counts || {});
+    } catch (e) {
+      setIngestionCounts(null);
+    }
+  }
+
+  useEffect(() => { load(); loadIngestionCounts(); }, [caseId, collectionId]);
 
   function toggleExpand(id) {
     setExpanded(prev => {
@@ -84,6 +114,25 @@ export default function ParserLogsPage() {
           {t('common.refresh')}
         </button>
       </div>
+
+      {ingestionCounts && Object.keys(ingestionCounts).length > 0 && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 14 }}>
+          {Object.entries(ingestionCounts).map(([status, count]) => {
+            const cfg = STATUS_CONFIG[status] || STATUS_CONFIG.ok;
+            const Icon = cfg.icon;
+            return (
+              <span key={status} style={{ display: 'inline-flex', alignItems: 'center', gap: 5,
+                fontSize: 10.5, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontWeight: 700,
+                padding: '2px 9px', borderRadius: 4,
+                background: `color-mix(in srgb, ${cfg.color} 10%, transparent)`, color: cfg.color,
+                border: `1px solid color-mix(in srgb, ${cfg.color} 22%, transparent)` }}>
+                <Icon size={11} />
+                {count} {t(cfg.key)}
+              </span>
+            );
+          })}
+        </div>
+      )}
 
       {error && (
         <div style={{ padding: '10px 14px', borderRadius: 6, marginBottom: 12,
@@ -118,6 +167,7 @@ export default function ParserLogsPage() {
           const cfg = STATUS_CONFIG[status] || STATUS_CONFIG.ok;
           const isExpanded = expanded.has(row.id);
           const Icon = cfg.icon;
+          const isInProgress = cfg.key === 'parserLogs.status_progress';
 
           return (
             <div key={row.id} style={{
@@ -134,7 +184,7 @@ export default function ParserLogsPage() {
                 }}
               >
                 {isExpanded ? <ChevronDown size={13} style={{ color: T.muted, flexShrink: 0 }} /> : <ChevronRight size={13} style={{ color: T.muted, flexShrink: 0 }} />}
-                <Icon size={12} style={{ color: cfg.color, flexShrink: 0 }} />
+                <Icon size={12} style={{ color: cfg.color, flexShrink: 0, animation: isInProgress ? 'spin 1s linear infinite' : 'none' }} />
                 <span style={{
                   padding: '1px 7px', borderRadius: 4, fontSize: 10, fontWeight: 700, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
                   background: `color-mix(in srgb, ${cfg.color} 9%, transparent)`, color: cfg.color, border: `1px solid color-mix(in srgb, ${cfg.color} 19%, transparent)`,

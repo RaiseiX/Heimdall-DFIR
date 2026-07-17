@@ -10,3 +10,5 @@ require('ts-node').register({
 });
 
 require('./parserWorker');
+require('./ingestionWorker');
+require('./huntingWorker');

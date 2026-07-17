@@ -13,6 +13,7 @@ import type {
   ParserLogEvent,
 } from '../types/index';
 import { safePath } from './uploadService';
+import { importCsvToTimeline } from './ingestionTimeline';
 
 const ZIMMERMAN_DIR =
   process.env.ZIMMERMAN_TOOLS_DIR || '/app/zimmerman-tools';
@@ -40,7 +41,32 @@ export const ZIMMERMAN_TOOLS: Record<string, ZimmermanTool> = {
   hayabusa: { dll: '',                         name: 'Hayabusa',             description: 'Threat hunting on EVTX logs (Sigma rules)',  extensions: ['.evtx'] },
 };
 
-const DIRECTORY_PARSERS = new Set(['evtx', 'prefetch', 'lnk', 'jumplist', 'shellbags', 'sqle']);
+// The ingestion pipeline always stages a parser's files into a directory and
+// passes it as extraArgs.stagingDir, so any Zimmerman-family parser the
+// classifier can route to (backend/src/services/ingestion/signals.ts) must
+// support `-d`. Classifier-emitted Zimmerman parsers: mft, evtx, prefetch,
+// sqle (webcache/pcap/bash_history/syslog are non-Zimmerman — see FIX C).
+const DIRECTORY_PARSERS = new Set(['evtx', 'prefetch', 'lnk', 'jumplist', 'shellbags', 'sqle', 'mft']);
+
+const PARSERS_DIR = '/app/parsers';
+type PythonParserSpec = { script: string; inputMode: 'dir' | 'file'; csvf: string };
+export const PYTHON_PARSERS: Record<string, PythonParserSpec> = {
+  pcap:         { script: 'parse_pcap.py',         inputMode: 'dir',  csvf: 'pcap_results.csv' },
+  syslog:       { script: 'parse_syslog.py',       inputMode: 'dir',  csvf: 'syslog_results.csv' },
+  bash_history: { script: 'parse_bash_history.py', inputMode: 'dir',  csvf: 'bash_history_results.csv' },
+  webcache:     { script: 'parse_webcache.py',     inputMode: 'file', csvf: 'webcache_results.csv' },
+};
+
+export function buildPythonCommands(spec: PythonParserSpec, inputFile: string, outputDir: string): { binary: string; args: string[] }[] {
+  const script = `${PARSERS_DIR}/${spec.script}`;
+  if (spec.inputMode === 'file') {
+    // webcache: one command per regular file staged under inputFile (Task 2 covers this)
+    let files: string[] = [];
+    try { files = fs.readdirSync(inputFile, { withFileTypes: true }).filter(e => e.isFile()).map(e => path.join(inputFile, e.name)); } catch { files = []; }
+    return files.map(f => ({ binary: 'python3', args: [script, '-f', f, '--csv', outputDir, '--csvf', `${path.basename(f)}-${spec.csvf}`] }));
+  }
+  return [{ binary: 'python3', args: [script, '-d', inputFile, '--csv', outputDir, '--csvf', spec.csvf] }];
+}
 
 function buildZimmermanArgs(
   dllPath: string,
@@ -106,6 +132,19 @@ function emitStatus(io: IOServer, socketId: string, payload: ParserStatusEvent):
 function emitLog(io: IOServer, socketId: string, stream: 'stdout' | 'stderr', line: string): void {
   const payload: ParserLogEvent = { stream, line, ts: Date.now() };
   io.to(socketId).emit('parser:log', payload);
+}
+
+async function spawnParserCommand(binary: string, args: string[], outputDir: string, io: IOServer, socketId: string): Promise<number> {
+  emitLog(io, socketId, 'stdout', `▶ ${binary} ${args.join(' ')}`);
+  const child = spawn(binary, args, { stdio: ['ignore', 'pipe', 'pipe'], cwd: outputDir, env: { ...process.env, DOTNET_GCHeapHardLimit: String(512 * 1024 * 1024) } });
+  const rlOut = readline.createInterface({ input: child.stdout!, crlfDelay: Infinity });
+  rlOut.on('line', (line) => { if (line.trim()) emitLog(io, socketId, 'stdout', line); });
+  const rlErr = readline.createInterface({ input: child.stderr!, crlfDelay: Infinity });
+  rlErr.on('line', (line) => { if (line.trim()) emitLog(io, socketId, 'stderr', line); });
+  return new Promise<number>((resolve) => {
+    child.on('close', (code) => resolve(code ?? -1));
+    child.on('error', (err) => { emitLog(io, socketId, 'stderr', `Erreur spawn: ${err.message}`); resolve(-1); });
+  });
 }
 
 async function streamCsvToDb(
@@ -190,15 +229,28 @@ export async function runParser(
   config: ParserRunConfig,
   io: IOServer,
   pool: Pool
-): Promise<void> {
+): Promise<number> {
   const { parser, evidenceId, caseId, userId, socketId, extraArgs = {} } = config;
 
   emitStatus(io, socketId, { status: 'INIT', message: 'Initialisation du parseur…' });
 
   const tool = ZIMMERMAN_TOOLS[parser];
-  if (!tool) {
+  if (!tool && !PYTHON_PARSERS[parser]) {
     emitStatus(io, socketId, { status: 'FAILED', message: `Parseur inconnu: ${parser}` });
-    return;
+    // Ingestion path ONLY (extraArgs.ingestionFileIds present): the classifier
+    // can route to parser names runParser doesn't implement yet (pcap,
+    // webcache, bash_history, syslog — see ingestion/signals.ts). Returning 0
+    // here would let parserWorker's mapOutcomeToStatus read it as a clean
+    // "empty" parse, silently green-washing a detected-but-unparsed artifact.
+    // Throw so parserWorker catches it, sets failed=true, and maps to 'error'.
+    // GUARDED to the ingestion path so the pre-existing collection-parsing
+    // flow (which never calls runParser with these parser names — the
+    // matching Python parsers are dispatched elsewhere in that flow) is
+    // byte-for-byte unchanged.
+    if (config.extraArgs?.ingestionFileIds) {
+      throw new Error(`Parseur inconnu: ${parser}`);
+    }
+    return 0;
   }
 
   let inputFile: string;
@@ -212,19 +264,26 @@ export async function runParser(
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     emitStatus(io, socketId, { status: 'FAILED', message: `DB error: ${msg}` });
-    return;
+    return 0;
+  }
+
+  // Ingestion pipeline (Task 8+): when the caller staged a dedup-aware subset
+  // of files for this parser, parse THAT directory instead of the evidence's
+  // raw file_path. Absent extraArgs.stagingDir, resolution is unchanged.
+  if (extraArgs.stagingDir) {
+    inputFile = extraArgs.stagingDir;
   }
 
   if (!fs.existsSync(inputFile)) {
     emitStatus(io, socketId, { status: 'FAILED', message: `Fichier introuvable: ${inputFile}` });
-    return;
+    return 0;
   }
 
   const uploadDir = process.env.UPLOAD_DIR || '/app/uploads';
   const pathCheck = safePath(path.basename(inputFile), path.dirname(inputFile));
   if (!pathCheck.safe) {
     emitStatus(io, socketId, { status: 'FAILED', message: `Chemin non autorisé: ${pathCheck.reason}` });
-    return;
+    return 0;
   }
 
   const runId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -238,35 +297,28 @@ export async function runParser(
          (case_id, evidence_id, parser_name, parser_version, input_file, output_data, record_count, created_by)
        VALUES ($1, $2, $3, $4, $5, '[]'::jsonb, 0, $6)
        RETURNING id`,
-      [caseId, evidenceId, tool.name, '2.0', inputFile, userId]
+      [caseId, evidenceId, tool ? tool.name : parser, '2.0', inputFile, userId]
     );
     resultId = dbResult.rows[0].id;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     emitStatus(io, socketId, { status: 'FAILED', message: `Erreur DB: ${msg}` });
-    return;
+    return 0;
   }
 
-  let binary: string;
-  let args: string[];
+  let commands: { binary: string; args: string[] }[];
 
   if (parser === 'hayabusa') {
-    binary = HAYABUSA_BIN;
-    args = buildHayabusaArgs(inputFile, outputDir, extraArgs);
+    commands = [{ binary: HAYABUSA_BIN, args: buildHayabusaArgs(inputFile, outputDir, extraArgs) }];
   } else if (parser === 'prefetch') {
 
     const isPrefetchDir = fs.existsSync(inputFile) && fs.statSync(inputFile).isDirectory();
-    binary = 'python3';
-    args = [
-      '/app/parsers/parse_prefetch.py',
-      isPrefetchDir ? '-d' : '-f', inputFile,
-      '--csv', outputDir,
-      '--csvf', 'output.csv',
-    ];
+    commands = [{ binary: 'python3', args: ['/app/parsers/parse_prefetch.py', isPrefetchDir ? '-d' : '-f', inputFile, '--csv', outputDir, '--csvf', 'output.csv'] }];
   } else if (parser === 'srum') {
 
-    binary = 'python3';
-    args = ['/app/parsers/parse_srum.py', '-f', inputFile, '--csv', outputDir, '--csvf', 'output.csv'];
+    commands = [{ binary: 'python3', args: ['/app/parsers/parse_srum.py', '-f', inputFile, '--csv', outputDir, '--csvf', 'output.csv'] }];
+  } else if (PYTHON_PARSERS[parser]) {
+    commands = buildPythonCommands(PYTHON_PARSERS[parser], inputFile, outputDir);
   } else {
     const dllPath = path.join(ZIMMERMAN_DIR, tool.dll);
     if (!fs.existsSync(dllPath)) {
@@ -275,43 +327,25 @@ export async function runParser(
         message: `DLL introuvable: ${dllPath}. Déposez ${tool.dll} dans ${ZIMMERMAN_DIR}`,
       });
       await pool.query(`DELETE FROM parser_results WHERE id = $1`, [resultId]);
-      return;
+      return 0;
     }
-    binary = DOTNET_BIN;
-    args = buildZimmermanArgs(dllPath, inputFile, outputDir, parser, extraArgs);
+    commands = [{ binary: DOTNET_BIN, args: buildZimmermanArgs(dllPath, inputFile, outputDir, parser, extraArgs) }];
   }
 
-  emitLog(io, socketId, 'stdout', `▶ ${binary} ${args.join(' ')}`);
   emitStatus(io, socketId, { status: 'RUNNING', message: 'Exécution en cours…' });
 
-  const child = spawn(binary, args, {
-    stdio: ['ignore', 'pipe', 'pipe'],
-
-    cwd: outputDir,
-    env: {
-      ...process.env,
-
-      DOTNET_GCHeapHardLimit: String(512 * 1024 * 1024),
-    },
-  });
-
-  const rlOut = readline.createInterface({ input: child.stdout!, crlfDelay: Infinity });
-  rlOut.on('line', (line) => {
-    if (line.trim()) emitLog(io, socketId, 'stdout', line);
-  });
-
-  const rlErr = readline.createInterface({ input: child.stderr!, crlfDelay: Infinity });
-  rlErr.on('line', (line) => {
-    if (line.trim()) emitLog(io, socketId, 'stderr', line);
-  });
-
-  const exitCode = await new Promise<number>((resolve) => {
-    child.on('close', (code) => resolve(code ?? -1));
-    child.on('error', (err) => {
-      emitLog(io, socketId, 'stderr', `Erreur spawn: ${err.message}`);
-      resolve(-1);
-    });
-  });
+  // Single-command parsers (Zimmerman/hayabusa/prefetch/srum/pcap/syslog/bash_history) keep the exact
+  // exitCode semantics they had before this loop existed. File-mode (webcache: >1 command, one per
+  // staged file) succeeds if ANY command produced output, since a corrupt/unsupported cache file
+  // shouldn't fail the whole ingestion when siblings parsed fine.
+  let exitCode = commands.length ? -1 : 0;
+  let anySuccess = false;
+  for (const cmd of commands) {
+    const code = await spawnParserCommand(cmd.binary, cmd.args, outputDir, io, socketId);
+    if (code === 0) anySuccess = true;
+    exitCode = code;               // last command's code (single-command parsers = unchanged semantics)
+  }
+  if (commands.length > 1) exitCode = anySuccess ? 0 : exitCode;   // file-mode: success if any command produced output
 
   function findCsvRecursive(dir: string): string[] {
     const results: string[] = [];
@@ -340,6 +374,17 @@ export async function runParser(
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         emitLog(io, socketId, 'stderr', `  ✗ Erreur import ${csvFile}: ${msg}`);
+      }
+
+      // Materialize into collection_timeline so the auto-hunt (which reads that table) sees ingested
+      // evidence. Own try/catch: a timeline-import failure must not fail the parse (parser_results is
+      // already written). importCsvToTimeline no-ops for artifact types without a TIMELINE_FIELD_CONFIG.
+      try {
+        const tlRows = await importCsvToTimeline(csvPath, { pool, caseId, resultId, evidenceId, artifactType: parser });
+        if (tlRows > 0) emitLog(io, socketId, 'stdout', `  ✓ ${tlRows.toLocaleString()} lignes → timeline`);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        emitLog(io, socketId, 'stderr', `  ✗ Timeline import: ${msg}`);
       }
     }
   }
@@ -373,6 +418,8 @@ export async function runParser(
       recordCount: totalRecords,
     });
   }
+
+  return totalRecords;
 }
 
 export function getAvailableTools(): Record<

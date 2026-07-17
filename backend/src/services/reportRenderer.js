@@ -631,6 +631,72 @@ function drawWorkflow(doc, d, num, A) {
   return true;
 }
 
+// ── DFIQ scenarios (attached to the case) ────────────────────────────────────
+
+// Pure transformer: flat query rows (one per answer × evidence pair, LEFT JOINed)
+// → grouped scenarios with their ANSWERED-only questions and evidence titles.
+function buildDfiqReportData(rows) {
+  if (!Array.isArray(rows) || !rows.length) return [];
+  const scenarios = [];
+  const scenarioByTitle = new Map();
+  const questionByKey = new Map(); // `${scenario_title}␟${question_text}` → question obj
+
+  for (const r of rows) {
+    if (!r || r.status !== 'answered') continue;
+
+    let scenario = scenarioByTitle.get(r.scenario_title);
+    if (!scenario) {
+      scenario = { scenario_title: r.scenario_title, questions: [] };
+      scenarioByTitle.set(r.scenario_title, scenario);
+      scenarios.push(scenario);
+    }
+
+    const qKey = `${r.scenario_title}␟${r.question_text}`;
+    let question = questionByKey.get(qKey);
+    if (!question) {
+      question = { text: r.question_text, status: r.status, note: r.note, evidence: [] };
+      questionByKey.set(qKey, question);
+      scenario.questions.push(question);
+    }
+
+    if (r.evidence_title) question.evidence.push(r.evidence_title);
+  }
+
+  return scenarios;
+}
+
+function drawDfiq(doc, d, num, A) {
+  const scenarios = d.dfiq || [];
+  if (!scenarios.length) return false;
+  doc.addPage(); doc.y = TOP;
+  sectionTitle(doc, num, 'Scénarios DFIQ', A);
+  para(doc, `${scenarios.length} scénario(s) DFIQ traité(s) pour ce cas, questions répondues uniquement.`, { color: SUB });
+  doc.y += 2;
+
+  for (const sc of scenarios) {
+    subLabel(doc, sc.scenario_title || 'Scénario', A);
+    for (const q of sc.questions) {
+      const hasNote = !!q.note;
+      const hasEv = Array.isArray(q.evidence) && q.evidence.length > 0;
+      ensure(doc, 18 + (hasNote ? 12 : 0) + (hasEv ? 12 : 0));
+      const y = doc.y;
+      doc.fillColor(INK).font(FB).fontSize(9).text(short(q.text || '', 100), MX, y, { width: CW, lineGap: 1.5 });
+      let yy = doc.y + 2;
+      if (hasNote) {
+        doc.fillColor(SUB).font(FI).fontSize(8).text(short(q.note, 130), MX, yy, { width: CW, lineBreak: false });
+        yy += 12;
+      }
+      if (hasEv) {
+        doc.fillColor(FAINT).font(FM).fontSize(7.5).text(`Preuves : ${q.evidence.map(e => short(e, 40)).join('   ·   ')}`, MX, yy, { width: CW, lineBreak: false });
+        yy += 12;
+      }
+      doc.y = yy + 4;
+    }
+    doc.y += 4;
+  }
+  return true;
+}
+
 // ── Entry point ──────────────────────────────────────────────────────────────
 
 function renderReport(doc, d) {
@@ -646,6 +712,7 @@ function renderReport(doc, d) {
   if (sec.has('mitre') && drawMitre(doc, d, n, A)) n++;
   if (sec.has('killchain') && drawKillChain(doc, d, n, A)) n++;
   if (sec.has('workflow') && drawWorkflow(doc, d, n, A)) n++;
+  if (sec.has('dfiq') && drawDfiq(doc, d, n, A)) n++;
   if ((sec.has('hayabusa') || sec.has('sigma') || sec.has('yara')) && drawFindings(doc, d, n, A)) n++;
   if (sec.has('iocs') && drawIocs(doc, d, n, A)) n++;
   if (sec.has('timeline') && drawTimeline(doc, d, n, A)) n++;
@@ -660,4 +727,4 @@ function renderReport(doc, d) {
   addChrome(doc, d, A);
 }
 
-module.exports = { renderReport };
+module.exports = { renderReport, buildDfiqReportData };

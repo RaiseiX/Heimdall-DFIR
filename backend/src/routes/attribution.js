@@ -2,6 +2,10 @@ const express = require('express');
 const logger = require('../config/logger').default;
 const router = express.Router();
 const { authenticate } = require('../middleware/auth');
+const { caseAccessParam } = require('../middleware/caseAccess');
+
+router.use(authenticate);
+router.param('caseId', caseAccessParam);
 
 const APT_GROUPS = [
   { id: 'G0007', name: 'APT28', aliases: ['Fancy Bear', 'Sofacy', 'STRONTIUM'], origin: 'Russia', motivation: 'Espionage', color: '#c0392b', techniques: ['T1566','T1059','T1547','T1053','T1078','T1021','T1003','T1071','T1041'], tactics: ['Initial Access','Execution','Persistence','Privilege Escalation','Credential Access','Lateral Movement','Collection','Exfiltration'] },

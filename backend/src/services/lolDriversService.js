@@ -91,14 +91,27 @@ async function getHijackIndex() {
   return hijackCache.building;
 }
 
-// Match Amcache driver rows against LOLDrivers. Hash match = high confidence;
-// filename-only match = medium (a legitimate driver can share a name).
+// Sysmon EID 6 (Driver Loaded) carries the path in ImageLoaded and hashes as a
+// pipe-delimited string like "SHA1=<hex>|MD5=<hex>|SHA256=<hex>,IMPHASH=<hex>".
+// Pull the SHA1 (falls back to SHA256/MD5) so runtime driver loads can be
+// matched the same way as Amcache inventory rows.
+function extractEvtxHash(hashes) {
+  const s = String(hashes || '');
+  const m = s.match(/SHA1=([a-fA-F0-9]+)/) || s.match(/SHA256=([a-fA-F0-9]+)/) || s.match(/MD5=([a-fA-F0-9]+)/);
+  return m ? m[1] : '';
+}
+
+// Match Amcache driver rows (or Sysmon EID 6 runtime driver-load rows) against
+// LOLDrivers. Hash match = high confidence; filename-only match = medium (a
+// legitimate driver can share a name).
 function matchDrivers(rows, index) {
   const out = [];
   for (const r of rows) {
     const raw = r.raw || {};
-    const id = normHash(raw.DriverId || raw.FileId || raw.SHA1 || raw.sha1);
-    const name = String(raw.DriverName || raw.Name || '').toLowerCase();
+    const id = normHash(raw.DriverId || raw.FileId || raw.SHA1 || raw.sha1 || extractEvtxHash(raw.Hashes));
+    const imageLoaded = String(raw.ImageLoaded || '').toLowerCase();
+    const imageName = imageLoaded ? imageLoaded.split(/[\\/]/).pop() : '';
+    const name = String(raw.DriverName || raw.Name || '').toLowerCase() || imageName;
     let hit = null;
     if (id && index.sha.has(id)) hit = { confidence: 'high', reason: 'hash' };
     else if (name && index.names.has(name)) hit = { confidence: 'medium', reason: 'nom' };
@@ -106,8 +119,8 @@ function matchDrivers(rows, index) {
     const meta = index.names.get(name) || {};
     out.push({
       timestamp: r.timestamp, artifact_type: r.artifact_type, host_name: r.host_name,
-      description: `${raw.DriverName || name} — ${hit.reason === 'hash' ? 'hash LOLDrivers' : 'nom LOLDrivers'}${meta.category ? ' (' + meta.category + ')' : ''}`,
-      source: raw.KeyName || raw.DriverName || name,
+      description: `${raw.DriverName || raw.ImageLoaded || name} — ${hit.reason === 'hash' ? 'hash LOLDrivers' : 'nom LOLDrivers'}${meta.category ? ' (' + meta.category + ')' : ''}`,
+      source: raw.KeyName || raw.DriverName || raw.ImageLoaded || name,
       severity: hit.reason === 'hash' ? 'CRITIQUE' : 'ÉLEVÉ',
       confidence: hit.confidence, mitre: meta.mitre || 'T1068',
       raw: { ...raw, _match: hit.reason },

@@ -2,10 +2,9 @@ import { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Plus, Trash2, RefreshCw, ListChecks, Link2 as LinkIcon } from 'lucide-react';
 import { investigationAPI } from '../../utils/api';
+import { STATUS_CYCLE, STATUS_COLOR } from './investigationStatus';
 
 const PHASE_ORDER = ['acquisition', 'examination', 'analysis', 'reporting'];
-const STATUS_CYCLE = ['todo', 'doing', 'done', 'blocked'];
-const STATUS_COLOR = { todo: 'var(--fl-subtle)', doing: 'var(--fl-gold)', done: 'var(--fl-ok)', blocked: 'var(--fl-danger)' };
 
 export default function WorkflowTracker({ caseId }) {
   const { t } = useTranslation();

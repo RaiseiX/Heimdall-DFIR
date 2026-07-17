@@ -1,6 +1,6 @@
 # Heimdall DFIR
 
-Self-hosted DFIR and threat-hunting workbench for case-driven investigations, forensic artifact ingestion, collaborative analysis, and report generation.
+Self-hosted DFIR and threat-hunting platform for handling cases, importing evidence, building timelines, and writing reports.
 
 [![FR](https://img.shields.io/badge/lang-FR-blueviolet)](README.fr.md)
 [![Docker Compose](https://img.shields.io/badge/runtime-Docker%20Compose-2496ED)](docker-compose.yml)
@@ -8,10 +8,9 @@ Self-hosted DFIR and threat-hunting workbench for case-driven investigations, fo
 [![React](https://img.shields.io/badge/frontend-React%2018-61DAFB)](frontend/package.json)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-Heimdall DFIR is a **unified investigation cockpit** built for CSIRT / SOC / DFIR teams.
-It ingests, correlates and visualises any forensic source — Windows/Linux artifacts,
-network captures, RAM dumps — in a single, collaborative, real-time interface.
-Discord link : https://discord.gg/sx7DnNYMNF
+Heimdall DFIR is built for CSIRT, SOC, and DFIR teams that need to keep case data on their own infrastructure.
+It imports forensic sources such as Windows/Linux artifacts, network captures, and RAM dumps, then helps analysts work through them without jumping between a dozen tools.
+Discord: https://discord.gg/sx7DnNYMNF
 
 > Heimdall is in active development. Validate the full workflow in a controlled environment before using it for production investigations.
 
@@ -33,17 +32,17 @@ Discord link : https://discord.gg/sx7DnNYMNF
 
 ## What Heimdall Does
 
-Heimdall gives CSIRT, SOC, and DFIR teams a single cockpit to:
+Heimdall gives CSIRT, SOC, and DFIR teams one place to:
 
 - manage investigations and evidence by case;
 - upload and parse forensic artifacts;
 - build searchable timelines;
 - run YARA, Sigma, threat-intelligence, and rule-based detections;
-- collaborate through notes, pins, chat, and analyst workbench views;
+- collaborate through notes, pins, chat, and analyst review views;
 - analyze memory dumps through VolWeb and Volatility 3;
 - generate investigation reports and preserve evidence context.
 
-The project is designed for self-hosted and sovereignty-sensitive environments where evidence should remain under operator control.
+The project is meant for self-hosted labs, internal SOCs, and sensitive client work where evidence needs to stay under operator control.
 
 ## Core Capabilities
 
@@ -57,7 +56,7 @@ The project is designed for self-hosted and sovereignty-sensitive environments w
 | Memory forensics | VolWeb integration, MinIO storage, Volatility 3 worker stack |
 | Threat hunting | YARA, Sigma, TAXII/STIX, IOC enrichment, detection summaries |
 | Automation | BullMQ workers, SOAR alerts, triage scoring, playbooks |
-| Collaboration | Socket.io presence, case chat, workbench pins, audit ledger |
+| Collaboration | Socket.io presence, case chat, evidence pins, audit ledger |
 | Local AI | Optional Ollama-backed copilot and case-aware assistant workflows |
 | Administration | Users, backups, service health, Docker container visibility, access logs |
 

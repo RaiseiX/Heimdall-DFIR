@@ -10,6 +10,15 @@ function pool(res: Response): Pool { return res.app.locals.pool; }
 function io(res: Response)   { return res.app.locals.io; }
 
 const { authenticate, requireRole, auditLog } = require('../middleware/auth');
+const { canAccessCase } = require('../middleware/caseAccess');
+
+router.use(authenticate);
+router.use(async (req: AuthRequest, res: Response, next: any) => {
+  try {
+    if (await canAccessCase((req as any).user, req.params.caseId)) return next();
+    return res.status(403).json({ error: 'Accès refusé : ce cas ne vous est pas attribué.' });
+  } catch { return res.status(500).json({ error: "Erreur de contrôle d'accès." }); }
+});
 
 router.get('/alerts', authenticate, async (req: AuthRequest, res: Response) => {
   const { caseId } = req.params;

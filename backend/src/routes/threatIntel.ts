@@ -14,7 +14,10 @@ import {
   correlateCase,
 } from '../services/taxiiService';
 
+const { caseAccessParam } = require('../middleware/caseAccess');
 const router = express.Router();
+router.use(authenticate);
+router.param('caseId', caseAccessParam);
 
 async function ensureTables(pool: Pool): Promise<void> {
   await pool.query(`

@@ -48,7 +48,7 @@ Write-Host ""
 Write-Host "╔══════════════════════════════════════════════════════════════╗" -ForegroundColor Cyan
 Write-Host "║                                                              ║" -ForegroundColor Cyan
 Write-Host "║          H E I M D A L L   D F I R   v 0 . 9 . 6           ║" -ForegroundColor Cyan
-Write-Host "║          DFIR & Threat Hunting Workbench                     ║" -ForegroundColor Cyan
+Write-Host "║          DFIR & Threat Hunting Platform                      ║" -ForegroundColor Cyan
 Write-Host "║                                                              ║" -ForegroundColor Cyan
 Write-Host "╚══════════════════════════════════════════════════════════════╝" -ForegroundColor Cyan
 Write-Host ""

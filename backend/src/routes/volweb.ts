@@ -3,6 +3,7 @@ import logger from '../config/logger';
 import path    from 'path';
 import fs      from 'fs';
 import crypto  from 'crypto';
+import { safeBasename } from '../services/uploadService';
 
 const { authenticate, auditLog } = require('../middleware/auth');
 const { pool }                   = require('../config/database');
@@ -17,8 +18,15 @@ const {
 } = require('../services/volwebService');
 
 const IORedis = require('ioredis');
+const { caseAccessParam } = require('../middleware/caseAccess');
 
 const router = express.Router();
+// /sso/:token is the VolWeb magic-link handoff (token-in-URL, no Bearer JWT — see nginx/volweb.conf); it must stay public.
+router.use((req, res, next) => {
+  if (req.path.startsWith('/sso/')) return next();
+  return authenticate(req, res, next);
+});
+router.param('caseId', caseAccessParam);
 
 const MEMORY_CHUNK_SIZE = 50 * 1024 * 1024;
 
@@ -331,7 +339,7 @@ router.post('/memory/:caseId/complete', authenticate, async (req: any, res) => {
     const finalDir  = path.join(UPLOADS_DIR, req.params.caseId);
     fs.mkdirSync(finalDir, { recursive: true });
     const uniqueSuffix = `${Date.now()}-${crypto.randomBytes(6).toString('hex')}`;
-    const finalPath = path.join(finalDir, `${uniqueSuffix}-${upload.filename}`);
+    const finalPath = path.join(finalDir, `${uniqueSuffix}-${safeBasename(upload.filename)}`);
 
     try {
       await fs.promises.rename(upload.temp_path, finalPath);

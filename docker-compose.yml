@@ -472,6 +472,8 @@ services:
       REDIS_HOST: redis
       REDIS_PORT: 6379
       REDIS_PASSWORD: ${REDIS_PASSWORD}
+      JWT_SECRET: ${JWT_SECRET}
+      INTERNAL_API_BASE: http://backend:4000
       UPLOAD_DIR: /app/uploads
       ZIMMERMAN_TOOLS_DIR: /app/zimmerman-tools
       HAYABUSA_BIN: /app/hayabusa/hayabusa

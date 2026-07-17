@@ -12,8 +12,14 @@ import {
   getSessionStatus,
 } from '../services/uploadService';
 import { scanFile } from '../services/clamavService';
+import { ingestionQueue, IngestionJobData } from '../config/queue';
 
-const router = express.Router();
+async function enqueueIngestion(data: IngestionJobData): Promise<void> {
+  await ingestionQueue.add('ingest', data);
+}
+
+const router = express.Router() as express.Router & { enqueueIngestion: typeof enqueueIngestion };
+router.enqueueIngestion = enqueueIngestion;
 
 function getPool(res: Response): Pool {
   return res.app.locals.pool as Pool;
@@ -153,6 +159,23 @@ router.post('/complete', async (req: AuthRequest, res: Response, next: NextFunct
     );
 
     const evidence = evidenceResult.rows[0];
+
+    try {
+      await enqueueIngestion({
+        evidenceId:   evidence.id,
+        caseId:       value.caseId,
+        userId:       req.user.id,
+        uploadPath:   fileInfo.filePath,
+        // Use the Joi-validated value (defaulted/whitelisted), not the raw
+        // body — req.body.evidenceType could be missing/malformed even after
+        // validation swapped in a default, since Joi's `value` (not
+        // req.body) carries defaults and coercions.
+        evidenceType: value.evidenceType,
+        socketId:     req.body.socketId || '',
+      });
+    } catch (enqueueErr) {
+      logger.error(`[Ingestion] Échec de mise en file pour l'evidence ${evidence.id}: ${enqueueErr}`);
+    }
 
     await pool.query(
       `INSERT INTO audit_log (user_id, action, entity_type, entity_id, details, ip_address)

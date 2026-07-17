@@ -20,6 +20,8 @@ const MAX_RETRIES_PER_CHUNK = 3;
 
 const sessions = new Map<string, UploadSession>();
 
+// .unref() so this hourly cleanup timer never keeps the process alive on its own
+// (the HTTP server keeps prod alive; in tests it lets Node/jest exit cleanly).
 setInterval(() => {
   const now = Date.now();
   for (const [id, session] of sessions) {
@@ -28,7 +30,7 @@ setInterval(() => {
       sessions.delete(id);
     }
   }
-}, 60 * 60 * 1000);
+}, 60 * 60 * 1000).unref();
 
 export function safePath(untrusted: string, allowedBase: string): SafePathResult {
   const base = path.resolve(allowedBase);
@@ -39,6 +41,11 @@ export function safePath(untrusted: string, allowedBase: string): SafePathResult
     return { safe: false, resolvedPath: resolved, reason: 'Path traversal detected' };
   }
   return { safe: true, resolvedPath: resolved };
+}
+
+export function safeBasename(name: string): string {
+  const b = path.basename(String(name ?? ''));
+  return (b === '' || b === '.' || b === '..') ? '_' : b;
 }
 
 async function getDiskSpace(filePath: string): Promise<DiskSpace> {

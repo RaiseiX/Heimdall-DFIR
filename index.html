@@ -3,8 +3,8 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
-<title>Heimdall DFIR — Open-Source Investigation Platform</title>
-<meta name="description" content="Heimdall DFIR is a self-hosted platform for digital forensics and incident response. Parse artifacts, build timelines, hunt threats, analyse memory and map the network, with a local AI assistant, all on your own server."/>
+<title>Heimdall DFIR — Open-Source DFIR Investigation Platform</title>
+<meta name="description" content="Heimdall DFIR helps analysts triage a compromised machine, parse forensic artifacts, rebuild the timeline and keep evidence under control. It runs on your infra, with no telemetry."/>
 <link rel="icon" type="image/png" href="assets/heimdall-mark.png"/>
 <link rel="apple-touch-icon" href="assets/heimdall-mark.png"/>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -236,19 +236,12 @@ footer{border-top:1px solid var(--line);padding:40px 0 60px;margin-top:40px;}
 .divider{height:2px;max-width:var(--maxw);margin:0 auto;border:none;border-radius:2px;background:linear-gradient(90deg,transparent,var(--accent),var(--blue),var(--accent),transparent);background-size:200% 100%;opacity:.5;animation:flowLine 7s linear infinite;}
 @keyframes flowLine{to{background-position:-200% 0;}}
 
-/* ── Product showcase (browser-framed screenshots + tilt) ── */
-.shot{position:relative;border-radius:14px;overflow:hidden;border:1px solid var(--line2);box-shadow:0 30px 70px rgba(0,0,0,.5);background:var(--bg2);will-change:transform;transition:transform .35s cubic-bezier(.2,.6,.2,1),box-shadow .3s;}
-.shot:hover{box-shadow:0 42px 92px rgba(0,0,0,.6),0 0 0 1px color-mix(in srgb,var(--accent) 28%,transparent);}
-.shot .bar{display:flex;align-items:center;gap:7px;padding:10px 14px;border-bottom:1px solid var(--line);background:rgba(255,255,255,.025);}
-.shot .bar i{width:10px;height:10px;border-radius:50%;display:inline-block;}
-.shot img{display:block;width:100%;height:auto;}
-
 @media(max-width:820px){
   .nav-links{display:none;}
   .stats{grid-template-columns:repeat(2,1fr);}
   .steps{grid-template-columns:1fr;}
   .split{grid-template-columns:1fr;gap:30px;}
-  .shot[style*="order:2"],.split>[style*="order:1"]{order:0!important;}
+  .split>[style*="order:1"]{order:0!important;}
   .vs .row{grid-template-columns:1.3fr .8fr .8fr .8fr;}
   .vs .cell{padding:11px 9px;font-size:11.5px;}
   .arch-flow{flex-direction:column;}
@@ -284,18 +277,6 @@ footer{border-top:1px solid var(--line);padding:40px 0 60px;margin-top:40px;}
 @keyframes marq{to{transform:translateX(-50%);}}
 .marquee .tool{font-family:var(--f-mono);font-size:14px;color:var(--dim);display:inline-flex;align-items:center;gap:9px;white-space:nowrap;}
 .marquee .tool::before{content:"";width:6px;height:6px;border-radius:2px;background:var(--accent);box-shadow:0 0 7px color-mix(in srgb,var(--accent) 70%,transparent);}
-
-/* ── Interactive gallery ── */
-.gal{max-width:1000px;margin:0 auto;}
-.gal-tabs{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-bottom:24px;}
-.gal-tab{font-family:var(--f-mono);font-size:12.5px;padding:9px 16px;border-radius:999px;border:1px solid var(--line2);background:var(--bg1);color:var(--dim);cursor:pointer;transition:color .18s,border-color .18s,background .18s;}
-.gal-tab:hover{color:#fff;}
-.gal-tab.active{color:#fff;border-color:color-mix(in srgb,var(--accent) 60%,transparent);background:color-mix(in srgb,var(--accent) 12%,transparent);}
-.gal-panel{display:none;}
-.gal-panel.active{display:block;animation:galFade .4s ease;}
-@keyframes galFade{from{opacity:0;transform:translateY(10px);}to{opacity:1;transform:none;}}
-.gal-cap{text-align:center;margin-top:18px;color:var(--muted);font-size:13.5px;line-height:1.6;}
-.gal-cap b{color:var(--text);font-family:var(--f-disp);}
 
 /* ── FAQ ── */
 .faq{max-width:780px;margin:0 auto;display:flex;flex-direction:column;gap:12px;}
@@ -362,15 +343,15 @@ footer{border-top:1px solid var(--line);padding:40px 0 60px;margin-top:40px;}
 <!-- NAV -->
 <nav id="nav"><div class="wrap nav-in">
   <a href="#top" class="logo">
-    <img src="assets/heimdall-mark.png" alt="" class="logo-img" width="26" height="26">
+    <img src="assets/heimdall-mark.png" alt="Heimdall DFIR logo" class="logo-img" width="26" height="26">
     HEIMDALL <b>DFIR</b> <span class="badge">BETA</span>
   </a>
   <div class="nav-links">
     <a href="#why-heimdall">Why</a>
     <a href="#features">Features</a>
-    <a href="#how">How it works</a>
+    <a href="#how">Workflow</a>
     <a href="#roadmap">Roadmap</a>
-    <a href="#start">Quick start</a>
+    <a href="#start">Start</a>
     <a href="https://github.com/RaiseiX/Heimdall-DFIR" target="_blank" rel="noopener" class="btn btn-primary">GitHub ↗</a>
   </div>
 </div></nav>
@@ -379,14 +360,14 @@ footer{border-top:1px solid var(--line);padding:40px 0 60px;margin-top:40px;}
 <header class="hero" id="top">
   <div class="hero-bg" aria-hidden="true"></div>
   <div class="wrap">
-    <img src="assets/heimdall-mark.png" alt="Heimdall DFIR" class="hero-logo reveal" width="120" height="120">
-    <span class="pill reveal" style="transition-delay:.03s"><span class="dot"></span> Open-Source DFIR · Beta · pré-V1</span>
+    <img src="assets/heimdall-mark.png" alt="Heimdall DFIR logo" class="hero-logo reveal" width="120" height="120">
+    <span class="pill reveal" style="transition-delay:.03s"><span class="dot"></span> Open-Source DFIR · Beta · pre-V1</span>
     <h1 class="reveal" style="transition-delay:.05s"><span class="grad">HEIMDALL</span> DFIR</h1>
     <span class="runes reveal" style="transition-delay:.1s">ᚺ · ᛟ · ᚱ · ᚾ · see the invisible, hunt the unknown</span>
-    <p class="lead reveal" style="transition-delay:.15s">Working a case shouldn't mean ten tools that don't talk to each other. Heimdall takes your evidence, does the parsing for you, and keeps the timeline, the hunting, the memory and the network side by side on one screen. And it runs on <strong style="color:var(--text)">your own server</strong>, so nothing leaves the building.</p>
+    <p class="lead reveal" style="transition-delay:.15s">An incident should not turn into ten browser tabs, three terminals and a half-broken spreadsheet at 2 a.m. Heimdall takes the evidence, parses the artifacts and keeps timeline, hunting, memory and network context in the same view. It runs on <strong style="color:var(--text)">your server</strong>. The data stays with you.</p>
     <div class="cta reveal" style="transition-delay:.2s">
       <a href="https://github.com/RaiseiX/Heimdall-DFIR" target="_blank" rel="noopener" class="btn btn-primary btn-lg">⭐ Star on GitHub</a>
-      <a href="#start" class="btn btn-ghost btn-lg">Quick start →</a>
+      <a href="#start" class="btn btn-ghost btn-lg">Run the stack →</a>
     </div>
 
     <div class="ghbar reveal" style="transition-delay:.23s">
@@ -404,7 +385,7 @@ footer{border-top:1px solid var(--line);padding:40px 0 60px;margin-top:40px;}
       <div class="term-bar"><i></i><i></i><i></i><span>analyst@soc — heimdall</span></div>
       <div class="term-body">
         <div><span class="pr">analyst@soc:~$</span> git clone https://github.com/RaiseiX/Heimdall-DFIR.git</div>
-        <div><span class="c2">Cloning into 'Heimdall-DFIR'…  done.</span></div>
+        <div><span class="c2">Cloning into 'Heimdall-DFIR'… done.</span></div>
         <div><span class="pr">analyst@soc:~$</span> cd Heimdall-DFIR &amp;&amp; bash start.sh</div>
         <div><span class="c1">[✓]</span> <span class="c2">Docker stack up: db · redis · minio · elasticsearch · ollama</span></div>
         <div><span class="c1">[✓]</span> <span class="c2">Heimdall ready →</span> <span class="c4">http://localhost</span></div>
@@ -426,16 +407,16 @@ footer{border-top:1px solid var(--line);padding:40px 0 60px;margin-top:40px;}
   <div class="wrap split">
     <div class="reveal-l">
       <div class="eyebrow">Why Heimdall exists</div>
-      <div class="lead2">A real investigation shouldn't mean fighting your tools.</div>
-      <p class="body">When an incident hits, the clock's already running. But most DFIR work still means hopping between a dozen CLIs and throwaway scripts: parse some EVTX here, carve memory there, rebuild the timeline by hand in a spreadsheet. Evidence ends up scattered, context gets lost, and the hours pile up.</p>
-      <p class="body">The other option is a pricey commercial suite that parks your case data in someone else's cloud. That's a hard no when the evidence is sensitive, and sometimes legally bound.</p>
+      <div class="lead2">A real investigation should not start with fighting your tools.</div>
+      <p class="body">When a host is compromised, the clock is already running. A lot of DFIR work still looks like a patchwork: EVTX in one place, memory somewhere else, timeline rebuilt by hand, notes in a file nobody can find later.</p>
+      <p class="body">The other option is usually a closed suite that keeps case data in a vendor cloud. For sensitive logs, memory dumps or client evidence, that is not always an option.</p>
     </div>
     <ul class="painlist bad reveal-r">
-      <li><span class="mk">✕</span><span>A dozen <b>disconnected tools</b> (EZTools, Volatility, Wireshark, grep) that never talk to each other.</span></li>
-      <li><span class="mk">✕</span><span>Hours lost <b>stitching timelines</b> by hand, copy-pasting between windows.</span></li>
-      <li><span class="mk">✕</span><span><b>Context evaporates.</b> Which artifact, which host, which case? Easy to lose the thread.</span></li>
-      <li><span class="mk">✕</span><span>Commercial suites are <b>costly and cloud-locked</b>, so your evidence leaves your control.</span></li>
-      <li><span class="mk">✕</span><span>Collaboration becomes <b>email and screenshots</b>, not a shared, auditable workspace.</span></li>
+      <li><span class="mk">✕</span><span><b>Disconnected tools</b> (EZTools, Volatility, Wireshark, grep) all telling part of the story.</span></li>
+      <li><span class="mk">✕</span><span>Hours burned <b>gluing timelines together</b> from windows, CSV exports and copy-paste.</span></li>
+      <li><span class="mk">✕</span><span><b>Context disappears fast.</b> Which artifact? Which host? Which case? Easy to lose the thread.</span></li>
+      <li><span class="mk">✕</span><span>Commercial suites are <b>expensive and often cloud-first</b>. Your evidence is no longer fully in your hands.</span></li>
+      <li><span class="mk">✕</span><span>Collaboration turns into <b>email, screenshots and chat messages</b>, not a shared audit-ready workspace.</span></li>
     </ul>
   </div>
 </section>
@@ -447,54 +428,16 @@ footer{border-top:1px solid var(--line);padding:40px 0 60px;margin-top:40px;}
   <div class="wrap">
     <div class="sec-head reveal">
       <div class="sec-kicker">The answer</div>
-      <h2>Everything in one place, on your own box</h2>
-      <p>Heimdall pulls the whole investigation into one fast interface you actually control. A handful of things I refused to compromise on:</p>
+      <h2>Everything in one place, on your box</h2>
+      <p>Heimdall puts the case in one interface you control. The rules are simple:</p>
     </div>
     <div class="principles">
-      <div class="principle reveal"><div class="t"><span class="d"></span>Self-hosted by default</div><p>One <code style="font-family:var(--f-mono);color:var(--accent)">bash start.sh</code> runs the whole stack on your hardware. Your evidence never leaves your infrastructure.</p></div>
-      <div class="principle reveal" style="transition-delay:.05s"><div class="t"><span class="d"></span>Zero telemetry</div><p>No tracking, no phone-home, no account required. What happens on your box stays on your box.</p></div>
-      <div class="principle reveal" style="transition-delay:.1s"><div class="t"><span class="d"></span>Everything correlated</div><p>Drop a collection and the artifacts, timeline, memory, network and detections are parsed and linked automatically, by case.</p></div>
-      <div class="principle reveal"><div class="t"><span class="d"></span>Local AI, not the cloud</div><p>An optional Ollama copilot runs on-prem. Case-aware help and report drafting, without sending a byte off-site.</p></div>
-      <div class="principle reveal" style="transition-delay:.05s"><div class="t"><span class="d"></span>Forensically sound</div><p>Hash-chain audit ledger, chain-of-custody, UTC everywhere. Designed so your findings hold up.</p></div>
-      <div class="principle reveal" style="transition-delay:.1s"><div class="t"><span class="d"></span>Open source</div><p>MIT-licensed and inspectable end to end. No black boxes around your evidence.</p></div>
-    </div>
-  </div>
-</section>
-
-<!-- SHOWCASE -->
-<section id="showcase">
-  <div class="wrap">
-    <div class="sec-head reveal">
-      <div class="sec-kicker">See it in action</div>
-      <h2>The whole investigation, one screen</h2>
-      <p>Actual screenshots from a running instance. All of it on hardware you own.</p>
-    </div>
-
-    <div class="split" style="margin-bottom:46px;">
-      <div class="shot tilt reveal-l"><div class="bar"><i style="background:#e0556d"></i><i style="background:#e6b454"></i><i style="background:#6abf8e"></i></div><img src="shots/network.webp" alt="Heimdall — network intelligence map" loading="lazy"></div>
-      <div class="reveal-r">
-        <div class="eyebrow">Network Intelligence</div>
-        <div class="lead2">See how the compromise spread.</div>
-        <p class="body">Map the hosts, watch the lateral movement light up, and click any node to jump straight to the evidence behind it. Three layouts for when one doesn't fit, plus the ATT&amp;CK kill chain laid over the top.</p>
-      </div>
-    </div>
-
-    <div class="split" style="margin-bottom:46px;">
-      <div class="reveal-l" style="order:1;">
-        <div class="eyebrow">Super Timeline</div>
-        <div class="lead2">Every artifact on one timeline.</div>
-        <p class="body">EVTX, MFT, Prefetch, LNK, Shellbags, Amcache and the registry, all merged into one sortable timeline. Group it, filter it, bookmark what matters, export to CSV. Rebuild the story minute by minute.</p>
-      </div>
-      <div class="shot tilt reveal-r" style="order:2;"><div class="bar"><i style="background:#e0556d"></i><i style="background:#e6b454"></i><i style="background:#6abf8e"></i></div><img src="shots/timeline.webp" alt="Heimdall — Super Timeline" loading="lazy"></div>
-    </div>
-
-    <div class="split">
-      <div class="shot tilt reveal-l"><div class="bar"><i style="background:#e0556d"></i><i style="background:#e6b454"></i><i style="background:#6abf8e"></i></div><img src="shots/dashboard.webp" alt="Heimdall — command center dashboard" loading="lazy"></div>
-      <div class="reveal-r">
-        <div class="eyebrow">Command Center</div>
-        <div class="lead2">Your morning, at a glance.</div>
-        <p class="body">Open cases and the ones on fire, the current threat level, malicious IOCs, SLA deadlines, parsing health and a live activity feed. Everything you need to know before your coffee's done.</p>
-      </div>
+      <div class="principle reveal"><div class="t"><span class="d"></span>Self-hosted by default</div><p>One <code style="font-family:var(--f-mono);color:var(--accent)">bash start.sh</code> starts the stack on your hardware. Evidence does not leave your infra.</p></div>
+      <div class="principle reveal" style="transition-delay:.05s"><div class="t"><span class="d"></span>Zero telemetry</div><p>No tracking, no phone-home, no required account. What lands on the machine stays on the machine.</p></div>
+      <div class="principle reveal" style="transition-delay:.1s"><div class="t"><span class="d"></span>Everything correlated</div><p>Import a collection and the artifacts, timeline, memory, network and detections stay tied to the right case.</p></div>
+      <div class="principle reveal"><div class="t"><span class="d"></span>Local AI, not cloud</div><p>The Ollama copilot is optional and runs on-site. It helps with the case without shipping evidence to an external API.</p></div>
+      <div class="principle reveal" style="transition-delay:.05s"><div class="t"><span class="d"></span>Forensic hygiene</div><p>Hash-chain audit ledger, chain of custody, UTC timestamps. Findings need to survive review.</p></div>
+      <div class="principle reveal" style="transition-delay:.1s"><div class="t"><span class="d"></span>Open source</div><p>MIT license, readable code end to end. No black box around your evidence.</p></div>
     </div>
   </div>
 </section>
@@ -502,61 +445,25 @@ footer{border-top:1px solid var(--line);padding:40px 0 60px;margin-top:40px;}
 </div>
 
 <div class="imgband"><div class="band-img" style="background-image:url(assets/sec/aurora.webp)"></div>
-<!-- EXPLORE / INTERACTIVE GALLERY -->
-<section id="explore">
-  <div class="wrap">
-    <div class="sec-head reveal">
-      <div class="sec-kicker">Explore the interface</div>
-      <h2>Have a look around</h2>
-      <p>Four real screens from a running instance. Pick one. All of it runs on your own hardware.</p>
-    </div>
-    <div class="gal reveal">
-      <div class="gal-tabs" role="tablist">
-        <button class="gal-tab active" data-gal="g-network">Network map</button>
-        <button class="gal-tab" data-gal="g-timeline">Super Timeline</button>
-        <button class="gal-tab" data-gal="g-dashboard">Command center</button>
-        <button class="gal-tab" data-gal="g-login">Sign-in</button>
-      </div>
-      <div class="gal-stage">
-        <div class="gal-panel active" id="g-network">
-          <div class="shot"><div class="bar"><i style="background:#e0556d"></i><i style="background:#e6b454"></i><i style="background:#6abf8e"></i></div><img src="shots/network.webp" alt="Heimdall — network intelligence map" loading="lazy"></div>
-          <p class="gal-cap"><b>Network Intelligence.</b> Topology in organic, radial or hierarchical layout, with lateral movement, beaconing and DGA scoring. Pivot from any node straight into the evidence.</p>
-        </div>
-        <div class="gal-panel" id="g-timeline">
-          <div class="shot"><div class="bar"><i style="background:#e0556d"></i><i style="background:#e6b454"></i><i style="background:#6abf8e"></i></div><img src="shots/timeline.webp" alt="Heimdall — Super Timeline" loading="lazy"></div>
-          <p class="gal-cap"><b>Super Timeline.</b> Every artifact on one timeline, with dynamic columns, grouping, filters, bookmarks and CSV export.</p>
-        </div>
-        <div class="gal-panel" id="g-dashboard">
-          <div class="shot"><div class="bar"><i style="background:#e0556d"></i><i style="background:#e6b454"></i><i style="background:#6abf8e"></i></div><img src="shots/dashboard.webp" alt="Heimdall — command center dashboard" loading="lazy"></div>
-          <p class="gal-cap"><b>Command Center.</b> Active &amp; critical cases, global threat level, IOCs, SLA deadlines, parsing health and a live activity feed.</p>
-        </div>
-        <div class="gal-panel" id="g-login">
-          <div class="shot"><div class="bar"><i style="background:#e0556d"></i><i style="background:#e6b454"></i><i style="background:#6abf8e"></i></div><img src="shots/login.webp" alt="Heimdall — sign-in" loading="lazy"></div>
-          <p class="gal-cap"><b>Sign-in.</b> A focused entry point. Bilingual, accessible, with zero noise before the work begins.</p>
-        </div>
-      </div>
-    </div>
-  </div>
-</section>
 
 <!-- FEATURES -->
 <section id="features">
   <div class="wrap">
     <div class="sec-head reveal">
       <div class="sec-kicker">Capabilities</div>
-      <h2>What's in the box</h2>
-      <p>Everything from the first collection to the final report, without ever leaving the app.</p>
+      <h2>What the tool actually does</h2>
+      <p>From raw import to final report, without switching tools at every step.</p>
     </div>
     <div class="grid">
-      <div class="card reveal"><div class="ic"><svg viewBox="0 0 24 24"><path d="M3 7h18M3 12h18M3 17h12"/></svg></div><h3>Cases &amp; Evidence</h3><p>Organise investigations by case. Chain-of-custody, evidence pins, hash-chain audit ledger and analyst workbench views.</p></div>
-      <div class="card reveal" style="transition-delay:.05s"><div class="ic"><svg viewBox="0 0 24 24"><path d="M4 6h16v12H4z"/><path d="M8 10l3 2-3 2M13 14h3"/></svg></div><h3>Automated Artifact Parsing</h3><p>Drop a KAPE / Velociraptor / CyLR archive and the EVTX, MFT, Prefetch, LNK, Shellbags, Amcache and registry get parsed automatically (EZTools · Hayabusa).</p></div>
-      <div class="card reveal" style="transition-delay:.1s"><div class="ic"><svg viewBox="0 0 24 24"><path d="M3 12h4l3-7 4 14 3-7h4"/></svg></div><h3>Super Timeline</h3><p>Unified timeline across all artifacts. Dynamic columns, grouping, filtering, search, bookmarks and CSV export.</p></div>
-      <div class="card reveal"><div class="ic"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4M11 8v6M8 11h6"/></svg></div><h3>Threat Hunting</h3><p>YARA, Sigma and Hayabusa scans, TAXII/STIX feeds, IOC enrichment and confidence-scored detection summaries, per evidence or whole case.</p></div>
-      <div class="card reveal" style="transition-delay:.05s"><div class="ic"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M9 9h6v6H9z"/></svg></div><h3>Memory Forensics</h3><p>VolWeb integration and a Volatility 3 worker stack with MinIO storage. Pull processes, connections and fileless malware out of RAM.</p></div>
-      <div class="card reveal" style="transition-delay:.1s"><div class="ic"><svg viewBox="0 0 24 24"><circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="6" r="2.5"/><circle cx="12" cy="18" r="2.5"/><path d="M7.5 7.5l3.2 8M16.5 7.5l-3.2 8"/></svg></div><h3>Network Intelligence</h3><p>Interactive topology map (organic · radial · hierarchical), lateral-movement graph (4624/4648/Kerberos) and MITRE ATT&amp;CK kill chain.</p></div>
-      <div class="card reveal"><div class="ic"><svg viewBox="0 0 24 24"><path d="M12 3l2 5 5 2-5 2-2 5-2-5-5-2 5-2z"/></svg></div><h3>Local AI Copilot</h3><p>Optional Ollama-backed assistant, fully offline. Case-aware chat with RAG over your timeline, agentic read-only tools and report drafting.</p></div>
-      <div class="card reveal" style="transition-delay:.05s"><div class="ic"><svg viewBox="0 0 24 24"><path d="M5 4h14v16H5z"/><path d="M8 8h8M8 12h8M8 16h5"/></svg></div><h3>Collaboration &amp; Reports</h3><p>Notes, pins, team chat and analyst presence. Generate premium forensic PDF reports with a section picker and AI-assisted narrative.</p></div>
-      <div class="card reveal" style="transition-delay:.1s"><div class="ic"><svg viewBox="0 0 24 24"><path d="M5 5h14v14H5z"/><path d="M9 9h6v6H9z" opacity=".5"/></svg></div><h3>Built-in Knowledge Base</h3><p>Integrated forensic docs covering Windows/Linux artifacts, Event IDs, attack patterns and tooling cheatsheets, searchable across every section.</p></div>
+      <div class="card reveal"><div class="ic"><svg viewBox="0 0 24 24"><path d="M3 7h18M3 12h18M3 17h12"/></svg></div><h3>Cases &amp; evidence</h3><p>Each investigation keeps its evidence, notes, hashes, sensitive actions and chain of custody in one place.</p></div>
+      <div class="card reveal" style="transition-delay:.05s"><div class="ic"><svg viewBox="0 0 24 24"><path d="M4 6h16v12H4z"/><path d="M8 10l3 2-3 2M13 14h3"/></svg></div><h3>Artifact parsing</h3><p>Drop a KAPE, Velociraptor or CyLR archive. EVTX, MFT, Prefetch, LNK, Shellbags, Amcache and registry data are processed with EZTools and Hayabusa.</p></div>
+      <div class="card reveal" style="transition-delay:.1s"><div class="ic"><svg viewBox="0 0 24 24"><path d="M3 12h4l3-7 4 14 3-7h4"/></svg></div><h3>Super Timeline</h3><p>One shared timeline for artifacts. Dynamic columns, grouping, filters, search, bookmarks and CSV export.</p></div>
+      <div class="card reveal"><div class="ic"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4M11 8v6M8 11h6"/></svg></div><h3>Threat hunting</h3><p>YARA, Sigma, Hayabusa, TAXII/STIX feeds, IOC enrichment and confidence scoring across one evidence item or the whole case.</p></div>
+      <div class="card reveal" style="transition-delay:.05s"><div class="ic"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M9 9h6v6H9z"/></svg></div><h3>Memory forensics</h3><p>VolWeb, Volatility 3, workers and MinIO storage. Pull processes, connections and fileless traces out of a RAM dump.</p></div>
+      <div class="card reveal" style="transition-delay:.1s"><div class="ic"><svg viewBox="0 0 24 24"><circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="6" r="2.5"/><circle cx="12" cy="18" r="2.5"/><path d="M7.5 7.5l3.2 8M16.5 7.5l-3.2 8"/></svg></div><h3>Network &amp; lateral movement</h3><p>Interactive graph, 4624/4648/Kerberos events, beaconing, DGA and MITRE ATT&amp;CK context when the logs support it.</p></div>
+      <div class="card reveal"><div class="ic"><svg viewBox="0 0 24 24"><path d="M12 3l2 5 5 2-5 2-2 5-2-5-5-2 5-2z"/></svg></div><h3>Local copilot</h3><p>Optional Ollama assistant, offline. It reads the case, answers with available context and helps draft a report without a cloud call.</p></div>
+      <div class="card reveal" style="transition-delay:.05s"><div class="ic"><svg viewBox="0 0 24 24"><path d="M5 4h14v16H5z"/><path d="M8 8h8M8 12h8M8 16h5"/></svg></div><h3>Notes &amp; reports</h3><p>Notes, pins, analyst presence and forensic PDF generation with section selection.</p></div>
+      <div class="card reveal" style="transition-delay:.1s"><div class="ic"><svg viewBox="0 0 24 24"><path d="M5 5h14v14H5z"/><path d="M9 9h6v6H9z" opacity=".5"/></svg></div><h3>Knowledge base</h3><p>Built-in docs for Windows/Linux artifacts, Event IDs, attack patterns and tooling cheat sheets.</p></div>
     </div>
   </div>
 </section>
@@ -812,7 +719,7 @@ footer{border-top:1px solid var(--line);padding:40px 0 60px;margin-top:40px;}
       <details><summary>Do I need a GPU?</summary><div class="a">No. The local AI copilot runs on Ollama in CPU mode with lightweight models like <code>qwen2.5:3b</code> or <code>qwen3.5:4b</code>. A GPU just makes inference faster. It's optional, and so is the copilot itself.</div></details>
       <details><summary>Which artifacts does it parse?</summary><div class="a">Windows EVTX, MFT, Prefetch, LNK, Shellbags, Amcache, registry hives, USN journal, UserAssist and more, automatically on import (EZTools · Hayabusa). Memory images are handled by Volatility 3 / VolWeb. Network activity is reconstructed from Sysmon and event logs.</div></details>
       <details><summary>Is my data sent anywhere?</summary><div class="a">Never. Heimdall is 100% self-hosted with zero telemetry: no analytics, no crash reports, no cloud calls. Your evidence stays on your infrastructure unless you explicitly export it.</div></details>
-      <details><summary>Is it production-ready?</summary><div class="a">Heimdall is in active Beta (pré-V1). It's already capable end to end, but it's evolving fast, so use your judgment on critical engagements and keep your own backups. The roadmap above shows what's stabilizing toward 1.0.</div></details>
+      <details><summary>Is it production-ready?</summary><div class="a">Heimdall is in active Beta (pre-V1). It's already capable end to end, but it's evolving fast, so use your judgment on critical engagements and keep your own backups. The roadmap above shows what's stabilizing toward 1.0.</div></details>
       <details><summary>What do I need to run it?</summary><div class="a">Docker and Docker Compose on a single host. A <code>bash start.sh</code> brings up the whole stack and generates secrets on first run. Elasticsearch and the AI model are the heaviest pieces, so plan for a few GB of RAM per active component.</div></details>
     </div>
   </div>
@@ -823,7 +730,7 @@ footer{border-top:1px solid var(--line);padding:40px 0 60px;margin-top:40px;}
   <div class="wrap manifesto reveal">
     <div class="sec-kicker">The mission</div>
     <p class="q" style="margin-top:18px;">I got tired of running investigations across a dozen tools that ignore each other, and of watching the polished alternative ship your evidence off to someone else's cloud. So Heimdall keeps the whole case in <b>one place, on hardware you control</b>. That's really the whole idea.</p>
-    <div class="sig">ᚺ — Voir l'invisible. Traquer l'inconnu.</div>
+    <div class="sig">ᚺ — See the invisible. Hunt the unknown.</div>
   </div>
 </section>
 
@@ -862,7 +769,7 @@ footer{border-top:1px solid var(--line);padding:40px 0 60px;margin-top:40px;}
         <span class="badge-os"><b>MIT</b> License</span>
         <span class="badge-os"><b>Self-hosted</b> · 0 telemetry</span>
         <span class="badge-os"><b>Docker</b> native</span>
-        <span class="badge-os"><b>Beta</b> · pré-V1</span>
+        <span class="badge-os"><b>Beta</b> · pre-V1</span>
       </div>
       <h2>Run your next case on Heimdall</h2>
       <p>It's open-source and MIT-licensed. If it's useful, star it. If something's broken, tell me. If you want to pitch in, even better.</p>
@@ -890,7 +797,7 @@ footer{border-top:1px solid var(--line);padding:40px 0 60px;margin-top:40px;}
       <span class="muted">v0.9.11 · Beta · MIT</span>
     </div>
   </div>
-  <div class="wrap"><p class="muted" style="margin-top:18px;">© <span id="yr"></span> Heimdall DFIR — Voir l'invisible. Traquer l'inconnu.</p></div>
+  <div class="wrap"><p class="muted" style="margin-top:18px;">© <span id="yr"></span> Heimdall DFIR — See the invisible. Hunt the unknown.</p></div>
 </footer>
 
 <script>
@@ -940,19 +847,6 @@ footer{border-top:1px solid var(--line);padding:40px 0 60px;margin-top:40px;}
     navigator.clipboard.writeText(txt).then(() => { e.target.textContent = 'Copied ✓'; setTimeout(() => e.target.textContent = 'Copy', 1600); });
   });
 
-  // ── Tilt parallax on showcase screenshots ──
-  if (!matchMedia('(pointer: coarse)').matches) {
-    document.querySelectorAll('.tilt').forEach(el => {
-      el.addEventListener('mousemove', e => {
-        const r = el.getBoundingClientRect();
-        const px = (e.clientX - r.left) / r.width - .5, py = (e.clientY - r.top) / r.height - .5;
-        el.style.transform = `perspective(1100px) rotateY(${px * 6.5}deg) rotateX(${-py * 6.5}deg) scale(1.012)`;
-      });
-      el.addEventListener('mouseleave', () => { el.style.transform = 'perspective(1100px) rotateY(0) rotateX(0)'; });
-    });
-  }
-
-
   document.getElementById('yr').textContent = new Date().getFullYear();
 
   // ── Live GitHub stats (public API, no auth) ──
@@ -976,16 +870,6 @@ footer{border-top:1px solid var(--line);padding:40px 0 60px;margin-top:40px;}
         set('ghCommits', m ? fmt(parseInt(m[1], 10)) : '—');
       })
       .catch(() => set('ghCommits', '·'));
-  })();
-
-  // ── Interactive gallery tabs ──
-  (function gallery(){
-    const tabs = document.querySelectorAll('.gal-tab');
-    tabs.forEach(tab => tab.addEventListener('click', () => {
-      const id = tab.getAttribute('data-gal');
-      tabs.forEach(t => t.classList.toggle('active', t === tab));
-      document.querySelectorAll('.gal-panel').forEach(p => p.classList.toggle('active', p.id === id));
-    }));
   })();
 
   // ── Scroll progress bar + back-to-top ──

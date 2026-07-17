@@ -1,4 +1,6 @@
+import { useEffect, useRef } from 'react';
 import { Sparkles, RefreshCw, Loader2 } from 'lucide-react';
+import { bindTextareaToYText } from './collab/textareaBinding';
 
 const MONO = 'var(--f-mono, "JetBrains Mono", monospace)';
 
@@ -15,12 +17,64 @@ const AI_FIELDS = [
 // Deliberate VS Code-dark editor surface (kept dark in both app themes for the "code editor" feel).
 const ED_BG = '#16181D', ED_BAR = '#1B1D24', ED_LINE = '#2A2D36', ED_TXT = '#D9DCE3', ED_COMMENT = '#6BA678', ED_DIM = '#6B7280';
 
+const TEXTAREA_STYLE = {
+  width: '100%', boxSizing: 'border-box', resize: 'vertical',
+  background: 'transparent', color: ED_TXT, border: 'none', outline: 'none',
+  borderLeft: `2px solid ${ED_LINE}`, paddingLeft: 12,
+  fontFamily: MONO, fontSize: 12, lineHeight: 1.6,
+};
+
+// Renders one section's textarea. In collab mode (`doc` provided) it binds an
+// uncontrolled textarea to the shared Y.Text; otherwise it stays a plain
+// controlled textarea driven by `value`/`onChange`. Hooks live here (top-level
+// in this child) rather than inside the parent's `.map`.
+// INVARIANT: when `doc` is set (collab mode), the caller must guarantee it is
+// non-null and stable for this component's lifetime — CaseDetailPage does so by
+// gating the whole editor behind `aiDraft`, which only becomes truthy after the
+// provider effect has populated the Y.Doc ref. If a future refactor mounts this
+// editor before the doc exists, restore that ordering (else `doc` reads null).
+function SectionTextarea({ doc, fieldKey, value, onChange }) {
+  const taRef = useRef(null);
+
+  useEffect(() => {
+    if (!doc || !taRef.current) return;
+    return bindTextareaToYText(doc.getText(fieldKey), taRef.current);
+  }, [doc, fieldKey]);
+
+  if (doc) {
+    return (
+      <textarea
+        ref={taRef}
+        defaultValue={doc.getText(fieldKey).toString()}
+        spellCheck={false}
+        rows={4}
+        placeholder="(empty - this block will be omitted from the report)"
+        style={TEXTAREA_STYLE}
+      />
+    );
+  }
+
+  return (
+    <textarea
+      value={value || ''}
+      onChange={e => onChange(fieldKey, e.target.value)}
+      spellCheck={false}
+      rows={Math.max(2, Math.min(8, Math.ceil(((value || '').length || 1) / 88) + (value || '').split('\n').length - 1))}
+      placeholder="(empty - this block will be omitted from the report)"
+      style={TEXTAREA_STYLE}
+    />
+  );
+}
+
 /**
  * VS Code-style editor for the AI-generated report narrative.
  * The analyst reviews/edits each block (`// Champ` comment header + editable text)
  * before it is baked into the PDF.
+ *
+ * Pass `doc` (a Y.Doc) to enable collaborative mode: each section binds its
+ * textarea to `doc.getText(key)` and the `value`/`onChange` props are ignored.
  */
-export default function ReportAiEditor({ value, onChange, onRegenerate, loading }) {
+export default function ReportAiEditor({ value, onChange, onRegenerate, loading, doc }) {
   return (
     <div style={{ border: '1px solid var(--fl-border2)', borderRadius: 8, overflow: 'hidden', background: ED_BG, marginBottom: 12 }}>
       {/* editor title bar */}
@@ -59,18 +113,11 @@ export default function ReportAiEditor({ value, onChange, onRegenerate, loading 
             </div>
             <div style={{ flex: 1, minWidth: 0, paddingRight: 14 }}>
               <div style={{ fontFamily: MONO, fontSize: 11, color: ED_COMMENT, marginBottom: 4 }}>{`// ${label}`}</div>
-              <textarea
-                value={value?.[key] || ''}
-                onChange={e => onChange(key, e.target.value)}
-                spellCheck={false}
-                rows={Math.max(2, Math.min(8, Math.ceil(((value?.[key] || '').length || 1) / 88) + (value?.[key] || '').split('\n').length - 1))}
-                placeholder="(empty - this block will be omitted from the report)"
-                style={{
-                  width: '100%', boxSizing: 'border-box', resize: 'vertical',
-                  background: 'transparent', color: ED_TXT, border: 'none', outline: 'none',
-                  borderLeft: `2px solid ${ED_LINE}`, paddingLeft: 12,
-                  fontFamily: MONO, fontSize: 12, lineHeight: 1.6,
-                }}
+              <SectionTextarea
+                doc={doc}
+                fieldKey={key}
+                value={value?.[key]}
+                onChange={onChange}
               />
             </div>
           </div>

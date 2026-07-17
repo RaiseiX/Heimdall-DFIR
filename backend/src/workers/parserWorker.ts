@@ -12,6 +12,23 @@ import * as path from 'path';
 import { runParser } from '../services/parserService';
 import { runSoarAsync } from '../services/soarService';
 import { createRedisConnection, ParserJobData } from '../config/queue';
+import { finalizeEvidenceIfComplete } from '../services/ingestion/finalize';
+import { maybeTriggerHunt } from './huntTrigger';
+// runAllService.js is require()d lazily at call time (inside the job
+// handler), NOT at module top-level: it transitively imports
+// middleware/auth.js, which throws at import time if JWT_SECRET is unset.
+// Several pre-existing unit tests import this worker module without setting
+// JWT_SECRET (they never needed to) — an eager top-level require would break
+// them even though they never touch the hunt-trigger path.
+
+// Pure mapper — the only piece of this file that's directly unit-tested.
+// Exported so tests can import it without triggering the module-scope
+// Worker/Redis/Pool wiring below (guarded out under NODE_ENV=test).
+export function mapOutcomeToStatus(recordCount: number, failed: boolean): 'parsed' | 'empty' | 'degraded' | 'error' {
+  if (failed && recordCount > 0) return 'degraded';   // partial parse
+  if (failed) return 'error';
+  return recordCount > 0 ? 'parsed' : 'empty';
+}
 
 const pool = new Pool({
   host:     process.env.DB_HOST     || 'db',
@@ -46,9 +63,16 @@ function makeEmitterIO(job: Job<ParserJobData>): IOServer {
 
 const workerRedis = createRedisConnection();
 
-const worker = new Worker<ParserJobData>(
-  'parser-jobs',
-  async (job: Job<ParserJobData>) => {
+// The BullMQ Worker below actively retries against its Redis connection.
+// Under `npx jest` (NODE_ENV=test), config/queue is mocked to a fake `{}`
+// connection so importing this module (to reach mapOutcomeToStatus) doesn't
+// spin up a real worker that never resolves/rejects and hangs the test
+// process. In every real deployment NODE_ENV is never 'test', so production
+// behavior — the worker is always constructed and started — is unchanged.
+function startWorker(): Worker<ParserJobData> {
+  return new Worker<ParserJobData>(
+    'parser-jobs',
+    async (job: Job<ParserJobData>) => {
     const { parser, evidenceId, caseId, userId, socketId, extraArgs } = job.data;
 
     logger.info(`[Worker] Job ${job.id} — parser=${parser} evidence=${evidenceId} socket=${socketId}`);
@@ -114,53 +138,87 @@ const worker = new Worker<ParserJobData>(
       return;
     }
 
+    let failed = false;
+    let recordCount = 0;
+    let caughtErr: unknown;
     try {
       await job.updateProgress(0);
-      await runParser(
+      recordCount = await runParser(
         { parser, evidenceId, caseId, userId, socketId, extraArgs: extraArgs || {} },
         makeEmitterIO(job),
         pool,
       );
     } catch (err) {
-
+      failed = true;
+      caughtErr = err;
       logger.error(`[Worker] Uncaught error job ${job.id} (${parser}):`, err);
-      throw err;
+    }
+
+    // New ingestion pipeline wiring: only activates when the job carries
+    // ingestionFileIds (i.e. it was enqueued by ingestionWorker's state
+    // machine). Absent that, behavior is unchanged from before this wiring.
+    const ingestionFileIds: string[] = extraArgs?.ingestionFileIds ? JSON.parse(extraArgs.ingestionFileIds) : [];
+    if (ingestionFileIds.length > 0) {
+      const status = mapOutcomeToStatus(recordCount, failed);
+      await pool.query(
+        `UPDATE ingestion_files SET status=$2, updated_at=NOW() WHERE id = ANY($1)`,
+        [ingestionFileIds, status],
+      );
+      const emitIO = makeEmitterIO(job);
+      const emit = (room: string, event: string, data: unknown) => emitIO.to(room).emit(event, data);
+      const emitted = await finalizeEvidenceIfComplete(pool, emit, evidenceId, caseId);
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const { triggerHunt } = require('../services/runAllService');
+      await maybeTriggerHunt(emitted, { pool, caseId, userId, evidenceId, triggerHunt });
+    }
+
+    if (failed) {
+      // Preserve BullMQ retry semantics + original error identity/message,
+      // matching pre-wiring behavior exactly.
+      throw caughtErr;
     }
   },
-  {
-    connection: workerRedis,
-    concurrency: 2,
-    lockDuration: 60 * 60 * 1000,
-  },
-);
-
-worker.on('completed', (job) => {
-  logger.info(`[Worker] ✓ Job ${job.id} completed (${job.data.parser})`);
-
-  const { caseId } = job.data;
-  if (caseId) {
-    runSoarAsync(caseId, pool, 'auto');
-  }
-});
-
-worker.on('failed', (job, err) => {
-  logger.error(`[Worker] ✗ Job ${job?.id} failed (${job?.data?.parser}):`, err.message);
-});
-
-worker.on('error', (err) => {
-  logger.error('[Worker] Worker error:', err.message);
-});
-
-async function shutdown(signal: string) {
-  logger.info(`[Worker] ${signal} received, shutting down gracefully…`);
-  await worker.close();
-  await pool.end();
-  emitterRedis.disconnect();
-  workerRedis.disconnect();
-  process.exit(0);
+    {
+      connection: workerRedis,
+      concurrency: 2,
+      lockDuration: 60 * 60 * 1000,
+    },
+  );
 }
 
-process.on('SIGTERM', () => shutdown('SIGTERM'));
-process.on('SIGINT',  () => shutdown('SIGINT'));
+let worker: Worker<ParserJobData> | undefined;
 
-logger.info('[Worker] ForensicLab parser worker started — awaiting jobs on "parser-jobs" queue…');
+if (process.env.NODE_ENV !== 'test') {
+  worker = startWorker();
+
+  worker.on('completed', (job) => {
+    logger.info(`[Worker] ✓ Job ${job.id} completed (${job.data.parser})`);
+
+    const { caseId } = job.data;
+    if (caseId) {
+      runSoarAsync(caseId, pool, 'auto');
+    }
+  });
+
+  worker.on('failed', (job, err) => {
+    logger.error(`[Worker] ✗ Job ${job?.id} failed (${job?.data?.parser}):`, err.message);
+  });
+
+  worker.on('error', (err) => {
+    logger.error('[Worker] Worker error:', err.message);
+  });
+
+  const shutdown = async (signal: string) => {
+    logger.info(`[Worker] ${signal} received, shutting down gracefully…`);
+    await worker!.close();
+    await pool.end();
+    emitterRedis.disconnect();
+    workerRedis.disconnect();
+    process.exit(0);
+  };
+
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
+  process.on('SIGINT',  () => shutdown('SIGINT'));
+
+  logger.info('[Worker] ForensicLab parser worker started — awaiting jobs on "parser-jobs" queue…');
+}

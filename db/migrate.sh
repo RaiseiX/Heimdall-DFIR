@@ -124,30 +124,46 @@ run() {
     fi
 }
 
-echo ""
-echo -e "${CYAN}  Running v2.x migrations${NC}"
-run db/migrate_v2.7.sql
-run db/migrate_v2.8.sql
-run db/migrate_v2.9.sql
-run db/migrate_v2.10.sql
-run db/migrate_v2.11.sql
-run db/migrate_v2.12.sql
-run db/migrate_v2.13.sql
-run db/migrate_v2.14.sql
-run db/migrate_v2.15.sql
-run db/migrate_v2.16.sql
-run db/migrate_v2.17.sql
-run db/migrate_v2.18.sql
-run db/migrate_v2.19.sql
-run db/migrate_v2.20.sql
-run db/migrate_v2.21.sql
-run db/migrate_v2.22.sql
+MANIFEST="db/migrations.manifest"
+if [ ! -f "$MANIFEST" ]; then
+    echo -e "${RED}  ❌ Missing migration manifest: ${MANIFEST}${NC}"
+    exit 1
+fi
 
+# ─── Preflight: the manifest must cover every migration file ──────────────────
+# Every db/*.sql and db/migrations/*.sql (except init.sql) must be listed. This
+# is what stops a newly-added migration from being silently orphaned (never run).
 echo ""
-echo -e "${CYAN}  Running feature migrations${NC}"
-for f in $(find db/migrations -name "*.sql" 2>/dev/null | sort); do
-    run "$f"
+echo -e "${CYAN}  Preflight: verifying the manifest covers every migration file${NC}"
+missing=0
+for f in db/*.sql db/migrations/*.sql; do
+    [ -e "$f" ] || continue
+    [ "$f" = "db/init.sql" ] && continue
+    if ! grep -qxF "$f" "$MANIFEST"; then
+        echo -e "  ${RED}❌ Not listed in ${MANIFEST}: ${f}${NC}"
+        missing=1
+    fi
 done
+if [ "$missing" -ne 0 ]; then
+    echo -e "  ${RED}Add the file(s) above to ${MANIFEST} (in the correct order) and re-run.${NC}"
+    exit 1
+fi
+
+# ─── Apply migrations in manifest order ──────────────────────────────────────
+echo ""
+echo -e "${CYAN}  Applying migrations (manifest order)${NC}"
+# Read the manifest on fd 3, NOT stdin: run() calls `docker compose exec -T db`
+# which consumes stdin, so a plain `done < "$MANIFEST"` would let the first
+# migration's docker exec eat the rest of the manifest (loop stops after 1 line).
+# `|| [ -n "$line" ]` also processes a final line lacking a trailing newline —
+# otherwise a hand-append that strips the trailing \n would silently skip the
+# last migration (the very silent-orphaning class this manifest exists to kill).
+while IFS= read -r line <&3 || [ -n "$line" ]; do
+    case "$line" in
+        ''|\#*) continue ;;   # skip blank lines and comments
+    esac
+    run "$line"
+done 3< "$MANIFEST"
 
 echo ""
 echo -e "${GREEN}  ✓ All migrations are up to date.${NC}"
