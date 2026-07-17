@@ -2599,7 +2599,7 @@ export default function SuperTimelineWorkbench({ records, availTypes, caseId, on
     if (!caseId) return;
     artifactsAPI.refsWithNotes(caseId)
       .then(res => setNotedRefs(new Set(res.data?.refs ?? [])))
-      .catch(e => console.warn('[Workbench] noted refs:', e.message));
+      .catch(e => console.warn('[investigation] noted refs:', e.message));
   }, [caseId]);
 
   useEffect(() => { loadNotedRefs(); }, [loadNotedRefs]);
@@ -2612,7 +2612,7 @@ export default function SuperTimelineWorkbench({ records, availTypes, caseId, on
         for (const p of (res.data?.pins ?? res.data ?? [])) map.set(p.id, p);
         setPinnedRows(map);
       })
-      .catch(e => console.warn('[Workbench] pins load:', e.message));
+      .catch(e => console.warn('[investigation] pins load:', e.message));
   }, [caseId]);
 
   useEffect(() => {
@@ -2668,7 +2668,7 @@ export default function SuperTimelineWorkbench({ records, availTypes, caseId, on
     try {
       await pinsAPI.promote(caseId, pin.id);
     } catch (e) {
-      console.warn('[Workbench] promote pin:', e.message);
+      console.warn('[investigation] promote pin:', e.message);
     }
   }
 

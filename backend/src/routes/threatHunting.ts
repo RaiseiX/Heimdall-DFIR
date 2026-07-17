@@ -996,15 +996,15 @@ const { startRunAll, getRunAllJob } = require('../services/runAllService');
 
 router.post('/run-all/:caseId', authenticate, (requireRole as any)('analyst', 'admin'), async (req: AuthRequest, res: any) => {
   const { caseId } = req.params;
-  const existing = getRunAllJob(caseId);
+  const existing = await getRunAllJob(caseId);
   if (existing && existing.status === 'running') return res.json(existing);
-  const job = startRunAll(caseId, req.user, 'manual');
+  const job = await startRunAll(caseId, req.user, 'manual');
   await auditLog(req.user!.id, 'run_yara_scan', 'case', caseId, { action: 'run_all_engines' }, req.ip);
   res.status(202).json(job);
 });
 
 router.get('/run-all/:caseId/status', authenticate, async (req: AuthRequest, res: any) => {
-  res.json(getRunAllJob(req.params.caseId));
+  res.json(await getRunAllJob(req.params.caseId));
 });
 
 export = router;

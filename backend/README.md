@@ -72,7 +72,7 @@ Key route groups:
 | `/api/volweb` | VolWeb integration and SSO workflows |
 | `/api/llm`, `/api/ai`, `/api/cases/:caseId/ai/*` | Local AI workflows |
 
-Socket.io is used for case presence, chat, parser streaming, Workbench sync, and real-time status events.
+Socket.io is used for case presence, chat, parser streaming, evidence pin sync, and real-time status events.
 
 ## Forensic Invariants
 

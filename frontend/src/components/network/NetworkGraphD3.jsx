@@ -571,7 +571,7 @@ export default function NetworkGraphD3({
 
           <div style={{ padding: '10px 14px', borderBottom: `1px solid ${borderColor}`, flexShrink: 0 }}>
             <button
-              onClick={() => navigate(`/cases/${caseId}/collections/timeline?search=${encodeURIComponent(selectedNode.id)}`)}
+              onClick={() => navigate(`/super-timeline?caseId=${caseId}&search=${encodeURIComponent(selectedNode.id)}`)}
               style={{
                 display: 'flex', alignItems: 'center', gap: 5,
                 width: '100%', padding: '6px 10px', fontSize: 11, borderRadius: 4, cursor: 'pointer',

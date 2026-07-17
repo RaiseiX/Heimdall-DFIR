@@ -1,9 +1,12 @@
 const express = require('express');
 const { pool } = require('../config/database');
 const { authenticate } = require('../middleware/auth');
+const { caseAccessParam } = require('../middleware/caseAccess');
 
 const logger = require('../config/logger').default;
 const router = express.Router();
+router.use(authenticate);
+router.param('caseId', caseAccessParam);
 
 const MAX_LIMIT = 2000;
 const DEFAULT_LIMIT = 200;

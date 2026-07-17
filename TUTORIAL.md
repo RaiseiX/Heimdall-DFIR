@@ -12,7 +12,7 @@
 4. [Cases — Creating & Managing Investigations](#4-cases--creating--managing-investigations)
 5. [Evidence — Uploading Files](#5-evidence--uploading-files)
 6. [Parsers — Extracting Artifacts](#6-parsers--extracting-artifacts)
-7. [Super Timeline & Investigation Workbench](#7-super-timeline--investigation-workbench)
+7. [Super Timeline & Investigation Mode](#7-super-timeline--investigation-mode)
 8. [Hayabusa — Sigma Detections on EVTX](#8-hayabusa--sigma-detections-on-evtx)
 9. [Memory Forensics — RAM Analysis with VolWeb](#9-memory-forensics--ram-analysis-with-volweb)
 10. [IOCs — Indicators of Compromise](#10-iocs--indicators-of-compromise)
@@ -287,7 +287,7 @@ To view a collection's timeline:
 
 ---
 
-## 7. Super Timeline & Investigation Workbench
+## 7. Super Timeline & Investigation Mode
 
 The Super Timeline is the heart of Heimdall — it merges all parsed artifacts from all
 parsers into a single chronological view.
@@ -309,13 +309,13 @@ parsers into a single chronological view.
 | **Pagination** | 2 000 records per page; use ‹ › to navigate |
 | **CSV Export** | Downloads up to 50 000 rows; choose delimiter (`,` `;` Tab) |
 
-### Entering Investigation Workbench
+### Entering investigation mode
 
-Click **🔬 Workbench** (top-right of the timeline) to enter the full investigation interface.
+Click **🔬 Investigation mode** at the top-right of the timeline to open the full investigation interface.
 
 #### Layout
 
-The Workbench splits the screen into two panels:
+The investigation interface splits the screen into two panels:
 - **Left (65%)** — the artifact grid
 - **Right (35%)** — the inspector (details for the selected row)
 
@@ -408,9 +408,9 @@ Add investigator notes to any event. Notes are:
 
 Use `Ctrl+Enter` to submit a note quickly.
 
-### Workbench tabs
+### Investigation views
 
-The tab bar at the top of the Workbench gives access to all investigation views:
+The tab bar at the top gives access to all investigation views:
 
 #### Timeline (default)
 The main artifact grid + inspector described above.
@@ -936,9 +936,9 @@ Templates allow you to define which sections to include and customize the layout
 Admin panel → **Report Templates** (or via the modal in report generation).
 Create templates with drag-and-drop section ordering and custom text blocks.
 
-### Export from Workbench
+### Export from the investigation view
 
-The **Export** tab in the Workbench generates:
+The **Export** tab generates:
 - CSV with all filtered events + IoA column
 - JSON with full raw fields
 - Markdown report with IoA summary + event table
@@ -957,7 +957,7 @@ A real-time chat panel is available for each case (Socket.io powered):
 
 ### Event Notes
 
-In the Workbench inspector → **Notes** tab:
+In the timeline inspector → **Notes** tab:
 - Add free-text notes attached to any specific event
 - Notes are linked to the event's fingerprint (timestamp + type + source hash)
 - Visible to all case members
@@ -1033,7 +1033,7 @@ Download any config and deploy it to your Windows endpoints with:
 
 ## 21. Keyboard Shortcuts & Tips
 
-### Workbench shortcuts
+### Investigation shortcuts
 
 | Shortcut | Action |
 |---|---|
@@ -1044,7 +1044,7 @@ Download any config and deploy it to your Windows endpoints with:
 
 ### Command Palette (Ctrl+K)
 
-The command palette gives keyboard access to all Workbench actions:
+The command palette gives keyboard access to the investigation actions:
 - Switch views (Timeline, Gantt, Heatmap, MITRE…)
 - Apply quick filters (critical only, malware keyword, lsass, powershell)
 - Toggle playback mode
@@ -1052,12 +1052,12 @@ The command palette gives keyboard access to all Workbench actions:
 
 ### Elapsed timer
 
-The **mm:ss** counter in the Workbench header tracks how long you have been in
+The **mm:ss** counter in the investigation header tracks how long you have been in
 investigation mode for the current session.
 
 ### Performance tips
 
-- Use the **artifact type filter** to narrow records before entering the Workbench (fewer
+- Use the **artifact type filter** to narrow records before entering investigation mode (fewer
   records = faster rendering)
 - The **Cluster tab** is the fastest way to identify which artifact type or host dominates
   your dataset
@@ -1092,7 +1092,7 @@ Use the token as `Authorization: Bearer <token>` on all subsequent requests.
 4. Upload: SYSTEM, SOFTWARE, NTUSER.DAT hives → Parse RECmd
 5. Upload: Prefetch files → Parse PECmd
 6. Upload: SRUM database → Parse SRUMECmd
-7. Super Timeline → Workbench
+7. Super Timeline → Investigation mode
 8. Check IoA tab for instant pattern matches
 9. Use ±ctx on suspicious events to build the attack sequence
 10. Add notable events to Kill Chain
@@ -1121,7 +1121,7 @@ Use the token as `Authorization: Bearer <token>` on all subsequent requests.
 4. Run Sigma hunt with specific rules
 5. Review hits in Detections tab
 6. Pivot to Super Timeline for context on each hit
-7. Export findings via Workbench Export tab
+7. Export findings via the investigation export tab
 ```
 
 ### Workflow 4: Multi-Host Investigation
@@ -1130,8 +1130,8 @@ Use the token as `Authorization: Bearer <token>` on all subsequent requests.
 1. Create one case
 2. Upload artifacts from each host (use host name in evidence description)
 3. After parsing, all artifacts land in the same Super Timeline with host_name populated
-4. Workbench → Multi-host tab: click each host to isolate its activity
-5. Workbench → Cluster tab → group by host_name to see relative activity
+4. Multi-host tab: click each host to isolate its activity
+5. Cluster tab: group by host_name to see relative activity
 6. Use Pivot on user/IP fields to trace lateral movement across hosts
 7. Network tab for the lateral movement graph
 ```

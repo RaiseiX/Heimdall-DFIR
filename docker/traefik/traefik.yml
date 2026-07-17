@@ -36,7 +36,7 @@ entryPoints:
 providers:
   file:
     directory: /etc/traefik/dynamic
-    watch: true
+    watch: false
 
 # Let's Encrypt — TLS challenge (works on public domains with ports 80/443 reachable)
 # For local/private networks with no public DNS: Traefik falls back to a self-signed cert.

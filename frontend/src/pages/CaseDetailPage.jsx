@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import * as Y from 'yjs';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '../utils/theme';
 import { useParams, useNavigate, useOutletContext } from 'react-router-dom';
@@ -19,12 +20,35 @@ import Icon from '../components/ui/Icon';
 import DetectionsTab from '../components/detections/DetectionsTab';
 import MitreAttackTab from '../components/mitre/MitreAttackTab';
 import { useSocket, useSocketEvent } from '../hooks/useSocket';
+import { useToast } from '../components/ui/Toast';
+import { makeEvidenceReadyHandler } from './evidenceReadyHandler';
 import MemoryUploadPanel from '../components/upload/MemoryUploadPanel';
 import ReportTemplateModal from '../components/reports/ReportTemplateModal';
 import ReportAiEditor from '../components/reports/ReportAiEditor';
+import { createReportCollabProvider } from '../components/reports/collab/reportCollabProvider';
 import GlobalNetworkMapPage from './GlobalNetworkMapPage';
 import NotebookPanel from '../components/notebook/NotebookPanel';
 import InvestigationWorkspace from '../components/investigation/InvestigationWorkspace';
+
+// The six AI narrative sections shared with ReportAiEditor's collab Y.Doc (one Y.Text per key).
+const AI_FIELDS_KEYS = ['executive_summary', 'key_findings', 'ioc_analysis', 'mitre_analysis', 'timeline_narrative', 'recommendations'];
+
+// Seed the report Y.Doc's six Y.Texts from an AI draft response. Only overwrites
+// sections that are still empty unless `force` is set (explicit Regenerate),
+// so it never clobbers a co-author's in-progress edits.
+function seedDocFromAiDraft(doc, ai, { force } = {}) {
+  if (!doc) return;
+  for (const key of AI_FIELDS_KEYS) {
+    const yt = doc.getText(key);
+    const incoming = ai?.[key] || '';
+    if (force || yt.toString().trim() === '') {
+      doc.transact(() => {
+        yt.delete(0, yt.length);
+        if (incoming) yt.insert(0, incoming);
+      });
+    }
+  }
+}
 
 const PC = { critical: 'var(--fl-danger)', high: 'var(--fl-warn)', medium: 'var(--fl-gold)', low: 'var(--fl-ok)' };
 const EC = { alert: 'var(--fl-danger)', malware: 'var(--fl-warn)', exfil: 'var(--fl-gold)', network: 'var(--fl-accent)', analysis: 'var(--fl-purple)', response: 'var(--fl-ok)', persistence: '#f472b6', other: 'var(--fl-dim)' };
@@ -220,6 +244,7 @@ export default function CaseDetailPage({ user }) {
   const [showImportPanel, setShowImportPanel] = useState(false);
   const [evResultMap, setEvResultMap] = useState({});
   const { socket, socketId } = useSocket();
+  const { toast } = useToast();
   const [evToDelete, setEvToDelete] = useState(null);
   const [deletingEv, setDeletingEv] = useState(false);
   const [presenceUsers, setPresenceUsers] = useState([]);
@@ -253,13 +278,33 @@ export default function CaseDetailPage({ user }) {
   const [showActionsMenu, setShowActionsMenu] = useState(false);
   useEffect(() => {
     if (!socket || !id) return;
-    socket.emit('case:join', { caseId: id });
-    return () => { socket.emit('case:leave', { caseId: id }); };
+    const join = () => socket.emit('case:join', { caseId: id });
+    join();
+    // Re-join the case room after a socket reconnect — otherwise this client
+    // stops receiving room-scoped events (presence, chat, report:update) until
+    // a full remount, silently degrading real-time collaboration.
+    socket.on('connect', join);
+    return () => { socket.off('connect', join); socket.emit('case:leave', { caseId: id }); };
   }, [socket, id]);
 
   useSocketEvent(socket, 'case:presence', (users) => {
     setPresenceUsers(Array.isArray(users) ? users : []);
   });
+
+  // Collaborative report narrative: a shared Y.Doc (one Y.Text per AI_FIELDS_KEYS
+  // section) synced over the existing case socket via the report:join/report:update relay.
+  const reportDocRef = useRef(null);
+  useEffect(() => {
+    if (!socket || !id) return;
+    const doc = new Y.Doc();
+    reportDocRef.current = doc;
+    const provider = createReportCollabProvider(socket, id, doc);
+    return () => {
+      provider.destroy();
+      doc.destroy();
+      reportDocRef.current = null;
+    };
+  }, [socket, id]);
 
   const refreshEvResultMap = useCallback(async () => {
     try {
@@ -280,6 +325,21 @@ export default function CaseDetailPage({ user }) {
   useSocketEvent(socket, 'collection:parse:done', () => {
     refreshEvResultMap();
   });
+
+  const refetchEvidence = useCallback(async () => {
+    try {
+      const evRes = await evidenceAPI.list(id);
+      if (evRes.data) setEvidence(Array.isArray(evRes.data) ? evRes.data : (evRes.data?.evidence || []));
+    } catch {}
+  }, [id]);
+
+  useSocketEvent(socket, 'evidence:ready', makeEvidenceReadyHandler({
+    activeCaseId: id,
+    refetchEvidence,
+    refetchParsers: refreshEvResultMap,
+    toast,
+    t,
+  }));
 
   useSocketEvent(socket, 'volweb:processing', (data) => {
     if (data.caseId !== id) return;
@@ -610,13 +670,18 @@ export default function CaseDetailPage({ user }) {
   };
 
   const generateAiDraft = async () => {
+    const isRegenerate = !!aiDraft;
     setAiLoading(true); setAiError('');
     try {
       const { reportsAPI: rAPI } = await import('../utils/api');
       // Pass the analyst's note so the AI grounds its analysis on it (+ the case's
       // bookmarks/pins/notes are pulled server-side).
       const { data } = await rAPI.aiDraft(c.id, reportNote.trim() ? { notes: reportNote.trim() } : {});
-      setAiDraft(data.narrative || {});
+      const narrative = data.narrative || {};
+      // Seed the shared Y.Doc: an explicit Regenerate replaces all six sections;
+      // the first generation only fills sections still empty (co-author-safe).
+      seedDocFromAiDraft(reportDocRef.current, narrative, { force: isRegenerate });
+      setAiDraft(narrative);
     } catch (e) {
       setAiError(e?.response?.data?.error || t('casedetail.ai_generation_failed'));
     }
@@ -637,7 +702,13 @@ export default function CaseDetailPage({ user }) {
       if (reportNote.trim()) opts.notes = reportNote.trim();
       // AI: use the analyst-edited draft if present; otherwise let the backend generate it (or disable).
       opts.use_ai = aiEnabled;
-      if (aiEnabled && aiDraft && Object.keys(aiDraft).length) opts.ai_narrative = aiDraft;
+      // Read the live collaborative text (not the local aiDraft snapshot) so the PDF
+      // reflects any co-author edits made through the shared Y.Doc.
+      if (aiEnabled && aiDraft) {
+        const narrative = {};
+        for (const key of AI_FIELDS_KEYS) narrative[key] = reportDocRef.current?.getText(key).toString() || '';
+        if (Object.values(narrative).some(v => v.trim())) opts.ai_narrative = narrative;
+      }
       const { data } = await rAPI.generate(c.id, opts);
       setReportId(data.report?.id);
       setReportDone(true);
@@ -1753,8 +1824,7 @@ export default function CaseDetailPage({ user }) {
                     )}
                     {aiEnabled && aiDraft && (
                       <div style={{ marginTop: 12 }}>
-                        <ReportAiEditor value={aiDraft} loading={aiLoading}
-                          onChange={(k, v) => setAiDraft(prev => ({ ...(prev || {}), [k]: v }))}
+                        <ReportAiEditor doc={reportDocRef.current} loading={aiLoading}
                           onRegenerate={generateAiDraft} />
                       </div>
                     )}

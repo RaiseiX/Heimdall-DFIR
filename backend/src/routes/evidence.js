@@ -7,6 +7,7 @@ const { Transform, PassThrough } = require('stream');
 const { pool } = require('../config/database');
 const { authenticate, auditLog } = require('../middleware/auth');
 const { processMemoryDump } = require('../services/volwebService');
+const { safeBasename } = require('../services/uploadService');
 
 const logger = require('../config/logger').default;
 const router = express.Router();
@@ -118,7 +119,7 @@ const storage = multer.diskStorage({
   },
   filename: (req, file, cb) => {
     const uniqueSuffix = `${Date.now()}-${crypto.randomBytes(6).toString('hex')}`;
-    cb(null, `${uniqueSuffix}-${file.originalname}`);
+    cb(null, `${uniqueSuffix}-${safeBasename(file.originalname)}`);
   },
 });
 const upload = multer({ storage, limits: { fileSize: 32 * 1024 * 1024 * 1024 } });
@@ -603,7 +604,7 @@ router.delete('/:id', authenticate, async (req, res) => {
         await removeMinioObject(af.object_key);
       } else if (af.name) {
         const dir      = file_path && !file_path.startsWith('minio://') ? path.dirname(file_path) : null;
-        const fullPath = dir ? path.join(dir, af.name) : null;
+        const fullPath = dir ? path.join(dir, safeBasename(af.name)) : null;
         if (fullPath && fs.existsSync(fullPath)) {
           fs.unlinkSync(fullPath);
           logger.info(`[Evidence] Fichier additionnel disque supprimé : ${fullPath}`);

@@ -2,8 +2,11 @@
 const { Router } = require('express');
 const logger = require('../config/logger').default;
 const { authenticate } = require('../middleware/auth');
+const { caseAccessParam } = require('../middleware/caseAccess');
 
 const router = Router();
+router.use(authenticate);
+router.param('caseId', caseAccessParam);
 
 const SELECT_PIN = `
   SELECT tp.id, tp.case_id, tp.author_id, u.username AS author_name,

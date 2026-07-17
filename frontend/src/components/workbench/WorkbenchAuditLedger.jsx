@@ -80,7 +80,7 @@ export default function WorkbenchAuditLedger({ caseId }) {
             const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
-            a.href = url; a.download = `workbench-audit-${caseId}-${Date.now()}.json`;
+            a.href = url; a.download = `evidence-audit-${caseId}-${Date.now()}.json`;
             a.click(); URL.revokeObjectURL(url);
           }}
           disabled={!data || loading}

@@ -184,6 +184,8 @@ export const parsersAPI = {
   resultTypes: (resultId) => api.get(`/parsers/result/${resultId}/types`),
   deleteResult: (resultId) => api.delete(`/parsers/results/${resultId}`),
   exportResultCsv: (resultId) => api.get(`/parsers/result/${resultId}/export/csv`, { responseType: 'blob' }),
+  // Honest per-status rollup (all 11 ingestion_files states) for one evidence.
+  status: (caseId, evidenceId) => api.get(`/parsers/status/${caseId}/${evidenceId}`),
 };
 
 export const reportsAPI = {
@@ -255,6 +257,12 @@ export const collectionAPI = {
   timelineRowRaw: (caseId, id)                 => api.get(`/collection/${caseId}/timeline-row/${id}/raw`),
   timelineMappings: (caseId)                   => api.get(`/collection/${caseId}/timeline/mappings`),
   timelineGroups: (caseId, by, params = {})    => api.get(`/collection/${caseId}/timeline/groups`, { params: { by: Array.isArray(by) ? by.join(',') : by, ...params } }),
+  timelineContext: (caseId, anchorId, { n = 25, allHosts = false } = {}) =>
+    api.get(`/collection/${caseId}/timeline/context`, { params: { anchor_id: anchorId, n, all_hosts: allHosts } }),
+  timelineDiff: (caseId, sideA, sideB, { limit = 500 } = {}) =>
+    api.get(`/collection/${caseId}/timeline/diff`, { params: {
+      a_evidence: sideA.evidenceId || undefined, a_host: sideA.hostName || undefined,
+      b_evidence: sideB.evidenceId || undefined, b_host: sideB.hostName || undefined, limit } }),
   updateTimelineTags: (caseId, id, tags)       => api.patch(`/collection/${caseId}/timeline/${id}/tags`, { tags }),
   bulkUpdateTimelineTags: (caseId, updates)    => api.post(`/collection/${caseId}/timeline/tags/bulk`, { updates }),
   importCsv: (caseId, formData, onUploadProgress) =>
@@ -340,6 +348,13 @@ export const bookmarksAPI = {
   remove: (caseId, id)       => api.delete(`/cases/${caseId}/bookmarks/${id}`),
 };
 
+export const savedSearchesAPI = {
+  list:   (caseId)           => api.get(`/cases/${caseId}/saved-searches`),
+  create: (caseId, data)     => api.post(`/cases/${caseId}/saved-searches`, data),
+  update: (caseId, id, data) => api.put(`/cases/${caseId}/saved-searches/${id}`, data),
+  remove: (caseId, id)       => api.delete(`/cases/${caseId}/saved-searches/${id}`),
+};
+
 export const investigationAPI = {
   get:        (caseId)            => api.get(`/cases/${caseId}/investigation`),
   seed:       (caseId)            => api.post(`/cases/${caseId}/investigation/seed`),
@@ -378,6 +393,22 @@ export const playbooksAPI = {
   instanceSteps: (caseId, instanceId)        => api.get(`/playbooks/cases/${caseId}/${instanceId}/steps`),
   start:         (caseId, playbookId)        => api.post(`/playbooks/cases/${caseId}/start`, { playbook_id: playbookId }),
   updateStep:    (caseId, instanceId, stepId, data) => api.put(`/playbooks/cases/${caseId}/${instanceId}/steps/${stepId}`, data),
+};
+
+export const dfiqAPI = {
+  scenarios:      ()                       => api.get('/dfiq/scenarios'),
+  scenario:       (id)                     => api.get(`/dfiq/scenarios/${id}`),
+  createScenario: (data)                   => api.post('/dfiq/scenarios', data),
+  updateScenario: (id, data)               => api.put(`/dfiq/scenarios/${id}`, data),
+  deleteScenario: (id)                     => api.delete(`/dfiq/scenarios/${id}`),
+  addQuestion:    (id, data)               => api.post(`/dfiq/scenarios/${id}/questions`, data),
+  caseInstances:  (caseId)                 => api.get(`/cases/${caseId}/dfiq`),
+  attach:         (caseId, scenarioId)     => api.post(`/cases/${caseId}/dfiq/attach`, { scenario_id: scenarioId }),
+  detach:         (caseId, instanceId)     => api.delete(`/cases/${caseId}/dfiq/${instanceId}`),
+  answers:        (caseId, instanceId)     => api.get(`/cases/${caseId}/dfiq/${instanceId}/answers`),
+  setAnswer:      (caseId, instanceId, qId, data) => api.put(`/cases/${caseId}/dfiq/${instanceId}/answers/${qId}`, data),
+  addEvidence:    (caseId, instanceId, qId, bookmarkId) => api.post(`/cases/${caseId}/dfiq/${instanceId}/answers/${qId}/evidence`, { bookmark_id: bookmarkId }),
+  removeEvidence: (caseId, instanceId, qId, bookmarkId) => api.delete(`/cases/${caseId}/dfiq/${instanceId}/answers/${qId}/evidence/${bookmarkId}`),
 };
 
 export const legalHoldAPI = {

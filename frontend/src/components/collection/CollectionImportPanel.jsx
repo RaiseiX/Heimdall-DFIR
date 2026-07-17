@@ -8,6 +8,50 @@ import ParsingMonitor from './ParsingMonitor';
 
 const ARTIFACT_EXTS = new Set(['.evtx', '.pf', '.lnk', '.dat', '.hve', '.db', '.sqlite', '.mdb', '.automaticDestinations-ms', '.pcap', '.pcapng', '.cap']);
 
+// Honest per-status rollup for the live parser run — each status stays visually distinct,
+// nothing here folds "skipped" or "error" into a green success count.
+const ROLLUP_STATUS_META = {
+  queued:  { labelKey: 'collection.pm_queued',  color: 'var(--fl-muted)' },
+  parsing: { labelKey: 'collection.pm_parsing', color: 'var(--fl-accent)' },
+  done:    { labelKey: 'collection.pm_done',    color: 'var(--fl-ok)' },
+  skipped: { labelKey: 'collection.pm_skipped', color: 'var(--fl-artifact-registry)' },
+  error:   { labelKey: 'collection.pm_error',   color: 'var(--fl-danger)' },
+};
+const ROLLUP_STATUS_ORDER = ['error', 'skipped', 'parsing', 'queued', 'done'];
+
+function rollupParserStates(parserStates) {
+  const counts = {};
+  for (const state of Object.values(parserStates || {})) {
+    const status = state?.status || 'queued';
+    counts[status] = (counts[status] || 0) + 1;
+  }
+  return counts;
+}
+
+// Renders the computed rollup as distinct per-status badges — no collapsing into one "ok" count.
+function StatusRollup({ parserStates, t, style }) {
+  const counts = rollupParserStates(parserStates);
+  if (Object.keys(parserStates || {}).length === 0) return null;
+  return (
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, ...style }}>
+      {ROLLUP_STATUS_ORDER.map(status => {
+        const count = counts[status] || 0;
+        if (count === 0) return null;
+        const meta = ROLLUP_STATUS_META[status];
+        return (
+          <span key={status} style={{ display: 'inline-flex', alignItems: 'center', gap: 5,
+            fontSize: 10.5, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontWeight: 700,
+            padding: '2px 9px', borderRadius: 4,
+            background: `color-mix(in srgb, ${meta.color} 10%, transparent)`, color: meta.color,
+            border: `1px solid color-mix(in srgb, ${meta.color} 22%, transparent)` }}>
+            {count} {t(meta.labelKey)}
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
 // Traverse a FileSystemEntry recursively, resolving all File objects
 async function collectEntries(entry, prefix = '') {
   if (entry.isFile) {
@@ -572,6 +616,7 @@ export default function CollectionImportPanel({ caseId, caseObj, onDone }) {
             <div className="h-full rounded-full transition-all duration-500"
               style={{ width: `${progress}%`, background: 'linear-gradient(90deg, var(--fl-accent), var(--fl-purple))' }} />
           </div>
+          {step === 'parsing' && <StatusRollup parserStates={parserStates} t={t} style={{ marginTop: 12 }} />}
         </div>
       )}
 
@@ -771,7 +816,8 @@ export default function CollectionImportPanel({ caseId, caseObj, onDone }) {
                   );
                 })}
               </div>
-              <p className="text-sm" style={{ color: 'var(--fl-dim)' }}>{t('collection.import.records_imported', { count: results.total.toLocaleString(locale) })}</p>
+              <p className="text-sm mb-2" style={{ color: 'var(--fl-dim)' }}>{t('collection.import.records_imported', { count: results.total.toLocaleString(locale) })}</p>
+              <StatusRollup parserStates={parserStates} t={t} />
             </div>
           )}
 

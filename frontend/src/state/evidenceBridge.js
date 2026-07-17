@@ -1,4 +1,4 @@
-// Evidence Bridge — pinned forensic rows shared between Super Timeline and Workbench.
+// Evidence Bridge — pinned forensic rows shared between Super Timeline and analyst review.
 // Keyed by caseId so switching cases swaps the visible set automatically.
 // Client-only (localStorage). Server sync is a later phase.
 

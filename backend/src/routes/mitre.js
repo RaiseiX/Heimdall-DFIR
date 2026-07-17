@@ -1,9 +1,12 @@
 const express = require('express');
 const { pool } = require('../config/database');
 const { authenticate, auditLog } = require('../middleware/auth');
+const { caseAccessParam } = require('../middleware/caseAccess');
 
 const logger = require('../config/logger').default;
 const router = express.Router();
+router.use(authenticate);
+router.param('caseId', caseAccessParam);
 
 router.get('/:caseId', authenticate, async (req, res) => {
   try {

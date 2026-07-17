@@ -1,8 +1,9 @@
 // frontend/src/components/supertimeline/CommandBar/CommandBar.jsx
 import { useRef, useState, useEffect, useCallback } from 'react';
-import { Search, X, ChevronDown } from 'lucide-react';
+import { Search, X, ChevronDown, Save, Share2, Trash2, Pencil } from 'lucide-react';
 import { useTimelineStore } from '../store/useTimelineStore';
 import { tabColor } from '../utils/timelineUtils';
+import { currentUser } from '../../../utils/auth';
 
 const CHIP_STYLES = {
   search:       { bg: '#112030', color: '#6aabdb', border: '#1e3a50' },
@@ -53,12 +54,19 @@ export default function CommandBar() {
     detSeverity, tagFilter, toolFilter, eventIdFilter, extFilter,
     hitsOnly, dedupe, availTypes, typeCounts,
     setFilter, applyFilters, clearFilters, toggleArtifactType, soloArtifactType,
+    savedSearches, applySavedSearch, saveCurrentSearch,
+    promoteSavedSearch, deleteSavedSearch, updateSavedSearch,
   } = store;
 
   const inputRef = useRef(null);
   const [inputVal, setInputVal] = useState('');
   const [showAdvanced, setShowAdvanced] = useState(false);
   const advancedRef = useRef(null);
+  const [showSearches, setShowSearches] = useState(false);
+  const searchesRef = useRef(null);
+  const [saveName, setSaveName] = useState('');
+  const [saveShared, setSaveShared] = useState(false);
+  const me = currentUser().id;
 
   useEffect(() => {
     function onKey(e) {
@@ -74,6 +82,12 @@ export default function CommandBar() {
 
   useEffect(() => {
     const h = e => { if (advancedRef.current && !advancedRef.current.contains(e.target)) setShowAdvanced(false); };
+    document.addEventListener('mousedown', h);
+    return () => document.removeEventListener('mousedown', h);
+  }, []);
+
+  useEffect(() => {
+    const h = e => { if (searchesRef.current && !searchesRef.current.contains(e.target)) setShowSearches(false); };
     document.addEventListener('mousedown', h);
     return () => document.removeEventListener('mousedown', h);
   }, []);
@@ -122,6 +136,22 @@ export default function CommandBar() {
   ];
   const hasFilters = chips.length > 0 || hitsOnly || dedupe || artifactTypes.length > 0;
 
+  const isMine = s => s.scope === 'personal' || s.author_id === me;
+  const mine   = savedSearches.filter(isMine);
+  const shared = savedSearches.filter(s => !isMine(s));
+
+  const handleSave = async () => {
+    const name = saveName.trim();
+    if (!name) return;
+    try {
+      await saveCurrentSearch(name, saveShared ? 'case' : 'personal');
+      setSaveName(''); setSaveShared(false);
+    } catch (e) {
+      // 409 duplicate name is the common case — surface minimally, keep the field open.
+      alert(e?.response?.data?.error || 'Échec de la sauvegarde');
+    }
+  };
+
   return (
     <div style={{ background: 'var(--fl-bg)', borderBottom: '1px solid var(--fl-raised)', padding: '7px 14px', flexShrink: 0 }}>
       {/* Input row */}
@@ -145,6 +175,96 @@ export default function CommandBar() {
             <X size={12} />
           </button>
         )}
+        <div ref={searchesRef} style={{ position: 'relative' }}>
+          <button onClick={() => setShowSearches(v => !v)} style={{
+            padding: '4px 10px', borderRadius: 4, fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
+            background: showSearches ? 'var(--fl-card)' : 'transparent',
+            border: `1px solid ${showSearches ? 'color-mix(in srgb, var(--fl-purple) 38%, transparent)' : 'var(--fl-raised)'}`,
+            color: showSearches ? 'var(--fl-purple)' : 'var(--fl-muted)', cursor: 'pointer',
+          }}>
+            Recherches <ChevronDown size={9} style={{ verticalAlign: 'middle' }} />
+          </button>
+          {showSearches && (
+            <div style={{ position: 'absolute', top: '100%', right: 0, zIndex: 500, marginTop: 4,
+              background: 'var(--fl-bg)', border: '1px solid var(--fl-raised)', borderRadius: 8,
+              padding: 12, width: 320, maxHeight: 420, overflowY: 'auto', boxShadow: '0 8px 28px rgba(0,0,0,0.7)',
+              fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11, color: 'var(--fl-on-dark)',
+              display: 'flex', flexDirection: 'column', gap: 10 }}>
+
+              {/* Save current search */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <span style={{ fontSize: 9, color: 'var(--fl-dim)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                  💾 Sauvegarder la recherche actuelle
+                </span>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <input value={saveName} placeholder="Nom de la recherche…"
+                    onChange={e => setSaveName(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter') handleSave(); }}
+                    style={{ flex: 1, background: 'var(--fl-panel)', color: 'var(--fl-on-dark)', border: '1px solid var(--fl-raised)', borderRadius: 5, padding: '5px 8px', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11, outline: 'none' }} />
+                  <button onClick={handleSave} disabled={!saveName.trim()}
+                    style={{ padding: '5px 8px', borderRadius: 5, background: 'var(--fl-card)', border: '1px solid color-mix(in srgb, var(--fl-purple) 30%, transparent)', color: 'var(--fl-purple)', cursor: saveName.trim() ? 'pointer' : 'not-allowed', opacity: saveName.trim() ? 1 : 0.5, display: 'flex', alignItems: 'center' }}>
+                    <Save size={12} />
+                  </button>
+                </div>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 10, color: 'var(--fl-dim)', cursor: 'pointer' }}>
+                  <input type="checkbox" checked={saveShared} onChange={e => setSaveShared(e.target.checked)} />
+                  Partager avec toute l'équipe du cas
+                </label>
+              </div>
+
+              {/* Mes recherches */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4, borderTop: '1px solid var(--fl-card)', paddingTop: 8 }}>
+                <span style={{ fontSize: 9, color: 'var(--fl-dim)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Mes recherches</span>
+                {mine.length === 0 && <span style={{ fontSize: 10, color: 'var(--fl-muted)' }}>Aucune</span>}
+                {mine.map(s => (
+                  <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <button onClick={() => { applySavedSearch(s.query); setShowSearches(false); }}
+                      title="Appliquer cette recherche"
+                      style={{ flex: 1, textAlign: 'left', background: 'transparent', border: 'none', color: 'var(--fl-on-dark)', cursor: 'pointer', padding: '4px 6px', borderRadius: 4, fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', display: 'flex', alignItems: 'center', gap: 6 }}
+                      onMouseEnter={e => { e.currentTarget.style.background = 'var(--fl-card)'; }}
+                      onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}>
+                      {s.name}
+                      {s.scope === 'case' && <span style={{ fontSize: 8, color: 'var(--fl-purple)' }}>partagée</span>}
+                    </button>
+                    {s.scope !== 'case' && (
+                      <button onClick={() => promoteSavedSearch(s.id)} title="Partager avec le cas"
+                        style={{ background: 'none', border: 'none', color: 'var(--fl-muted)', cursor: 'pointer', padding: 2 }}>
+                        <Share2 size={12} />
+                      </button>
+                    )}
+                    <button onClick={() => { const n = prompt('Nouveau nom', s.name); if (n && n.trim()) updateSavedSearch(s.id, { name: n.trim() }).catch(err => alert(err?.response?.data?.error || 'Échec du renommage')); }} title="Renommer"
+                      style={{ background: 'none', border: 'none', color: 'var(--fl-muted)', cursor: 'pointer', padding: 2 }}>
+                      <Pencil size={12} />
+                    </button>
+                    <button onClick={() => { if (confirm(`Supprimer « ${s.name} » ?`)) deleteSavedSearch(s.id).catch(err => alert(err?.response?.data?.error || 'Échec de la suppression')); }} title="Supprimer"
+                      style={{ background: 'none', border: 'none', color: 'var(--fl-muted)', cursor: 'pointer', padding: 2 }}
+                      onMouseEnter={e => { e.currentTarget.style.color = 'var(--fl-danger)'; }}
+                      onMouseLeave={e => { e.currentTarget.style.color = 'var(--fl-muted)'; }}>
+                      <Trash2 size={12} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+
+              {/* Partagées au cas (des autres) */}
+              {shared.length > 0 && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4, borderTop: '1px solid var(--fl-card)', paddingTop: 8 }}>
+                  <span style={{ fontSize: 9, color: 'var(--fl-dim)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Partagées au cas</span>
+                  {shared.map(s => (
+                    <button key={s.id} onClick={() => { applySavedSearch(s.query); setShowSearches(false); }}
+                      title={`Par ${s.author_name || s.username || 'un membre'}`}
+                      style={{ textAlign: 'left', background: 'transparent', border: 'none', color: 'var(--fl-on-dark)', cursor: 'pointer', padding: '4px 6px', borderRadius: 4, fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', display: 'flex', alignItems: 'center', gap: 6 }}
+                      onMouseEnter={e => { e.currentTarget.style.background = 'var(--fl-card)'; }}
+                      onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}>
+                      {s.name}
+                      <span style={{ fontSize: 8, color: 'var(--fl-muted)' }}>· {s.author_name || s.username || '—'}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
         <div style={{ width: 1, height: 18, background: 'var(--fl-raised)', flexShrink: 0 }} />
         <div ref={advancedRef} style={{ position: 'relative' }}>
           <button onClick={() => setShowAdvanced(v => !v)} style={{

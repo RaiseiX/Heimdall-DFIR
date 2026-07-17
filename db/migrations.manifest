@@ -1,0 +1,61 @@
+# Heimdall-DFIR — canonical migration order.
+# One migration file per line, applied top-to-bottom by db/migrate.sh, each
+# recorded once in the schema_migrations table (idempotent).
+#
+# RULES:
+#   - Every db/*.sql and db/migrations/*.sql file (except db/init.sql) MUST be
+#     listed here. migrate.sh preflight aborts if any file is missing — this is
+#     what prevents a new migration from being silently orphaned.
+#   - Append new migrations at the END (do not reorder already-applied entries;
+#     schema_migrations tracks by filename, so ordering of applied files is
+#     fixed history).
+#   - Blank lines and lines starting with '#' are ignored.
+
+# --- legacy v2.x era (tracked on existing deployments) ---
+db/migrate_v2.7.sql
+db/migrate_v2.8.sql
+db/migrate_v2.9.sql
+db/migrate_v2.10.sql
+db/migrate_v2.11.sql
+db/migrate_v2.12.sql
+db/migrate_v2.13.sql
+db/migrate_v2.14.sql
+db/migrate_v2.15.sql
+db/migrate_v2.16.sql
+db/migrate_v2.17.sql
+db/migrate_v2.18.sql
+db/migrate_v2.19.sql
+db/migrate_v2.20.sql
+db/migrate_v2.21.sql
+db/migrate_v2.22.sql
+
+# --- numbered feature migrations ---
+db/migrations/001_performance_indexes.sql
+db/migrations/002_volweb_integration.sql
+db/migrations/003_color_rules.sql
+db/migrations/004_column_prefs.sql
+db/migrations/005_timeline_pins.sql
+db/migrations/006_parser_perf_indexes.sql
+db/migrations/007_risk_score.sql
+db/migrations/008_ioc_cross_case_view.sql
+db/migrations/009_memory_uploads_fix.sql
+db/migrations/010_additional_files.sql
+db/migrations/011_investigation_workspace.sql
+db/migrations/20260322120000_ai_case_context.sql
+db/migrations/20260322140000_report_templates.sql
+db/migrations/20260701000000_timeline_saved_searches.sql
+db/migrations/20260703000000_dfiq.sql
+db/migrations/20260708000000_ingestion_files.sql
+db/migrations/20260709000000_hunt_runs.sql
+
+# --- previously-orphaned committed hotfixes (v2.23-v2.27) ---
+# Additive to tables that exist by this point; v2.25 creates the workbench
+# tables that v2.27 then alters, so v2.25 MUST precede v2.27.
+db/migrate_v2.23.sql
+db/migrate_v2.24.sql
+db/migrate_v2.25.sql
+db/migrate_v2.26.sql
+db/migrate_v2.27.sql
+
+# --- collaborative report editor (Yjs) ---
+db/migrations/20260712000000_report_drafts.sql

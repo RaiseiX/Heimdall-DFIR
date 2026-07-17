@@ -6,7 +6,10 @@ import * as aiService from '../services/aiService';
 import * as llmService from '../services/llmService';
 
 const { authenticate } = require('../middleware/auth');
+const { caseAccessParam } = require('../middleware/caseAccess');
 const router = Router();
+router.use(authenticate);
+router.param('caseId', caseAccessParam);
 
 function pool(res: Response): Pool { return res.app.locals.pool; }
 function io(res: Response)         { return res.app.locals.io; }

@@ -8,7 +8,7 @@ export default function StatusBar({ graphData, zoom, selectedNode }) {
   const ioc   = (graphData?.nodes || []).filter(n => n.is_suspicious).length;
 
   return (
-    <div style={{ height: 22, background: 'var(--fl-bg)', borderTop: '1px solid var(--fl-card)', display: 'flex', alignItems: 'center', padding: '0 12px', gap: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 7, color: 'var(--fl-muted)', flexShrink: 0 }}>
+    <div style={{ height: 26, background: 'var(--fl-bg)', borderTop: '1px solid var(--fl-card)', display: 'flex', alignItems: 'center', padding: '0 12px', gap: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 12, color: 'var(--fl-muted)', flexShrink: 0 }}>
       <span>{t('networkMap.nodes', { count: nodes })}</span>
       <span style={{ color: 'var(--fl-raised)' }}>·</span>
       <span>{t('networkMap.edges', { count: edges })}</span>

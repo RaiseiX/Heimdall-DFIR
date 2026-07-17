@@ -2,12 +2,16 @@
 // Shared by the Threat Hunting route (manual launch) and the parsing pipeline
 // (auto-launch when parsing finishes). Reuses existing endpoints via internal HTTP
 // with a short-lived JWT signed for the requesting user — no scan-logic duplication.
+// State is persisted to `hunt_runs` (services/huntRuns) so it survives restarts and
+// is shared across API instances; actual work is dispatched via the `hunting-jobs`
+// BullMQ queue and executed by the hunting worker (Task 3).
 const jwt = require('jsonwebtoken');
 const axios = require('axios');
 const { JWT_SECRET } = require('../middleware/auth');
 const logger = require('../config/logger').default;
-
-const RUN_ALL_JOBS = new Map(); // caseId -> job
+const { pool } = require('../config/database');
+const { huntingQueue } = require('../config/queue');
+const { startHuntRun, updateHuntStep, finishHuntRun, getHuntRun } = require('./huntRuns');
 
 const RUN_ALL_ENGINES = [
   { key: 'yara',              label: 'YARA (preuves)',          method: 'post', path: (c) => `/api/threat-hunting/yara/scan-case/${c}`, timeout: 600000 },
@@ -31,44 +35,49 @@ function extractCount(d) {
   return 0;
 }
 
-function getRunAllJob(caseId) {
-  return RUN_ALL_JOBS.get(caseId) || { caseId, status: 'idle', steps: [] };
+const initialSteps = () => RUN_ALL_ENGINES.map(e => ({ key: e.key, label: e.label, status: 'pending', count: null, error: null }));
+
+// Guard + persist + enqueue. Shared by routes (via startRunAll) and workers.
+async function triggerHunt(p, caseId, userId, trigger = 'manual', evidenceId = null) {
+  const { started, huntRunId } = await startHuntRun(p, caseId, trigger, evidenceId, initialSteps());
+  if (!started) return { started: false };
+  try {
+    await huntingQueue.add('hunt', { caseId, userId, trigger, evidenceId: evidenceId || undefined, huntRunId });
+  } catch (err) {
+    // Enqueue failed (e.g. Redis blip) after the 'running' row was inserted — release the
+    // per-case guard so future auto-hunts aren't blocked forever by an orphaned row.
+    await finishHuntRun(p, huntRunId, 'error');
+    return { started: false };
+  }
+  return { started: true, huntRunId };
 }
 
-// Launch all engines in the background. `trigger` = 'manual' | 'auto'.
-// Guarded: a case already running is not restarted.
-function startRunAll(caseId, user, trigger = 'manual') {
-  const existing = RUN_ALL_JOBS.get(caseId);
-  if (existing && existing.status === 'running') return existing;
-
-  const token = jwt.sign({ id: user.id, username: user.username, role: user.role || 'admin' }, JWT_SECRET, { expiresIn: '30m' });
-  const job = {
-    caseId, status: 'running', trigger, startedAt: Date.now(), finishedAt: null,
-    steps: RUN_ALL_ENGINES.map(e => ({ key: e.key, label: e.label, status: 'pending', count: null, error: null })),
-  };
-  RUN_ALL_JOBS.set(caseId, job);
-
-  (async () => {
-    const base = `http://localhost:${process.env.PORT || 4000}`;
-    for (let i = 0; i < RUN_ALL_ENGINES.length; i++) {
-      const e = RUN_ALL_ENGINES[i]; const step = job.steps[i];
-      step.status = 'running';
-      try {
-        const resp = await axios({
-          method: e.method, url: base + e.path(caseId),
-          headers: { Authorization: `Bearer ${token}` },
-          timeout: e.timeout || 120000, data: e.method === 'post' ? {} : undefined,
-        });
-        step.count = extractCount(resp.data); step.status = 'done';
-      } catch (err) {
-        step.status = 'error'; step.error = err.response?.data?.error || err.message;
-      }
+// The actual engine orchestration — runs in the hunting worker (Task 3). Reuses the
+// existing endpoints via internal HTTP with a short-lived JWT; no scan-logic duplication.
+async function runAllEngines(p, caseId, userId, huntRunId) {
+  const u = (await p.query('SELECT username, role FROM users WHERE id=$1', [userId])).rows[0] || { username: 'system', role: 'admin' };
+  const token = jwt.sign({ id: userId, username: u.username, role: u.role || 'admin' }, JWT_SECRET, { expiresIn: '30m' });
+  const base = process.env.INTERNAL_API_BASE || 'http://backend:4000';
+  for (const e of RUN_ALL_ENGINES) {
+    await updateHuntStep(p, huntRunId, e.key, { status: 'running' });
+    try {
+      const resp = await axios({ method: e.method, url: base + e.path(caseId),
+        headers: { Authorization: `Bearer ${token}` }, timeout: e.timeout || 120000,
+        data: e.method === 'post' ? {} : undefined });
+      await updateHuntStep(p, huntRunId, e.key, { status: 'done', count: extractCount(resp.data) });
+    } catch (err) {
+      await updateHuntStep(p, huntRunId, e.key, { status: 'error', error: err.response?.data?.error || err.message });
     }
-    job.status = 'done'; job.finishedAt = Date.now();
-    logger.info(`[run-all] case ${caseId} done (${trigger}) — ${job.steps.reduce((s, st) => s + (st.count || 0), 0)} results`);
-  })();
-
-  return job;
+  }
+  await finishHuntRun(p, huntRunId, 'done');
+  logger.info(`[hunt] case ${caseId} done — engines executed`);
 }
 
-module.exports = { startRunAll, getRunAllJob };
+// Signatures preserved for routes (collection.js:2113, threatHunting.ts).
+async function startRunAll(caseId, user, trigger = 'manual') {
+  await triggerHunt(pool, caseId, user.id, trigger);
+  return getHuntRun(pool, caseId);
+}
+async function getRunAllJob(caseId) { return getHuntRun(pool, caseId); }
+
+module.exports = { RUN_ALL_ENGINES, runAllEngines, triggerHunt, startRunAll, getRunAllJob };

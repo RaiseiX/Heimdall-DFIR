@@ -1,6 +1,6 @@
 // frontend/src/components/supertimeline/store/useTimelineStore.js
 import { create } from 'zustand';
-import { collectionAPI, artifactsAPI, bookmarksAPI } from '../../../utils/api';
+import { collectionAPI, artifactsAPI, bookmarksAPI, savedSearchesAPI } from '../../../utils/api';
 import { computeRef } from '../utils/timelineUtils';
 
 const DEBOUNCE_MS = 150;
@@ -11,6 +11,32 @@ const DEFAULT_GROUPS = [
   { key: 'artifact_type', label: 'Artifact Type' },
   { key: 'host_name',     label: 'Host' },
 ];
+
+// The exact subset of filter state persisted in a saved search (server whitelists too).
+const QUERY_KEYS = [
+  'search', 'searchOp', 'startTime', 'endTime', 'artifactTypes',
+  'hostFilter', 'hostFilterOp', 'userFilter', 'userFilterOp',
+  'toolFilter', 'toolFilterOp', 'extFilter', 'extFilterOp',
+  'eventIdFilter', 'tagFilter', 'hitsOnly', 'detSeverity', 'dedupe',
+  'multiSort', 'groupByFields',
+];
+
+// Fresh default filter state (new array instances each call — never share mutable refs).
+const filterDefaults = () => ({
+  search: '', searchOp: 'contains', startTime: '', endTime: '',
+  artifactTypes: [],
+  hostFilter: '', hostFilterOp: 'contains',
+  userFilter: '', userFilterOp: 'contains',
+  toolFilter: '', toolFilterOp: 'contains',
+  extFilter:  '', extFilterOp:  'contains',
+  eventIdFilter: '', tagFilter: '',
+  evidenceIds: [], resultId: '',
+  hitsOnly: false, detSeverity: '', dedupe: false,
+  sortCol: 'timestamp', sortDir: 'desc',
+  multiSort: [{ col: 'timestamp', dir: 'desc' }],
+  groupByFields: [], page: 1,
+  appendMode: false,
+});
 
 // B2: encode confidence level as a _conf: tag prefix so it persists in the DB tags array
 function encodeTagsWithLevel(tags, level) {
@@ -82,11 +108,16 @@ export const useTimelineStore = create((set, get) => ({
   hostsAvail: [], usersAvail: [],
   caseId: null,
 
+  // ── Timeline context view state ──
+  contextOpen: false, contextAnchorId: null, contextRows: [], contextHostName: null,
+  contextAllHosts: false, contextN: 25, contextLoading: false,
+
   // ── UI state ──
   selectedRowId: null,
   tagData: new Map(),       // Map<row.id, { level: string|null, tags: string[] }>
   notedRefs: new Set(),     // C6: artifact_ref strings that have analyst notes
   bookmarks: [],
+  savedSearches: [],
   detailTab: 'details',
   explorerOpen: (() => { try { return localStorage.getItem('supertl.explorerOpen') !== 'false'; } catch { return true; } })(),
   detailOpen: false,
@@ -97,7 +128,7 @@ export const useTimelineStore = create((set, get) => ({
   setCaseId(caseId, evidenceId = null) {
     set({ caseId, evidenceId, page: 1, records: [], total: 0,
           selectedRowId: null, detailOpen: false, availTypes: [], typeCounts: {},
-          tagData: new Map(), notedRefs: new Set(), bookmarks: [] });
+          tagData: new Map(), notedRefs: new Set(), bookmarks: [], savedSearches: [] });
     artifactsAPI.refsWithNotes(caseId)
       .then(res => set({ notedRefs: new Set(res.data?.refs || []) }))
       .catch(() => set({ notedRefs: new Set() }));
@@ -107,6 +138,9 @@ export const useTimelineStore = create((set, get) => ({
         set({ bookmarks: raw.map(b => ({ ...b, ref: b.artifact_ref ?? b.ref })) });
       })
       .catch(() => set({ bookmarks: [] }));
+    savedSearchesAPI.list(caseId)
+      .then(res => set({ savedSearches: res.data || [] }))
+      .catch(() => set({ savedSearches: [] }));
   },
 
   setColorRules(rules) { set({ colorRules: rules }); },
@@ -124,21 +158,7 @@ export const useTimelineStore = create((set, get) => ({
   },
 
   clearFilters() {
-    set({
-      search: '', searchOp: 'contains', startTime: '', endTime: '',
-      artifactTypes: [],
-      hostFilter: '', hostFilterOp: 'contains',
-      userFilter: '', userFilterOp: 'contains',
-      toolFilter: '', toolFilterOp: 'contains',
-      extFilter:  '', extFilterOp:  'contains',
-      eventIdFilter: '', tagFilter: '',
-      evidenceIds: [], resultId: '',
-      hitsOnly: false, detSeverity: '', dedupe: false,
-      sortCol: 'timestamp', sortDir: 'desc',
-      multiSort: [{ col: 'timestamp', dir: 'desc' }],
-      groupByFields: [], page: 1,
-      appendMode: false,
-    });
+    set(filterDefaults());
     get().loadTimeline();
   },
 
@@ -327,6 +347,27 @@ export const useTimelineStore = create((set, get) => ({
   },
   closeDetail()     { set({ detailOpen: false, selectedRowId: null }); },
   openDetail(id)    { set({ selectedRowId: id, detailOpen: true }); },
+
+  openContext(anchorId) {
+    if (!(anchorId > 0)) return;               // real DB rows only
+    set({ contextOpen: true, contextAnchorId: anchorId });
+    get().loadContext();
+  },
+  async loadContext() {
+    const { caseId, contextAnchorId, contextN, contextAllHosts } = get();
+    if (!caseId || !(contextAnchorId > 0)) return;
+    set({ contextLoading: true });
+    try {
+      const res = await collectionAPI.timelineContext(caseId, contextAnchorId, { n: contextN, allHosts: contextAllHosts });
+      set({ contextRows: res.data?.rows || [], contextHostName: res.data?.host_name ?? null, contextLoading: false });
+    } catch {
+      set({ contextRows: [], contextLoading: false });
+    }
+  },
+  setContextN(n)          { set({ contextN: n }); get().loadContext(); },
+  toggleContextAllHosts() { set({ contextAllHosts: !get().contextAllHosts }); get().loadContext(); },
+  reAnchorContext(id)     { if (id > 0) { set({ contextAnchorId: id }); get().loadContext(); } },
+  closeContext()          { set({ contextOpen: false, contextRows: [], contextAnchorId: null }); },
   addGroupByField(f) {
     const s = get();
     if (!s.groupByFields.find(x => x.key === f.key)) set({ groupByFields: [...s.groupByFields, f] });
@@ -335,4 +376,66 @@ export const useTimelineStore = create((set, get) => ({
     set(s => ({ groupByFields: s.groupByFields.filter(f => f.key !== key) }));
   },
   setGroupByFields(fields) { set({ groupByFields: fields }); },
+
+  async loadSavedSearches() {
+    const { caseId } = get();
+    if (!caseId) return;
+    try {
+      const res = await savedSearchesAPI.list(caseId);
+      set({ savedSearches: res.data || [] });
+    } catch { set({ savedSearches: [] }); }
+  },
+
+  captureCurrentQuery() {
+    const s = get();
+    const q = {};
+    for (const k of QUERY_KEYS) q[k] = s[k];
+    return q;
+  },
+
+  applySavedSearch(query) {
+    const overlay = {};
+    for (const k of QUERY_KEYS) if (query?.[k] !== undefined) overlay[k] = query[k];
+    // multiSort drives sort_col/sort_dir in buildQueryParams — keep the scalars in sync.
+    const ms = Array.isArray(overlay.multiSort) && overlay.multiSort.length ? overlay.multiSort[0] : null;
+    const derivedSort = ms ? { sortCol: ms.col, sortDir: ms.dir } : {};
+    set({ ...filterDefaults(), ...overlay, ...derivedSort, page: 1 });
+    get().loadTimeline();
+  },
+
+  async saveCurrentSearch(name, scope = 'personal') {
+    const { caseId } = get();
+    if (!caseId) return null;
+    const query = get().captureCurrentQuery();
+    const res = await savedSearchesAPI.create(caseId, { name, scope, query });
+    set({ savedSearches: [...get().savedSearches, res.data] });
+    return res.data;
+  },
+
+  async updateSavedSearch(id, patch) {
+    const { caseId, savedSearches } = get();
+    const prev = savedSearches;
+    set({ savedSearches: savedSearches.map(s => (s.id === id ? { ...s, ...patch } : s)) }); // optimistic
+    try {
+      const res = await savedSearchesAPI.update(caseId, id, patch);
+      set({ savedSearches: get().savedSearches.map(s => (s.id === id ? res.data : s)) });
+    } catch (e) {
+      set({ savedSearches: prev }); // rollback
+      throw e;
+    }
+  },
+
+  promoteSavedSearch(id) { return get().updateSavedSearch(id, { scope: 'case' }); },
+
+  async deleteSavedSearch(id) {
+    const { caseId, savedSearches } = get();
+    const prev = savedSearches;
+    set({ savedSearches: savedSearches.filter(s => s.id !== id) }); // optimistic
+    try {
+      await savedSearchesAPI.remove(caseId, id);
+    } catch (e) {
+      set({ savedSearches: prev }); // rollback
+      throw e;
+    }
+  },
 }));

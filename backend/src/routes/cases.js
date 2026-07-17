@@ -9,6 +9,7 @@ const { computeTriageScores, saveTriageScores, getTriageScores } = require('../s
 const { getExceptions, applyExceptions, applyExceptionsGrouped } = require('../services/detectionExceptions');
 const { getDriverIndex, getHijackIndex, matchDrivers, matchHijack } = require('../services/lolDriversService');
 const { buildLateralMovement, mapNetworkRowsToLateral } = require('../services/lateralMovementService');
+const { SYSMON_BEHAVIOR_VECTORS, TIMESTOMP_QUERY, EXEC_ANOMALY_VECTORS, WMI_PERSISTENCE_VECTORS } = require('../services/detectionVectors');
 
 const router = express.Router();
 
@@ -732,35 +733,7 @@ router.get('/:id/detections/timestomping', authenticate, async (req, res) => {
     const threshold = parseInt(req.query.threshold_days || '0', 10);
 
     const result = await pool.query(
-      `SELECT
-         id,
-         raw->>'FileName'            AS filename,
-         raw->>'ParentPath'          AS parent_path,
-         raw->>'Extension'           AS extension,
-         raw->>'Created0x10'         AS sia_created,
-         raw->>'Created0x30'         AS fn_created,
-         raw->>'LastModified0x10'    AS sia_modified,
-         raw->>'LastModified0x30'    AS fn_modified,
-         raw->>'InUse'               AS in_use,
-         raw->>'IsDirectory'         AS is_dir,
-         timestamp                   AS indexed_at
-       FROM collection_timeline
-       WHERE case_id = $1
-         AND artifact_type = 'mft'
-         AND raw->>'Created0x10' IS NOT NULL
-         AND raw->>'Created0x30' IS NOT NULL
-         AND (
-           -- $SIA Created before $FN Created (impossible without timestomping)
-           (raw->>'Created0x10')::timestamptz < (raw->>'Created0x30')::timestamptz
-           OR
-           -- $SIA Modified before $FN Modified
-           (raw->>'LastModified0x10' IS NOT NULL AND raw->>'LastModified0x30' IS NOT NULL AND
-            (raw->>'LastModified0x10')::timestamptz < (raw->>'LastModified0x30')::timestamptz)
-         )
-       ORDER BY ABS(EXTRACT(EPOCH FROM (
-         (raw->>'Created0x10')::timestamptz - (raw->>'Created0x30')::timestamptz
-       ))) DESC
-       LIMIT 500`,
+      TIMESTOMP_QUERY,
       [id]
     );
 
@@ -927,6 +900,10 @@ router.get('/:id/detections/beaconing', authenticate, async (req, res) => {
       const variance    = intervals.reduce((s, v) => s + Math.pow(v - avgInterval, 2), 0) / intervals.length;
       const stdDev      = Math.sqrt(variance);
 
+      // NOTE (H8): coefficient-of-variation regularity is defeated by jittered beacons —
+      // modern C2 randomizes intervals (± jitter %), inflating the CV and lowering the score.
+      // A robust follow-up would use a jitter-tolerant metric (MAD / autocorrelation / FFT);
+      // tracked as a roadmap item, not implemented here.
       const cv = avgInterval > 0 ? stdDev / avgInterval : 1;
 
       const beaconScore = Math.round(Math.max(0, Math.min(100, (1 - cv) * 100)));
@@ -952,7 +929,8 @@ router.get('/:id/detections/beaconing', authenticate, async (req, res) => {
     items.sort((a, b) => b.beacon_score - a.beacon_score);
     const _exc = await getExceptions(req.params.id);
     const _items = applyExceptions(items, _exc, 'beaconing');
-    res.json({ items: _items, total: _items.length, network_events_analyzed: result.rowCount, suppressed: items.length - _items.length });
+    res.json({ items: _items, total: _items.length, network_events_analyzed: result.rowCount, suppressed: items.length - _items.length,
+      limitation: 'Score CV : les beacons jitterisés (intervalles randomisés) peuvent échapper. Métrique robuste (MAD/autocorrélation) = suivi roadmap.' });
   } catch (err) {
     logger.error('[beaconing]', err);
     res.status(500).json({ error: 'Erreur détection beaconing: ' + err.message });
@@ -1174,139 +1152,7 @@ router.get('/:id/detections/sysmon-behavior', authenticate, async (req, res) => 
   try {
     const { id } = req.params;
 
-    const VECTORS = [
-      {
-        id: 'lsass_access',
-        label: 'Accès LSASS (credential dumping) — EventID 10',
-        mitre: 'T1003.001',
-        severity: 'CRITIQUE',
-        query: `
-          SELECT id, timestamp, artifact_type, description, source, host_name, raw
-          FROM collection_timeline
-          WHERE case_id = $1
-            AND artifact_type IN ('evtx', 'sysmon', 'hayabusa')
-            AND (
-              (raw->>'EventID' = '10' AND raw->>'TargetImage' ILIKE '%lsass%')
-              OR description ILIKE '%lsass%credential%'
-              OR description ILIKE '%mimikatz%'
-              OR description ILIKE '%sekurlsa%'
-            )
-          ORDER BY timestamp LIMIT 200`,
-      },
-      {
-        id: 'remote_thread',
-        label: 'CreateRemoteThread (injection de processus) — EventID 8',
-        mitre: 'T1055',
-        severity: 'CRITIQUE',
-        query: `
-          SELECT id, timestamp, artifact_type, description, source, host_name, raw
-          FROM collection_timeline
-          WHERE case_id = $1
-            AND artifact_type IN ('evtx', 'sysmon', 'hayabusa')
-            AND (
-              raw->>'EventID' = '8'
-              OR description ILIKE '%CreateRemoteThread%'
-              OR description ILIKE '%remote thread%'
-            )
-          ORDER BY timestamp LIMIT 200`,
-      },
-      {
-        id: 'exec_from_temp',
-        label: 'Exécution depuis %TEMP% / %AppData% — EventID 1',
-        mitre: 'T1059',
-        severity: 'ÉLEVÉ',
-        query: `
-          SELECT id, timestamp, artifact_type, description, source, host_name, raw
-          FROM collection_timeline
-          WHERE case_id = $1
-            AND artifact_type IN ('evtx', 'sysmon', 'prefetch', 'hayabusa')
-            AND (
-              (raw->>'EventID' = '1' AND (
-                raw->>'Image'          ILIKE '%\\Temp\\%'
-                OR raw->>'Image'       ILIKE '%\\AppData\\Local\\Temp%'
-                OR raw->>'Image'       ILIKE '%\\AppData\\Roaming%'
-                OR raw->>'CommandLine' ILIKE '%\\Temp\\%.exe%'
-              ))
-              OR description ILIKE '%\\Temp\\%.exe%'
-              OR description ILIKE '%\\AppData\\%.exe%'
-            )
-          ORDER BY timestamp LIMIT 200`,
-      },
-      {
-        id: 'unsigned_dll',
-        label: 'Chargement DLL non signée — EventID 7',
-        mitre: 'T1574.002',
-        severity: 'ÉLEVÉ',
-        query: `
-          SELECT id, timestamp, artifact_type, description, source, host_name, raw
-          FROM collection_timeline
-          WHERE case_id = $1
-            AND artifact_type IN ('evtx', 'sysmon')
-            AND raw->>'EventID' = '7'
-            AND (
-              raw->>'Signed' = 'false'
-              OR raw->>'SignatureStatus' ILIKE '%error%'
-              OR raw->>'SignatureStatus' ILIKE '%invalid%'
-            )
-          ORDER BY timestamp LIMIT 200`,
-      },
-      {
-        id: 'suspicious_network',
-        label: 'Connexions réseau suspectes — EventID 3',
-        mitre: 'T1071',
-        severity: 'MOYEN',
-        query: `
-          SELECT id, timestamp, artifact_type, description, source, host_name, raw
-          FROM collection_timeline
-          WHERE case_id = $1
-            AND artifact_type IN ('evtx', 'sysmon')
-            AND raw->>'EventID' = '3'
-            AND (
-              raw->>'DestinationPort' IN ('4444','1234','31337','8080','8443','9001')
-              OR (raw->>'Image' ILIKE '%powershell%' AND raw->>'DestinationIsIpv6' = 'false')
-              OR (raw->>'Image' ILIKE '%wscript%')
-              OR (raw->>'Image' ILIKE '%mshta%')
-            )
-          ORDER BY timestamp LIMIT 200`,
-      },
-      {
-        id: 'process_tampering',
-        label: 'Altération de processus (Process Herpaderping/Hollowing) — EventID 25',
-        mitre: 'T1055.012',
-        severity: 'CRITIQUE',
-        query: `
-          SELECT id, timestamp, artifact_type, description, source, host_name, raw
-          FROM collection_timeline
-          WHERE case_id = $1
-            AND artifact_type IN ('evtx', 'sysmon')
-            AND (
-              raw->>'EventID' = '25'
-              OR description ILIKE '%process hollowing%'
-              OR description ILIKE '%process herpaderping%'
-              OR description ILIKE '%process doppelgänging%'
-            )
-          ORDER BY timestamp LIMIT 200`,
-      },
-      {
-        id: 'suspicious_file_create',
-        label: 'Fichiers créés dans emplacements suspects — EventID 11',
-        mitre: 'T1074',
-        severity: 'MOYEN',
-        query: `
-          SELECT id, timestamp, artifact_type, description, source, host_name, raw
-          FROM collection_timeline
-          WHERE case_id = $1
-            AND artifact_type IN ('evtx', 'sysmon')
-            AND raw->>'EventID' = '11'
-            AND (
-              raw->>'TargetFilename' ILIKE '%\\Temp\\%'
-              OR raw->>'TargetFilename' ILIKE '%\\System32\\%'
-              OR raw->>'TargetFilename' ILIKE '%\\SysWOW64\\%'
-              OR raw->>'TargetFilename' ~ '\\.(exe|dll|bat|ps1|vbs|hta|scr|com)$'
-            )
-          ORDER BY timestamp LIMIT 200`,
-      },
-    ];
+    const VECTORS = SYSMON_BEHAVIOR_VECTORS;
 
     const populated = [];
     for (const v of VECTORS) {
@@ -1397,43 +1243,12 @@ router.get('/:id/detections/anti-forensic', authenticate, async (req, res) => {
 });
 
 router.get('/:id/detections/execution-anomaly', authenticate, async (req, res) => {
-  const VECTORS = [
-    { id: 'lolbins', label: 'LOLBins — abus d\'exécution', mitre: 'T1218', severity: 'ÉLEVÉ', query: `
-      SELECT timestamp, artifact_type, description, source, host_name, raw FROM collection_timeline
-      WHERE case_id=$1 AND artifact_type IN ('evtx','sysmon','hayabusa','prefetch') AND (
-        raw->>'CommandLine' ILIKE '%regsvr32%/i:http%' OR raw->>'CommandLine' ILIKE '%mshta%http%'
-        OR raw->>'CommandLine' ILIKE '%mshta%javascript%' OR raw->>'CommandLine' ILIKE '%mshta%vbscript%'
-        OR raw->>'CommandLine' ILIKE '%certutil%-urlcache%' OR raw->>'CommandLine' ILIKE '%certutil%-decode%'
-        OR raw->>'CommandLine' ILIKE '%bitsadmin%/transfer%' OR raw->>'CommandLine' ILIKE '%rundll32%javascript:%'
-        OR raw->>'CommandLine' ILIKE '%wmic%process%call%create%' OR raw->>'CommandLine' ILIKE '%msiexec%http%'
-      ) ORDER BY timestamp LIMIT 200` },
-    { id: 'masquerading', label: 'Masquerading — process système hors System32', mitre: 'T1036.005', severity: 'CRITIQUE', query: `
-      SELECT timestamp, artifact_type, description, source, host_name, raw FROM collection_timeline
-      WHERE case_id=$1 AND raw->>'Image' IS NOT NULL AND (
-        (lower(raw->>'Image') LIKE '%svchost.exe'  AND lower(raw->>'Image') NOT LIKE '%system32%' AND lower(raw->>'Image') NOT LIKE '%syswow64%')
-        OR (lower(raw->>'Image') LIKE '%lsass.exe'    AND lower(raw->>'Image') NOT LIKE '%system32%')
-        OR (lower(raw->>'Image') LIKE '%services.exe' AND lower(raw->>'Image') NOT LIKE '%system32%')
-        OR (lower(raw->>'Image') LIKE '%csrss.exe'    AND lower(raw->>'Image') NOT LIKE '%system32%')
-        OR (lower(raw->>'Image') LIKE '%winlogon.exe' AND lower(raw->>'Image') NOT LIKE '%system32%')
-        OR (lower(raw->>'Image') LIKE '%wininit.exe'  AND lower(raw->>'Image') NOT LIKE '%system32%')
-        OR (lower(raw->>'Image') LIKE '%smss.exe'     AND lower(raw->>'Image') NOT LIKE '%system32%')
-        OR (lower(raw->>'Image') LIKE '%spoolsv.exe'  AND lower(raw->>'Image') NOT LIKE '%system32%')
-      ) ORDER BY timestamp LIMIT 200` },
-    { id: 'powershell_abuse', label: 'PowerShell — encodé / cradle / caché', mitre: 'T1059.001', severity: 'ÉLEVÉ', query: `
-      SELECT timestamp, artifact_type, description, source, host_name, raw FROM collection_timeline
-      WHERE case_id=$1 AND artifact_type IN ('evtx','sysmon','hayabusa') AND (
-        (lower(raw->>'Image') LIKE '%powershell%' OR description ILIKE '%powershell%') AND (
-          raw->>'CommandLine' ILIKE '%-enc %' OR raw->>'CommandLine' ILIKE '%-encodedcommand%'
-          OR raw->>'CommandLine' ILIKE '%frombase64string%' OR raw->>'CommandLine' ILIKE '%-w hidden%'
-          OR raw->>'CommandLine' ILIKE '%-windowstyle hidden%' OR raw->>'CommandLine' ILIKE '%downloadstring%'
-          OR raw->>'CommandLine' ILIKE '%downloadfile%' OR raw->>'CommandLine' ILIKE '%net.webclient%'
-          OR raw->>'CommandLine' ILIKE '%invoke-expression%' OR raw->>'CommandLine' ILIKE '%iex(%'
-          OR description ILIKE '%frombase64string%' OR description ILIKE '%downloadstring%'
-        )
-      ) ORDER BY timestamp LIMIT 200` },
-  ];
+  const VECTORS = EXEC_ANOMALY_VECTORS;
   return runGroupedDetection(req, res, 'execution-anomaly', VECTORS, 'anomalies d\'exécution');
 });
+
+router.get('/:id/detections/wmi-persistence', authenticate, (req, res) =>
+  runGroupedDetection(req, res, 'wmi-persistence', WMI_PERSISTENCE_VECTORS, 'WMI persistence'));
 
 router.get('/:id/detections/attack-techniques', authenticate, async (req, res) => {
   const VECTORS = [
@@ -1493,6 +1308,17 @@ router.get('/:id/detections/vuln-drivers', authenticate, async (req, res) => {
       const items = matchDrivers(drvRows, idx);
       if (items.length) populated.push({ id: 'loldrivers', label: 'Driver vulnérable / malveillant (LOLDrivers)', mitre: 'T1068', severity: 'CRITIQUE', confidence: 'high', count: items.length, items });
     } catch (e) { degraded = 'LOLDrivers indisponible (' + e.message + ')'; logger.warn('[vuln-drivers:loldrivers]', e.message); }
+
+    // LOLDrivers runtime: Sysmon EID 6 (Driver Loaded) carries ImageLoaded + Hashes,
+    // matched the same way as the Amcache inventory (H6 — BYOVD, T1068).
+    try {
+      const evtRows = (await pool.query(
+        `SELECT timestamp, artifact_type, description, source, host_name, raw FROM collection_timeline
+         WHERE case_id=$1 AND artifact_type IN ('evtx','sysmon') AND raw->>'EventID'='6' LIMIT 20000`, [id])).rows;
+      const idx = await getDriverIndex();
+      const items = matchDrivers(evtRows, idx);
+      if (items.length) populated.push({ id: 'loldrivers_runtime', label: 'Driver vulnérable chargé (LOLDrivers, EID 6)', mitre: 'T1068', severity: 'CRITIQUE', confidence: 'high', count: items.length, items });
+    } catch (e) { logger.warn('[vuln-drivers:runtime]', e.message); }
 
     // HijackLibs: known-hijackable DLL name found outside its expected location.
     try {

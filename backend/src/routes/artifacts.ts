@@ -4,8 +4,11 @@ import xss from 'xss';
 import type { Pool } from 'pg';
 import { authenticate, requireRole } from '../middleware/auth';
 import type { AuthRequest } from '../types/index';
+const { caseAccessParam } = require('../middleware/caseAccess');
 
 const router = express.Router();
+router.use(authenticate);
+router.param('caseId', caseAccessParam);
 
 function ensureTable(pool: Pool) {
   pool.query(`

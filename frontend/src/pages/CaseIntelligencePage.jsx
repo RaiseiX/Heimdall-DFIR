@@ -431,7 +431,7 @@ export default function CaseIntelligencePage({ collectionId }) {
                   elements={cytoscapeElements}
                   cy={cyInstance}
                   caseId={id}
-                  onPivot={(value) => navigate(`/cases/${id}/timeline?search=${encodeURIComponent(value)}`)}
+                  onPivot={(value) => navigate(`/super-timeline?caseId=${id}&search=${encodeURIComponent(value)}`)}
                 />
               )}
               {selectedNode && (

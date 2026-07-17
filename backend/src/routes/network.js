@@ -34,6 +34,19 @@ function extractParenIP(id) {
 
 const PRIVATE_TLD = /\.(lab|local|lan|corp|internal|intranet|home|localdomain|test|priv)$/i;
 
+function classifyType(id) {
+  if (/^https?:\/\//.test(id)) return 'url';
+  if (id === 'local') return 'internal';
+  if (/^::ffff:/i.test(id) || /^\d+\.\d+\.\d+\.\d+$/.test(id) || /^[0-9a-f:]+$/i.test(id)) {
+    return isInternalIP(id) ? 'internal' : 'external';
+  }
+  if (/^\d+\.\d+\.\d+\.\d+:\d+$/.test(id)) return isInternalIP(id) ? 'internal' : 'external';
+  const pip = extractParenIP(id);
+  if (pip) return isInternalIP(pip) ? 'internal' : 'external';
+  if (PRIVATE_TLD.test(id)) return 'internal';
+  return id.includes('.') ? 'domain' : 'internal';
+}
+
 const logger = require('../config/logger').default;
 const geoip  = require('geoip-lite');
 const router = express.Router();
@@ -308,23 +321,6 @@ router.get('/:caseId/graph', authenticate, requireRole('admin', 'analyst'), asyn
     }
 
     const edges = Array.from(edgeMap.values());
-
-    const classifyType = (id) => {
-      if (/^https?:\/\//.test(id)) return 'url';
-      if (id === 'local') return 'internal';
-      // IPv6-mapped (::ffff:) or pure IPv6 or plain IPv4
-      if (/^::ffff:/i.test(id) || /^\d+\.\d+\.\d+\.\d+$/.test(id) || /^[0-9a-f:]+$/i.test(id)) {
-        return isInternalIP(id) ? 'internal' : 'external';
-      }
-      // "IP:port" format (e.g. 127.0.0.1:0, 192.168.1.4:445)
-      if (/^\d+\.\d+\.\d+\.\d+:\d+$/.test(id)) return isInternalIP(id) ? 'internal' : 'external';
-      // "NAME (IP)" format (e.g. LAB (127.0.0.1), ROWENA (192.168.1.4))
-      const pip = extractParenIP(id);
-      if (pip) return isInternalIP(pip) ? 'internal' : 'external';
-      // Private TLDs (.lab, .local, .lan, etc.) → internal hostname
-      if (PRIVATE_TLD.test(id)) return 'internal';
-      return id.includes('.') ? 'domain' : 'internal';
-    };
 
     const nodeMap = new Map();
     const upsertNode = (id, type, suspicious, bytes) => {
@@ -667,22 +663,6 @@ async function buildNetworkGraph(caseId, evidenceIdList, pool, fromTs, toTs) {
   const edges = Array.from(edgeMap.values());
 
   // ── Build nodes ──
-  const classifyType = (id) => {
-    if (/^https?:\/\//.test(id)) return 'url';
-    if (id === 'local') return 'internal';
-    // IPv6-mapped, pure IPv4, pure IPv6
-    if (/^::ffff:/i.test(id) || /^\d+\.\d+\.\d+\.\d+$/.test(id) || /^[0-9a-f:]+$/i.test(id))
-      return isInternalIP(id) ? 'internal' : 'external';
-    // IP:port (e.g. 127.0.0.1:0)
-    if (/^\d+\.\d+\.\d+\.\d+:\d+$/.test(id)) return isInternalIP(id) ? 'internal' : 'external';
-    // NAME (IP) (e.g. LAB (127.0.0.1))
-    const pip = extractParenIP(id);
-    if (pip) return isInternalIP(pip) ? 'internal' : 'external';
-    // Private TLDs
-    if (PRIVATE_TLD.test(id)) return 'internal';
-    return id.includes('.') ? 'domain' : 'internal';
-  };
-
   const nodeMap = new Map();
   const upsertNode = (id, type, suspicious, bytes) => {
     if (!nodeMap.has(id)) {

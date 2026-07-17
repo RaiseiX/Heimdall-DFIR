@@ -19,8 +19,13 @@ const { getRedis } = require('../config/redis');
 const logger = require('../config/logger').default;
 const { matchTags: matchKeywordTags } = require('../services/timelineKeywords');
 const threatEngine = require('../services/threatEngine');
+const { safeBasename } = require('../services/uploadService');
 const { detectMapping, applyMapping, loadMappings } = require('../services/timelineMappings');
+const { buildSlimRaw } = require('../services/timelineFieldExtract');
 const { pushTextFilter, pushSearchFilter } = require('../utils/textFilter');
+const { fetchContext, AnchorNotFound } = require('../services/timelineContext');
+const { diffTimelines } = require('../services/timelineDiff');
+const { stripNullBytes, normalizeTimestamp, extractTimestamp, extractDescription } = require('../services/timelineNormalizeCore');
 
 const router = express.Router();
 
@@ -734,33 +739,6 @@ function findFiles(dir, patterns) {
   return [...new Set(results)];
 }
 
-function normalizeTimestamp(value) {
-  if (!value || value === '' || value === '(null)') return null;
-  try {
-    let cleaned = value.trim();
-
-    // Handle offset-aware strings (e.g. +02:00 or -05:00) — parse as-is, convert to UTC
-    if (/[+-]\d{2}:\d{2}$/.test(cleaned)) {
-      const d = new Date(cleaned.replace(' ', 'T'));
-      if (isNaN(d.getTime())) return null;
-      const year = d.getUTCFullYear();
-      if (year < 1980 || year > 2035) return null;
-      return d.toISOString();
-    }
-
-    // No offset: assume UTC (EZ Tools output)
-    if (cleaned.endsWith('Z')) cleaned = cleaned.slice(0, -1);
-    if (cleaned.includes(' ') && !cleaned.includes('T')) cleaned = cleaned.replace(' ', 'T');
-    const d = new Date(cleaned + 'Z');
-    if (isNaN(d.getTime())) return null;
-    const year = d.getUTCFullYear();
-    if (year < 1980 || year > 2035) return null;
-    return d.toISOString();
-  } catch {
-    return null;
-  }
-}
-
 async function readCsvFile(csvPath) {
   let stat;
   try { stat = fs.statSync(csvPath); } catch { return []; }
@@ -1005,45 +983,7 @@ async function streamNormalizeToDB(csvPath, caseId, resultId, artifactType, conf
       const tsResult = extractTimestamp(clean, config.timestampColumns);
       if (!tsResult) { csvParser.resume(); return; }
 
-      // Always include the first 15 fields, plus any critical forensic fields that may appear later
-      const CRITICAL_FIELDS = new Set([
-        'PayloadData1', 'PayloadData2', 'PayloadData3', 'PayloadData4', 'PayloadData5', 'PayloadData6',
-        'MapDescription', 'EventId', 'EventID', 'Channel', 'Computer', 'Provider',
-        'RuleTitle', 'Details', 'Level', 'ExtraFieldInfo', 'MitreTags',
-        'FullPath', 'FilePath', 'FileDescription', 'ProgramName',
-        'ValueName', 'ValueData', 'KeyPath', 'Description',
-        'ExecutableName', 'RunCount', 'LastRun',
-        'FileName', 'ParentPath', 'FolderPath',
-        'AbsolutePath', 'HivePath',
-        'URL', 'Url', 'Title',
-        'ExeInfo', 'AppId', 'UserId',
-        'LocalPath', 'TargetPath',
-      ]);
-      const baseEntries = Object.entries(clean).slice(0, 15);
-      const extraEntries = Object.entries(clean).slice(15).filter(([k]) => CRITICAL_FIELDS.has(k));
-      const slimRaw = Object.fromEntries([...baseEntries, ...extraEntries]);
-
-      if (artifactType === 'evtx') {
-        const eventId = parseInt(clean['EventId'] || clean['EventID'] || '0', 10);
-
-        const NETWORK_EVENT_IDS = new Set([3, 22, 5156, 5158]);
-        if (NETWORK_EVENT_IDS.has(eventId)) {
-
-          const payload = [
-            clean['PayloadData1'] || '', clean['PayloadData2'] || '',
-            clean['PayloadData3'] || '', clean['PayloadData4'] || '',
-          ].join(' ');
-
-          const dstIpM = payload.match(/Destination(?:Ip|Address|\ Address)[:\s]+(\d{1,3}(?:\.\d{1,3}){3})/i);
-          if (dstIpM) slimRaw['DstIP'] = dstIpM[1];
-
-          const dstPortM = payload.match(/Destination(?:Port|\ Port)[:\s]+(\d+)/i);
-          if (dstPortM) slimRaw['DstPort'] = dstPortM[1];
-
-          const hostM = payload.match(/(?:DestinationHostname|QueryName)[:\s]+([^\s,;]+)/i);
-          if (hostM && hostM[1] !== '-') slimRaw['dst_host'] = hostM[1];
-        }
-      }
+      const slimRaw = buildSlimRaw(clean, artifactType);
 
       const ecs = extractEcsFields(clean, artifactType);
       let baseDesc = extractDescription(clean, config.descriptionColumns);
@@ -1213,39 +1153,6 @@ function spawnTool(args, options = {}) {
   });
 }
 
-function stripNullBytes(record) {
-  const clean = {};
-  for (const [k, v] of Object.entries(record)) {
-    clean[k] = typeof v === 'string' ? v.replace(/\u0000/g, '') : v;
-  }
-  return clean;
-}
-
-function extractTimestamp(record, timestampColumns) {
-  for (const col of timestampColumns) {
-    if (record[col]) {
-      const ts = normalizeTimestamp(record[col]);
-      if (ts) return { timestamp: ts, column: col };
-    }
-  }
-
-  for (const [key, val] of Object.entries(record)) {
-    if (typeof val === 'string' && /\d{4}-\d{2}-\d{2}/.test(val)) {
-      const ts = normalizeTimestamp(val);
-      if (ts) return { timestamp: ts, column: key };
-    }
-  }
-  return null;
-}
-
-function extractDescription(record, descriptionColumns) {
-  for (const col of descriptionColumns) {
-    const val = (record[col] || '').toString().trim();
-    if (val && val !== '-' && val !== 'N/A') return val;
-  }
-  return '';
-}
-
 router.post('/:caseId/import', authenticate, upload.single('collection'), async (req, res) => {
   const { caseId } = req.params;
 
@@ -1293,7 +1200,7 @@ router.post('/:caseId/import', authenticate, upload.single('collection'), async 
 
         if (isRawArtifact) {
           // Single raw artifact file — copy directly into collectionDir, no extraction needed
-          const destPath = path.join(collectionDir, req.file.originalname);
+          const destPath = path.join(collectionDir, safeBasename(req.file.originalname));
           fs.copyFileSync(uploadedPath, destPath);
           logger.info(`[collection] raw artifact copied: ${req.file.originalname} → ${destPath}`);
         } else if (ext === '.zip') {
@@ -2861,6 +2768,41 @@ router.get('/:caseId/timeline/groups', authenticate, async (req, res) => {
   } catch (e) {
     logger.error('[timeline/groups] error:', e.message);
     res.status(500).json({ error: 'group aggregation failed' });
+  }
+});
+
+// Returns ±N chronological neighbors around an anchor event (same host by default),
+// ignoring any active timeline filters.
+router.get('/:caseId/timeline/context', authenticate, async (req, res) => {
+  try {
+    const anchorId = parseInt(req.query.anchor_id, 10);
+    if (!Number.isInteger(anchorId)) return res.status(400).json({ error: 'anchor_id (entier) requis' });
+    const result = await fetchContext(pool, req.params.caseId, anchorId, {
+      n: req.query.n, allHosts: String(req.query.all_hosts) === 'true',
+    });
+    res.json(result);
+  } catch (err) {
+    if (err instanceof AnchorNotFound) return res.status(404).json({ error: 'Événement ancre introuvable' });
+    logger.error('[timeline/context]', err.message);
+    res.status(500).json({ error: 'Erreur vue contexte' });
+  }
+});
+
+// Two-sided timeline diff: added/removed/unchanged events between two
+// {evidence_id?, host_name?} sides of the same case.
+router.get('/:caseId/timeline/diff', authenticate, async (req, res) => {
+  try {
+    const sideA = { evidenceId: req.query.a_evidence || null, hostName: req.query.a_host ?? null };
+    const sideB = { evidenceId: req.query.b_evidence || null, hostName: req.query.b_host ?? null };
+    const has = (s) => Boolean(s.evidenceId) || (s.hostName != null && s.hostName !== '');
+    if (!has(sideA) || !has(sideB)) return res.status(400).json({ error: 'Chaque côté requiert un evidence_id ou un host' });
+    if (sideA.evidenceId === sideB.evidenceId && sideA.hostName === sideB.hostName)
+      return res.status(400).json({ error: 'Les deux côtés sont identiques' });
+    const result = await diffTimelines(pool, req.params.caseId, sideA, sideB, { limit: req.query.limit });
+    res.json(result);
+  } catch (err) {
+    logger.error('[timeline/diff]', err.message);
+    res.status(500).json({ error: 'Erreur diff timeline' });
   }
 });
 

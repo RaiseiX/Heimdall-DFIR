@@ -1,13 +1,16 @@
 const express = require('express');
 const PDFDocument = require('pdfkit');
-const { renderReport } = require('../services/reportRenderer');
+const { renderReport, buildDfiqReportData } = require('../services/reportRenderer');
 const fs = require('fs');
 const path = require('path');
 const { pool } = require('../config/database');
 const { authenticate, auditLog } = require('../middleware/auth');
+const { caseAccessParam } = require('../middleware/caseAccess');
 
 const logger = require('../config/logger').default;
 const router = express.Router();
+router.use(authenticate);
+router.param('caseId', caseAccessParam);
 
 router.get('/templates', authenticate, async (req, res) => {
   try {
@@ -191,7 +194,7 @@ router.post('/:caseId/generate', authenticate, async (req, res) => {
       const tplResult = await pool.query('SELECT config FROM report_templates WHERE id=$1', [templateId]);
       if (tplResult.rows.length > 0) tplConfig = tplResult.rows[0].config;
     }
-    const ALL_SECTIONS = ['summary','evidence','timeline','iocs','mitre','killchain','workflow','triage','yara','threat_intel','bookmarks','hayabusa','sigma','custody'];
+    const ALL_SECTIONS = ['summary','evidence','timeline','iocs','mitre','killchain','workflow','triage','yara','threat_intel','bookmarks','hayabusa','sigma','custody','dfiq'];
     // Priority: explicit body selection → saved template → everything.
     const activeSections = new Set(
       (Array.isArray(bodySections) && bodySections.length > 0) ? bodySections
@@ -264,6 +267,24 @@ router.post('/:caseId/generate', authenticate, async (req, res) => {
 
     const stepsResult = await pool.query(
       'SELECT phase, title, status, position FROM investigation_steps WHERE case_id = $1 ORDER BY phase, position, created_at',
+      [caseId]
+    ).catch(() => ({ rows: [] }));
+
+    const dfiqResult = await pool.query(
+      `SELECT s.title AS scenario_title,
+              q.text AS question_text,
+              a.status,
+              a.note,
+              q.position AS question_position,
+              tb.title AS evidence_title
+         FROM case_dfiq cd
+         JOIN dfiq_scenarios s ON s.id = cd.scenario_id
+         JOIN dfiq_questions q ON q.scenario_id = cd.scenario_id
+         JOIN case_dfiq_answers a ON a.case_dfiq_id = cd.id AND a.question_id = q.id AND a.status = 'answered'
+         LEFT JOIN case_dfiq_evidence e ON e.case_dfiq_answer_id = a.id
+         LEFT JOIN timeline_bookmarks tb ON tb.id = e.bookmark_id
+        WHERE cd.case_id = $1
+        ORDER BY s.title, q.position`,
       [caseId]
     ).catch(() => ({ rows: [] }));
 
@@ -382,6 +403,7 @@ router.post('/:caseId/generate', authenticate, async (req, res) => {
       pins: pinFlagResult.rows,
       notes: notesFlagResult.rows,
       steps: stepsResult.rows,
+      dfiq: buildDfiqReportData(dfiqResult.rows),
       aiNarrative,
       analystNotes,
       activeSections,

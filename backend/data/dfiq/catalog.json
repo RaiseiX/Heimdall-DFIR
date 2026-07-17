@@ -1,0 +1,1073 @@
+{
+  "scenarios": [
+    {
+      "dfiq_id": "S1001",
+      "title": "Data Exfiltration",
+      "description": "An employee is suspected of unauthorized copying of sensitive data (code, trade secrets, etc) from internal systems to those outside of the company's control.",
+      "tags": [],
+      "questions": [
+        {
+          "dfiq_id": "Q1024",
+          "facet_dfiq_id": "F1007",
+          "facet_name": "Are there any indications of anti-forensic efforts?",
+          "text": "Was an Incognito/Private browser session used?",
+          "approaches": [
+            {
+              "name": "Search CrowdStrike logs for Incognito Chrome processes",
+              "description": "CrowdStrike records the source process ID (ContextProcessId) for ProcessRollup events.\nCrowdstrike is a detection platform, not a logging platform, so not all executions are logged. We cannot always connect a running browser process with observed DNS requests. When we do see DNS requests coming from a browser process, yet we don't see browsing history, there are several possible explanations, including browser extensions or private browsing.",
+              "data_sources": [
+                "CrowdStrike"
+              ],
+              "refs": [
+                "https://www.crowdstrike.com/blog/tech-center/hunt-threat-activity-falcon-endpoint-protection/"
+              ]
+            }
+          ]
+        },
+        {
+          "dfiq_id": "Q1028",
+          "facet_dfiq_id": "F1007",
+          "facet_name": "Are there any indications of anti-forensic efforts?",
+          "text": "Was there specialized \"anti-forensic\" (or \"privacy\") software on a computer?\n",
+          "approaches": []
+        },
+        {
+          "dfiq_id": "Q1029",
+          "facet_dfiq_id": "F1007",
+          "facet_name": "Are there any indications of anti-forensic efforts?",
+          "text": "Were any encryption programs used on a computer?",
+          "approaches": []
+        },
+        {
+          "dfiq_id": "Q1030",
+          "facet_dfiq_id": "F1007",
+          "facet_name": "Are there any indications of anti-forensic efforts?",
+          "text": "Were any security or monitoring agents tampered with or disabled?",
+          "approaches": []
+        },
+        {
+          "dfiq_id": "Q1032",
+          "facet_dfiq_id": "F1007",
+          "facet_name": "Are there any indications of anti-forensic efforts?",
+          "text": "What actions were taken in an Incognito (or \"private\") browser session?\n",
+          "approaches": []
+        },
+        {
+          "dfiq_id": "Q1033",
+          "facet_dfiq_id": "F1007",
+          "facet_name": "Are there any indications of anti-forensic efforts?",
+          "text": "Was shell history cleared?",
+          "approaches": []
+        },
+        {
+          "dfiq_id": "Q1074",
+          "facet_dfiq_id": "F1007",
+          "facet_name": "Are there any indications of anti-forensic efforts?",
+          "text": "Were any system event logs cleared?",
+          "approaches": [
+            {
+              "name": "Examine Windows Event Logs for Audit Log cleared",
+              "description": "Parse the Windows Security Event Log and look for \"the audit log was cleared\" event.\nOn Windows systems, log clearance events for Security event log will be logged with event ID 1102. The logs contain the actor account name, domain name, logon id fields.",
+              "data_sources": [
+                "ForensicArtifact"
+              ],
+              "refs": [
+                "[1102(S): The audit log was cleared.](https://learn.microsoft.com/en-us/windows/security/threat-protection/auditing/event-1102)",
+                "[Indicator Removal: Clear Windows Event Logs on MITRE ATT&CK](https://attack.mitre.org/techniques/T1070/001/)"
+              ]
+            },
+            {
+              "name": "Search CrowdStrike logs for indicator removal on host",
+              "description": "CrowdStrike has built-in detections for \"indicator removal on host\" events.\nClearance/deletion of system logs would be recorded in CrowdStrike as a part of their \"indicator removal on host\" detections.",
+              "data_sources": [
+                "CrowdStrike"
+              ],
+              "refs": [
+                "https://www.crowdstrike.com/blog/tech-center/hunt-threat-activity-falcon-endpoint-protection/",
+                "[Indicator Removal on MITRE ATT&CK](https://attack.mitre.org/techniques/T1070/)"
+              ]
+            }
+          ]
+        },
+        {
+          "dfiq_id": "Q1001",
+          "facet_dfiq_id": "F1008",
+          "facet_name": "Are there signs of staging data for future exfiltration?",
+          "text": "What files were downloaded using a web browser?",
+          "approaches": [
+            {
+              "name": "Detect browser downloads via change journal records",
+              "description": "File downloads by some web browsers create a specific pattern of events on the file system. We can use this to see browser downloads using NTFS change journal (USN journal) records.\nChrome downloads on Windows create a specific pattern of events on the file system:\n1.  **Download starts with a `FILE CREATE` event to `.tmp` file; older Chrome versions\n    have been observed creating four character file names (like `7DEE.tmp`)\n    while newer versions use file names consistent with Version 4 UUIDs\n    (like `183011a0-f96c-4c98-b71b-ab8754fb0e0e.tmp`).\n1.  That `.tmp` file might be `RENAME`d to `Unconfirmed [6 digits].crdownload`. 1.  If [2] `Unconfirmed...crdownload` `RENAME` didn't happen, the `.tmp` file is\n    renamed to the eventual filename (with extension) with `.crdownload`\nappended\n    at the end (like `cat.jpg.crdownload`). **In either case ([2] or [3]),\nat\n    this point we have a file ending in .crdownload.**\n1.  Once the download completes, the `.crdownload` suffix is removed via a\n    `USN_REASON_RENAME_OLD_NAME` event, leaving the downloaded file with its\nfinal name.\nSince [4] above captures the key information about the file download, we can search change journal records for it.",
+              "data_sources": [
+                "ForensicArtifact"
+              ],
+              "refs": [
+                "[Change Journals](https://learn.microsoft.com/en-gb/windows/win32/fileio/change-journals)"
+              ]
+            },
+            {
+              "name": "Detect browser downloads via file system event logs",
+              "description": "File downloads by some web browsers create a specific pattern of events on the file system. We can use this to see browser downloads using file system logs (like Santa).\nChrome downloads on macOS create a specific pattern of file system events:\n1.  **Download starts with a `WRITE` event to a temp file named like\n    `.com.google.Chrome.avXx0U`** (the suffix looks to be 6\nletters/numbers). 1.  That .com.google.Chrome... temp file might be `RENAME`d to `Unconfirmed [6\n    digits].crdownload`.\n1.  If [2] `Unconfirmed...crdownload` `RENAME` didn't happen, the .com.google.\n    temp file is renamed to the eventual filename (with extension) with\n    `.crdownload` appended at the end (like `cat.jpg.crdownload`). **In\neither\n    case ([2] or [3]), at this point we have a file ending in .crdownload.**\n1.  Once the download completes, the `.crdownload` suffix is removed via a\n    `RENAME` event, leaving the downloaded file with its final name.\n\nSince [4] above captures the key information about the file download, we can search file system logs for it.",
+              "data_sources": [
+                "ForensicArtifact"
+              ],
+              "refs": []
+            },
+            {
+              "name": "Collect download records from local browser artifacts (Plaso)",
+              "description": "Parse download records from web browsers' own databases.\nMost web browsers track file downloads (at least in non-Incognito/private sessions) in local artifacts on the system. We can collect and review these records. This approach is useful when you have remote access to a system (via GRR for example) or a disk image.",
+              "data_sources": [
+                "ForensicArtifact"
+              ],
+              "refs": [
+                "[Chrome](https://forensics.wiki/google_chrome/#downloadsstart_time), [Firefox](https://forensics.wiki/mozilla_firefox/#downloads), and [Safari](https://forensics.wiki/apple_safari/#downloads) downloads on ForensicsWiki",
+                "[Web Browsers on ForensicArtifacts](https://github.com/ForensicArtifacts/artifacts/blob/main/data/webbrowser.yaml)"
+              ]
+            },
+            {
+              "name": "Collect download records from local browser artifacts (Hindsight)",
+              "description": "Parse download records from web browsers' own databases.\nMost web browsers track file downloads (at least in non-Incognito/private sessions) in local artifacts on the system. We can collect and review these records. This approach is useful when you have remote access to a system (via GRR for example) or a disk image.",
+              "data_sources": [
+                "ForensicArtifact"
+              ],
+              "refs": [
+                "[Chrome](https://forensics.wiki/google_chrome/#downloadsstart_time), [Firefox](https://forensics.wiki/mozilla_firefox/#downloads), and [Safari](https://forensics.wiki/apple_safari/#downloads) downloads on ForensicsWiki",
+                "[Web Browsers on ForensicArtifacts](https://github.com/ForensicArtifacts/artifacts/blob/main/data/webbrowser.yaml)"
+              ]
+            }
+          ]
+        },
+        {
+          "dfiq_id": "Q1004",
+          "facet_dfiq_id": "F1008",
+          "facet_name": "Are there signs of staging data for future exfiltration?",
+          "text": "What screenshots were taken on a computer?",
+          "approaches": []
+        },
+        {
+          "dfiq_id": "Q1005",
+          "facet_dfiq_id": "F1008",
+          "facet_name": "Are there signs of staging data for future exfiltration?",
+          "text": "What files have ever been on a computer?",
+          "approaches": []
+        },
+        {
+          "dfiq_id": "Q1006",
+          "facet_dfiq_id": "F1008",
+          "facet_name": "Are there signs of staging data for future exfiltration?",
+          "text": "What files are present on a computer?",
+          "approaches": []
+        },
+        {
+          "dfiq_id": "Q1017",
+          "facet_dfiq_id": "F1008",
+          "facet_name": "Are there signs of staging data for future exfiltration?",
+          "text": "Were any files collected into a container?",
+          "approaches": []
+        },
+        {
+          "dfiq_id": "Q1034",
+          "facet_dfiq_id": "F1008",
+          "facet_name": "Are there signs of staging data for future exfiltration?",
+          "text": "Was content copied from a file?",
+          "approaches": []
+        },
+        {
+          "dfiq_id": "Q1035",
+          "facet_dfiq_id": "F1008",
+          "facet_name": "Are there signs of staging data for future exfiltration?",
+          "text": "Were any copies made of sensitive files?",
+          "approaches": []
+        },
+        {
+          "dfiq_id": "Q1077",
+          "facet_dfiq_id": "F1008",
+          "facet_name": "Are there signs of staging data for future exfiltration?",
+          "text": "Were there bulk downloads from Google Drive?",
+          "approaches": []
+        },
+        {
+          "dfiq_id": "Q1016",
+          "facet_dfiq_id": "F1009",
+          "facet_name": "Was any sensitive data sent externally via email?",
+          "text": "What files were sent externally via email attachments?",
+          "approaches": []
+        },
+        {
+          "dfiq_id": "Q1075",
+          "facet_dfiq_id": "F1009",
+          "facet_name": "Was any sensitive data sent externally via email?",
+          "text": "Is the recipient account controlled by the sender?",
+          "approaches": []
+        },
+        {
+          "dfiq_id": "Q1076",
+          "facet_dfiq_id": "F1009",
+          "facet_name": "Was any sensitive data sent externally via email?",
+          "text": "Were the files screenshots?",
+          "approaches": []
+        },
+        {
+          "dfiq_id": "Q1078",
+          "facet_dfiq_id": "F1009",
+          "facet_name": "Was any sensitive data sent externally via email?",
+          "text": "Were the files copies?",
+          "approaches": []
+        },
+        {
+          "dfiq_id": "Q1079",
+          "facet_dfiq_id": "F1009",
+          "facet_name": "Was any sensitive data sent externally via email?",
+          "text": "Is there a history of communication with the recipients?",
+          "approaches": []
+        },
+        {
+          "dfiq_id": "Q1080",
+          "facet_dfiq_id": "F1009",
+          "facet_name": "Was any sensitive data sent externally via email?",
+          "text": "How many external recipients does the email have?",
+          "approaches": []
+        },
+        {
+          "dfiq_id": "Q1003",
+          "facet_dfiq_id": "F1010",
+          "facet_name": "Was any sensitive data exfiltrated via a physical medium?",
+          "text": "What files were copied from a computer to a USB device?",
+          "approaches": []
+        },
+        {
+          "dfiq_id": "Q1010",
+          "facet_dfiq_id": "F1010",
+          "facet_name": "Was any sensitive data exfiltrated via a physical medium?",
+          "text": "What was printed from a computer?",
+          "approaches": []
+        },
+        {
+          "dfiq_id": "Q1007",
+          "facet_dfiq_id": "F1011",
+          "facet_name": "Was any sensitive data exfiltrated via a web service?",
+          "text": "What files were synced or backed-up to external services?",
+          "approaches": []
+        },
+        {
+          "dfiq_id": "Q1009",
+          "facet_dfiq_id": "F1011",
+          "facet_name": "Was any sensitive data exfiltrated via a web service?",
+          "text": "What interactions with external cloud storage sites did the actor have using their web browser?\n",
+          "approaches": []
+        },
+        {
+          "dfiq_id": "Q1011",
+          "facet_dfiq_id": "F1011",
+          "facet_name": "Was any sensitive data exfiltrated via a web service?",
+          "text": "What files were sent or received by a chat application?",
+          "approaches": []
+        },
+        {
+          "dfiq_id": "Q1025",
+          "facet_dfiq_id": "F1011",
+          "facet_name": "Was any sensitive data exfiltrated via a web service?",
+          "text": "What external accounts has the actor used in their web browser?",
+          "approaches": []
+        },
+        {
+          "dfiq_id": "Q1038",
+          "facet_dfiq_id": "F1011",
+          "facet_name": "Was any sensitive data exfiltrated via a web service?",
+          "text": "Were any files sent via CLI utilities?",
+          "approaches": []
+        },
+        {
+          "dfiq_id": "Q1084",
+          "facet_dfiq_id": "F1011",
+          "facet_name": "Was any sensitive data exfiltrated via a web service?",
+          "text": "What data was uploaded to a website via a web browser?",
+          "approaches": []
+        },
+        {
+          "dfiq_id": "Q1008",
+          "facet_dfiq_id": "F1012",
+          "facet_name": "System Information",
+          "text": "What programs are installed on a computer?",
+          "approaches": []
+        },
+        {
+          "dfiq_id": "Q1081",
+          "facet_dfiq_id": "F1012",
+          "facet_name": "System Information",
+          "text": "Does the user have a recently provisioned host?",
+          "approaches": []
+        },
+        {
+          "dfiq_id": "Q1082",
+          "facet_dfiq_id": "F1026",
+          "facet_name": "Were any files sent via other network media?",
+          "text": "Were any files sent via AirDrop?",
+          "approaches": []
+        },
+        {
+          "dfiq_id": "Q1083",
+          "facet_dfiq_id": "F1026",
+          "facet_name": "Were any files sent via other network media?",
+          "text": "Were any files sent via Bluetooth?",
+          "approaches": []
+        }
+      ]
+    },
+    {
+      "dfiq_id": "S1002",
+      "title": "Data Infiltration",
+      "description": "An employee is suspected of taking confidential information or trade secrets from a prior employer and introducing it to internal systems.",
+      "tags": [
+        "Insider"
+      ],
+      "questions": [
+        {
+          "dfiq_id": "Q1005",
+          "facet_dfiq_id": "F1001",
+          "facet_name": "Are any ExternalCompany-related files on the actor's assigned Company assets?\n",
+          "text": "What files have ever been on a computer?",
+          "approaches": []
+        },
+        {
+          "dfiq_id": "Q1006",
+          "facet_dfiq_id": "F1001",
+          "facet_name": "Are any ExternalCompany-related files on the actor's assigned Company assets?\n",
+          "text": "What files are present on a computer?",
+          "approaches": []
+        },
+        {
+          "dfiq_id": "Q1014",
+          "facet_dfiq_id": "F1001",
+          "facet_name": "Are any ExternalCompany-related files on the actor's assigned Company assets?\n",
+          "text": "What files did the actor open on their computer?",
+          "approaches": []
+        },
+        {
+          "dfiq_id": "Q1027",
+          "facet_dfiq_id": "F1001",
+          "facet_name": "Are any ExternalCompany-related files on the actor's assigned Company assets?\n",
+          "text": "Are there any sudden changes in the number of files on a device?",
+          "approaches": []
+        },
+        {
+          "dfiq_id": "Q1001",
+          "facet_dfiq_id": "F1002",
+          "facet_name": "Has the actor introduced any ExternalCompany files to Company assets via downloading?\n",
+          "text": "What files were downloaded using a web browser?",
+          "approaches": [
+            {
+              "name": "Detect browser downloads via change journal records",
+              "description": "File downloads by some web browsers create a specific pattern of events on the file system. We can use this to see browser downloads using NTFS change journal (USN journal) records.\nChrome downloads on Windows create a specific pattern of events on the file system:\n1.  **Download starts with a `FILE CREATE` event to `.tmp` file; older Chrome versions\n    have been observed creating four character file names (like `7DEE.tmp`)\n    while newer versions use file names consistent with Version 4 UUIDs\n    (like `183011a0-f96c-4c98-b71b-ab8754fb0e0e.tmp`).\n1.  That `.tmp` file might be `RENAME`d to `Unconfirmed [6 digits].crdownload`. 1.  If [2] `Unconfirmed...crdownload` `RENAME` didn't happen, the `.tmp` file is\n    renamed to the eventual filename (with extension) with `.crdownload`\nappended\n    at the end (like `cat.jpg.crdownload`). **In either case ([2] or [3]),\nat\n    this point we have a file ending in .crdownload.**\n1.  Once the download completes, the `.crdownload` suffix is removed via a\n    `USN_REASON_RENAME_OLD_NAME` event, leaving the downloaded file with its\nfinal name.\nSince [4] above captures the key information about the file download, we can search change journal records for it.",
+              "data_sources": [
+                "ForensicArtifact"
+              ],
+              "refs": [
+                "[Change Journals](https://learn.microsoft.com/en-gb/windows/win32/fileio/change-journals)"
+              ]
+            },
+            {
+              "name": "Detect browser downloads via file system event logs",
+              "description": "File downloads by some web browsers create a specific pattern of events on the file system. We can use this to see browser downloads using file system logs (like Santa).\nChrome downloads on macOS create a specific pattern of file system events:\n1.  **Download starts with a `WRITE` event to a temp file named like\n    `.com.google.Chrome.avXx0U`** (the suffix looks to be 6\nletters/numbers). 1.  That .com.google.Chrome... temp file might be `RENAME`d to `Unconfirmed [6\n    digits].crdownload`.\n1.  If [2] `Unconfirmed...crdownload` `RENAME` didn't happen, the .com.google.\n    temp file is renamed to the eventual filename (with extension) with\n    `.crdownload` appended at the end (like `cat.jpg.crdownload`). **In\neither\n    case ([2] or [3]), at this point we have a file ending in .crdownload.**\n1.  Once the download completes, the `.crdownload` suffix is removed via a\n    `RENAME` event, leaving the downloaded file with its final name.\n\nSince [4] above captures the key information about the file download, we can search file system logs for it.",
+              "data_sources": [
+                "ForensicArtifact"
+              ],
+              "refs": []
+            },
+            {
+              "name": "Collect download records from local browser artifacts (Plaso)",
+              "description": "Parse download records from web browsers' own databases.\nMost web browsers track file downloads (at least in non-Incognito/private sessions) in local artifacts on the system. We can collect and review these records. This approach is useful when you have remote access to a system (via GRR for example) or a disk image.",
+              "data_sources": [
+                "ForensicArtifact"
+              ],
+              "refs": [
+                "[Chrome](https://forensics.wiki/google_chrome/#downloadsstart_time), [Firefox](https://forensics.wiki/mozilla_firefox/#downloads), and [Safari](https://forensics.wiki/apple_safari/#downloads) downloads on ForensicsWiki",
+                "[Web Browsers on ForensicArtifacts](https://github.com/ForensicArtifacts/artifacts/blob/main/data/webbrowser.yaml)"
+              ]
+            },
+            {
+              "name": "Collect download records from local browser artifacts (Hindsight)",
+              "description": "Parse download records from web browsers' own databases.\nMost web browsers track file downloads (at least in non-Incognito/private sessions) in local artifacts on the system. We can collect and review these records. This approach is useful when you have remote access to a system (via GRR for example) or a disk image.",
+              "data_sources": [
+                "ForensicArtifact"
+              ],
+              "refs": [
+                "[Chrome](https://forensics.wiki/google_chrome/#downloadsstart_time), [Firefox](https://forensics.wiki/mozilla_firefox/#downloads), and [Safari](https://forensics.wiki/apple_safari/#downloads) downloads on ForensicsWiki",
+                "[Web Browsers on ForensicArtifacts](https://github.com/ForensicArtifacts/artifacts/blob/main/data/webbrowser.yaml)"
+              ]
+            }
+          ]
+        },
+        {
+          "dfiq_id": "Q1008",
+          "facet_dfiq_id": "F1002",
+          "facet_name": "Has the actor introduced any ExternalCompany files to Company assets via downloading?\n",
+          "text": "What programs are installed on a computer?",
+          "approaches": []
+        },
+        {
+          "dfiq_id": "Q1009",
+          "facet_dfiq_id": "F1002",
+          "facet_name": "Has the actor introduced any ExternalCompany files to Company assets via downloading?\n",
+          "text": "What interactions with external cloud storage sites did the actor have using their web browser?\n",
+          "approaches": []
+        },
+        {
+          "dfiq_id": "Q1015",
+          "facet_dfiq_id": "F1002",
+          "facet_name": "Has the actor introduced any ExternalCompany files to Company assets via downloading?\n",
+          "text": "What syncing activities did external \"cloud storage\" applications do on a computer?\n",
+          "approaches": []
+        },
+        {
+          "dfiq_id": "Q1025",
+          "facet_dfiq_id": "F1002",
+          "facet_name": "Has the actor introduced any ExternalCompany files to Company assets via downloading?\n",
+          "text": "What external accounts has the actor used in their web browser?",
+          "approaches": []
+        },
+        {
+          "dfiq_id": "Q1026",
+          "facet_dfiq_id": "F1002",
+          "facet_name": "Has the actor introduced any ExternalCompany files to Company assets via downloading?\n",
+          "text": "What files were downloaded from messaging apps?",
+          "approaches": []
+        },
+        {
+          "dfiq_id": "Q1031",
+          "facet_dfiq_id": "F1002",
+          "facet_name": "Has the actor introduced any ExternalCompany files to Company assets via downloading?\n",
+          "text": "How much network traffic was there to/from a machine?",
+          "approaches": []
+        },
+        {
+          "dfiq_id": "Q1002",
+          "facet_dfiq_id": "F1003",
+          "facet_name": "Has the actor introduced any ExternalCompany files to Company assets via removable storage devices?\n",
+          "text": "What USB devices were attached to a computer?",
+          "approaches": []
+        },
+        {
+          "dfiq_id": "Q1012",
+          "facet_dfiq_id": "F1003",
+          "facet_name": "Has the actor introduced any ExternalCompany files to Company assets via removable storage devices?\n",
+          "text": "What files were copied from a USB device to a computer?",
+          "approaches": []
+        },
+        {
+          "dfiq_id": "Q1013",
+          "facet_dfiq_id": "F1003",
+          "facet_name": "Has the actor introduced any ExternalCompany files to Company assets via removable storage devices?\n",
+          "text": "What files are present on a USB device?",
+          "approaches": []
+        },
+        {
+          "dfiq_id": "Q1020",
+          "facet_dfiq_id": "F1029",
+          "facet_name": "Are there any indications of communication with ExternalCompany?",
+          "text": "What pages did web browsers visit?",
+          "approaches": [
+            {
+              "name": "Collect URL visit records from local browser artifacts (Plaso)",
+              "description": "Parse URL visit records from web browsers' own databases.\nMost web browsers track URL visits (at least in non-Incognito/private sessions) in local artifacts on the system. We can collect and review these records. This approach is useful when you have remote access to a system (via GRR for example) or a disk image.",
+              "data_sources": [
+                "ForensicArtifact"
+              ],
+              "refs": [
+                "[Chrome](https://forensics.wiki/google_chrome/#history), [Firefox](https://forensics.wiki/mozilla_firefox/#history), and [Safari](https://forensics.wiki/apple_safari/#history) History on ForensicsWiki",
+                "[Web Browsers on ForensicArtifacts](https://github.com/ForensicArtifacts/artifacts/blob/main/data/webbrowser.yaml)"
+              ]
+            },
+            {
+              "name": "Collect URL visit records from local browser artifacts (Hindsight)",
+              "description": "Parse URL visit records from web browsers' own databases.\nMost web browsers track URL visits (at least in non-Incognito/private sessions) in local artifacts on the system. We can collect and review these records. This approach is useful when you have remote access to a system (via GRR for example) or a disk image.",
+              "data_sources": [
+                "ForensicArtifact"
+              ],
+              "refs": [
+                "[Chrome](https://forensics.wiki/google_chrome/#history), [Firefox](https://forensics.wiki/mozilla_firefox/#history), and [Safari](https://forensics.wiki/apple_safari/#history) History on ForensicsWiki",
+                "[Web Browsers on ForensicArtifacts](https://github.com/ForensicArtifacts/artifacts/blob/main/data/webbrowser.yaml)"
+              ]
+            }
+          ]
+        },
+        {
+          "dfiq_id": "Q1084",
+          "facet_dfiq_id": "F1029",
+          "facet_name": "Are there any indications of communication with ExternalCompany?",
+          "text": "What data was uploaded to a website via a web browser?",
+          "approaches": []
+        },
+        {
+          "dfiq_id": "Q1085",
+          "facet_dfiq_id": "F1029",
+          "facet_name": "Are there any indications of communication with ExternalCompany?",
+          "text": "What DNS requests have been made from a system?",
+          "approaches": []
+        },
+        {
+          "dfiq_id": "Q1086",
+          "facet_dfiq_id": "F1029",
+          "facet_name": "Are there any indications of communication with ExternalCompany?",
+          "text": "What web-based email messages were viewed in a web browser?",
+          "approaches": []
+        },
+        {
+          "dfiq_id": "Q1087",
+          "facet_dfiq_id": "F1030",
+          "facet_name": "Has the actor connected to any ExternalCompany systems?\n",
+          "text": "Did the user access any common PaaS/SaaS services?",
+          "approaches": []
+        },
+        {
+          "dfiq_id": "Q1088",
+          "facet_dfiq_id": "F1030",
+          "facet_name": "Has the actor connected to any ExternalCompany systems?\n",
+          "text": "Did the user connect to any non-Company systems using the command line?\n",
+          "approaches": []
+        },
+        {
+          "dfiq_id": "Q1089",
+          "facet_dfiq_id": "F1030",
+          "facet_name": "Has the actor connected to any ExternalCompany systems?\n",
+          "text": "Did the user download any Citrix configuration (.ica) files?",
+          "approaches": []
+        },
+        {
+          "dfiq_id": "Q1090",
+          "facet_dfiq_id": "F1030",
+          "facet_name": "Has the actor connected to any ExternalCompany systems?\n",
+          "text": "Did the user interact with any git repositories?",
+          "approaches": []
+        }
+      ]
+    },
+    {
+      "dfiq_id": "S1003",
+      "title": "Suspicious DNS Query",
+      "description": "A DNS query to an unexpected domain can be an indicator of abnormal activity on a host. If a domain has been marked as malicious, an investigator may be tasked with determining what caused the DNS query (or response) and if it indicates the host has been compromised.",
+      "tags": [
+        "Network",
+        "Malware",
+        "Triage"
+      ],
+      "questions": [
+        {
+          "dfiq_id": "Q1018",
+          "facet_dfiq_id": "F1004",
+          "facet_name": "What application was responsible for the DNS query?",
+          "text": "What process made the DNS query?",
+          "approaches": [
+            {
+              "name": "Use Crowdstrike event search to link source processes to DNS queries",
+              "description": "CrowdStrike records the source process ID (ContextProcessId) for DNSRequest event.\nCrowdstrike is a detection platform, not a logging platform, so not all DNS requests are logged. Content Filter needs to be enabled to capture DNS request queries.",
+              "data_sources": [
+                "CrowdStrike"
+              ],
+              "refs": [
+                "https://www.crowdstrike.com/blog/hunt-threat-activity-falcon-host-endpoint-protection/bulk-domain-search-results/"
+              ]
+            },
+            {
+              "name": "Use Crowdstrike \"Bulk Domains\" to link source processes to DNS queries",
+              "description": "CrowdStrike records the source process ID (ContextProcessId) for DNSRequest event.\nCrowdstrike is a detection platform, not a logging platform, so not all DNS requests are logged. Content Filter needs to be enabled to capture DNS request queries.",
+              "data_sources": [
+                "CrowdStrike"
+              ],
+              "refs": [
+                "https://www.crowdstrike.com/blog/hunt-threat-activity-falcon-host-endpoint-protection/bulk-domain-search-results/"
+              ]
+            },
+            {
+              "name": "Use Sysmon (Event ID 22) to link source processes to DNS queries (Splunk)",
+              "description": "Sysmon Event ID 22 DnsQuery stores source process ID\nDNS Query, event ID 22, records a DNS query being issued by a specific host and the originating process.",
+              "data_sources": [
+                "ForensicArtifact"
+              ],
+              "refs": [
+                "https://www.ultimatewindowssecurity.com/securitylog/encyclopedia/event.aspx?eventid=90022"
+              ]
+            },
+            {
+              "name": "Use Sysmon (Event ID 22) to link source processes to DNS queries (Plaso)",
+              "description": "Sysmon Event ID 22 DnsQuery stores source process ID\nDNS Query, event ID 22, records a DNS query being issued by a specific host and the originating process.",
+              "data_sources": [
+                "ForensicArtifact"
+              ],
+              "refs": [
+                "https://www.ultimatewindowssecurity.com/securitylog/encyclopedia/event.aspx?eventid=90022"
+              ]
+            }
+          ]
+        },
+        {
+          "dfiq_id": "Q1073",
+          "facet_dfiq_id": "F1004",
+          "facet_name": "What application was responsible for the DNS query?",
+          "text": "Have there been any modifications to the \"hosts\" file?",
+          "approaches": []
+        },
+        {
+          "dfiq_id": "Q1019",
+          "facet_dfiq_id": "F1005",
+          "facet_name": "Was a user's web browsing the cause of a given DNS query?",
+          "text": "What web browsers were running at a given time?",
+          "approaches": [
+            {
+              "name": "Collect process executions in Crowdstrike event search",
+              "description": "CrowdStrike records process executions in ProcessRollup event.\nCrowdStrike is a detection platform, not a logging platform, so not all ProcessRollup events might be logged.",
+              "data_sources": [
+                "CrowdStrike"
+              ],
+              "refs": [
+                "https://www.crowdstrike.com/blog/understanding-indicators-attack-ioas-power-event-stream-processing-crowdstrike-falcon/"
+              ]
+            }
+          ]
+        },
+        {
+          "dfiq_id": "Q1020",
+          "facet_dfiq_id": "F1005",
+          "facet_name": "Was a user's web browsing the cause of a given DNS query?",
+          "text": "What pages did web browsers visit?",
+          "approaches": [
+            {
+              "name": "Collect URL visit records from local browser artifacts (Plaso)",
+              "description": "Parse URL visit records from web browsers' own databases.\nMost web browsers track URL visits (at least in non-Incognito/private sessions) in local artifacts on the system. We can collect and review these records. This approach is useful when you have remote access to a system (via GRR for example) or a disk image.",
+              "data_sources": [
+                "ForensicArtifact"
+              ],
+              "refs": [
+                "[Chrome](https://forensics.wiki/google_chrome/#history), [Firefox](https://forensics.wiki/mozilla_firefox/#history), and [Safari](https://forensics.wiki/apple_safari/#history) History on ForensicsWiki",
+                "[Web Browsers on ForensicArtifacts](https://github.com/ForensicArtifacts/artifacts/blob/main/data/webbrowser.yaml)"
+              ]
+            },
+            {
+              "name": "Collect URL visit records from local browser artifacts (Hindsight)",
+              "description": "Parse URL visit records from web browsers' own databases.\nMost web browsers track URL visits (at least in non-Incognito/private sessions) in local artifacts on the system. We can collect and review these records. This approach is useful when you have remote access to a system (via GRR for example) or a disk image.",
+              "data_sources": [
+                "ForensicArtifact"
+              ],
+              "refs": [
+                "[Chrome](https://forensics.wiki/google_chrome/#history), [Firefox](https://forensics.wiki/mozilla_firefox/#history), and [Safari](https://forensics.wiki/apple_safari/#history) History on ForensicsWiki",
+                "[Web Browsers on ForensicArtifacts](https://github.com/ForensicArtifacts/artifacts/blob/main/data/webbrowser.yaml)"
+              ]
+            }
+          ]
+        },
+        {
+          "dfiq_id": "Q1024",
+          "facet_dfiq_id": "F1005",
+          "facet_name": "Was a user's web browsing the cause of a given DNS query?",
+          "text": "Was an Incognito/Private browser session used?",
+          "approaches": [
+            {
+              "name": "Search CrowdStrike logs for Incognito Chrome processes",
+              "description": "CrowdStrike records the source process ID (ContextProcessId) for ProcessRollup events.\nCrowdstrike is a detection platform, not a logging platform, so not all executions are logged. We cannot always connect a running browser process with observed DNS requests. When we do see DNS requests coming from a browser process, yet we don't see browsing history, there are several possible explanations, including browser extensions or private browsing.",
+              "data_sources": [
+                "CrowdStrike"
+              ],
+              "refs": [
+                "https://www.crowdstrike.com/blog/tech-center/hunt-threat-activity-falcon-endpoint-protection/"
+              ]
+            }
+          ]
+        },
+        {
+          "dfiq_id": "Q1072",
+          "facet_dfiq_id": "F1005",
+          "facet_name": "Was a user's web browsing the cause of a given DNS query?",
+          "text": "Did Chrome's DNS Prefetching cause a DNS query?",
+          "approaches": []
+        },
+        {
+          "dfiq_id": "Q1021",
+          "facet_dfiq_id": "F1006",
+          "facet_name": "Was a browser extension responsible for a DNS query?",
+          "text": "What Chrome extensions are installed?",
+          "approaches": []
+        },
+        {
+          "dfiq_id": "Q1022",
+          "facet_dfiq_id": "F1006",
+          "facet_name": "Was a browser extension responsible for a DNS query?",
+          "text": "What actions did a Chrome extension perform?",
+          "approaches": []
+        },
+        {
+          "dfiq_id": "Q1023",
+          "facet_dfiq_id": "F1006",
+          "facet_name": "Was a browser extension responsible for a DNS query?",
+          "text": "Is a given Chrome extension associated with a given domain?",
+          "approaches": []
+        }
+      ]
+    },
+    {
+      "dfiq_id": "S1005",
+      "title": "Cloud Project Compromise Assessment",
+      "description": "Evaluate a cloud project for malicious or unknown activities and determine if the cloud project is compromised. This is distinct from evaluating whether a particular instance in that cloud project is compromised.",
+      "tags": [
+        "Cloud"
+      ],
+      "questions": [
+        {
+          "dfiq_id": "Q1039",
+          "facet_dfiq_id": "F1013",
+          "facet_name": "Has an attacker gained access to the cloud project? (Initial Access)\n",
+          "text": "Are there any detections of exposed service account credentials?",
+          "approaches": []
+        },
+        {
+          "dfiq_id": "Q1040",
+          "facet_dfiq_id": "F1013",
+          "facet_name": "Has an attacker gained access to the cloud project? (Initial Access)\n",
+          "text": "Are there any interaction with the cloud project resources from an unknown external IP address (including Tor Exit nodes, C2 tagged addresses)?\n",
+          "approaches": []
+        },
+        {
+          "dfiq_id": "Q1041",
+          "facet_dfiq_id": "F1013",
+          "facet_name": "Has an attacker gained access to the cloud project? (Initial Access)\n",
+          "text": "Are there any unexpected successful API calls from an unknown external IP address (including Tor Exit nodes, C2 tagged addresses)?\n",
+          "approaches": []
+        },
+        {
+          "dfiq_id": "Q1042",
+          "facet_dfiq_id": "F1014",
+          "facet_name": "Are there any signs of an attacker trying to maintain access to the cloud project? (Persistence)\n",
+          "text": "Are there any APIs recently enabled?",
+          "approaches": []
+        },
+        {
+          "dfiq_id": "Q1043",
+          "facet_dfiq_id": "F1014",
+          "facet_name": "Are there any signs of an attacker trying to maintain access to the cloud project? (Persistence)\n",
+          "text": "Are there any role bindings to cluster admin for anonymous users?",
+          "approaches": []
+        },
+        {
+          "dfiq_id": "Q1044",
+          "facet_dfiq_id": "F1014",
+          "facet_name": "Are there any signs of an attacker trying to maintain access to the cloud project? (Persistence)\n",
+          "text": "Are there any unexpected resources created under the cloud project?\n",
+          "approaches": []
+        },
+        {
+          "dfiq_id": "Q1045",
+          "facet_dfiq_id": "F1014",
+          "facet_name": "Are there any signs of an attacker trying to maintain access to the cloud project? (Persistence)\n",
+          "text": "Are there any unknown accounts created?",
+          "approaches": []
+        },
+        {
+          "dfiq_id": "Q1046",
+          "facet_dfiq_id": "F1014",
+          "facet_name": "Are there any signs of an attacker trying to maintain access to the cloud project? (Persistence)\n",
+          "text": "Are there any unknown role bindings created?",
+          "approaches": []
+        },
+        {
+          "dfiq_id": "Q1047",
+          "facet_dfiq_id": "F1015",
+          "facet_name": "Are there any signs of interference with cloud project protective measures? (Defense Evasion)\n",
+          "text": "Are there any suspicious modifications to the cloud project firewall rules/policies?\n",
+          "approaches": []
+        },
+        {
+          "dfiq_id": "Q1048",
+          "facet_dfiq_id": "F1015",
+          "facet_name": "Are there any signs of interference with cloud project protective measures? (Defense Evasion)\n",
+          "text": "Are there any suspicious modifications to the cloud project logging configuration?\n",
+          "approaches": []
+        },
+        {
+          "dfiq_id": "Q1049",
+          "facet_dfiq_id": "F1016",
+          "facet_name": "Are there indications of an attacker moving between resources?",
+          "text": "Is there an unusual increase of traffic between resource in the cloud project?\n",
+          "approaches": []
+        },
+        {
+          "dfiq_id": "Q1050",
+          "facet_dfiq_id": "F1017",
+          "facet_name": "Are there any signs of data exfiltration from resources inside the cloud project? (Data Exfil)\n",
+          "text": "Are there any GCS buckets within the cloud project shared externally?\n",
+          "approaches": []
+        },
+        {
+          "dfiq_id": "Q1051",
+          "facet_dfiq_id": "F1017",
+          "facet_name": "Are there any signs of data exfiltration from resources inside the cloud project? (Data Exfil)\n",
+          "text": "Are there any signs of data within the cloud project being transferred externally?\n",
+          "approaches": []
+        },
+        {
+          "dfiq_id": "Q1039",
+          "facet_dfiq_id": "F1018",
+          "facet_name": "Are there any detections of potentially suspicious activity related to the cloud project from detection tools?\n",
+          "text": "Are there any detections of exposed service account credentials?",
+          "approaches": []
+        }
+      ]
+    },
+    {
+      "dfiq_id": "S1007",
+      "title": "Host Persistence Audit",
+      "description": "Once an attacker is on a system, a main goal becomes trying to maintain that access. Persistence mechanisms give the attacker the ability to run malware that will survive reboots and credential changes.",
+      "tags": [
+        "TA0003"
+      ],
+      "questions": [
+        {
+          "dfiq_id": "Q1021",
+          "facet_dfiq_id": "F1019",
+          "facet_name": "Was a browser extension used to maintain a foothold?",
+          "text": "What Chrome extensions are installed?",
+          "approaches": []
+        },
+        {
+          "dfiq_id": "Q1052",
+          "facet_dfiq_id": "F1019",
+          "facet_name": "Was a browser extension used to maintain a foothold?",
+          "text": "What browser extensions (non-Chrome) are installed?",
+          "approaches": []
+        },
+        {
+          "dfiq_id": "Q1053",
+          "facet_dfiq_id": "F1020",
+          "facet_name": "Are there any interesting logon or boot initialization scripts?",
+          "text": "What Launch Agents are configured?",
+          "approaches": []
+        },
+        {
+          "dfiq_id": "Q1054",
+          "facet_dfiq_id": "F1020",
+          "facet_name": "Are there any interesting logon or boot initialization scripts?",
+          "text": "What Launch Daemons are configured?",
+          "approaches": []
+        },
+        {
+          "dfiq_id": "Q1055",
+          "facet_dfiq_id": "F1020",
+          "facet_name": "Are there any interesting logon or boot initialization scripts?",
+          "text": "What Windows logon scripts are configured?",
+          "approaches": []
+        },
+        {
+          "dfiq_id": "Q1056",
+          "facet_dfiq_id": "F1020",
+          "facet_name": "Are there any interesting logon or boot initialization scripts?",
+          "text": "What login hooks are configured?",
+          "approaches": []
+        },
+        {
+          "dfiq_id": "Q1057",
+          "facet_dfiq_id": "F1020",
+          "facet_name": "Are there any interesting logon or boot initialization scripts?",
+          "text": "What network logon scripts are configured?",
+          "approaches": []
+        },
+        {
+          "dfiq_id": "Q1058",
+          "facet_dfiq_id": "F1021",
+          "facet_name": "Are there any new accounts that have been created?",
+          "text": "What domain accounts have been created?",
+          "approaches": []
+        },
+        {
+          "dfiq_id": "Q1059",
+          "facet_dfiq_id": "F1021",
+          "facet_name": "Are there any new accounts that have been created?",
+          "text": "What local accounts have been created?",
+          "approaches": []
+        },
+        {
+          "dfiq_id": "Q1060",
+          "facet_dfiq_id": "F1022",
+          "facet_name": "Are there any scheduled/automated tasks that ran?",
+          "text": "What AT jobs are configured?",
+          "approaches": []
+        },
+        {
+          "dfiq_id": "Q1061",
+          "facet_dfiq_id": "F1022",
+          "facet_name": "Are there any scheduled/automated tasks that ran?",
+          "text": "What Scheduled Tasks are configured?",
+          "approaches": []
+        },
+        {
+          "dfiq_id": "Q1062",
+          "facet_dfiq_id": "F1022",
+          "facet_name": "Are there any scheduled/automated tasks that ran?",
+          "text": "What cron jobs are configured?",
+          "approaches": []
+        },
+        {
+          "dfiq_id": "Q1063",
+          "facet_dfiq_id": "F1022",
+          "facet_name": "Are there any scheduled/automated tasks that ran?",
+          "text": "What periodic scripts are configured?",
+          "approaches": []
+        },
+        {
+          "dfiq_id": "Q1064",
+          "facet_dfiq_id": "F1022",
+          "facet_name": "Are there any scheduled/automated tasks that ran?",
+          "text": "What systemd timers are configured?",
+          "approaches": []
+        },
+        {
+          "dfiq_id": "Q1065",
+          "facet_dfiq_id": "F1023",
+          "facet_name": "Are there any suspicious files running at system boot or login autoruns?\n",
+          "text": "What files are referenced in Registry \"Run\" keys?",
+          "approaches": []
+        },
+        {
+          "dfiq_id": "Q1066",
+          "facet_dfiq_id": "F1023",
+          "facet_name": "Are there any suspicious files running at system boot or login autoruns?\n",
+          "text": "What items are in startup folders?",
+          "approaches": []
+        },
+        {
+          "dfiq_id": "Q1067",
+          "facet_dfiq_id": "F1024",
+          "facet_name": "Has a system process been created or modified?",
+          "text": "What system services are installed?",
+          "approaches": []
+        },
+        {
+          "dfiq_id": "Q1068",
+          "facet_dfiq_id": "F1024",
+          "facet_name": "Has a system process been created or modified?",
+          "text": "When were system services last modified?",
+          "approaches": []
+        },
+        {
+          "dfiq_id": "Q1069",
+          "facet_dfiq_id": "F1025",
+          "facet_name": "Are there any indications of hijacking execution flows?",
+          "text": "Are there any indications of dylib hijacking?",
+          "approaches": []
+        },
+        {
+          "dfiq_id": "Q1070",
+          "facet_dfiq_id": "F1025",
+          "facet_name": "Are there any indications of hijacking execution flows?",
+          "text": "Are there any indications of dylib proxying?",
+          "approaches": []
+        },
+        {
+          "dfiq_id": "Q1071",
+          "facet_dfiq_id": "F1025",
+          "facet_name": "Are there any indications of hijacking execution flows?",
+          "text": "Are there any indications of dynamic linker hijacking?",
+          "approaches": []
+        }
+      ]
+    },
+    {
+      "dfiq_id": "S1008",
+      "title": "Lateral Movement",
+      "description": "Lateral movement is the process of an attacker moving from one system to another within a network after they have gained initial access to a system. This can be done through a variety of methods, such as exploiting vulnerabilities in software, using stolen credentials, installing their own remote access tools, or using native system utilities.",
+      "tags": [
+        "TA0008",
+        "Windows"
+      ],
+      "questions": [
+        {
+          "dfiq_id": "Q1058",
+          "facet_dfiq_id": "F1021",
+          "facet_name": "Are there any new accounts that have been created?",
+          "text": "What domain accounts have been created?",
+          "approaches": []
+        },
+        {
+          "dfiq_id": "Q1059",
+          "facet_dfiq_id": "F1021",
+          "facet_name": "Are there any new accounts that have been created?",
+          "text": "What local accounts have been created?",
+          "approaches": []
+        },
+        {
+          "dfiq_id": "Q1036",
+          "facet_dfiq_id": "F1027",
+          "facet_name": "Are the indications of an attacker moving FROM this host to another?\n",
+          "text": "Have there been any executions of PsExec?",
+          "approaches": [
+            {
+              "name": "Examine Windows Event Logs for PsExec executions",
+              "description": "Parse the Windows Security Event Log and look for PsExec processes being created.\nWindows systems can be set to log new process creation events to the Security event log. The logs contain the new process name, process ID, parent process name, process creation time, and many more useful fields.",
+              "data_sources": [
+                "ForensicArtifact"
+              ],
+              "refs": [
+                "[4688(S): A new process has been created](https://learn.microsoft.com/en-us/windows/security/threat-protection/auditing/event-4688)",
+                "[PsExec on MITRE ATT&CK](https://attack.mitre.org/software/S0029/)",
+                "[Detecting PsExec Usage by 13Cubed](https://www.youtube.com/watch?v=oVM1nQhDZQc)"
+              ]
+            },
+            {
+              "name": "Examine Windows Prefetch for evidence of PsExec usage",
+              "description": "Parse Windows Prefetch files and look for PsExec.\nWindows Prefetch files are designed to speed up application start times. To do this, they store information about recently launched applications, including the file name of the executable and the number of times it has been run.",
+              "data_sources": [
+                "ForensicArtifact"
+              ],
+              "refs": [
+                "[Prefetch on the ForensicsWiki](https://forensics.wiki/prefetch/)",
+                "[PsExec on MITRE ATT&CK](https://attack.mitre.org/software/S0029/)",
+                "[Detecting PsExec Usage by 13Cubed](https://www.youtube.com/watch?v=oVM1nQhDZQc)"
+              ]
+            }
+          ]
+        },
+        {
+          "dfiq_id": "Q1037",
+          "facet_dfiq_id": "F1028",
+          "facet_name": "Are the indications of an attacker moving TO this host?",
+          "text": "Have there been any executions of PsExeSrv?",
+          "approaches": [
+            {
+              "name": "Examine Windows Event Logs for PsExeSvc Service Installations",
+              "description": "Parse the Windows Security Event Log and look for the PsExeSvc service being installed.\nWindows systems can be set to log new service installations to the System event log. The logs contain the new service name, service file name, and more. When used to access a remote system, PsExec installs a service (by default named `PSEXESVC`) on the target system.",
+              "data_sources": [
+                "ForensicArtifact"
+              ],
+              "refs": [
+                "[4688(S): A new process has been created](https://learn.microsoft.com/en-us/windows/security/threat-protection/auditing/event-4688)",
+                "[PsExec on MITRE ATT&CK](https://attack.mitre.org/software/S0029/)",
+                "[Detecting PsExec Usage by 13Cubed](https://www.youtube.com/watch?v=oVM1nQhDZQc)"
+              ]
+            },
+            {
+              "name": "Examine Windows Prefetch for evidence of PsExeSvc",
+              "description": "Parse Windows Prefetch files and look for PsExeSvc.\nWindows Prefetch files are designed to speed up application start times. To do this, they store information about recently launched applications, including the file name of the executable and the number of times it has been run.",
+              "data_sources": [
+                "ForensicArtifact"
+              ],
+              "refs": [
+                "[Prefetch on the ForensicsWiki](https://forensics.wiki/prefetch/)",
+                "[PsExec on MITRE ATT&CK](https://attack.mitre.org/software/S0029/)",
+                "[Detecting PsExec Usage by 13Cubed](https://www.youtube.com/watch?v=oVM1nQhDZQc)"
+              ]
+            },
+            {
+              "name": "Examine Windows Event Logs for PsExeSvc executions",
+              "description": "Parse the Windows Security Event Log and look for PsExeSvc processes being created.\nWindows systems can be set to log new process creation events to the Security event log. The logs contain the new process name, process ID, parent process name, process creation time, and many more useful fields.",
+              "data_sources": [
+                "ForensicArtifact"
+              ],
+              "refs": [
+                "[4688(S): A new process has been created](https://learn.microsoft.com/en-us/windows/security/threat-protection/auditing/event-4688)",
+                "[PsExec on MITRE ATT&CK](https://attack.mitre.org/software/S0029/)",
+                "[Detecting PsExec Usage by 13Cubed](https://www.youtube.com/watch?v=oVM1nQhDZQc)"
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -5,6 +5,7 @@ const { pool } = require('../config/database');
 const { authenticate, requireRole, auditLog } = require('../middleware/auth');
 
 const logger = require('../config/logger').default;
+const { safeBasename } = require('../services/uploadService');
 const router = express.Router();
 
 const CONFIGS_DIR = path.resolve(__dirname, '../../../../sysmon-configs');
@@ -28,7 +29,7 @@ router.get('/configs', authenticate, async (req, res) => {
 
     const configs = index.map(c => {
       const db = dbMap[c.id] || {};
-      const filePath = path.join(CONFIGS_DIR, c.filename);
+      const filePath = path.join(CONFIGS_DIR, safeBasename(c.filename));
       const size = fs.existsSync(filePath) ? fs.statSync(filePath).size : 0;
       return {
         ...c,
@@ -53,7 +54,7 @@ router.get('/configs/:id/download', authenticate, async (req, res) => {
     const config = index.find(c => c.id === req.params.id);
     if (!config) return res.status(404).json({ error: 'Configuration non trouvée' });
 
-    const filePath = path.join(CONFIGS_DIR, config.filename);
+    const filePath = path.join(CONFIGS_DIR, safeBasename(config.filename));
     if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'Fichier introuvable' });
 
     const resolved = path.resolve(filePath);
