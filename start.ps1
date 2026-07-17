@@ -186,19 +186,41 @@ Write-Step "[5/7] Applying database migrations..."
 # Resolve db/ directory path for Docker bind mount
 $dbPath = (Resolve-Path "db").Path
 
-# Run all migration SQL files inside a disposable postgres container
-# connected to the same Docker network as yggdrasil (the PostgreSQL service)
+# Run migration SQL files inside a disposable postgres container connected to the
+# same Docker network as yggdrasil (the PostgreSQL service).
 $network = docker inspect yggdrasil --format "{{range `$k,`$v := .NetworkSettings.Networks}}{{`$k}}{{end}}" 2>$null
 
-$migrations = @(
-    "migrate_v2.7.sql","migrate_v2.8.sql","migrate_v2.9.sql","migrate_v2.10.sql",
-    "migrate_v2.11.sql","migrate_v2.12.sql","migrate_v2.13.sql","migrate_v2.14.sql",
-    "migrate_v2.15.sql","migrate_v2.16.sql","migrate_v2.17.sql","migrate_v2.18.sql",
-    "migrate_v2.19.sql","migrate_v2.20.sql","migrate_v2.21.sql","migrate_v2.22.sql"
-)
+# Canonical migration order = db/migrations.manifest (single source of truth,
+# identical to db/migrate.sh). Each line is a repo-root-relative path such as
+# "db/migrate_v2.7.sql" or "db/migrations/001_...sql"; blanks and '#' are ignored.
+$manifestPath = Join-Path $dbPath "migrations.manifest"
+if (-not (Test-Path $manifestPath)) {
+    Write-Err "Missing migration manifest: db/migrations.manifest"
+    exit 1
+}
+$manifestEntries = Get-Content $manifestPath |
+    ForEach-Object { $_.Trim() } |
+    Where-Object { $_ -and ($_ -notmatch '^#') }
 
-$featureMigrations = Get-ChildItem "db\migrations\*.sql" -ErrorAction SilentlyContinue |
-    Sort-Object Name | Select-Object -ExpandProperty Name
+# Preflight: every db/*.sql and db/migrations/*.sql (except init.sql) MUST be
+# listed in the manifest, so a newly-added migration can never be silently
+# skipped (this is what prevents the orphaned-migration class of bug).
+$onDisk = @()
+$onDisk += Get-ChildItem (Join-Path $dbPath "*.sql") -ErrorAction SilentlyContinue |
+    Where-Object { $_.Name -ne "init.sql" } | ForEach-Object { "db/$($_.Name)" }
+$onDisk += Get-ChildItem (Join-Path $dbPath "migrations\*.sql") -ErrorAction SilentlyContinue |
+    ForEach-Object { "db/migrations/$($_.Name)" }
+$missing = $false
+foreach ($f in $onDisk) {
+    if ($manifestEntries -notcontains $f) {
+        Write-Err "Migration not listed in db/migrations.manifest: $f"
+        $missing = $true
+    }
+}
+if ($missing) {
+    Write-Err "Add the file(s) above to db/migrations.manifest (in the correct order) and re-run."
+    exit 1
+}
 
 # Bootstrap schema_migrations table
 docker run --rm `
@@ -208,10 +230,15 @@ docker run --rm `
     psql -h yggdrasil -U forensiclab forensiclab -c `
     "CREATE TABLE IF NOT EXISTS schema_migrations (filename TEXT PRIMARY KEY, applied_at TIMESTAMPTZ DEFAULT NOW());" 2>&1 | Out-Null
 
-foreach ($file in ($migrations + $featureMigrations)) {
-    $subdir = if ($featureMigrations -contains $file) { "migrations\" } else { "" }
-    $fullPath = Join-Path $dbPath ($subdir + $file)
-    if (-not (Test-Path $fullPath)) { continue }
+foreach ($rel in $manifestEntries) {
+    # repo-root-relative -> absolute path under $dbPath; track by basename (as migrate.sh does)
+    $relInDb = ($rel -replace '^db/', '') -replace '/', '\'
+    $fullPath = Join-Path $dbPath $relInDb
+    $name = Split-Path $fullPath -Leaf
+    if (-not (Test-Path $fullPath)) {
+        Write-Err "Migration file listed in manifest but missing on disk: $rel"
+        exit 1
+    }
 
     # Check if already applied
     $count = docker run --rm `
@@ -219,16 +246,15 @@ foreach ($file in ($migrations + $featureMigrations)) {
         -e "PGPASSWORD=$DB_PASSWORD_VAL" `
         postgres:16-alpine `
         psql -h yggdrasil -U forensiclab forensiclab -t -c `
-        "SELECT COUNT(*) FROM schema_migrations WHERE filename='$file';" 2>$null
+        "SELECT COUNT(*) FROM schema_migrations WHERE filename='$name';" 2>$null
     $count = $count.Trim()
 
     if ($count -gt 0) {
-        Write-Host "  skip:  $file" -ForegroundColor Yellow
+        Write-Host "  skip:  $name" -ForegroundColor Yellow
         continue
     }
 
-    Write-Host "  apply: $file"
-    $sqlContent = Get-Content $fullPath -Raw
+    Write-Host "  apply: $name"
 
     $result = docker run --rm `
         --network $network `
@@ -243,16 +269,16 @@ foreach ($file in ($migrations + $featureMigrations)) {
             -e "PGPASSWORD=$DB_PASSWORD_VAL" `
             postgres:16-alpine `
             psql -h yggdrasil -U forensiclab forensiclab -c `
-            "INSERT INTO schema_migrations(filename) VALUES('$file') ON CONFLICT DO NOTHING;" 2>&1 | Out-Null
-        Write-Ok $file
+            "INSERT INTO schema_migrations(filename) VALUES('$name') ON CONFLICT DO NOTHING;" 2>&1 | Out-Null
+        Write-Ok $name
     } else {
-        Write-Err "Migration failed: $file"
+        Write-Err "Migration failed: $name"
         Write-Host $result
         exit 1
     }
 }
 
-Write-Ok "All migrations applied"
+Write-Ok "All migrations applied (manifest-driven)"
 
 # ─── [6/7] VolWeb + MinIO ─────────────────────────────────────────────────────
 
