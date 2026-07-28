@@ -2609,7 +2609,18 @@ router.post('/:caseId/import-csv', authenticate, csvUpload.array('files', 20), a
             if (!ts) { skipped++; parser.resume(); return; }
             const description = String(mapped.description || '').slice(0, 2000);
             const source = String(mapped.source || '').slice(0, 500);
-            const forensic = extractForensicFields(rec, mapped.artifact_type, { tool: mapping.tool }, mapping.timestamp_columns[0] || null, description, source);
+            // Latent gap: this resolves against mapping.timestamp_columns, the same
+            // list the native path's config.timestampColumns mirrors — but that list
+            // and mapping.columns.timestamp (used elsewhere by applyMapping/pick) are
+            // populated independently. A future mapping YAML that adds a timestamp
+            // column to columns.timestamp but not timestamp_columns would reopen the
+            // native/CSV hash divergence this fix closes. No current mapping does that.
+            const tsResolved = extractTimestamp(rec, mapping.timestamp_columns);
+            const forensic = extractForensicFields(
+              rec, mapped.artifact_type, { tool: mapping.tool },
+              tsResolved ? tsResolved.column : (mapping.timestamp_columns[0] || null),
+              description, source,
+            );
             // Override forensic fields with explicit mapping values when present
             const rowToInsert = {
               timestamp: ts,
@@ -4067,3 +4078,5 @@ router.delete('/:caseId/verdicts/:eventRef', authenticate, async (req, res) => {
 });
 
 module.exports = router;
+module.exports.extractTimestamp = extractTimestamp;
+module.exports.extractForensicFields = extractForensicFields;
