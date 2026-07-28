@@ -59,3 +59,8 @@ db/migrate_v2.27.sql
 
 # --- collaborative report editor (Yjs) ---
 db/migrations/20260712000000_report_drafts.sql
+
+# --- audit log tamper evidence (seq + hash chain) ---
+# Additive to audit_log, which exists from init.sql. Existing rows keep
+# prev_hash = NULL and stay verifiable under the legacy per-row scheme.
+db/migrations/20260727000000_audit_chain.sql

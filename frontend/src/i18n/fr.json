@@ -259,7 +259,7 @@
     },
     "audit": {
       "title": "Journal d'audit",
-      "desc": "Traçabilité immuable des actions sur la plateforme (connexions, cas, preuves, règles…). Chaque entrée est scellée par un HMAC-SHA256.",
+      "desc": "Traçabilité des actions sur la plateforme (connexions, cas, preuves, règles…). Chaque entrée est scellée par un HMAC-SHA256 et chaînée à la précédente : une entrée supprimée rompt la chaîne et devient détectable.",
       "verify_failed": "Échec de la vérification",
       "verifying": "Vérification…",
       "verify_integrity": "Vérifier l'intégrité",
@@ -269,6 +269,9 @@
       "integrity_tampered": "ALTÉRÉES",
       "integrity_missing": "hmac manquant",
       "integrity_legacy": "legacy (non vérifiable)",
+      "chain_intact": "chaîne intacte",
+      "chain_broken": "CHAÎNE ROMPUE",
+      "chain_break_detail": "⚠ Rupture de chaîne à l'entrée #{{seq}} — une entrée a été supprimée ou altérée. Le journal n'est pas complet.",
       "tampered_detected": "⚠ Entrées altérées détectées",
       "none": "Aucune entrée d'audit.",
       "date": "Date",

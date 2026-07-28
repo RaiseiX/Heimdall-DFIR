@@ -3,6 +3,7 @@ const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const { pool } = require('../config/database');
 const { authenticate, requireRole, auditLog, computeAuditHmac, computeAuditHmacLegacy } = require('../middleware/auth');
+const { verifyAuditChain, GENESIS_HASH } = require('../services/auditChain');
 
 const logger = require('../config/logger').default;
 const router = express.Router();
@@ -201,9 +202,11 @@ router.delete('/:id', authenticate, requireRole('admin'), async (req, res) => {
 router.get('/audit/verify', authenticate, requireRole('admin'), async (req, res) => {
   try {
     const cap = Math.min(parseInt(req.query.limit) || 5000, 20000);
+    // Legacy rows only (pre-chain). Chained rows are checked as a chain below —
+    // recomputing them per-row would prove integrity but never completeness.
     const r = await pool.query(
       `SELECT id, user_id, action, entity_type, entity_id, details, created_at, hmac
-       FROM audit_log ORDER BY created_at DESC LIMIT $1`, [cap]
+       FROM audit_log WHERE prev_hash IS NULL ORDER BY created_at DESC LIMIT $1`, [cap]
     );
     let verified = 0, tampered = 0, legacy = 0, missing = 0;
     const tamperedIds = [];
@@ -222,9 +225,29 @@ router.get('/audit/verify', authenticate, requireRole('admin'), async (req, res)
         else legacy++;
       }
     }
+    // ── Chain verification: proves COMPLETENESS, which per-row HMACs cannot ──
+    // A deleted row leaves every surviving HMAC valid; only the broken prev_hash
+    // link of its successor exposes it.
+    const chainRows = (await pool.query(
+      `SELECT seq, user_id, action, entity_type, entity_id, details, created_at, prev_hash, hmac
+         FROM audit_log WHERE prev_hash IS NOT NULL ORDER BY seq DESC LIMIT $1`, [cap]
+    )).rows.reverse().map(row => ({
+      ...row, details: row.details ?? {}, ts: new Date(row.created_at).toISOString(),
+    }));
+
+    let chain = { ok: true, checked: 0 };
+    if (chainRows.length) {
+      // Seed with the hmac immediately preceding the window, so a capped scan
+      // does not report a false break on its own first row.
+      const seed = (await pool.query(
+        `SELECT hmac FROM audit_log WHERE prev_hash IS NOT NULL AND seq < $1
+         ORDER BY seq DESC LIMIT 1`, [chainRows[0].seq])).rows[0];
+      chain = verifyAuditChain(chainRows, seed ? seed.hmac : GENESIS_HASH);
+    }
+
     await auditLog(req.user.id, 'verify_audit_integrity', 'system', null,
-      { checked: r.rows.length, verified, tampered, legacy_unverifiable: legacy, missing }, req.ip);
-    res.json({ checked: r.rows.length, verified, tampered, legacy_unverifiable: legacy, missing, tampered_ids: tamperedIds });
+      { checked: r.rows.length, verified, tampered, legacy_unverifiable: legacy, missing, chain }, req.ip);
+    res.json({ checked: r.rows.length, verified, tampered, legacy_unverifiable: legacy, missing, tampered_ids: tamperedIds, chain });
   } catch (err) {
     logger.error('audit verify error:', err.message);
     res.status(500).json({ error: 'Erreur serveur' });

@@ -65,6 +65,21 @@ export default function AuditSection() {
             <IntegrityChip label={t('settings.audit.integrity_tampered')} value={integrity.tampered} color="var(--fl-danger)" />
             <IntegrityChip label={t('settings.audit.integrity_missing')} value={integrity.missing} color="var(--fl-warn)" />
             <IntegrityChip label={t('settings.audit.integrity_legacy')} value={integrity.legacy_unverifiable} color="var(--fl-subtle)" />
+            {/* Chain state answers a different question than the chips above: not
+                "was a row edited?" but "is the log complete?". A deletion leaves
+                every surviving HMAC valid, so only this can surface it. */}
+            {integrity.chain && (
+              <IntegrityChip
+                label={integrity.chain.ok ? t('settings.audit.chain_intact') : t('settings.audit.chain_broken')}
+                value={integrity.chain.checked ?? 0}
+                color={integrity.chain.ok ? 'var(--fl-ok)' : 'var(--fl-danger)'}
+              />
+            )}
+          </div>
+        )}
+        {integrity?.chain && !integrity.chain.ok && (
+          <div style={{ marginTop: 8, fontSize: 11, fontFamily: MONO, color: 'var(--fl-danger)' }}>
+            {t('settings.audit.chain_break_detail', { seq: integrity.chain.breakAtSeq })}
           </div>
         )}
         {integrity && integrity.tampered > 0 && (

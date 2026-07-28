@@ -49,15 +49,9 @@ function requireRole(...roles) {
   };
 }
 
-// Recursively sort object keys so the HMAC payload survives JSONB key reordering
-// (jsonb does not preserve insertion order; canonical form makes verification deterministic).
-function canonicalize(v) {
-  if (Array.isArray(v)) return v.map(canonicalize);
-  if (v && typeof v === 'object') {
-    return Object.keys(v).sort().reduce((acc, k) => { acc[k] = canonicalize(v[k]); return acc; }, {});
-  }
-  return v;
-}
+// Canonical form lives in services/auditChain so the chained and legacy schemes
+// can never drift apart on key ordering.
+const { appendAuditRow, canonicalize } = require('../services/auditChain');
 
 function computeAuditHmac({ user_id, action, entity_type, entity_id, details, ts }) {
   const payload = JSON.stringify(canonicalize({ user_id, action, entity_type, entity_id, details, ts }));
@@ -70,15 +64,18 @@ function computeAuditHmacLegacy({ user_id, action, entity_type, entity_id, detai
   return crypto.createHmac('sha256', JWT_SECRET).update(payload).digest('hex');
 }
 
-/** @param {string|null|undefined} [ipAddress] */
+/**
+ * Append an audit entry to the tamper-evident chain.
+ *
+ * Failures stay swallowed on purpose: a broken audit write must not take down the
+ * request that triggered it. The verify endpoint is what surfaces gaps — and a
+ * missing entry now shows up as a chain break rather than silently vanishing.
+ *
+ * @param {string|null|undefined} [ipAddress]
+ */
 async function auditLog(userId, action, entityType, entityId, details = {}, ipAddress = null) {
   try {
-    const ts = new Date().toISOString();
-    const hmac = computeAuditHmac({ user_id: userId, action, entity_type: entityType, entity_id: entityId, details, ts });
-    await pool.query(
-      'INSERT INTO audit_log (user_id, action, entity_type, entity_id, details, ip_address, created_at, hmac) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)',
-      [userId, action, entityType, entityId, JSON.stringify(details), ipAddress, ts, hmac]
-    );
+    await appendAuditRow(pool, { userId, action, entityType, entityId, details, ipAddress });
   } catch (err) {
     logger.error('Audit log error:', err);
   }

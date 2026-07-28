@@ -259,7 +259,7 @@
     },
     "audit": {
       "title": "Audit log",
-      "desc": "Immutable traceability of platform actions (logins, cases, evidence, rules…). Each entry is sealed with HMAC-SHA256.",
+      "desc": "Traceability of platform actions (logins, cases, evidence, rules…). Each entry is sealed with HMAC-SHA256 and chained to the previous one: a deleted entry breaks the chain and becomes detectable.",
       "verify_failed": "Verification failed",
       "verifying": "Verifying…",
       "verify_integrity": "Verify integrity",
@@ -269,6 +269,9 @@
       "integrity_tampered": "TAMPERED",
       "integrity_missing": "missing hmac",
       "integrity_legacy": "legacy (not verifiable)",
+      "chain_intact": "chain intact",
+      "chain_broken": "CHAIN BROKEN",
+      "chain_break_detail": "⚠ Chain break at entry #{{seq}} — an entry was deleted or altered. The log is not complete.",
       "tampered_detected": "⚠ Tampered entries detected",
       "none": "No audit entries.",
       "date": "Date",
