@@ -21,12 +21,15 @@ const { matchTags: matchKeywordTags } = require('../services/timelineKeywords');
 const { safeBasename } = require('../services/uploadService');
 const { detectMapping, loadMappings } = require('../services/timelineMappings');
 const { buildSlimRaw } = require('../services/timelineFieldExtract');
+const { buildHayabusaDescription } = require('../services/hayabusaDescription');
 const { pushTextFilter, pushSearchFilter } = require('../utils/textFilter');
 const { fetchContext, AnchorNotFound } = require('../services/timelineContext');
 const { diffTimelines } = require('../services/timelineDiff');
 const { stripNullBytes, normalizeTimestamp, extractTimestamp, extractDescription } = require('../services/timelineNormalizeCore');
 const { extractForensicFields } = require('../services/timelineForensicFields');
 const { importCsvFile } = require('../services/csv/importCsvFile');
+const { findCsvFilesRecursive } = require('../services/csv/findCsvFiles');
+const { scanCollectionCsvs } = require('../services/csv/scanCollectionCsvs');
 const { ZIMMERMAN_DIR, ARTIFACT_PATTERNS, ECS_COLUMNS } = require('../config/artifactPatterns');
 
 const router = express.Router();
@@ -315,18 +318,6 @@ async function readCsvFile(csvPath) {
     logger.warn(`[readCsvFile] ${path.basename(csvPath)}: ${err.message?.substring(0, 100)}`);
   }
   return records;
-}
-
-function findCsvFilesRecursive(dir) {
-  const results = [];
-  try {
-    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-      const full = path.join(dir, entry.name);
-      if (entry.isDirectory()) results.push(...findCsvFilesRecursive(full));
-      else if (entry.isFile() && entry.name.toLowerCase().endsWith('.csv')) results.push(full);
-    }
-  } catch (_e) {}
-  return results;
 }
 
 const CT_DB_BATCH = 5000;
@@ -1469,6 +1460,25 @@ router.post('/:caseId/parse', authenticate, async (req, res) => {
     }
   } catch (e) {
     logger.warn('[CatScale] detection/parse error:', e.message);
+  }
+
+  // CSVs are claimed by no ARTIFACT_PATTERNS entry, so without this step they
+  // are silently dropped on the floor. `results` now holds every native
+  // artifact type's outcome (including pcap/rdpcache/catscale's differently
+  // shaped entries) — planCsvIngestion (inside scanCollectionCsvs) already
+  // knows how to read all of those shapes, so it is passed unchanged.
+  // scanCollectionCsvs never rejects (it swallows its own errors, matching the
+  // CatScale block above: a bug here must not cost a collection parse that
+  // already succeeded for every raw artifact) — the try/catch is defense in
+  // depth only.
+  try {
+    const csvScan = await scanCollectionCsvs(pool, { collDir, caseId, evidenceId, resultId, nativeResults: results });
+    if (csvScan.files.length) {
+      results.__csv = csvScan;
+      totalRecords += csvScan.files.reduce((sum, d) => sum + (d.inserted || 0), 0);
+    }
+  } catch (e) {
+    logger.warn('[csv] collection scan error:', e.message);
   }
 
   emitProgress({ type: 'saving', message: 'Finalisation des métadonnées…' });
@@ -2676,7 +2686,8 @@ router.post('/:caseId/hayabusa', authenticate, async (req, res) => {
             const evIdRaw  = p.EventID || p.event_id || '';
             const evId     = /^\d+$/.test(String(evIdRaw).trim()) ? parseInt(evIdRaw, 10) : null;
             const ruleTitle = p.RuleTitle || p.rule_title || '';
-            const desc     = `[${lvl}] ${ruleTitle}`;
+            const afiEarly = p.AllFieldInfo || p.all_field_info;
+            const desc     = buildHayabusaDescription({ level: lvl, ruleTitle, allFieldInfo: afiEarly });
             const src      = p.Channel || p.channel || '';
             // RecordID (EVTX record number) is the true unique key per event.
             // Use Channel+RecordID when available so identical-looking events at the
