@@ -5,6 +5,10 @@ tool:           Generic
 artifact_type:  csv
 artifact_name:  Generic CSV
 
+# Catch-all: its filename pattern matches EVERY .csv, so it must be evaluated
+# after every tool-specific mapping or it makes them unreachable.
+fallback:       true
+
 filename_patterns:
   - ".+\\.csv$"
 

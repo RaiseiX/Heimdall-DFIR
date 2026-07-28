@@ -32,6 +32,7 @@ function loadMappings() {
           filename_patterns: (raw.filename_patterns || []).map(p => new RegExp(p, 'i')),
           folder_patterns: (raw.folder_patterns || []).map(p => new RegExp(p, 'i')),
           header_signatures: (raw.header_signatures || []).map(sig => (sig || []).map(String)),
+          fallback: raw.fallback === true,
           timestamp_columns: raw.timestamp_columns || [],
           description_columns: raw.description_columns || [],
           source_column: raw.source_column || null,
@@ -44,6 +45,13 @@ function loadMappings() {
   } catch (e) {
     if (e.code !== 'ENOENT') logger.warn(`[mappings] dir read error: ${e.message}`);
   }
+  // Detection walks this array in order and returns the first match, while
+  // readdirSync yields plain alphabetical order. Without this sort the generic
+  // fallback (which matches every .csv) shadows any tool-specific mapping whose
+  // filename sorts after it — mft_ezcmd.yaml did exactly that, silently landing
+  // MFTECmd output as artifact_type 'csv'.
+  out.sort((a, b) => Number(a.fallback) - Number(b.fallback));
+
   _cache = { loadedAt: Date.now(), mappings: out };
   logger.info(`[mappings] ${out.length} CSV mapping(s) loaded`);
   return out;
