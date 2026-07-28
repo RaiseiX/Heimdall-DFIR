@@ -18,14 +18,15 @@ const esService = require('../services/elasticsearchService');
 const { getRedis } = require('../config/redis');
 const logger = require('../config/logger').default;
 const { matchTags: matchKeywordTags } = require('../services/timelineKeywords');
-const threatEngine = require('../services/threatEngine');
 const { safeBasename } = require('../services/uploadService');
-const { detectMapping, applyMapping, loadMappings } = require('../services/timelineMappings');
+const { detectMapping, loadMappings } = require('../services/timelineMappings');
 const { buildSlimRaw } = require('../services/timelineFieldExtract');
 const { pushTextFilter, pushSearchFilter } = require('../utils/textFilter');
 const { fetchContext, AnchorNotFound } = require('../services/timelineContext');
 const { diffTimelines } = require('../services/timelineDiff');
 const { stripNullBytes, normalizeTimestamp, extractTimestamp, extractDescription } = require('../services/timelineNormalizeCore');
+const { extractForensicFields } = require('../services/timelineForensicFields');
+const { importCsvFile } = require('../services/csv/importCsvFile');
 const { ZIMMERMAN_DIR, ARTIFACT_PATTERNS, ECS_COLUMNS } = require('../config/artifactPatterns');
 
 const router = express.Router();
@@ -193,112 +194,6 @@ function extractEcsFields(record, artifactType) {
     host_name:    pick(cols.host),
     user_name:    pick(cols.user),
     process_name: pick(cols.process),
-  };
-}
-
-// v2.23 — unified forensic fields (inspired by forensic-timeliner).
-// Promotes raw JSONB values to first-class columns (tool / timestamp_kind /
-// event_id / ext / path / file_size / sha1 / src_ip / dst_ip / details) and
-// computes a stable dedupe_hash for the unique (case_id, dedupe_hash) index.
-function extractForensicFields(record, artifactType, config, tsColumn, description, source) {
-  const toolRaw = (config && config.tool) || artifactType;
-  const tool = String(toolRaw).replace(/\.[^.]+$/, '').slice(0, 32);
-
-  const eventIdRaw = record['EventId'] || record['EventID'] || record['event_id'] || null;
-  const eventId = eventIdRaw !== null && /^\d+$/.test(String(eventIdRaw).trim())
-    ? parseInt(eventIdRaw, 10) : null;
-
-  const nameForExt = record['FileName'] || record['ExecutableName']
-    || record['TargetFilename'] || record['Path'] || record['FullPath'] || source || '';
-  let extVal = (record['Extension'] || record['FileExtension'] || '').toString().toLowerCase().trim();
-  if (!extVal) {
-    const m = /\.([A-Za-z0-9]{1,10})$/.exec(nameForExt);
-    if (m) extVal = '.' + m[1].toLowerCase();
-  }
-  extVal = extVal ? extVal.slice(0, 16) : null;
-
-  const pathVal = record['FolderPath'] || record['FullPath'] || record['TargetPath']
-    || record['SourceFilename'] || record['Path'] || source || null;
-
-  const sizeRaw = record['FileSize'] || record['Size'] || record['FileSizeBytes'] || null;
-  const fileSize = sizeRaw !== null && /^\d+$/.test(String(sizeRaw).trim())
-    ? Math.min(parseInt(sizeRaw, 10), Number.MAX_SAFE_INTEGER) : null;
-
-  const sha1Raw = (record['SHA1'] || record['Sha1'] || record['SHA-1'] || '').toString().trim().toLowerCase();
-  const sha1 = /^[a-f0-9]{40}$/.test(sha1Raw) ? sha1Raw : null;
-
-  const ipRe = /(\d{1,3}\.){3}\d{1,3}/;
-  const srcIpCand = String(record['SourceIp'] || record['SrcIP'] || record['src_ip'] || '');
-  const dstIpCand = String(record['DestinationIp'] || record['DstIP'] || record['dst_ip'] || '');
-  const srcIp = (srcIpCand.match(ipRe) || [])[0] || null;
-  const dstIp = (dstIpCand.match(ipRe) || [])[0] || null;
-
-  let details = null;
-  if (artifactType === 'evtx') {
-    details = [record['PayloadData1'], record['PayloadData2']].filter(Boolean).join(' | ') || null;
-  } else if (artifactType === 'prefetch') {
-    const rc = record['RunCount'];
-    details = rc ? `run_count=${rc}` : null;
-  } else if (artifactType === 'mft') {
-    const ads = record['HasAds'] === 'True' ? 'ADS' : null;
-    details = [ads, record['ZoneIdContents']].filter(Boolean).join(' | ') || null;
-  }
-  if (details) details = details.slice(0, 500);
-
-  // EVTX: EventRecordId+Computer make the record globally unique without relying on description truncation.
-  // MFT: EntryNumber+SequenceNumber is the stable per-file identity in the MFT.
-  // Without these, high-frequency events (same EventId+Channel+second) collide and are silently dropped.
-  const extraUnique =
-    artifactType === 'evtx'
-      ? `|${record['EventRecordId'] || record['RecordNumber'] || ''}|${record['Computer'] || ''}`
-      : artifactType === 'mft'
-      ? `|${record['EntryNumber'] || ''}|${record['SequenceNumber'] || ''}`
-      : '';
-
-  const dedupeHash = crypto
-    .createHash('md5')
-    .update([
-      tsColumn || '', source || '', artifactType || '',
-      (description || '').slice(0, 200), eventId == null ? '' : String(eventId),
-    ].join('|') + extraUnique)
-    .digest('hex')
-    .slice(0, 16);
-
-  // v2.23 — keyword enrichment (matches backend/config/timeline_keywords.yaml)
-  let tags = [];
-  try { tags = matchKeywordTags(record, description); } catch (_e) {}
-
-  // v2.26 — Threat Engine: per-row detection evaluation.
-  // Builds a synthetic record shape the engine expects (artifact_type, event_id,
-  // description, source, path, process_name, ext). Runs bucketed matching.
-  let detections = null;
-  try {
-    const engineRecord = {
-      ...record,
-      artifact_type: artifactType,
-      event_id: eventId,
-      description,
-      source,
-      path: pathVal,
-      ext: extVal,
-    };
-    const hit = threatEngine.evaluate(engineRecord);
-    if (hit) {
-      detections = hit.detections;
-      if (hit.tags && hit.tags.length) {
-        const seen = new Set(tags);
-        for (const t of hit.tags) if (!seen.has(t)) { tags.push(t); seen.add(t); }
-      }
-    }
-  } catch (_e) {}
-
-  return {
-    tool, timestamp_kind: tsColumn || null,
-    event_id: eventId, ext: extVal, path: pathVal, file_size: fileSize,
-    sha1, src_ip: srcIp, dst_ip: dstIp, details,
-    tags,
-    detections,
-    dedupe_hash: dedupeHash,
   };
 }
 
@@ -2545,126 +2440,15 @@ router.post('/:caseId/import-csv', authenticate, csvUpload.array('files', 20), a
       }
       const mapping = detected.mapping;
 
-      // Stream-parse + bulk insert.
-      let inserted = 0, skipped = 0;
-      const BATCH = 2000;
-      let batch = [];
-
-      const flush = async () => {
-        if (batch.length === 0) return;
-        const rows = batch; batch = [];
-        const cases = [], results = [], evs = [], tss = [], types = [], names = [], descs = [], srcs = [], raws = [];
-        const hns = [], uns = [], pns = [], mtis = [], mtns = [], mts = [], sds = [];
-        const tools = [], tks = [], dts = [], pths = [], exs = [], eids = [], fss = [], sips = [], dips = [], s1s = [], dhs = [], tgs = [];
-        const seen = new Set();
-        for (const rec of rows) {
-          if (rec.dedupe_hash && seen.has(rec.dedupe_hash)) { skipped++; continue; }
-          if (rec.dedupe_hash) seen.add(rec.dedupe_hash);
-          cases.push(caseId); results.push(resultId); evs.push(null);
-          tss.push(rec.timestamp); types.push(rec.artifact_type); names.push(rec.artifact_name);
-          descs.push(rec.description); srcs.push(rec.source); raws.push(JSON.stringify(rec.raw));
-          hns.push(rec.host_name); uns.push(rec.user_name); pns.push(rec.process_name || null);
-          mtis.push(null); mtns.push(null); mts.push(null); sds.push(null);
-          tools.push(rec.tool); tks.push(rec.timestamp_kind); dts.push(rec.details);
-          pths.push(rec.path); exs.push(rec.ext);
-          eids.push(rec.event_id == null ? null : rec.event_id);
-          fss.push(rec.file_size == null ? null : rec.file_size);
-          sips.push(rec.src_ip); dips.push(rec.dst_ip); s1s.push(rec.sha1); dhs.push(rec.dedupe_hash);
-          tgs.push(JSON.stringify(Array.isArray(rec.tags) ? rec.tags : []));
-        }
-        if (cases.length === 0) return;
-        const r = await pool.query(
-          `INSERT INTO collection_timeline
-             (case_id, result_id, evidence_id, timestamp, artifact_type, artifact_name, description, source, raw,
-              host_name, user_name, process_name, mitre_technique_id, mitre_technique_name, mitre_tactic, source_device,
-              tool, timestamp_kind, details, "path", ext, event_id, file_size, src_ip, dst_ip, sha1, dedupe_hash, tags)
-           SELECT u.case_id, u.result_id, u.evidence_id, u.ts, u.art_type, u.art_name, u.descr, u.src, u.rw,
-                  u.hn, u.un, u.pn, u.mti, u.mtn, u.mt, u.sd,
-                  u.tl, u.tk, u.dt, u.pth, u.ex, u.eid, u.fs, u.sip, u.dip, u.s1, u.dh,
-                  COALESCE(ARRAY(SELECT jsonb_array_elements_text(u.tg_json)), '{}')::text[]
-             FROM UNNEST(
-               $1::uuid[], $2::uuid[], $3::uuid[], $4::timestamptz[], $5::text[], $6::text[], $7::text[], $8::text[], $9::jsonb[],
-               $10::text[], $11::text[], $12::text[], $13::text[], $14::text[], $15::text[], $16::text[],
-               $17::text[], $18::text[], $19::text[], $20::text[], $21::text[], $22::int[], $23::bigint[], $24::inet[], $25::inet[], $26::text[], $27::text[],
-               $28::jsonb[]
-             ) AS u(case_id, result_id, evidence_id, ts, art_type, art_name, descr, src, rw,
-                    hn, un, pn, mti, mtn, mt, sd,
-                    tl, tk, dt, pth, ex, eid, fs, sip, dip, s1, dh, tg_json)
-           ON CONFLICT DO NOTHING`,
-          [cases, results, evs, tss, types, names, descs, srcs, raws,
-           hns, uns, pns, mtis, mtns, mts, sds,
-           tools, tks, dts, pths, exs, eids, fss, sips, dips, s1s, dhs, tgs]
-        );
-        inserted += r.rowCount;
-        skipped  += (cases.length - r.rowCount);
-      };
-
-      await new Promise((resolve, reject) => {
-        const parser = parseStream({ columns: true, skip_empty_lines: true, relax_column_count: true, encoding: 'utf8' });
-        parser.on('data', async (rec) => {
-          parser.pause();
-          try {
-            const mapped = applyMapping(mapping, stripNullBytes(rec));
-            const ts = mapped.raw_timestamp ? normalizeTimestamp(String(mapped.raw_timestamp)) : null;
-            if (!ts) { skipped++; parser.resume(); return; }
-            const description = String(mapped.description || '').slice(0, 2000);
-            const source = String(mapped.source || '').slice(0, 500);
-            // Latent gap: this resolves against mapping.timestamp_columns, the same
-            // list the native path's config.timestampColumns mirrors — but that list
-            // and mapping.columns.timestamp (used elsewhere by applyMapping/pick) are
-            // populated independently. A future mapping YAML that adds a timestamp
-            // column to columns.timestamp but not timestamp_columns would reopen the
-            // native/CSV hash divergence this fix closes. No current mapping does that.
-            const tsResolved = extractTimestamp(rec, mapping.timestamp_columns);
-            const forensic = extractForensicFields(
-              rec, mapped.artifact_type, { tool: mapping.tool },
-              tsResolved ? tsResolved.column : (mapping.timestamp_columns[0] || null),
-              description, source,
-            );
-            // Override forensic fields with explicit mapping values when present
-            const rowToInsert = {
-              timestamp: ts,
-              artifact_type: mapped.artifact_type,
-              artifact_name: mapped.artifact_name,
-              description, source,
-              raw: Object.fromEntries(Object.entries(rec).slice(0, 20)),
-              host_name: mapped.host_name || null,
-              user_name: mapped.user_name || null,
-              process_name: mapped.process_name || null,
-              ...forensic,
-              tool: mapping.tool,
-              event_id: mapped.event_id != null && /^\d+$/.test(String(mapped.event_id).trim()) ? parseInt(mapped.event_id, 10) : forensic.event_id,
-              ext: mapped.ext ? String(mapped.ext).toLowerCase().slice(0, 16) : forensic.ext,
-              path: mapped.path || forensic.path,
-              file_size: mapped.file_size != null && /^\d+$/.test(String(mapped.file_size).trim()) ? parseInt(mapped.file_size, 10) : forensic.file_size,
-              src_ip: mapped.src_ip || forensic.src_ip,
-              dst_ip: mapped.dst_ip || forensic.dst_ip,
-              sha1:   /^[a-f0-9]{40}$/i.test(String(mapped.sha1 || '').trim()) ? String(mapped.sha1).toLowerCase() : forensic.sha1,
-              details: mapped.details != null ? String(mapped.details).slice(0, 500) : forensic.details,
-            };
-            batch.push(rowToInsert);
-            if (batch.length >= BATCH) { await flush(); }
-          } catch (e) { skipped++; }
-          finally { parser.resume(); }
-        });
-        parser.on('end',   async () => { try { await flush(); resolve(); } catch (e) { reject(e); } });
-        parser.on('error', reject);
-
-        const src = fs.createReadStream(f.path);
-        let bomChecked = false;
-        src.on('data', (chunk) => {
-          if (!bomChecked) {
-            bomChecked = true;
-            if (chunk[0] === 0xEF && chunk[1] === 0xBB && chunk[2] === 0xBF) chunk = chunk.slice(3);
-          }
-          if (!parser.write(chunk)) { src.pause(); parser.once('drain', () => src.resume()); }
-        });
-        src.on('end',   () => parser.end());
-        src.on('error', reject);
+      // Stream-parse + bulk insert (shared with the automatic collection scan).
+      const r = await importCsvFile(pool, {
+        caseId, resultId, evidenceId: null,
+        filePath: f.path, filename, mapping,
       });
+      const inserted = r.inserted, skipped = r.skipped;
 
       grandTotal += inserted;
-      perFile.push({ file: filename, status: 'ok', tool: mapping.tool, detected_via: detected.via, inserted, skipped });
+      perFile.push({ file: filename, status: r.status, tool: mapping.tool, detected_via: detected.via, inserted, skipped });
       try { fs.unlinkSync(f.path); } catch (_e) {}
     }
 
@@ -4079,4 +3863,3 @@ router.delete('/:caseId/verdicts/:eventRef', authenticate, async (req, res) => {
 
 module.exports = router;
 module.exports.extractTimestamp = extractTimestamp;
-module.exports.extractForensicFields = extractForensicFields;
