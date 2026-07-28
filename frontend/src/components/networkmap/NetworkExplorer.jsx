@@ -1,10 +1,11 @@
 // frontend/src/components/networkmap/NetworkExplorer.jsx
 import { useEffect, useRef, useCallback, useState } from 'react';
-import { Share2, CircleDot, GitBranch } from 'lucide-react';
+import { Share2, CircleDot, GitBranch, RotateCcw } from 'lucide-react';
 import cytoscape from 'cytoscape';
 import coseBilkent from 'cytoscape-cose-bilkent';
 import dagre from 'cytoscape-dagre';
 import { buildCytoscapeStyle, LAYOUT_COSE, LAYOUT_CONCENTRIC, LAYOUT_DAGRE } from './utils/cytoscapeConfig';
+import { isDegenerateLayout } from './utils/layoutHealth';
 import { ZONE_DEFS_NORMAL, ZONE_DEFS_CB } from './ZoneOverlay';
 import ZoneOverlay from './ZoneOverlay';
 import CorrelationBadgeLayer from './CorrelationBadgeLayer';
@@ -237,7 +238,15 @@ export default function NetworkExplorer({
     const saved = savedPositionsRef.current || {};
     const allSaved = graphNodes.length > 0 && graphNodes.every(n => saved[n.id()]);
 
-    if (allSaved) {
+    // Restore only what applies to THIS graph — the saved map may still carry
+    // nodes that the current filter excluded.
+    const restorable = allSaved
+      ? Object.fromEntries(graphNodes.map(n => [n.id(), saved[n.id()]]))
+      : null;
+
+    // A degenerate arrangement would otherwise be permanent: saved once, then
+    // restored verbatim on every load with no layout run to escape it.
+    if (restorable && !isDegenerateLayout(restorable)) {
       cy.batch(() => { graphNodes.forEach(n => n.position({ ...saved[n.id()] })); });
       cy.fit(undefined, 40);
     } else {
@@ -477,6 +486,24 @@ export default function NetworkExplorer({
             </button>
           );
         })}
+
+        {/* Escape hatch. Positions persist per case, so a graph the analyst dragged
+            into a mess — or that restored badly — has no way back without this. */}
+        <div style={{ width: 1, background: '#1a1f2c', margin: '2px 3px' }} />
+        <button onClick={() => runLayout(layoutMode)} title="Recalculer la disposition et écraser les positions enregistrées"
+          style={{
+            display: 'flex', alignItems: 'center', gap: 6,
+            padding: '5px 10px', borderRadius: 6, cursor: 'pointer',
+            fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11,
+            background: 'transparent', border: '1px solid transparent', color: '#8089a0',
+            transition: 'all 0.12s',
+          }}
+          onMouseEnter={e => { e.currentTarget.style.background = '#161b27'; e.currentTarget.style.color = '#c2c8d4'; }}
+          onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#8089a0'; }}
+        >
+          <RotateCcw size={13} />
+          Réorganiser
+        </button>
       </div>
 
       {/* Zone overlay — positioned absolutely over canvas */}

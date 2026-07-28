@@ -297,18 +297,3 @@ export const LAYOUT_CONCENTRIC = {
   nodeDimensionsIncludeLabels: true,
 };
 
-// Hierarchical tree: roots at top, children layered below (breadth-first).
-// roots is injected at run time (highest-degree node) by NetworkExplorer.
-export const LAYOUT_BREADTHFIRST = {
-  name: 'breadthfirst',
-  animate: true,
-  animationDuration: 450,
-  directed: false,
-  fit: true,
-  padding: 55,
-  spacingFactor: 1.35,
-  circle: false,
-  grid: false,
-  avoidOverlap: true,
-  nodeDimensionsIncludeLabels: true,
-};
