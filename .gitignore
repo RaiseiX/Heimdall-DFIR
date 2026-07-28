@@ -53,3 +53,35 @@ STACK.md
 RULES.md
 INVESTIGATION_COMMITS.txt
 mockup-nordic.html
+
+# Tests et outillage de test — développement local uniquement, jamais publiés.
+# Politique : seul le code de production est livré sur GitHub.
+# NOTE : sans tests dans le dépôt, .github/workflows/ci.yml n'a plus d'objet —
+# la vérification reste entièrement locale (`npx jest`, `npx vitest run`).
+backend/tests/
+*.test.js
+*.test.ts
+*.test.jsx
+*.test.tsx
+*.spec.js
+*.spec.ts
+*.spec.jsx
+*.spec.tsx
+backend/jest.config.ts
+frontend/vitest.config.js
+coverage/
+.nyc_output/
+
+# Fixtures et échantillons d'analyse — peuvent contenir des artefacts réels.
+fixtures/
+samples/
+*.evtx
+*.pcap
+*.sqlite
+*.db
+
+# Scratch et sorties de session
+.remember/
+scratch/
+tmp/
+*.local.json
