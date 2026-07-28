@@ -6,6 +6,8 @@ const fs = require('fs');
 const path = require('path');
 const yaml = require('js-yaml');
 const logger = require('../config/logger').default;
+const { ARTIFACT_PATTERNS, ECS_COLUMNS } = require('../config/artifactPatterns');
+const { deriveMappings } = require('./csv/deriveMappings');
 
 const MAPPINGS_DIR = path.join(__dirname, '..', '..', 'config', 'timeline_mappings');
 
@@ -45,6 +47,13 @@ function loadMappings() {
   } catch (e) {
     if (e.code !== 'ENOENT') logger.warn(`[mappings] dir read error: ${e.message}`);
   }
+  // Hand-written YAML wins: it is the explicit override for a tool whose CSV
+  // shape differs from what the native parser declares.
+  const yamlTypes = new Set(out.map(m => m.artifact_type));
+  for (const d of deriveMappings(ARTIFACT_PATTERNS, ECS_COLUMNS)) {
+    if (!yamlTypes.has(d.artifact_type)) out.push(d);
+  }
+
   // Detection walks this array in order and returns the first match, while
   // readdirSync yields plain alphabetical order. Without this sort the generic
   // fallback (which matches every .csv) shadows any tool-specific mapping whose
@@ -57,29 +66,49 @@ function loadMappings() {
   return out;
 }
 
+// Try all three detection strategies, in order, against one candidate list.
+// Returns { mapping, via } for the first match, or null.
+function matchAgainst(candidates, filename, folder, headers) {
+  // Strategy 1 — filename pattern
+  for (const m of candidates) {
+    if (m.filename_patterns.some(re => re.test(filename))) return { mapping: m, via: 'filename' };
+  }
+  // Strategy 2 — folder hint
+  for (const m of candidates) {
+    if (m.folder_patterns.some(re => re.test(folder))) return { mapping: m, via: 'folder' };
+  }
+  // Strategy 3 — header signature (every column in signature must be present)
+  for (const m of candidates) {
+    for (const sig of m.header_signatures) {
+      if (sig.length && sig.every(c => headers.includes(c))) return { mapping: m, via: 'headers' };
+    }
+  }
+  return null;
+}
+
 // Detect the right mapping for a CSV file. Returns null if nothing matches.
 // ctx = { filename, folderPath, headers }
+//
+// Non-fallback mappings are tried across all three strategies before any
+// fallback mapping is considered. generic_csv's filename pattern
+// (".+\.csv$") matches every CSV, so if fallbacks competed strategy-by-
+// strategy alongside tool-specific mappings, that filename match would win
+// before a tool-specific header signature ever got a chance — exactly the
+// shadowing generic_csv.yaml's own comment warns against.
 function detectMapping(ctx) {
   const mappings = loadMappings();
   const filename = (ctx.filename || '').toLowerCase();
   const folder = (ctx.folderPath || '').toLowerCase();
   const headers = Array.isArray(ctx.headers) ? ctx.headers.map(h => String(h)) : [];
 
-  // Strategy 1 — filename pattern
-  for (const m of mappings) {
-    if (m.filename_patterns.some(re => re.test(filename))) return { mapping: m, via: 'filename' };
-  }
-  // Strategy 2 — folder hint
-  for (const m of mappings) {
-    if (m.folder_patterns.some(re => re.test(folder))) return { mapping: m, via: 'folder' };
-  }
-  // Strategy 3 — header signature (every column in signature must be present)
-  for (const m of mappings) {
-    for (const sig of m.header_signatures) {
-      if (sig.length && sig.every(c => headers.includes(c))) return { mapping: m, via: 'headers' };
-    }
-  }
-  return null;
+  const primary = mappings.filter(m => !m.fallback);
+  const fallbacks = mappings.filter(m => m.fallback);
+
+  return (
+    matchAgainst(primary, filename, folder, headers) ||
+    matchAgainst(fallbacks, filename, folder, headers) ||
+    null
+  );
 }
 
 // Apply a mapping to one CSV record: returns a normalized record compatible
