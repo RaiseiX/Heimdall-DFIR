@@ -2220,7 +2220,15 @@
     "col_parser": "Parser",
     "col_status": "Statut",
     "col_records": "Enregistrements",
-    "col_error": "Erreur"
+    "col_error": "Erreur",
+    "col_reason": "Motif",
+    "export_report": "Exporter le rapport",
+    "csv_title": "CSV détectés dans la collecte",
+    "csv_imported": "importés",
+    "csv_imported_fallback": "importés (parsing natif vide)",
+    "csv_skipped_redundant": "ignorés (artefact brut déjà parsé)",
+    "csv_skipped_no_mapping": "non reconnus",
+    "csv_error": "échecs d'import"
   },
   "parsedData": {
     "title": "Données Parsées",

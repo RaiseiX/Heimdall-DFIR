@@ -1,10 +1,12 @@
 import { useState, useEffect } from 'react';
 import { useOutletContext } from 'react-router-dom';
-import { FileText, ChevronDown, ChevronRight, RefreshCw, AlertCircle, CheckCircle2, AlertTriangle, MinusCircle, ShieldAlert, CopyX, Loader2 } from 'lucide-react';
+import { FileText, ChevronDown, ChevronRight, RefreshCw, AlertCircle, CheckCircle2, AlertTriangle, MinusCircle, ShieldAlert, CopyX, Loader2, Download } from 'lucide-react';
 import { useTheme } from '../utils/theme';
 import apiClient, { parsersAPI } from '../utils/api';
 import { fmtLocal } from '../utils/formatters';
 import { useTranslation } from 'react-i18next';
+import { buildParserLogReport } from './parserLogExport';
+import { buildParseResults } from './parserResults';
 
 // Honest status vocabulary — every ingestion/parse state gets its own badge.
 // NEVER collapse empty/degraded/quarantined/skipped(_duplicate) into a green "ok" badge.
@@ -44,6 +46,17 @@ function fmtDuration(parsed_at, updated_at) {
   if (ms < 60000) return `${(ms/1000).toFixed(1)}s`;
   return `${Math.round(ms/60000)}min`;
 }
+
+// Every decision scanCollectionCsvs can make gets its own badge — none of these
+// ever collapse into a single green "ok" count, matching the honest-status
+// convention documented at the top of this file.
+const CSV_BADGES = [
+  { key: 'imported', labelKey: 'parserLogs.csv_imported', color: 'var(--fl-ok)' },
+  { key: 'imported_fallback', labelKey: 'parserLogs.csv_imported_fallback', color: 'var(--fl-warn)' },
+  { key: 'skipped_redundant', labelKey: 'parserLogs.csv_skipped_redundant', color: 'var(--fl-subtle)' },
+  { key: 'skipped_no_mapping', labelKey: 'parserLogs.csv_skipped_no_mapping', color: 'var(--fl-purple)' },
+  { key: 'error', labelKey: 'parserLogs.csv_error', color: 'var(--fl-danger)' },
+];
 
 export default function ParserLogsPage() {
   const T = useTheme();
@@ -93,6 +106,35 @@ export default function ParserLogsPage() {
     });
   }
 
+  // Carries a run's outcome off the machine it ran on — tests run on one box,
+  // debugging often happens on another, and a screenshot can't be grepped.
+  // Flattens every currently-loaded row's per-parser results (the same shape
+  // rendered on screen) into the plain-text report; a hard backend crash
+  // mid-parse is the one case this can't capture (nothing here to flatten),
+  // but ordinary parser-level failures — the common case — show up either way.
+  function handleExport() {
+    const generatedAt = new Date().toISOString();
+    const flatRows = [];
+    let csv = null;
+    for (const row of rows) {
+      const { parseResults, csvSummary } = buildParseResults(row.output_data?.parse_results);
+      for (const pr of parseResults) {
+        flatRows.push({ parser: pr.parser, status: pr.status, records: pr.record_count ?? 0, error: pr.error, reason: pr.reason, warning: pr.warning });
+      }
+      if (csvSummary) csv = csvSummary;
+    }
+    const text = buildParserLogReport({ caseId, collectionId, generatedAt, rows: flatRows, csv });
+    const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `heimdall-parsers-${caseId || 'case'}-${generatedAt.replace(/[:.]/g, '-')}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
   return (
     <div style={{ padding: 20 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
@@ -100,19 +142,34 @@ export default function ParserLogsPage() {
         <h2 style={{ margin: 0, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 14, color: T.text }}>
           {t('parserLogs.title')}
         </h2>
-        <button
-          onClick={load}
-          disabled={loading}
-          style={{
-            marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 5,
-            background: 'none', border: `1px solid ${T.border}`, borderRadius: 5,
-            padding: '3px 10px', cursor: 'pointer', fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
-            color: T.dim,
-          }}
-        >
-          <RefreshCw size={11} style={{ animation: loading ? 'spin 1s linear infinite' : 'none' }} />
-          {t('common.refresh')}
-        </button>
+        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
+          <button
+            onClick={handleExport}
+            disabled={loading || rows.length === 0}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 5,
+              background: 'none', border: `1px solid ${T.border}`, borderRadius: 5,
+              padding: '3px 10px', cursor: rows.length === 0 ? 'default' : 'pointer', fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
+              color: T.dim, opacity: rows.length === 0 ? 0.5 : 1,
+            }}
+          >
+            <Download size={11} />
+            {t('parserLogs.export_report')}
+          </button>
+          <button
+            onClick={load}
+            disabled={loading}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 5,
+              background: 'none', border: `1px solid ${T.border}`, borderRadius: 5,
+              padding: '3px 10px', cursor: 'pointer', fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
+              color: T.dim,
+            }}
+          >
+            <RefreshCw size={11} style={{ animation: loading ? 'spin 1s linear infinite' : 'none' }} />
+            {t('common.refresh')}
+          </button>
+        </div>
       </div>
 
       {ingestionCounts && Object.keys(ingestionCounts).length > 0 && (
@@ -152,17 +209,7 @@ export default function ParserLogsPage() {
       <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
         {rows.map(row => {
           const raw = row.output_data?.parse_results;
-          const parseResults = Array.isArray(raw)
-            ? raw
-            : raw && typeof raw === 'object'
-              ? Object.entries(raw).map(([key, val]) => ({
-                  parser: val.name || key,
-                  status: val.status === 'success' ? 'ok' : (val.status || 'ok'),
-                  record_count: val.normalized_records ?? val.record_count ?? val.count,
-                  error: val.error || val.tool_output || null,
-                  warning: val.warning || null,
-                }))
-              : [];
+          const { parseResults, csvSummary } = buildParseResults(raw);
           const status = deriveStatus(parseResults);
           const cfg = STATUS_CONFIG[status] || STATUS_CONFIG.ok;
           const isExpanded = expanded.has(row.id);
@@ -237,14 +284,36 @@ export default function ParserLogsPage() {
                               <td style={{ padding: '4px 8px', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: T.text }}>
                                 {pr.record_count != null ? pr.record_count.toLocaleString() : '—'}
                               </td>
-                              <td style={{ padding: '4px 8px', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-danger)', fontSize: 10, maxWidth: 300, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                {pr.error || pr.warning || '—'}
+                              <td
+                                title={pr.error ? t('parserLogs.col_error') : pr.reason ? t('parserLogs.col_reason') : undefined}
+                                style={{ padding: '4px 8px', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: pr.error ? 'var(--fl-danger)' : pr.reason ? 'var(--fl-muted)' : 'var(--fl-danger)', fontSize: 10, maxWidth: 300, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                              >
+                                {pr.error || pr.reason || pr.warning || '—'}
                               </td>
                             </tr>
                           );
                         })}
                       </tbody>
                     </table>
+                  )}
+
+                  {csvSummary && (
+                    <div style={{ marginTop: 10, paddingTop: 10, borderTop: `1px solid ${T.border}` }}>
+                      <p style={{ margin: '0 0 6px', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', color: T.muted, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}>
+                        {t('parserLogs.csv_title')}
+                      </p>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                        {CSV_BADGES.filter(b => (csvSummary[b.key] || 0) > 0).map(b => (
+                          <span key={b.key} style={{ display: 'inline-flex', alignItems: 'center', gap: 5,
+                            fontSize: 10.5, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontWeight: 700,
+                            padding: '2px 9px', borderRadius: 4,
+                            background: `color-mix(in srgb, ${b.color} 10%, transparent)`, color: b.color,
+                            border: `1px solid color-mix(in srgb, ${b.color} 22%, transparent)` }}>
+                            {csvSummary[b.key]} {t(b.labelKey)}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
                   )}
                 </div>
               )}

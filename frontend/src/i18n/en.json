@@ -2225,7 +2225,15 @@
     "col_parser": "Parser",
     "col_status": "Status",
     "col_records": "Records",
-    "col_error": "Error"
+    "col_error": "Error",
+    "col_reason": "Reason",
+    "export_report": "Export report",
+    "csv_title": "CSVs found in the collection",
+    "csv_imported": "imported",
+    "csv_imported_fallback": "imported (native parse empty)",
+    "csv_skipped_redundant": "skipped (raw artifact already parsed)",
+    "csv_skipped_no_mapping": "unrecognised",
+    "csv_error": "import failures"
   },
   "parsedData": {
     "title": "Parsed Data",
