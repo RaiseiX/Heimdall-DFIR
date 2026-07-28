@@ -12,9 +12,14 @@ import HayabusaPage from './HayabusaPage';
 import CyberChefPage from './CyberChefPage';
 import CollectionThreatHuntTab from '../components/collection/CollectionThreatHuntTab';
 import CollectionOverview from '../components/collection/CollectionOverview';
+import { resolveCollectionPane } from './collectionPane';
 
 export default function CollectionLayout() {
-  const { id, collectionId, tab: collectionTab = 'evidence' } = useParams();
+  // No default for `tab`: React Router prefers the static child routes (timeline,
+  // logs) over `:tab`, so the param is absent for them and their page must come
+  // from <Outlet />. Defaulting to 'evidence' rendered the overview instead.
+  const { id, collectionId, tab: collectionTab } = useParams();
+  const pane = resolveCollectionPane(collectionTab);
   const shellCtx = useOutletContext() || {};
   const navigate = useNavigate();
   const [collName, setCollName] = useState('');
@@ -165,16 +170,16 @@ export default function CollectionLayout() {
         </a>
       </div>
 
-      <div key={collectionTab} style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, animation: 'fl-fade 120ms var(--ease, ease)' }}>
-        {collectionTab === 'evidence' ? (
+      <div key={collectionTab || 'outlet'} style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, animation: 'fl-fade 120ms var(--ease, ease)' }}>
+        {pane === 'overview' ? (
           <CollectionOverview caseId={id} collectionId={collectionId} collName={collName} />
-        ) : collectionTab === 'network' ? (
+        ) : pane === 'network' ? (
           <CaseIntelligencePage collectionId={collectionId} />
-        ) : collectionTab === 'hayabusa' ? (
+        ) : pane === 'hayabusa' ? (
           <HayabusaPage />
-        ) : collectionTab === 'cyberchef' ? (
+        ) : pane === 'cyberchef' ? (
           <CyberChefPage />
-        ) : collectionTab === 'threathunt' ? (
+        ) : pane === 'threathunt' ? (
           <CollectionThreatHuntTab caseId={id} collectionId={collectionId} collName={collName} />
         ) : (
           <Outlet context={{
