@@ -1,0 +1,82 @@
+# Linux Defence Evasion pack — T1070 / T1562 / T1222
+# Anti-forensics on Linux is mostly shell work, so these fire on history and on the
+# process list (an attacker's cleanup can still be running at collection time).
+rules:
+  - id: lnx_history_tamper
+    name: "Shell history cleared or neutralised"
+    severity: high
+    category: anti-forensics
+    target_artifact: [catscale_history, catscale_process, catscale_persistence]
+    mitre: [T1070.003]
+    tags: [AntiForensics, HistoryTampering]
+    match:
+      any:
+        - { field: description, op: iregex, value: '\bhistory\s+-c\b' }
+        - { field: description, op: iregex, value: '\bunset\s+HISTFILE\b' }
+        - { field: description, op: iregex, value: '\bHISTFILE=(/dev/null|\s|$)' }
+        - { field: description, op: iregex, value: '\bexport\s+HISTSIZE=0\b' }
+        - { field: description, op: iregex, value: '\b(rm|shred|truncate)\b[^;|]*\.(bash|zsh|sh|ksh)_history' }
+        - { field: description, op: iregex, value: '\bln\s+-[a-z]*s[a-z]*\s+/dev/null[^;]*history' }
+
+  - id: lnx_log_tamper
+    name: "System log destroyed or truncated"
+    severity: critical
+    category: anti-forensics
+    target_artifact: [catscale_history, catscale_process, catscale_persistence]
+    mitre: [T1070.002]
+    tags: [AntiForensics, LogTampering]
+    match:
+      any:
+        - { field: description, op: iregex, value: '\b(rm|shred|truncate|unlink)\b[^;|]*/var/log' }
+        - { field: description, op: iregex, value: '>\s*/var/log/' }
+        - { field: description, op: iregex, value: '\bjournalctl\b[^;]*--vacuum' }
+        - { field: description, op: iregex, value: '\b(rm|shred|truncate)\b[^;|]*/var/run/(utmp|wtmp|btmp)' }
+
+  - id: lnx_timestomp
+    name: "File timestamps overwritten"
+    severity: high
+    category: anti-forensics
+    target_artifact: [catscale_history, catscale_process]
+    mitre: [T1070.006]
+    tags: [AntiForensics, Timestomp]
+    match:
+      any:
+        - { field: description, op: iregex, value: '\btouch\b[^;|]*\s-[a-z]*(r|t|d)(\s|=)' }
+
+  - id: lnx_chattr_immutable
+    name: "Immutable attribute set — file protected from deletion"
+    severity: medium
+    category: anti-forensics
+    target_artifact: [catscale_history, catscale_process]
+    mitre: [T1222.002]
+    tags: [AntiForensics, FilePermissions]
+    match:
+      any:
+        - { field: description, op: iregex, value: '\bchattr\b[^;|]*\+[aiu]' }
+
+  - id: lnx_disable_audit_logging
+    name: "Audit or syslog daemon disabled"
+    severity: high
+    category: anti-forensics
+    target_artifact: [catscale_history, catscale_process, catscale_persistence]
+    mitre: [T1562.001]
+    tags: [AntiForensics, ImpairDefenses]
+    match:
+      any:
+        - { field: description, op: iregex, value: '\bauditctl\b[^;]*-e\s*0' }
+        - { field: description, op: iregex, value: '\b(systemctl|service)\b[^;]*\b(stop|disable|mask)\b[^;]*\b(auditd|rsyslog|syslog-ng|systemd-journald)\b' }
+        - { field: description, op: iregex, value: '\bsetenforce\s+0\b' }
+        - { field: description, op: iregex, value: '\bauditctl\b[^;]*-D\b' }
+
+  - id: lnx_firewall_disable
+    name: "Host firewall flushed or disabled"
+    severity: medium
+    category: anti-forensics
+    target_artifact: [catscale_history, catscale_process, catscale_persistence]
+    mitre: [T1562.004]
+    tags: [AntiForensics, ImpairDefenses, Firewall]
+    match:
+      any:
+        - { field: description, op: iregex, value: '\biptables\b[^;]*\s(-F|--flush)\b' }
+        - { field: description, op: iregex, value: '\bufw\s+disable\b' }
+        - { field: description, op: iregex, value: '\b(systemctl|service)\b[^;]*\b(stop|disable)\b[^;]*\b(firewalld|ufw|nftables)\b' }

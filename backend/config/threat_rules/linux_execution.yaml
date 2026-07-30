@@ -1,0 +1,70 @@
+# Linux Execution pack — T1059 / T1027 / T1070
+# Sources: CatScale shell history + process listing.
+# `description` is the field every CatScale row fills (it embeds the command for
+# history, process and cron rows), so rules match on it rather than on a raw key
+# that only exists for one artifact family.
+rules:
+  - id: lnx_reverse_shell
+    name: "Reverse shell invocation"
+    severity: critical
+    category: execution
+    target_artifact: [catscale_history, catscale_process, catscale_persistence]
+    mitre: [T1059.004]
+    tags: [Execution, ReverseShell, C2]
+    match:
+      any:
+        - { field: description, op: iregex, value: '/dev/(tcp|udp)/' }
+        - { field: description, op: iregex, value: '\b(nc|ncat|netcat)\b[^;|]*\s-[a-z]*e\s' }
+        - { field: description, op: iregex, value: '\bsocat\b[^;]*\bexec:' }
+        - { field: description, op: iregex, value: 'pty\.spawn' }
+        - { field: description, op: iregex, value: '\bperl\b[^;]*socket[^;]*(exec|/bin/sh)' }
+        - { field: description, op: iregex, value: '\bmkfifo\b[^;]*\|[^;]*\b(nc|ncat)\b' }
+
+  - id: lnx_download_pipe_shell
+    name: "Remote payload piped into a shell"
+    severity: high
+    category: execution
+    target_artifact: [catscale_history, catscale_process]
+    mitre: [T1059.004, T1105]
+    tags: [Execution, Download, Staging]
+    match:
+      any:
+        - { field: description, op: iregex, value: '\b(curl|wget|fetch)\b[^|;]*\|\s*(sudo\s+)?(ba|z|k|da)?sh\b' }
+        - { field: description, op: iregex, value: '\b(curl|wget)\b[^|;]*\|\s*(python3?|perl|ruby)\b' }
+
+  - id: lnx_base64_exec
+    name: "Base64-decoded payload executed"
+    severity: high
+    category: execution
+    target_artifact: [catscale_history, catscale_process, catscale_persistence]
+    mitre: [T1027, T1059.004]
+    tags: [Execution, Obfuscation]
+    match:
+      any:
+        - { field: description, op: iregex, value: '\bbase64\b\s+(-d|-D|--decode)[^|;]*\|\s*(ba|z|k)?sh\b' }
+        - { field: description, op: iregex, value: '\becho\b[^|;]*\|\s*base64\s+(-d|-D|--decode)[^|;]*\|' }
+        - { field: description, op: iregex, value: '\bopenssl\b[^;]*\benc\b[^;]*-d[^;]*\|\s*(ba)?sh\b' }
+
+  - id: lnx_exec_from_world_writable
+    name: "Process running from a world-writable directory"
+    severity: high
+    category: execution
+    target_artifact: [catscale_process]
+    mitre: [T1059.004]
+    tags: [Execution, SuspiciousPath]
+    match:
+      any:
+        - { field: path,        op: iregex, value: '^(/tmp/|/dev/shm/|/var/tmp/|/run/shm/|/dev/mqueue/)' }
+        - { field: description, op: iregex, value: '(\s|:)(/tmp/|/dev/shm/|/var/tmp/|/run/shm/)' }
+
+  - id: lnx_deleted_binary_running
+    name: "Running process whose binary was unlinked from disk"
+    severity: high
+    category: anti-forensics
+    target_artifact: [catscale_process]
+    mitre: [T1070.004]
+    tags: [AntiForensics, Execution, Fileless]
+    match:
+      any:
+        - { field: description, op: iregex, value: '\(deleted\)' }
+        - { field: command,     op: iregex, value: '\(deleted\)' }

@@ -12,11 +12,20 @@ const MONTHS: Record<string, number> = {
   Jul: 6, Aug: 7, Sep: 8, Oct: 9, Nov: 10, Dec: 11,
 };
 
-function parseBsd(s: string, year: number): Date | null {
+// Linux log timestamps are wall-clock strings with no offset. Building them with
+// `new Date(y, m, d, ...)` would resolve them against the *analyst machine's*
+// timezone, so the same evidence would land on two different timelines depending
+// on who parsed it. Anchor everything to UTC instead: a fixed, documented offset
+// beats a variable one. (The host's real timezone sits in
+// System_Info/*-date-timezone and is kept in `raw` for later refinement.)
+function parseBsd(s: string, collectedAt: Date): Date | null {
   const m = /^(\w{3})\s+(\d{1,2})\s+(\d{2}):(\d{2}):(\d{2})/.exec(s);
   if (!m || MONTHS[m[1]] === undefined) return null;
-  const d = new Date(year, MONTHS[m[1]], +m[2], +m[3], +m[4], +m[5]);
-  if (d > new Date()) d.setFullYear(year - 1);
+  const year = collectedAt.getUTCFullYear();
+  const at = (y: number) => new Date(Date.UTC(y, MONTHS[m[1]], +m[2], +m[3], +m[4], +m[5]));
+  // Syslog omits the year: a line dated after the collection has to belong to the
+  // previous one (December entries read from a January collection).
+  const d = at(year) > collectedAt ? at(year - 1) : at(year);
   return isNaN(d.getTime()) ? null : d;
 }
 
@@ -24,8 +33,52 @@ function parseLastTs(s: string): Date | null {
 
   const m = /(?:\w{3}\s+)?(\w{3})\s+(\d{1,2})\s+(\d{2}):(\d{2}):(\d{2})\s+(\d{4})/.exec(s);
   if (!m || MONTHS[m[1]] === undefined) return null;
-  const d = new Date(+m[6], MONTHS[m[1]], +m[2], +m[3], +m[4], +m[5]);
+  const d = new Date(Date.UTC(+m[6], MONTHS[m[1]], +m[2], +m[3], +m[4], +m[5]));
   return isNaN(d.getTime()) ? null : d;
+}
+
+// collection_timeline.src_ip / dst_ip are INET: a bad literal aborts the whole
+// 500-row batch, so anything that is not a clean address becomes NULL. Strips the
+// :port that ss/netstat append, unwraps [::1], drops the %scope suffix.
+function toInet(addr: string | null | undefined): string | null {
+  if (!addr) return null;
+  let a = String(addr).trim();
+  if (!a || a === '*' || a.startsWith('*:')) return null;
+
+  const bracketed = /^\[([^\]]+)\](?::.*)?$/.exec(a);
+  if (bracketed) a = bracketed[1];
+  else if ((a.match(/:/g) || []).length === 1) a = a.split(':')[0];
+  else if (/:\d+$/.test(a)) a = a.replace(/:\d+$/, '');
+
+  a = a.split('%')[0];
+  if (!a || a === '*') return null;
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(a)) return a.split('.').every(o => +o <= 255) ? a : null;
+  if (/^[0-9a-fA-F:]+$/.test(a) && a.includes(':')) return a;
+  return null;
+}
+
+// ext is VARCHAR(16); anything longer is not a real extension anyway.
+function extOf(p: string): string | null {
+  const base = path.basename(p);
+  const i = base.lastIndexOf('.');
+  if (i <= 0 || i === base.length - 1) return null;
+  const e = base.slice(i + 1).toLowerCase();
+  return e.length <= 16 ? e : null;
+}
+
+function portOf(addr: string | null | undefined): string | null {
+  if (!addr) return null;
+  const m = /:(\d{1,5})$/.exec(String(addr).trim());
+  return m ? m[1] : null;
+}
+
+// First token of a command line, reduced to what the Process Name column expects.
+function procName(command: string): string | null {
+  const first = command.trim().split(/\s+/)[0];
+  if (!first) return null;
+  const kernelThread = /^\[(.+?)[\]/]/.exec(first); // [kworker/0:1] -> kworker
+  if (kernelThread) return kernelThread[1];
+  return path.basename(first).substring(0, 128) || null;
 }
 
 function findFile(dir: string, ...patterns: string[]): string | null {
@@ -88,10 +141,65 @@ type Row = {
   raw: Record<string, unknown>;
   host_name?: string | null;
   user_name?: string | null;
+  // Forensic columns promoted out of `raw`. Nothing downstream reads `raw`:
+  // evidence scoping, the SuperTimeline facets and the network map all filter on
+  // real columns, so a row that only fills `raw` is invisible to them.
+  artifact_name?: string | null;
+  timestamp_kind?: string | null;
+  path?: string | null;
+  ext?: string | null;
+  src_ip?: string | null;
+  dst_ip?: string | null;
+  process_name?: string | null;
 };
 
-async function batchInsert(pool: Pool, rows: Row[], resultId: string | null = null): Promise<number> {
+/** Ties every row back to the parse run and the piece of evidence it came from. */
+export type TimelineLink = { resultId?: string | null; evidenceId?: string | null };
+
+const TOOL = 'catscale';
+
+type Detection = { id: string; name: string; severity: string; category: string; mitre: string[] };
+const threatEngine = require('./threatEngine') as {
+  evaluate: (rec: Record<string, unknown>) => { detections: Detection[]; tags: string[] } | null;
+};
+
+// The native and CSV ingest paths run the threat engine inside extractForensicFields;
+// CatScale bypasses that helper entirely, so evaluation happens here. Doing it in
+// batchInsert means every parser is covered by construction — a new artifact family
+// cannot be added without inheriting detection.
+function evaluateRow(r: Row): { detections: string | null; tags: string[] } {
+  try {
+    const hit = threatEngine.evaluate({
+      // Raw first: the promoted columns must win if a parser fills both.
+      ...r.raw,
+      artifact_type: r.artifact_type,
+      description: r.description,
+      source: r.source,
+      path: r.path ?? null,
+      ext: r.ext ?? null,
+      process_name: r.process_name ?? null,
+      host_name: r.host_name ?? null,
+      user_name: r.user_name ?? null,
+      event_id: null,
+    });
+    if (!hit) return { detections: null, tags: [] };
+    return { detections: JSON.stringify(hit.detections), tags: hit.tags ?? [] };
+  } catch (e: any) {
+    logger.warn('[CatScale] threat engine error:', e.message);
+    return { detections: null, tags: [] };
+  }
+}
+
+const INSERT_COLS = [
+  'case_id', 'result_id', 'evidence_id', 'timestamp', 'artifact_type', 'artifact_name',
+  'source', 'description', 'raw', 'host_name', 'user_name', 'process_name',
+  'tool', 'timestamp_kind', '"path"', 'ext', 'src_ip', 'dst_ip', 'tags', 'detections',
+];
+
+async function batchInsert(pool: Pool, rows: Row[], link: TimelineLink = {}): Promise<number> {
   if (!rows.length) return 0;
+  const resultId   = link.resultId   ?? null;
+  const evidenceId = link.evidenceId ?? null;
   let inserted = 0;
   const BATCH = 500;
   for (let i = 0; i < rows.length; i += BATCH) {
@@ -100,16 +208,20 @@ async function batchInsert(pool: Pool, rows: Row[], resultId: string | null = nu
     const params: unknown[] = [];
     let idx = 1;
     for (const r of slice) {
-      vals.push(`($${idx++},$${idx++},$${idx++},$${idx++},$${idx++},$${idx++},$${idx++},$${idx++},$${idx++})`);
+      const { detections, tags } = evaluateRow(r);
+      vals.push(`(${INSERT_COLS.map(() => `$${idx++}`).join(',')})`);
       params.push(
-        r.case_id, resultId, r.timestamp.toISOString(), r.artifact_type, r.source,
-        r.description, JSON.stringify(r.raw), r.host_name ?? null, r.user_name ?? null,
+        r.case_id, resultId, evidenceId, r.timestamp.toISOString(), r.artifact_type,
+        r.artifact_name ?? null, r.source, r.description, JSON.stringify(r.raw),
+        r.host_name ?? null, r.user_name ?? null, r.process_name ?? null,
+        TOOL, r.timestamp_kind ?? null, r.path ?? null, r.ext ?? null,
+        r.src_ip ?? null, r.dst_ip ?? null, tags, detections,
       );
     }
     try {
       await pool.query(
         `INSERT INTO collection_timeline
-           (case_id, result_id, timestamp, artifact_type, source, description, raw, host_name, user_name)
+           (${INSERT_COLS.join(', ')})
          VALUES ${vals.join(',')}`,
         params,
       );
@@ -154,9 +266,8 @@ const AUTH_PATTERNS_RE = [
   /FAILED LOGIN/,
 ];
 
-async function parseAuthLog(filePath: string, caseId: string, pool: Pool, hostname: string, resultId: string | null = null): Promise<number> {
+async function parseAuthLog(filePath: string, caseId: string, pool: Pool, hostname: string, collectedAt: Date, link: TimelineLink = {}): Promise<number> {
   const rows: Row[] = [];
-  const year = new Date().getFullYear();
 
   for await (const line of readLines(filePath)) {
     if (!line.trim()) continue;
@@ -168,7 +279,7 @@ async function parseAuthLog(filePath: string, caseId: string, pool: Pool, hostna
     let proc = '';
 
     const bsd = /^(\w{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2})\s+(\S+)\s+(\S+?):\s+(.*)$/.exec(line);
-    if (bsd) { ts = parseBsd(bsd[1], year); host = bsd[2]; proc = bsd[3]; msg = bsd[4]; }
+    if (bsd) { ts = parseBsd(bsd[1], collectedAt); host = bsd[2]; proc = bsd[3]; msg = bsd[4]; }
 
     const iso = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[^\s]*)\s+(\S+)\s+(\S+?):\s+(.*)$/.exec(line);
     if (!bsd && iso) {
@@ -214,19 +325,23 @@ async function parseAuthLog(filePath: string, caseId: string, pool: Pool, hostna
     }
 
     rows.push({
-      case_id: caseId, timestamp: ts ?? new Date(),
-      artifact_type: 'catscale_auth', source: path.basename(filePath),
+      case_id: caseId, timestamp: ts ?? collectedAt,
+      artifact_type: 'catscale_auth', artifact_name: 'Linux Auth Log',
+      source: path.basename(filePath),
       description,
       raw: { line, category, username, source_ip: sourceIp, host, process: proc },
       host_name: host, user_name: username,
+      // syslog tags the daemon as "sshd[1234]" — the PID belongs in raw, not in a name.
+      timestamp_kind: 'log', src_ip: toInet(sourceIp),
+      process_name: proc ? proc.replace(/\[\d+\]$/, '') : null,
     });
   }
-  return batchInsert(pool, rows, resultId);
+  return batchInsert(pool, rows, link);
 }
 
 const LAST_TS_RE = /\b(Mon|Tue|Wed|Thu|Fri|Sat|Sun)\s+\w{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}\s+\d{4}/;
 
-async function parseLastWtmp(filePath: string, caseId: string, pool: Pool, hostname: string, resultId: string | null = null): Promise<number> {
+async function parseLastWtmp(filePath: string, caseId: string, pool: Pool, hostname: string, link: TimelineLink = {}): Promise<number> {
   const rows: Row[] = [];
 
   for await (const line of readLines(filePath)) {
@@ -269,16 +384,20 @@ async function parseLastWtmp(filePath: string, caseId: string, pool: Pool, hostn
     rows.push({
       case_id: caseId, timestamp: loginTs,
       artifact_type: 'catscale_logon',
+      artifact_name: isReboot ? 'Linux System Event' : 'Linux Logon History',
       source: path.basename(filePath),
       description,
       raw: { user, tty, from, login_time: loginStr, logout_time: logoutMatch?.[1] ?? null, still_logged: stillLogged, duration, type, host: hostname },
       host_name: hostname, user_name: isReboot ? null : user,
+      // `from` is a host or an address depending on the login path; toInet keeps
+      // only what pg's INET column will actually accept.
+      timestamp_kind: isReboot ? 'system' : 'login', src_ip: toInet(from),
     });
   }
-  return batchInsert(pool, rows, resultId);
+  return batchInsert(pool, rows, link);
 }
 
-async function parseProcessList(filePath: string, caseId: string, pool: Pool, t: Date, hostname: string, resultId: string | null = null): Promise<number> {
+async function parseProcessList(filePath: string, caseId: string, pool: Pool, t: Date, hostname: string, link: TimelineLink = {}): Promise<number> {
   const rows: Row[] = [];
   let headerLine = '';
   let headerSeen = false;
@@ -312,18 +431,39 @@ async function parseProcessList(filePath: string, caseId: string, pool: Pool, t:
 
     if (pid === '?') continue;
 
+    const exe = command.trim().split(/\s+/)[0];
     rows.push({
       case_id: caseId, timestamp: t,
-      artifact_type: 'catscale_process', source: path.basename(filePath),
+      artifact_type: 'catscale_process', artifact_name: 'Linux Process List',
+      source: path.basename(filePath),
       description: `Process [${user}] PID=${pid}: ${command.substring(0, 150)}`,
       raw: { pid: +pid, user, command, host: hostname },
       host_name: hostname, user_name: user,
+      // A ps listing is a snapshot: the timestamp is when we looked, not when the
+      // process started. Saying so keeps an analyst from reading it as an event.
+      timestamp_kind: 'collection',
+      path: exe.startsWith('/') ? exe : null,
+      process_name: procName(command),
     });
   }
-  return batchInsert(pool, rows, resultId);
+  return batchInsert(pool, rows, link);
 }
 
-async function parseNetworkConnections(filePath: string, caseId: string, pool: Pool, t: Date, hostname: string, resultId: string | null = null): Promise<number> {
+// A listening socket has no peer: ss renders it as 0.0.0.0:* / [::]:*. Recording
+// that as a destination would invent an edge on the network map, so listeners keep
+// src_ip (the exposed surface) and leave dst_ip NULL.
+const NO_PEER_STATES = new Set(['LISTEN', 'UNCONN', 'CLOSE', 'CLOSED']);
+
+// /network/:caseId/graph builds its edges from raw JSONB names, not from the
+// src_ip/dst_ip columns — `Computer` for the source node, then dst_ip/dst_port/proto.
+// Speaking that vocabulary is what puts a Linux host on the map; omitting the keys
+// entirely when there is no peer keeps listeners from becoming phantom edges.
+function graphKeys(hostname: string, peerIp: string | null, peer: string, proto: string) {
+  if (!peerIp) return { Computer: hostname };
+  return { Computer: hostname, dst_ip: peerIp, dst_port: portOf(peer), proto };
+}
+
+async function parseNetworkConnections(filePath: string, caseId: string, pool: Pool, t: Date, hostname: string, link: TimelineLink = {}): Promise<number> {
   const rows: Row[] = [];
 
   for await (const line of readLines(filePath)) {
@@ -335,12 +475,20 @@ async function parseNetworkConnections(filePath: string, caseId: string, pool: P
       const [, netid, state, local, peer, rest] = ss;
       const proc = /users:\(\("([^"]+)",pid=(\d+)/.exec(rest);
       const uid = /uid:(\d+)/.exec(rest);
+      const peerIp = NO_PEER_STATES.has(state) ? null : toInet(peer);
       rows.push({
         case_id: caseId, timestamp: t,
         artifact_type: 'catscale_network', source: path.basename(filePath),
         description: `${netid.toUpperCase()} ${state}: ${local} ↔ ${peer}${proc ? ` [${proc[1]}]` : ''}`,
-        raw: { netid, state, local, peer, process: proc?.[1] ?? null, pid: proc?.[2] ? +proc[2] : null, uid: uid ? +uid[1] : null, host: hostname },
+        raw: {
+          netid, state, local, peer, process: proc?.[1] ?? null,
+          pid: proc?.[2] ? +proc[2] : null, uid: uid ? +uid[1] : null, host: hostname,
+          ...graphKeys(hostname, peerIp, peer, netid),
+        },
         host_name: hostname,
+        artifact_name: 'Linux Network Sockets', timestamp_kind: 'collection',
+        src_ip: toInet(local), dst_ip: peerIp,
+        process_name: proc?.[1] ?? null,
       });
       continue;
     }
@@ -349,20 +497,23 @@ async function parseNetworkConnections(filePath: string, caseId: string, pool: P
     if (netstat) {
       const [, proto, local, foreign, state] = netstat;
       if (state === 'TIME_WAIT') continue;
+      const foreignIp = NO_PEER_STATES.has(state) ? null : toInet(foreign);
       rows.push({
         case_id: caseId, timestamp: t,
         artifact_type: 'catscale_network', source: path.basename(filePath),
         description: `${proto.toUpperCase()} ${state}: ${local} ↔ ${foreign}`,
-        raw: { proto, local, foreign, state, host: hostname },
+        raw: { proto, local, foreign, state, host: hostname, ...graphKeys(hostname, foreignIp, foreign, proto) },
         host_name: hostname,
+        artifact_name: 'Linux Network Sockets', timestamp_kind: 'collection',
+        src_ip: toInet(local), dst_ip: foreignIp,
       });
     }
   }
-  return batchInsert(pool, rows, resultId);
+  return batchInsert(pool, rows, link);
 }
 
 
-async function parseBashHistory(filePath: string, caseId: string, pool: Pool, t: Date, username: string, hostname: string, resultId: string | null = null): Promise<number> {
+async function parseBashHistory(filePath: string, caseId: string, pool: Pool, t: Date, username: string, hostname: string, link: TimelineLink = {}): Promise<number> {
   const rows: Row[] = [];
   let pendingTs: Date | null = null;
 
@@ -373,18 +524,24 @@ async function parseBashHistory(filePath: string, caseId: string, pool: Pool, t:
 
     rows.push({
       case_id: caseId, timestamp: pendingTs ?? t,
-      artifact_type: 'catscale_history', source: path.basename(filePath),
+      artifact_type: 'catscale_history', artifact_name: 'Linux Shell History',
+      source: path.basename(filePath),
       description: `Historique [${username}]: ${line.substring(0, 200)}`,
       raw: { command: line, username, host: hostname },
       host_name: hostname, user_name: username,
+      // Without HISTTIMEFORMAT a shell history carries no time at all: every command
+      // collapses onto the collection instant. Flagging that stops an analyst from
+      // reading a thousand co-timestamped commands as a burst of activity.
+      timestamp_kind: pendingTs ? 'command' : 'collection',
+      process_name: procName(line),
     });
     pendingTs = null;
   }
-  return batchInsert(pool, rows, resultId);
+  return batchInsert(pool, rows, link);
 }
 
 
-async function parseCronTabList(filePath: string, caseId: string, pool: Pool, t: Date, hostname: string, resultId: string | null = null): Promise<number> {
+async function parseCronTabList(filePath: string, caseId: string, pool: Pool, t: Date, hostname: string, link: TimelineLink = {}): Promise<number> {
   const rows: Row[] = [];
   let currentUser = 'unknown';
 
@@ -396,18 +553,20 @@ async function parseCronTabList(filePath: string, caseId: string, pool: Pool, t:
     if (/^(@\w+|\*|[-\d,\/]+)\s/.test(line.trim())) {
       rows.push({
         case_id: caseId, timestamp: t,
-        artifact_type: 'catscale_persistence', source: 'crontab',
+        artifact_type: 'catscale_persistence', artifact_name: 'Linux Cron',
+        source: 'crontab',
         description: `Cron [${currentUser}]: ${line.trim().substring(0, 200)}`,
         raw: { cron_entry: line.trim(), user: currentUser, host: hostname },
         host_name: hostname, user_name: currentUser,
+        timestamp_kind: 'collection',
       });
     }
   }
-  return batchInsert(pool, rows, resultId);
+  return batchInsert(pool, rows, link);
 }
 
 
-async function parseSystemdList(filePath: string, caseId: string, pool: Pool, t: Date, hostname: string, resultId: string | null = null): Promise<number> {
+async function parseSystemdList(filePath: string, caseId: string, pool: Pool, t: Date, hostname: string, link: TimelineLink = {}): Promise<number> {
   const rows: Row[] = [];
 
   for await (const line of readLines(filePath)) {
@@ -416,10 +575,12 @@ async function parseSystemdList(filePath: string, caseId: string, pool: Pool, t:
       const [, unit, active, sub, desc] = m1;
       rows.push({
         case_id: caseId, timestamp: t,
-        artifact_type: 'catscale_persistence', source: 'systemd',
+        artifact_type: 'catscale_persistence', artifact_name: 'Linux Systemd Unit',
+        source: 'systemd',
         description: `Service ${active === 'failed' ? '⚠ FAILED' : 'actif'}: ${unit} (${sub}) — ${desc.trim().substring(0, 100)}`,
         raw: { unit, active, sub, description: desc.trim(), host: hostname },
         host_name: hostname,
+        timestamp_kind: 'collection', process_name: unit,
       });
       continue;
     }
@@ -429,25 +590,28 @@ async function parseSystemdList(filePath: string, caseId: string, pool: Pool, t:
       if (['masked', 'disabled'].includes(state) && !unit.startsWith('ssh') && !unit.startsWith('cron')) continue; // skip noise
       rows.push({
         case_id: caseId, timestamp: t,
-        artifact_type: 'catscale_persistence', source: 'systemd-unit-files',
+        artifact_type: 'catscale_persistence', artifact_name: 'Linux Systemd Unit',
+        source: 'systemd-unit-files',
         description: `Service [${state}]: ${unit}`,
         raw: { unit, state, host: hostname },
         host_name: hostname,
+        timestamp_kind: 'collection', process_name: unit,
       });
     }
   }
-  return batchInsert(pool, rows, resultId);
+  return batchInsert(pool, rows, link);
 }
 
 
 const SUSPICIOUS_PATHS = ['/tmp/', '/dev/shm/', '/var/tmp/', '/run/', '/home/', '/root/', '/etc/'];
 const SUSPICIOUS_EXT_RE = /\.(sh|py|pl|rb|php|jsp|php\d?|cgi|exe|elf|so)$/i;
 
-async function parseFsTimeline(filePath: string, caseId: string, pool: Pool, hostname: string, resultId: string | null = null): Promise<number> {
+async function parseFsTimeline(filePath: string, caseId: string, pool: Pool, hostname: string, collectedAt: Date, link: TimelineLink = {}): Promise<number> {
   const rows: Row[] = [];
   let headerSeen = false;
-  const cutoff = new Date();
-  cutoff.setDate(cutoff.getDate() - 90); // only last 90 days of activity
+  // 90 days before the *collection*, not before today: an archive analysed months
+  // later must not silently lose every file it recorded.
+  const cutoff = new Date(collectedAt.getTime() - 90 * 24 * 60 * 60 * 1000);
 
   for await (const line of readLines(filePath)) {
     if (!headerSeen) { headerSeen = true; continue; } // skip CSV header
@@ -474,20 +638,23 @@ async function parseFsTimeline(filePath: string, caseId: string, pool: Pool, hos
 
     if (!isSuspiciousPath && !isSuspiciousExt && !isRecent) continue;
 
-    const ts = modTs ?? new Date();
+    const ts = modTs ?? collectedAt;
     rows.push({
       case_id: caseId, timestamp: ts,
-      artifact_type: 'catscale_fstimeline', source: 'full-timeline.csv',
+      artifact_type: 'catscale_fstimeline', artifact_name: 'Linux Filesystem Timeline',
+      source: 'full-timeline.csv',
       description: `${perms} [${user}] ${fullPath}`,
       raw: { path: fullPath, last_modified: lastMod, permissions: perms, user, host: hostname },
       host_name: hostname, user_name: user !== 'root' ? user : null,
+      timestamp_kind: modTs ? 'mtime' : 'collection',
+      path: fullPath, ext: extOf(fullPath),
     });
 
     if (rows.length >= 1000) {
-      await batchInsert(pool, rows.splice(0), resultId);
+      await batchInsert(pool, rows.splice(0), link);
     }
   }
-  return batchInsert(pool, rows, resultId);
+  return batchInsert(pool, rows, link);
 }
 
 
@@ -505,7 +672,7 @@ export async function parseCatScale(
   pool: Pool,
   collectionTime: Date,
   emitProgress?: (p: Record<string, unknown>) => void,
-  resultId: string | null = null,
+  link: TimelineLink = {},
 ): Promise<CatScaleParseResult> {
   let totalEvents = 0;
   const artifacts: string[] = [];
@@ -547,7 +714,7 @@ export async function parseCatScale(
       await walkDir(varLogTmp, async (fp) => {
         const base = path.basename(fp);
         if (/^(auth\.log|secure|messages|syslog)(\.1)?$/.test(base)) {
-          const n = await parseAuthLog(fp, caseId, pool, hostname, resultId).catch(() => 0);
+          const n = await parseAuthLog(fp, caseId, pool, hostname, collectionTime, link).catch(() => 0);
           if (n > 0) { totalEvents += n; artifacts.push(`auth:${base} (${n})`); }
         }
       });
@@ -558,14 +725,14 @@ export async function parseCatScale(
   for (const pat of ['last-wtmp', 'last-utmp']) {
     const fp = findFile(logsDir, pat);
     if (fp) {
-      const n = await parseLastWtmp(fp, caseId, pool, hostname, resultId).catch(() => 0);
+      const n = await parseLastWtmp(fp, caseId, pool, hostname, link).catch(() => 0);
       if (n > 0) { totalEvents += n; artifacts.push(`logon:${path.basename(fp)} (${n})`); }
     }
   }
 
   const btmpFile = findFile(logsDir, 'last-btmp');
   if (btmpFile) {
-    const n = await parseLastWtmp(btmpFile, caseId, pool, hostname, resultId).catch(() => 0);
+    const n = await parseLastWtmp(btmpFile, caseId, pool, hostname, link).catch(() => 0);
     if (n > 0) { totalEvents += n; artifacts.push(`failed_logon:${path.basename(btmpFile)} (${n})`); }
   }
 
@@ -573,7 +740,7 @@ export async function parseCatScale(
   const procDir = path.join(catscaleRoot, 'Process_and_Network');
   const procFile = findFile(procDir, 'processes-axwwSo', 'processes-auxSww', 'processes-auxww', 'processes-eF', 'processes-ef', 'processes-e');
   if (procFile) {
-    const n = await parseProcessList(procFile, caseId, pool, collectionTime, hostname, resultId).catch(() => 0);
+    const n = await parseProcessList(procFile, caseId, pool, collectionTime, hostname, link).catch(() => 0);
     if (n > 0) { totalEvents += n; artifacts.push(`process:${path.basename(procFile)} (${n})`); }
   }
 
@@ -581,7 +748,7 @@ export async function parseCatScale(
   for (const pat of ['ss-anepo', 'netstat-pvWanoee', 'netstat-pvTanoee', 'netstat-antup', 'netstat-an']) {
     const fp = findFile(procDir, pat);
     if (fp) {
-      const n = await parseNetworkConnections(fp, caseId, pool, collectionTime, hostname, resultId).catch(() => 0);
+      const n = await parseNetworkConnections(fp, caseId, pool, collectionTime, hostname, link).catch(() => 0);
       if (n > 0) { totalEvents += n; artifacts.push(`network:${path.basename(fp)} (${n})`); }
     }
   }
@@ -599,7 +766,7 @@ export async function parseCatScale(
 
           const parts = fp.split(path.sep);
           const username = parts[parts.length - 2] || 'unknown';
-          const n = await parseBashHistory(fp, caseId, pool, collectionTime, username, hostname, resultId).catch(() => 0);
+          const n = await parseBashHistory(fp, caseId, pool, collectionTime, username, hostname, link).catch(() => 0);
           if (n > 0) { totalEvents += n; artifacts.push(`history:${username}:${base} (${n})`); }
         }
       });
@@ -611,7 +778,7 @@ export async function parseCatScale(
 
   const cronTabList = findFile(persistDir, 'cron-tab-list');
   if (cronTabList) {
-    const n = await parseCronTabList(cronTabList, caseId, pool, collectionTime, hostname, resultId).catch(() => 0);
+    const n = await parseCronTabList(cronTabList, caseId, pool, collectionTime, hostname, link).catch(() => 0);
     if (n > 0) { totalEvents += n; artifacts.push(`cron:cron-tab-list (${n})`); }
   }
 
@@ -623,7 +790,7 @@ export async function parseCatScale(
       await walkDir(cronTmp, async (fp) => {
         const base = path.basename(fp);
         if (!base.includes('.') || base.endsWith('.txt')) {
-          const n = await parseCronTabList(fp, caseId, pool, collectionTime, hostname, resultId).catch(() => 0);
+          const n = await parseCronTabList(fp, caseId, pool, collectionTime, hostname, link).catch(() => 0);
           if (n > 0) { totalEvents += n; artifacts.push(`cron:spool:${base} (${n})`); }
         }
       });
@@ -633,7 +800,7 @@ export async function parseCatScale(
   for (const pat of ['systemctl_service_status', 'systemctl_all', 'persistence-systemdlist']) {
     const fp = findFile(persistDir, pat);
     if (fp) {
-      const n = await parseSystemdList(fp, caseId, pool, collectionTime, hostname, resultId).catch(() => 0);
+      const n = await parseSystemdList(fp, caseId, pool, collectionTime, hostname, link).catch(() => 0);
       if (n > 0) { totalEvents += n; artifacts.push(`systemd:${path.basename(fp)} (${n})`); }
     }
   }
@@ -642,7 +809,7 @@ export async function parseCatScale(
   const miscDir = path.join(catscaleRoot, 'Misc');
   const fsTimelineFile = findFile(miscDir, 'full-timeline.csv');
   if (fsTimelineFile) {
-    const n = await parseFsTimeline(fsTimelineFile, caseId, pool, hostname, resultId).catch((e) => {
+    const n = await parseFsTimeline(fsTimelineFile, caseId, pool, hostname, collectionTime, link).catch((e) => {
       logger.warn('[CatScale] fstimeline parse error:', e.message); return 0;
     });
     if (n > 0) { totalEvents += n; artifacts.push(`fstimeline:${path.basename(fsTimelineFile)} (${n})`); }

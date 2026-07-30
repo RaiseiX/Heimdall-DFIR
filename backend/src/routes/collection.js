@@ -1446,7 +1446,7 @@ router.post('/:caseId/parse', authenticate, async (req, res) => {
       } catch (_e) {}
       const csResult = await parseCatScale(catscaleRoot, caseId, pool, collectionTime, (p) => {
         if (socketId && io) io.to(socketId).emit('collection:progress', { ...p, artifact: 'catscale' });
-      }, resultId);
+      }, { resultId, evidenceId });
       results['catscale'] = {
         status: 'ok',
         name: 'CatScale Linux IR',
