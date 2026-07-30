@@ -240,6 +240,28 @@ function countMarkers(dir: string): number {
   catch { return 0; }
 }
 
+// Cat-Scale writes its output 0600/0700 as root; a backend that dropped
+// privileges gets EACCES on every readdir. findFiles/walkDir turn that into an
+// empty listing, which would otherwise surface as a successful parse of an empty
+// collection — the failure mode an analyst is most likely to misread as "clean".
+// Probing up front lets the caller tell "nothing there" from "nothing readable".
+function unreadableDirs(root: string): string[] {
+  const denied: string[] = [];
+  const probe = (p: string) => {
+    try { fs.readdirSync(p); }
+    catch (e: any) { if (e?.code === 'EACCES' || e?.code === 'EPERM') denied.push(p); }
+  };
+  probe(root);
+  let entries: string[] = [];
+  try { entries = fs.readdirSync(root); } catch { return denied; }
+  for (const e of entries) {
+    const sub = path.join(root, e);
+    try { if (fs.statSync(sub).isDirectory()) probe(sub); }
+    catch (err: any) { if (err?.code === 'EACCES' || err?.code === 'EPERM') denied.push(sub); }
+  }
+  return denied;
+}
+
 export function findCatScaleRoot(extractDir: string): string | null {
   if (countMarkers(extractDir) >= 2) return extractDir;
   try {
@@ -664,6 +686,8 @@ export interface CatScaleParseResult {
   os_info: string;
   collection_time: string;
   artifacts: string[];
+  /** Directories the parse could not read. Non-empty means the result is not trustworthy. */
+  unreadable: string[];
 }
 
 export async function parseCatScale(
@@ -677,6 +701,10 @@ export async function parseCatScale(
   let totalEvents = 0;
   const artifacts: string[] = [];
   const tempDirs: string[] = [];
+  const unreadable = unreadableDirs(catscaleRoot);
+  if (unreadable.length) {
+    logger.warn(`[CatScale] ${unreadable.length} directory(ies) unreadable (permissions): ${unreadable.slice(0, 5).join(', ')}`);
+  }
 
   const emit = (step: string) =>
     emitProgress?.({ type: 'catscale_step', step, artifact: 'catscale' });
@@ -820,5 +848,5 @@ export async function parseCatScale(
   }
 
   logger.info(`[CatScale] ${hostname} (${osInfo || 'Linux'}): ${totalEvents} events — ${artifacts.length} sources`);
-  return { events: totalEvents, hostname, os_info: osInfo, collection_time: collectionTime.toISOString(), artifacts };
+  return { events: totalEvents, hostname, os_info: osInfo, collection_time: collectionTime.toISOString(), artifacts, unreadable };
 }

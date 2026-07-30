@@ -723,10 +723,24 @@ router.post('/:caseId/import', authenticate, upload.single('collection'), async 
             await spawnTool(['7z', 'x', uploadedPath, `-o${collectionDir}`, '-y'], { timeout: 3600000 });
           }
         } else if (ext === '.tar' || ext === '.gz' || ext === '.tgz') {
-          await spawnTool(['tar', 'xzf', uploadedPath, '-C', collectionDir], { timeout: 3600000 });
+          // --no-same-owner / --no-same-permissions: Cat-Scale runs as root and stores
+          // its tree 0600/0700 owned by root. GNU tar run as root restores both by
+          // default, so the backend user then gets EACCES on every directory and the
+          // parse silently yields zero events. Evidence integrity is carried by the
+          // hashes, not by the mode bits of this working copy.
+          await spawnTool(['tar', 'xzf', uploadedPath, '--no-same-owner', '--no-same-permissions',
+                           '-C', collectionDir], { timeout: 3600000 });
         } else {
           await spawnTool(['7z', 'x', uploadedPath, `-o${collectionDir}`, '-y'], { timeout: 3600000 });
         }
+
+        // Belt and braces: unzip and 7z have their own opinions about stored modes,
+        // and a directory without the traversal bit is unreadable even by its owner.
+        // Guarantee the backend can walk what it just extracted.
+        try {
+          const r = spawnSync('chmod', ['-R', 'u+rwX,go-w', collectionDir], { timeout: 300000 });
+          if (r.status !== 0) logger.warn(`[collection] could not normalise permissions: ${r.stderr?.toString().trim()}`);
+        } catch (e) { logger.warn('[collection] permission normalisation skipped:', e.message); }
 
         try { fs.unlinkSync(uploadedPath); } catch (_) {}
 
@@ -1447,15 +1461,25 @@ router.post('/:caseId/parse', authenticate, async (req, res) => {
       const csResult = await parseCatScale(catscaleRoot, caseId, pool, collectionTime, (p) => {
         if (socketId && io) io.to(socketId).emit('collection:progress', { ...p, artifact: 'catscale' });
       }, { resultId, evidenceId });
+      // A permission-denied collection reads as an empty one: findFiles/walkDir
+      // return [] on EACCES. Reporting that as a successful parse of 0 events is
+      // how an analyst ends up concluding a host is clean when nothing was read.
+      const blocked = (csResult.unreadable || []).length > 0 && csResult.events === 0;
       results['catscale'] = {
-        status: 'ok',
+        status: blocked ? 'error' : 'ok',
         name: 'CatScale Linux IR',
         records: csResult.events,
         hostname: csResult.hostname,
         artifacts: csResult.artifacts,
+        ...(blocked ? {
+          error: `Collection unreadable: ${csResult.unreadable.length} directory(ies) denied (EACCES). `
+               + `Cat-Scale writes its output as root; grant the backend user read access before parsing. `
+               + `First: ${csResult.unreadable.slice(0, 3).join(', ')}`,
+        } : {}),
       };
+      if (blocked) logger.error(`[CatScale] parse aborted — ${csResult.unreadable.length} unreadable directory(ies)`);
       totalRecords += csResult.events;
-      emitProgress({ type: 'artifact_done', artifact: 'catscale', name: 'CatScale Linux IR', status: 'ok', records: csResult.events, current: totalTypes + 1, total: totalTypes + 1 });
+      emitProgress({ type: 'artifact_done', artifact: 'catscale', name: 'CatScale Linux IR', status: blocked ? 'error' : 'ok', records: csResult.events, current: totalTypes + 1, total: totalTypes + 1 });
       logger.info(`[CatScale] Detected and parsed: ${csResult.events} events from ${csResult.hostname}`);
     }
   } catch (e) {
