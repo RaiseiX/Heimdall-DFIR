@@ -13,7 +13,7 @@
     "dfiq:seed": "node scripts/seedDfiq.js"
   },
   "dependencies": {
-    "@elastic/elasticsearch": "^8.13.0",
+    "@elastic/elasticsearch": "^8.19.2",
     "@socket.io/redis-adapter": "^8.3.0",
     "@socket.io/redis-emitter": "^5.1.0",
     "axios": "^1.7.9",
@@ -37,7 +37,7 @@
     "jsonwebtoken": "^9.0.2",
     "minio": "^8.0.7",
     "morgan": "^1.10.0",
-    "multer": "^1.4.5-lts.1",
+    "multer": "^2.2.0",
     "pdfkit": "^0.14.0",
     "pg": "^8.12.0",
     "pg-copy-streams": "^6.0.6",

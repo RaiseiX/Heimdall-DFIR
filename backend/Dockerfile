@@ -4,7 +4,7 @@
 # This stage is Docker-layer-cached independently from the application code.
 # It only re-runs when tool URLs or versions change — not on every code edit.
 # ════════════════════════════════════════════════════════════════════════════
-FROM node:20-bookworm-slim AS tool-fetcher
+FROM node:24-bookworm-slim AS tool-fetcher
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
@@ -75,7 +75,7 @@ RUN mkdir -p /app/hayabusa /tmp/hayabusa \
     && cd /tmp/hayabusa \
     && echo "Downloading Hayabusa..." \
     && curl -fsSL -L -o hayabusa.zip \
-        "https://github.com/Yamato-Security/hayabusa/releases/download/v3.8.1/hayabusa-3.8.1-lin-x64-musl.zip" \
+        "https://github.com/Yamato-Security/hayabusa/releases/download/v3.10.0/hayabusa-3.10.0-lin-x64-musl.zip" \
     && unzip -o -q hayabusa.zip -d /app/hayabusa/ \
     && chmod +x /app/hayabusa/hayabusa* 2>/dev/null || true \
     && echo "=== Hayabusa installed ===" \
@@ -112,7 +112,7 @@ RUN git clone --depth=1 --single-branch \
 # Installs system deps and the Node app. Rebuilds fast on code changes because
 # the heavy tool-fetcher stage above is pulled from cache.
 # ════════════════════════════════════════════════════════════════════════════
-FROM node:20-bookworm-slim
+FROM node:24-bookworm-slim
 
 WORKDIR /app
 
