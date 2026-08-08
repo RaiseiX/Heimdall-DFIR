@@ -1,5 +1,6 @@
 const express = require('express');
 const { execSync, execFileSync, exec, spawnSync, spawn, execFile } = require('child_process');
+const { extractArgs, permissionArgs } = require('../services/archiveExtract');
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
@@ -31,6 +32,7 @@ const { importCsvFile } = require('../services/csv/importCsvFile');
 const { findCsvFilesRecursive } = require('../services/csv/findCsvFiles');
 const { scanCollectionCsvs } = require('../services/csv/scanCollectionCsvs');
 const { ZIMMERMAN_DIR, ARTIFACT_PATTERNS, ECS_COLUMNS } = require('../config/artifactPatterns');
+const { purgeFsTimeline, purgeCatScaleState } = require('../services/fsTimelinePurge');
 
 const router = express.Router();
 
@@ -38,64 +40,11 @@ const { caseAccessParam } = require('../middleware/caseAccess');
 router.use(authenticate);
 router.param('caseId', caseAccessParam);
 
-pool.query(`
-  CREATE TABLE IF NOT EXISTS collection_timeline (
-    id            BIGSERIAL PRIMARY KEY,
-    case_id       UUID NOT NULL REFERENCES cases(id) ON DELETE CASCADE,
-    result_id     UUID REFERENCES parser_results(id) ON DELETE CASCADE,
-    evidence_id   UUID REFERENCES evidence(id) ON DELETE CASCADE,
-    timestamp     TIMESTAMPTZ NOT NULL,
-    artifact_type VARCHAR(50)  NOT NULL DEFAULT '',
-    artifact_name VARCHAR(100) NOT NULL DEFAULT '',
-    description   TEXT         NOT NULL DEFAULT '',
-    source        VARCHAR(200) NOT NULL DEFAULT '',
-    raw           JSONB        NOT NULL DEFAULT '{}',
-    created_at    TIMESTAMPTZ  DEFAULT NOW()
-  )
-`).then(() => Promise.all([
-  pool.query(`CREATE INDEX IF NOT EXISTS idx_ct_case_ts    ON collection_timeline(case_id, timestamp)`),
-  pool.query(`CREATE INDEX IF NOT EXISTS idx_ct_case_type  ON collection_timeline(case_id, artifact_type)`),
-  pool.query(`CREATE INDEX IF NOT EXISTS idx_ct_result     ON collection_timeline(result_id)`),
-  pool.query(`CREATE INDEX IF NOT EXISTS idx_ct_evidence   ON collection_timeline(evidence_id)`),
-  pool.query(`CREATE INDEX IF NOT EXISTS idx_ct_case_ev_ts ON collection_timeline(case_id, evidence_id, timestamp)`),
+// The collection_timeline DDL used to run here, at module load, as fire-and-forget
+// pool.query() calls: Express started serving before they finished and nothing
+// awaited their result. It now runs from server.js runMigrations(), under
+// lock_timeout, before listen(). See src/config/collectionTimelineDdl.js.
 
-  pool.query(`ALTER TABLE collection_timeline ADD COLUMN IF NOT EXISTS evidence_id UUID REFERENCES evidence(id) ON DELETE CASCADE`),
-
-  pool.query(`ALTER TABLE collection_timeline ADD COLUMN IF NOT EXISTS source_device VARCHAR(256)`),
-
-  // v2.23 — unified forensic columns (inspired by forensic-timeliner)
-  pool.query(`ALTER TABLE collection_timeline
-                ADD COLUMN IF NOT EXISTS tool           VARCHAR(32),
-                ADD COLUMN IF NOT EXISTS timestamp_kind VARCHAR(64),
-                ADD COLUMN IF NOT EXISTS details        TEXT,
-                ADD COLUMN IF NOT EXISTS "path"         TEXT,
-                ADD COLUMN IF NOT EXISTS ext            VARCHAR(16),
-                ADD COLUMN IF NOT EXISTS event_id       INTEGER,
-                ADD COLUMN IF NOT EXISTS file_size      BIGINT,
-                ADD COLUMN IF NOT EXISTS src_ip         INET,
-                ADD COLUMN IF NOT EXISTS dst_ip         INET,
-                ADD COLUMN IF NOT EXISTS sha1           CHAR(40),
-                ADD COLUMN IF NOT EXISTS tags           TEXT[] NOT NULL DEFAULT '{}',
-                ADD COLUMN IF NOT EXISTS dedupe_hash    CHAR(16)`),
-  pool.query(`CREATE INDEX        IF NOT EXISTS idx_ct_case_tool     ON collection_timeline(case_id, tool)     WHERE tool     IS NOT NULL`),
-  pool.query(`CREATE INDEX        IF NOT EXISTS idx_ct_case_event_id ON collection_timeline(case_id, event_id) WHERE event_id IS NOT NULL`),
-  pool.query(`CREATE INDEX        IF NOT EXISTS idx_ct_case_ext      ON collection_timeline(case_id, ext)      WHERE ext      IS NOT NULL`),
-  pool.query(`CREATE INDEX        IF NOT EXISTS idx_ct_case_sha1     ON collection_timeline(case_id, sha1)     WHERE sha1     IS NOT NULL`),
-  pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS uq_ct_case_dedupe    ON collection_timeline(case_id, dedupe_hash) WHERE dedupe_hash IS NOT NULL`),
-
-  // v2.26 — per-row threat engine detections
-  pool.query(`ALTER TABLE collection_timeline ADD COLUMN IF NOT EXISTS detections JSONB`),
-  pool.query(`CREATE INDEX IF NOT EXISTS idx_ct_detections ON collection_timeline(case_id) WHERE detections IS NOT NULL`),
-]))
-  // EVTX & other artifacts can carry values longer than the legacy varchar caps; a single
-  // overflow fails the whole UNNEST batch (pg 22001) → 0 rows. Widen forensic text columns
-  // to TEXT (metadata-only change, runs after the ADD COLUMNs above to avoid a race).
-  .then(() => pool.query(`ALTER TABLE collection_timeline
-                ALTER COLUMN host_name     TYPE text,
-                ALTER COLUMN user_name     TYPE text,
-                ALTER COLUMN source_device TYPE text,
-                ALTER COLUMN process_name  TYPE text`))
-  .catch(e => logger.warn('[collection] auto-migration warning:', e.message));
 const COLLECTIONS_DIR = '/app/collections';
 const TEMP_DIR = '/app/temp';
 
@@ -722,23 +671,16 @@ router.post('/:caseId/import', authenticate, upload.single('collection'), async 
             logger.warn('[collection] unzip failed, retrying with 7z:', unzipErr.message);
             await spawnTool(['7z', 'x', uploadedPath, `-o${collectionDir}`, '-y'], { timeout: 3600000 });
           }
-        } else if (ext === '.tar' || ext === '.gz' || ext === '.tgz') {
-          // --no-same-owner / --no-same-permissions: Cat-Scale runs as root and stores
-          // its tree 0600/0700 owned by root. GNU tar run as root restores both by
-          // default, so the backend user then gets EACCES on every directory and the
-          // parse silently yields zero events. Evidence integrity is carried by the
-          // hashes, not by the mode bits of this working copy.
-          await spawnTool(['tar', 'xzf', uploadedPath, '--no-same-owner', '--no-same-permissions',
-                           '-C', collectionDir], { timeout: 3600000 });
         } else {
-          await spawnTool(['7z', 'x', uploadedPath, `-o${collectionDir}`, '-y'], { timeout: 3600000 });
+          await spawnTool(extractArgs(ext, uploadedPath, collectionDir), { timeout: 3600000 });
         }
 
         // Belt and braces: unzip and 7z have their own opinions about stored modes,
         // and a directory without the traversal bit is unreadable even by its owner.
         // Guarantee the backend can walk what it just extracted.
         try {
-          const r = spawnSync('chmod', ['-R', 'u+rwX,go-w', collectionDir], { timeout: 300000 });
+          const [cmd, ...cargs] = permissionArgs(collectionDir);
+          const r = spawnSync(cmd, cargs, { timeout: 300000 });
           if (r.status !== 0) logger.warn(`[collection] could not normalise permissions: ${r.stderr?.toString().trim()}`);
         } catch (e) { logger.warn('[collection] permission normalisation skipped:', e.message); }
 
@@ -767,7 +709,8 @@ router.post('/:caseId/import', authenticate, upload.single('collection'), async 
             logger.info(`[CatScale] Detected at import: ${catscaleRoot}`);
           }
         } catch (e) {
-          logger.warn('[CatScale] detection at import failed:', e.message);
+          logger.error('[CatScale] detection at import failed:', e.message);
+          detectedArtifacts['catscale_error'] = { name: 'CatScale detection failed', error: e.message, files: [], n: 0 };
         }
 
         if (!isCatScale) {
@@ -779,10 +722,13 @@ router.post('/:caseId/import', authenticate, upload.single('collection'), async 
                 count: found.length,
                 toolAvailable: fs.existsSync(path.join(ZIMMERMAN_DIR, config.tool)),
                 name: config.name,
+                platform: ARTIFACT_TYPE_PLATFORM[artifactType] || null,
               };
             }
           }
         }
+
+        const collectionPlatform = detectCollectionPlatform(detectedArtifacts);
 
         // Anti-duplication: drop prior import rows whose extracted collection dir no longer
         // exists on disk (orphans from re-imports) so they stop inflating the synthesis count.
@@ -3898,3 +3844,4 @@ router.delete('/:caseId/verdicts/:eventRef', authenticate, async (req, res) => {
 
 module.exports = router;
 module.exports.extractTimestamp = extractTimestamp;
+module.exports.detectCollectionPlatform = detectCollectionPlatform;
