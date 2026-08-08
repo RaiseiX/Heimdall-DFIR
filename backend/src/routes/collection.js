@@ -613,6 +613,43 @@ function spawnTool(args, options = {}) {
   });
 }
 
+// Which OS each detected artifact type belongs to. Mirrors, key-for-key, the
+// `platform` field already carried by every entry of the ARTIFACTS map in
+// frontend/src/components/collection/CollectionImportPanel.jsx — the existing
+// UI-facing source of truth for "which platform does this artifact type
+// belong to". Kept here as plain data copied from that map, not re-derived
+// from a new heuristic, so the two cannot silently drift apart.
+const ARTIFACT_TYPE_PLATFORM = {
+  evtx: 'windows', prefetch: 'windows', mft: 'windows', usn: 'windows', indx: 'windows',
+  lnk: 'windows', registry: 'windows', userassist: 'windows', netprofile: 'windows',
+  usb: 'windows', schtasks: 'windows', pwsh: 'windows', dns: 'windows', webcache: 'windows',
+  pcap: 'windows', wmi: 'windows', rdpcache: 'windows', amcache: 'windows', shellbags: 'windows',
+  jumplist: 'windows', srum: 'windows', recycle: 'windows', sum: 'windows', sqle: 'windows',
+  wxtcmd: 'windows', appcompat: 'windows', bits: 'windows',
+  auditd: 'linux', syslog: 'linux', bash_history: 'linux',
+  unified_log: 'macos',
+};
+
+// The collection's platform: the one OS every *detected* artifact type agrees
+// on. `detectedArtifacts` is keyed by artifact type, each entry optionally
+// carrying its own `platform` (CatScale already sets one on itself; the
+// non-CatScale detection loop below sets one from ARTIFACT_TYPE_PLATFORM).
+// `catscale_error` (written when CatScale detection throws) carries no
+// `platform` and is correctly ignored here.
+//
+// Rule, deliberately strict: any disagreement between detected artifact
+// types, or nothing recognisable detected at all, resolves to NULL — never a
+// default, never a majority vote. A wrong platform recorded against evidence
+// is worse than an absent one.
+function detectCollectionPlatform(detectedArtifacts) {
+  const platforms = new Set(
+    Object.values(detectedArtifacts)
+      .map((artifact) => artifact && artifact.platform)
+      .filter(Boolean)
+  );
+  return platforms.size === 1 ? [...platforms][0] : null;
+}
+
 router.post('/:caseId/import', authenticate, upload.single('collection'), async (req, res) => {
   const { caseId } = req.params;
 
@@ -743,9 +780,9 @@ router.post('/:caseId/import', authenticate, upload.single('collection'), async 
         } catch (e) { logger.warn('[import] orphan cleanup failed:', e.message); }
 
         const collectionResult = await pool.query(
-          `INSERT INTO parser_results (case_id, parser_name, parser_version, input_file, output_data, record_count, created_by)
-           VALUES ($1, 'MagnetRESPONSE_Import', '1.0', $2, $3, 0, $4) RETURNING id`,
-          [caseId, collectionDir, JSON.stringify({ status: 'imported', detected: detectedArtifacts }), userId]
+          `INSERT INTO parser_results (case_id, parser_name, parser_version, input_file, output_data, record_count, created_by, platform)
+           VALUES ($1, 'MagnetRESPONSE_Import', '1.0', $2, $3, 0, $4, $5) RETURNING id`,
+          [caseId, collectionDir, JSON.stringify({ status: 'imported', detected: detectedArtifacts }), userId, collectionPlatform]
         );
 
         const totalFiles = Object.values(detectedArtifacts).reduce((s, a) => s + a.count, 0);
@@ -1404,32 +1441,59 @@ router.post('/:caseId/parse', authenticate, async (req, res) => {
         const mtime = fs.statSync(catscaleRoot).mtime;
         if (mtime && mtime < new Date()) Object.assign(collectionTime, mtime) || (collectionTime.setTime(mtime.getTime()));
       } catch (_e) {}
+      // Opt-in exhaustive filesystem timeline: 4.4M rows instead of 332k on a real
+      // host. Off unless the caller asks, and reversible via DELETE
+      // /api/collection/:caseId/fs-timeline.
+      const exhaustiveFsTimeline = req.body?.exhaustive_fs_timeline === true
+        || req.body?.exhaustive_fs_timeline === 'true';
       const csResult = await parseCatScale(catscaleRoot, caseId, pool, collectionTime, (p) => {
         if (socketId && io) io.to(socketId).emit('collection:progress', { ...p, artifact: 'catscale' });
-      }, { resultId, evidenceId });
+      }, { resultId, evidenceId }, { exhaustiveFsTimeline });
       // A permission-denied collection reads as an empty one: findFiles/walkDir
       // return [] on EACCES. Reporting that as a successful parse of 0 events is
       // how an analyst ends up concluding a host is clean when nothing was read.
       const blocked = (csResult.unreadable || []).length > 0 && csResult.events === 0;
+      const failures = csResult.failures || [];
+      const degraded = failures.length > 0;
       results['catscale'] = {
-        status: blocked ? 'error' : 'ok',
+        status: (blocked || degraded) ? 'error' : 'ok',
         name: 'CatScale Linux IR',
         records: csResult.events,
         hostname: csResult.hostname,
         artifacts: csResult.artifacts,
+        failures,
+        state_rows: csResult.state_rows,
+        // What the noise floor removed and why. Surfaced so the analyst can see
+        // the gap instead of trusting a number that silently dropped 92% of the
+        // filesystem timeline.
+        fs_filter: csResult.fs_filter,
+        exhaustive_fs_timeline: exhaustiveFsTimeline,
         ...(blocked ? {
           error: `Collection unreadable: ${csResult.unreadable.length} directory(ies) denied (EACCES). `
                + `Cat-Scale writes its output as root; grant the backend user read access before parsing. `
                + `First: ${csResult.unreadable.slice(0, 3).join(', ')}`,
+        } : degraded ? {
+          // The count is real but incomplete — say so rather than let an analyst
+          // read a partial parse as the whole picture.
+          error: `Parsed with ${failures.length} failure(s): `
+               + failures.slice(0, 3).map(f => `${f.stage} on ${require('path').basename(f.target)} (${f.reason})`).join(' · ')
+               + (failures.length > 3 ? ` … +${failures.length - 3}` : ''),
         } : {}),
       };
       if (blocked) logger.error(`[CatScale] parse aborted — ${csResult.unreadable.length} unreadable directory(ies)`);
+      else if (degraded) logger.error(`[CatScale] parse incomplete — ${failures.length} failure(s)`);
       totalRecords += csResult.events;
-      emitProgress({ type: 'artifact_done', artifact: 'catscale', name: 'CatScale Linux IR', status: blocked ? 'error' : 'ok', records: csResult.events, current: totalTypes + 1, total: totalTypes + 1 });
+      emitProgress({ type: 'artifact_done', artifact: 'catscale', name: 'CatScale Linux IR', status: (blocked || degraded) ? 'error' : 'ok', records: csResult.events, current: totalTypes + 1, total: totalTypes + 1 });
       logger.info(`[CatScale] Detected and parsed: ${csResult.events} events from ${csResult.hostname}`);
     }
   } catch (e) {
-    logger.warn('[CatScale] detection/parse error:', e.message);
+    // Without an entry here the UI shows nothing at all about CatScale, exactly as
+    // if the archive had never been a Linux collection.
+    logger.error('[CatScale] detection/parse error:', e.message);
+    results['catscale'] = {
+      status: 'error', name: 'CatScale Linux IR', records: 0,
+      error: `CatScale parsing failed: ${e.message}`,
+    };
   }
 
   // CSVs are claimed by no ARTIFACT_PATTERNS entry, so without this step they
@@ -3173,6 +3237,52 @@ router.get('/:caseId/hayabusa', authenticate, async (req, res) => {
   } catch (err) {
     logger.error('[hayabusa GET]', err.message);
     res.status(500).json({ error: 'Erreur serveur' });
+  }
+});
+
+// Counterpart to exhaustive parsing: take the filesystem timeline back out
+// without touching any other artifact. Requires confirm=true in the body so it
+// cannot be triggered by a stray request, and is audit-logged like any deletion.
+router.delete('/:caseId/fs-timeline', authenticate, async (req, res) => {
+  try {
+    const { caseId } = req.params;
+    if (req.body?.confirm !== true && req.body?.confirm !== 'true') {
+      return res.status(400).json({
+        error: 'Confirmation requise : renvoyez { "confirm": true } pour supprimer la timeline filesystem.',
+      });
+    }
+    const evidenceId = req.body?.evidence_id || null;
+    const removed = await purgeFsTimeline(pool, caseId, { evidenceId });
+    await auditLog(req.user.id, 'purge_fs_timeline', 'case', caseId,
+      { removed, evidence_id: evidenceId }, req.ip);
+    logger.info(`[collection] fs timeline purged: ${removed} row(s) for case ${caseId}`);
+    return res.json({ removed, evidence_id: evidenceId });
+  } catch (err) {
+    logger.error('[collection/fs-timeline DELETE]', err.message);
+    return res.status(500).json({ error: 'Erreur lors de la suppression de la timeline filesystem' });
+  }
+});
+
+// Same contract for the state inventory, optionally narrowed to one family —
+// dropping lsof (525k rows) without losing the rest.
+router.delete('/:caseId/state', authenticate, async (req, res) => {
+  try {
+    const { caseId } = req.params;
+    if (req.body?.confirm !== true && req.body?.confirm !== 'true') {
+      return res.status(400).json({
+        error: 'Confirmation requise : renvoyez { "confirm": true } pour supprimer l\'inventaire d\'état.',
+      });
+    }
+    const kind = req.body?.kind || null;
+    const evidenceId = req.body?.evidence_id || null;
+    const removed = await purgeCatScaleState(pool, caseId, { kind, evidenceId });
+    await auditLog(req.user.id, 'purge_catscale_state', 'case', caseId,
+      { removed, kind, evidence_id: evidenceId }, req.ip);
+    logger.info(`[collection] catscale_state purged: ${removed} row(s) for case ${caseId}${kind ? ` (kind=${kind})` : ''}`);
+    return res.json({ removed, kind, evidence_id: evidenceId });
+  } catch (err) {
+    logger.error('[collection/state DELETE]', err.message);
+    return res.status(500).json({ error: 'Erreur lors de la suppression de l\'inventaire d\'état' });
   }
 });
 
