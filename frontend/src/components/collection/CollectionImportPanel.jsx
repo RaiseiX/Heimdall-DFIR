@@ -466,7 +466,13 @@ export default function CollectionImportPanel({ caseId, caseObj, onDone }) {
   const toggle = (t) => setSelected(p => p.includes(t) ? p.filter(x => x !== t) : [...p, t]);
   const isProcessing = ['uploading', 'extracting', 'detecting', 'parsing', 'hayabusa'].includes(step);
 
-  const currentStepIdx = PIPELINE_STEPS.findIndex(s =>
+  // Hayabusa scans Windows event logs. The parse already skips it unless EVTX is
+  // present (`if (hasEvtx)`), so showing it for a Linux collection announces a
+  // step that will never run — the pipeline drawn must be the pipeline executed.
+  const willRunHayabusa = !isCatScaleCollection && selected.includes('evtx');
+  const pipelineSteps = PIPELINE_STEPS.filter(s => s.key !== 'hayabusa' || willRunHayabusa);
+
+  const currentStepIdx = pipelineSteps.findIndex(s =>
     (step === 'uploading' && s.key === 'upload') || (step === 'extracting' && s.key === 'extract') ||
     (step === 'detecting' && s.key === 'detect') || (step === 'parsing' && s.key === 'parse') ||
     (step === 'hayabusa' && s.key === 'hayabusa') || (step === 'done' && s.key === 'timeline')
@@ -569,14 +575,14 @@ export default function CollectionImportPanel({ caseId, caseObj, onDone }) {
       {isProcessing && (
         <div className="fl-card p-4">
           <div style={{ display: 'flex', alignItems: 'flex-start', marginBottom: 20 }}>
-            {PIPELINE_STEPS.map((ps, i) => {
+            {pipelineSteps.map((ps, i) => {
               const isDone = i < currentStepIdx;
               const isActive = i === currentStepIdx;
               const MONO = 'var(--f-mono, "JetBrains Mono", monospace)';
               return (
                 <div key={ps.key} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', position: 'relative', minWidth: 0 }}>
                   {/* connector line to the next node (flowing gradient on the active step) */}
-                  {i < PIPELINE_STEPS.length - 1 && (
+                  {i < pipelineSteps.length - 1 && (
                     <div className={isActive ? 'fl-flow' : ''} style={{ position: 'absolute', top: 13, left: '50%', width: '100%', height: 2, zIndex: 0, transition: 'background 0.4s',
                       background: isDone ? 'var(--fl-ok)'
                         : isActive ? 'linear-gradient(90deg, color-mix(in srgb, var(--fl-accent) 20%, var(--fl-border2)), var(--fl-accent), color-mix(in srgb, var(--fl-accent) 20%, var(--fl-border2)))'

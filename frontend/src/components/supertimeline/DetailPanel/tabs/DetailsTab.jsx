@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Copy, Check } from 'lucide-react';
 import { fmtTs } from '../../../../utils/formatters';
 import { fmtDesc, fmtSrc } from '../../utils/timelineUtils';
 
@@ -50,7 +51,7 @@ function FieldBlock({ label, value, highlight, wrap = false }) {
         fontSize: 8, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase',
         color: 'var(--fl-muted)', padding: '3px 8px', background: 'var(--fl-bg)' }}>
         <span>{label}</span>
-        {str.length > 120 && <CopyBtn value={str} />}
+        {str.length > 0 && <CopyBtn value={str} />}
       </div>
       <div title={str.length > 2000 ? undefined : str} style={{
         fontSize: 10, color: highlight ? 'var(--fl-danger)' : 'var(--fl-dim)', padding: '5px 8px',
@@ -70,9 +71,10 @@ function CopyBtn({ value }) {
   const [ok, setOk] = useState(false);
   return (
     <button onClick={e => { e.stopPropagation(); navigator.clipboard.writeText(String(value)); setOk(true); setTimeout(() => setOk(false), 1200); }}
-      style={{ background: 'none', border: 'none', cursor: 'pointer', color: ok ? 'var(--fl-ok)' : 'var(--fl-subtle)', fontSize: 9, padding: '0 2px', flexShrink: 0 }}
-      title="Copy">
-      {ok ? '✓' : '⧉'}
+      style={{ background: 'none', border: 'none', cursor: 'pointer', color: ok ? 'var(--fl-ok)' : 'var(--fl-dim)',
+        padding: '2px 3px', flexShrink: 0, display: 'inline-flex', alignItems: 'center' }}
+      aria-label={ok ? 'Copied' : 'Copy value'} title="Copy">
+      {ok ? <Check size={12} strokeWidth={1.6} /> : <Copy size={12} strokeWidth={1.6} />}
     </button>
   );
 }

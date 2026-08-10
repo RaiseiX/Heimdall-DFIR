@@ -73,12 +73,13 @@ const EVENT_LABELS = {
 const BASE_LINK_OP = 0.5;
 
 export default function LateralMovementD3({ svgRef: externalSvgRef, nodes, edges, totalEvents, chains = [], theme }) {
-  const bgColor    = theme?.bg    || '#0d1117';
-  const textColor  = '#ffffff';
-  const dimColor   = theme?.dim   || '#484f58';
+  const bgColor    = theme?.bg    || 'var(--fl-bg)';
+  // `#ffffff` en dur rendait ces libellés invisibles en thème clair.
+  const textColor  = 'var(--fl-text)';
+  const dimColor   = theme?.dim   || 'var(--fl-dim)';
   const panelColor = 'var(--fl-panel)';
   const borderColor = 'var(--fl-border)';
-  const gridColor  = theme?.mode === 'light' ? '#e8eef4' : '#161b22';
+  const gridColor  = 'var(--fl-border)';
   const localSvgRef = useRef(null);
   const svgRef = externalSvgRef || localSvgRef;
   const containerRef = useRef(null);
@@ -530,7 +531,7 @@ export default function LateralMovementD3({ svgRef: externalSvgRef, nodes, edges
 
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6, marginTop: 10 }}>
                   {[
-                    ['Total', selectedNode.total_events, '#7d8590'],
+                    ['Total', selectedNode.total_events, 'var(--fl-muted)'],
                     ['Outbound →', selectedNode.as_source, 'var(--fl-warn)'],
                     ['Inbound ←', selectedNode.as_target, 'var(--fl-accent)'],
                   ].map(([label, val, color]) => (

@@ -8,7 +8,7 @@ rules:
     name: "Reverse shell invocation"
     severity: critical
     category: execution
-    target_artifact: [catscale_history, catscale_process, catscale_persistence]
+    target_artifact: [catscale_history, catscale_process, catscale_auditd, catscale_persistence]
     mitre: [T1059.004]
     tags: [Execution, ReverseShell, C2]
     match:
@@ -24,7 +24,7 @@ rules:
     name: "Remote payload piped into a shell"
     severity: high
     category: execution
-    target_artifact: [catscale_history, catscale_process]
+    target_artifact: [catscale_history, catscale_process, catscale_auditd]
     mitre: [T1059.004, T1105]
     tags: [Execution, Download, Staging]
     match:
@@ -36,7 +36,7 @@ rules:
     name: "Base64-decoded payload executed"
     severity: high
     category: execution
-    target_artifact: [catscale_history, catscale_process, catscale_persistence]
+    target_artifact: [catscale_history, catscale_process, catscale_auditd, catscale_persistence]
     mitre: [T1027, T1059.004]
     tags: [Execution, Obfuscation]
     match:

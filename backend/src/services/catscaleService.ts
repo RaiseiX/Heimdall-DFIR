@@ -6,6 +6,10 @@ import os from 'os';
 import readline from 'readline';
 import { spawnSync } from 'child_process';
 import { Pool } from 'pg';
+import { findArtifactFiles, findArtifactFile, type CatScaleFailure } from './catscaleFiles';
+import { collectStateArtifacts } from './catscaleStateCollect';
+import { resolveCollectionTime } from './catscaleNetworkParsers';
+import { insertStateRows } from './catscaleStateStore';
 
 const MONTHS: Record<string, number> = {
   Jan: 0, Feb: 1, Mar: 2, Apr: 3, May: 4, Jun: 5,
@@ -81,37 +85,24 @@ function procName(command: string): string | null {
   return path.basename(first).substring(0, 128) || null;
 }
 
-function findFile(dir: string, ...patterns: string[]): string | null {
-  if (!fs.existsSync(dir)) return null;
-  let entries: string[];
-  try { entries = fs.readdirSync(dir); } catch { return null; }
-  for (const p of patterns) {
-    const found = entries.find(e => e.includes(p));
-    if (found) return path.join(dir, found);
-  }
-  return null;
-}
+// File discovery lives in catscaleFiles so the state collector can share it
+// without a circular import. Re-exported: callers and tests already import it
+// from here.
+export { findArtifactFiles, findArtifactFile };
 
-function findFiles(dir: string, ...patterns: string[]): string[] {
-  if (!fs.existsSync(dir)) return [];
-  let entries: string[];
-  try { entries = fs.readdirSync(dir); } catch { return []; }
-  return entries
-    .filter(e => patterns.some(p => e.includes(p)))
-    .map(e => path.join(dir, e));
-}
-
-function extractTarGz(archivePath: string, destDir: string): boolean {
-  if (!fs.existsSync(archivePath)) return false;
-  try { fs.mkdirSync(destDir, { recursive: true }); } catch { return false; }
+function extractTarGz(archivePath: string, destDir: string, failures?: CatScaleFailure[]): boolean {
+  const note = (reason: string) => {
+    logger.warn(`[CatScale] cannot open ${path.basename(archivePath)}: ${reason}`);
+    failures?.push({ stage: 'extract', target: archivePath, reason });
+    return false;
+  };
+  if (!fs.existsSync(archivePath)) return note('archive missing');
+  try { fs.mkdirSync(destDir, { recursive: true }); } catch (e: any) { return note(`cannot create temp dir: ${e.message}`); }
   const r = spawnSync('tar', ['xzf', archivePath, '-C', destDir], {
     timeout: 300_000,
     maxBuffer: 200 * 1024 * 1024,
   });
-  if (r.status !== 0) {
-    logger.warn(`[CatScale] tar extract failed (${path.basename(archivePath)}): ${r.stderr?.toString().trim()}`);
-    return false;
-  }
+  if (r.status !== 0) return note(r.stderr?.toString().trim() || `tar exited ${r.status}`);
   return true;
 }
 
@@ -153,8 +144,17 @@ type Row = {
   process_name?: string | null;
 };
 
-/** Ties every row back to the parse run and the piece of evidence it came from. */
-export type TimelineLink = { resultId?: string | null; evidenceId?: string | null };
+/** One thing that did not work. `stage` names where, so the UI can be specific.
+ *  Defined in catscaleFiles and re-exported: importers already reach for it here. */
+export type { CatScaleFailure } from './catscaleFiles';
+
+/** Ties every row back to the parse run, and carries the failure channel down to
+ *  batchInsert without threading a new argument through nine parser signatures. */
+export type TimelineLink = {
+  resultId?: string | null;
+  evidenceId?: string | null;
+  failures?: CatScaleFailure[];
+};
 
 const TOOL = 'catscale';
 
@@ -212,7 +212,10 @@ async function batchInsert(pool: Pool, rows: Row[], link: TimelineLink = {}): Pr
       vals.push(`(${INSERT_COLS.map(() => `$${idx++}`).join(',')})`);
       params.push(
         r.case_id, resultId, evidenceId, r.timestamp.toISOString(), r.artifact_type,
-        r.artifact_name ?? null, r.source, r.description, JSON.stringify(r.raw),
+        // artifact_name is NOT NULL DEFAULT '' in db/init.sql, and an explicit
+        // NULL does not fall back to the default — it fails the whole batch. A
+        // parser that omits the field used to lose every one of its rows.
+        r.artifact_name ?? '', r.source, r.description, JSON.stringify(r.raw),
         r.host_name ?? null, r.user_name ?? null, r.process_name ?? null,
         TOOL, r.timestamp_kind ?? null, r.path ?? null, r.ext ?? null,
         r.src_ip ?? null, r.dst_ip ?? null, tags, detections,
@@ -227,7 +230,9 @@ async function batchInsert(pool: Pool, rows: Row[], link: TimelineLink = {}): Pr
       );
       inserted += slice.length;
     } catch (e: any) {
-      logger.warn('[CatScale] batch insert error:', e.message);
+      // Losing 500 rows must not read as "these events did not exist".
+      logger.error(`[CatScale] batch insert failed (${slice.length} rows lost): ${e.message}`);
+      link.failures?.push({ stage: 'insert', target: `${slice.length} rows`, reason: e.message });
     }
   }
   return inserted;
@@ -356,6 +361,60 @@ async function parseAuthLog(filePath: string, caseId: string, pool: Pool, hostna
       // syslog tags the daemon as "sshd[1234]" — the PID belongs in raw, not in a name.
       timestamp_kind: 'log', src_ip: toInet(sourceIp),
       process_name: proc ? proc.replace(/\[\d+\]$/, '') : null,
+    });
+  }
+  return batchInsert(pool, rows, link);
+}
+
+// auditd is the richest execution and file-access source on Linux. Cat-Scale ships
+// it inside var-log.tar.gz, where the filename filter previously stopped at
+// auth.log/secure/messages/syslog and dropped it entirely.
+const AUDIT_RE = /^type=(\S+)\s+msg=audit\((\d+)\.(\d{1,3}):(\d+)\):\s*(.*)$/;
+
+function auditField(body: string, key: string): string | null {
+  const m = new RegExp(`\\b${key}="([^"]*)"|\\b${key}=([^\\s]+)`).exec(body);
+  return m ? (m[1] ?? m[2] ?? null) : null;
+}
+
+async function parseAuditd(filePath: string, caseId: string, pool: Pool, hostname: string, link: TimelineLink = {}): Promise<number> {
+  const rows: Row[] = [];
+  for await (const line of readLines(filePath)) {
+    const m = AUDIT_RE.exec(line);
+    if (!m) continue;
+    const [, type, secs, ms, serial, body] = m;
+    const ts = new Date(Number(secs) * 1000 + Number(ms.padEnd(3, '0')));
+    if (isNaN(ts.getTime())) continue;
+
+    const exe = auditField(body, 'exe');
+    const comm = auditField(body, 'comm');
+    const key = auditField(body, 'key');
+    const result = auditField(body, 'res') ?? auditField(body, 'success');
+    const uid = auditField(body, 'uid');
+    const auid = auditField(body, 'auid');
+
+    // EXECVE splits the command line across a0..aN; rebuilt so execution rules,
+    // which all match on `description`, can see the whole invocation.
+    let argv: string | null = null;
+    if (type === 'EXECVE') {
+      const parts: string[] = [];
+      for (let i = 0; i < 24; i++) {
+        const a = auditField(body, `a${i}`);
+        if (a === null) break;
+        parts.push(a);
+      }
+      if (parts.length) argv = parts.join(' ');
+    }
+
+    const subject = argv ?? exe ?? comm ?? body.slice(0, 120);
+    rows.push({
+      case_id: caseId, timestamp: ts,
+      artifact_type: 'catscale_auditd', artifact_name: 'Linux Audit Log',
+      source: path.basename(filePath),
+      description: `AUDITD ${type}: ${subject}${key ? ` [${key}]` : ''}${result ? ` (${result})` : ''}`,
+      raw: { type, serial, exe, comm, key, result, uid, auid, argv, line, host: hostname },
+      host_name: hostname, user_name: auid && auid !== '4294967295' ? auid : null,
+      timestamp_kind: 'log',
+      path: exe, process_name: comm ?? (exe ? path.basename(exe) : null),
     });
   }
   return batchInsert(pool, rows, link);
@@ -625,12 +684,70 @@ async function parseSystemdList(filePath: string, caseId: string, pool: Pool, t:
 }
 
 
-const SUSPICIOUS_PATHS = ['/tmp/', '/dev/shm/', '/var/tmp/', '/run/', '/home/', '/root/', '/etc/'];
+// Package-managed and pseudo filesystems: rewritten by every apt/snap upgrade,
+// forensically inert unless the path is independently suspicious.
+// Deliberately NOT '/usr/': that would swallow /usr/local, which is precisely
+// where software is installed outside package management — admins and intruders
+// alike. Only the package-managed subtrees are inert.
+const NOISE_PREFIXES = ['/usr/lib/', '/usr/lib64/', '/usr/share/', '/usr/include/',
+  '/usr/src/', '/usr/bin/', '/usr/sbin/', '/lib/', '/lib64/', '/snap/',
+  '/var/lib/dpkg/', '/var/lib/apt/', '/var/lib/snapd/', '/var/cache/', '/proc/', '/sys/'];
+
+// Unconditional pass: small, high-value locations where implants actually land.
+// '/home/' used to be here and was the single biggest source of noise — on a real
+// collection it let 1,091,925 rows through, bypassing even the recency check,
+// because a desktop home directory is mostly application data. /home is not
+// excluded; it is simply held to the same rules as everywhere else.
+const SUSPICIOUS_PATHS = ['/tmp/', '/dev/shm/', '/var/tmp/', '/run/', '/root/', '/etc/'];
+
+// Container overlay layers. Measured at 3,284,093 rows — 75% of everything the
+// old filter kept. They are rebuildable from the image, and what actually matters
+// forensically (what a container wrote at runtime) is `docker diff`, which the
+// Docker artifacts now cover directly.
+const CONTAINER_LAYER_PREFIXES = [
+  '/var/lib/docker/', '/var/lib/containerd/', '/var/lib/containers/', '/var/lib/flatpak/',
+];
+
+// Trees that are caches or reproducible build output. Excluded unless the file
+// carries a suspicious extension — dropping them wholesale would hide a payload
+// deliberately parked in one.
+const REBUILDABLE_RE = /\/(\.cache|node_modules|\.npm|\.steam|__pycache__|\.venv|site-packages|Steam)\/|\/\.git\/objects\//i;
 const SUSPICIOUS_EXT_RE = /\.(sh|py|pl|rb|php|jsp|php\d?|cgi|exe|elf|so)$/i;
 
-async function parseFsTimeline(filePath: string, caseId: string, pool: Pool, hostname: string, collectedAt: Date, link: TimelineLink = {}): Promise<number> {
+/** What the noise floor removed, and why. Reported so a 92% reduction is a stated
+ *  decision rather than a silent one — an analyst must be able to see the gap. */
+export interface FsTimelineFilterStats {
+  scanned: number;
+  kept: number;
+  dropped: {
+    container_layer: number;
+    rebuildable: number;
+    package_tree: number;
+    not_relevant: number;
+    unparsable: number;
+  };
+  top_dropped_locations: { path: string; count: number }[];
+}
+
+// Two path segments is the useful granularity: '/var/lib/docker', '/home/alice'.
+function locationKey(fullPath: string): string {
+  const segs = fullPath.split('/').filter(Boolean).slice(0, 3);
+  return '/' + segs.slice(0, segs.length > 2 && fullPath.startsWith('/var/lib/') ? 3 : 2).join('/');
+}
+
+async function parseFsTimeline(
+  filePath: string, caseId: string, pool: Pool, hostname: string, collectedAt: Date,
+  link: TimelineLink = {}, stats?: FsTimelineFilterStats, exhaustive = false,
+): Promise<number> {
   const rows: Row[] = [];
+  let inserted = 0;
   let headerSeen = false;
+  const dropped = new Map<string, number>();
+  const note = (reason: keyof FsTimelineFilterStats['dropped'], p?: string) => {
+    if (!stats) return;
+    stats.dropped[reason] += 1;
+    if (p) dropped.set(locationKey(p), (dropped.get(locationKey(p)) ?? 0) + 1);
+  };
   // 90 days before the *collection*, not before today: an archive analysed months
   // later must not silently lose every file it recorded.
   const cutoff = new Date(collectedAt.getTime() - 90 * 24 * 60 * 60 * 1000);
@@ -639,18 +756,37 @@ async function parseFsTimeline(filePath: string, caseId: string, pool: Pool, hos
     if (!headerSeen) { headerSeen = true; continue; } // skip CSV header
     if (!line.trim()) continue;
 
+    if (stats) stats.scanned += 1;
+
     const parts = line.split(',');
-    if (parts.length < 11) continue;
+    if (parts.length < 11) { note('unparsable'); continue; }
 
     const fullPath = parts[2];
     const lastMod = parts[4];
     const user = parts[7];
     const perms = parts[9];
 
-    if (!fullPath || fullPath === '-') continue;
+    if (!fullPath || fullPath === '-') { note('unparsable'); continue; }
+
+    // Container layers first, and unconditionally: nothing here is worth a row.
+    if (!exhaustive && CONTAINER_LAYER_PREFIXES.some(p => fullPath.startsWith(p))) {
+      note('container_layer', fullPath); continue;
+    }
+
+    const isSuspiciousExt = SUSPICIOUS_EXT_RE.test(fullPath);
+    // Caches and build output, unless the name itself is a reason to look.
+    if (!exhaustive && !isSuspiciousExt && REBUILDABLE_RE.test(fullPath)) {
+      note('rebuildable', fullPath); continue;
+    }
 
     const isSuspiciousPath = SUSPICIOUS_PATHS.some(p => fullPath.startsWith(p));
-    const isSuspiciousExt = SUSPICIOUS_EXT_RE.test(fullPath);
+    // A live host churns constantly under its package-managed trees, and on a real
+    // collection that noise is ~95% of the rows — it buried 8 auth events under
+    // 900k filesystem entries. Nothing here survives on recency or extension alone;
+    // only an explicitly suspicious location gets through.
+    if (!exhaustive && !isSuspiciousPath && NOISE_PREFIXES.some(p => fullPath.startsWith(p))) {
+      note('package_tree', fullPath); continue;
+    }
     let modTs: Date | null = null;
     if (lastMod && lastMod !== '-') {
       modTs = new Date(lastMod.trim());
@@ -658,7 +794,10 @@ async function parseFsTimeline(filePath: string, caseId: string, pool: Pool, hos
     }
     const isRecent = modTs && modTs >= cutoff;
 
-    if (!isSuspiciousPath && !isSuspiciousExt && !isRecent) continue;
+    if (!exhaustive && !isSuspiciousPath && !isSuspiciousExt && !isRecent) {
+      note('not_relevant', fullPath); continue;
+    }
+    if (stats) stats.kept += 1;
 
     const ts = modTs ?? collectedAt;
     rows.push({
@@ -673,10 +812,20 @@ async function parseFsTimeline(filePath: string, caseId: string, pool: Pool, hos
     });
 
     if (rows.length >= 1000) {
-      await batchInsert(pool, rows.splice(0), link);
+      // The count of every intermediate flush used to be discarded, so a run that
+      // wrote 4,399,750 rows reported "750" — the final partial batch alone. The
+      // rows were in the database; the number shown to the analyst was not.
+      inserted += await batchInsert(pool, rows.splice(0), link);
     }
   }
-  return batchInsert(pool, rows, link);
+  inserted += await batchInsert(pool, rows, link);
+  if (stats) {
+    stats.top_dropped_locations = [...dropped]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 20)
+      .map(([path, count]) => ({ path, count }));
+  }
+  return inserted;
 }
 
 
@@ -688,6 +837,14 @@ export interface CatScaleParseResult {
   artifacts: string[];
   /** Directories the parse could not read. Non-empty means the result is not trustworthy. */
   unreadable: string[];
+  /** Everything that failed along the way. Non-empty means the count is incomplete. */
+  failures: CatScaleFailure[];
+  /** Rows written to catscale_state — inventories that carry no timestamp of their own. */
+  state_rows: number;
+  /** What the filesystem noise floor removed, and why. Null when the collection
+   *  carries no filesystem timeline. Surfacing this is what keeps a 92% reduction
+   *  an explicit decision instead of a silent one. */
+  fs_filter: FsTimelineFilterStats | null;
 }
 
 export async function parseCatScale(
@@ -697,10 +854,22 @@ export async function parseCatScale(
   collectionTime: Date,
   emitProgress?: (p: Record<string, unknown>) => void,
   link: TimelineLink = {},
+  /** exhaustiveFsTimeline: ingest every parsable filesystem row, noise floor off.
+   *  Measured cost on a real host: 4.4M rows instead of 332k. Off by default. */
+  options: { exhaustiveFsTimeline?: boolean } = {},
 ): Promise<CatScaleParseResult> {
   let totalEvents = 0;
   const artifacts: string[] = [];
   const tempDirs: string[] = [];
+  const failures: CatScaleFailure[] = [];
+  // Carried on `link` so batchInsert can report without a new parameter everywhere.
+  link = { ...link, failures };
+  const fail = (stage: CatScaleFailure['stage'], target: string) => (e: any) => {
+    const reason = e?.message ?? String(e);
+    logger.warn(`[CatScale] ${stage} failed on ${path.basename(target)}: ${reason}`);
+    failures.push({ stage, target, reason });
+    return 0;
+  };
   const unreadable = unreadableDirs(catscaleRoot);
   if (unreadable.length) {
     logger.warn(`[CatScale] ${unreadable.length} directory(ies) unreadable (permissions): ${unreadable.slice(0, 5).join(', ')}`);
@@ -712,20 +881,17 @@ export async function parseCatScale(
   let hostname = 'linux-host';
   let osInfo = '';
   const sysDir = path.join(catscaleRoot, 'System_Info');
-  const dateFile = findFile(sysDir, 'host-date-timezone');
+  const dateFile = findArtifactFile(sysDir, 'host-date-timezone');
   if (dateFile) {
-    const content = fs.readFileSync(dateFile, 'utf8');
-    const dateLine = content.split('\n')[0];
-    const tsMatch = /Date\s*:\s*(.+)/.exec(dateLine);
-    if (tsMatch) {
-      const parsed = new Date(tsMatch[1]);
-      if (!isNaN(parsed.getTime())) collectionTime = parsed;
-    }
     const base = path.basename(dateFile);
-    const parts = base.split('-');
-    hostname = parts[0] || hostname;
+    // `date` follows the collected host's locale — a real collection reads
+    // "Date : jeu. 30 juil. 2026 12:44:06 +00:00", which new Date() rejects. The
+    // previous code silently kept the parse time, anchoring every artifact
+    // without its own timestamp days after the facts.
+    collectionTime = resolveCollectionTime(fs.readFileSync(dateFile, 'utf8'), base, collectionTime);
+    hostname = base.split('-')[0] || hostname;
   }
-  const releaseFile = findFile(sysDir, 'release');
+  const releaseFile = findArtifactFile(sysDir, 'release');
   if (releaseFile) {
     const releaseContent = fs.readFileSync(releaseFile, 'utf8');
     const pretty = /PRETTY_NAME="([^"]+)"/.exec(releaseContent);
@@ -734,51 +900,53 @@ export async function parseCatScale(
 
   emit('auth_logs');
   const logsDir = path.join(catscaleRoot, 'Logs');
-  const varLogTar = findFile(logsDir, 'var-log.tar.gz');
-  if (varLogTar) {
+  for (const varLogTar of findArtifactFiles(logsDir, 'var-log.tar.gz')) {
     const varLogTmp = path.join(os.tmpdir(), `catscale-varlog-${caseId}-${Date.now()}`);
     tempDirs.push(varLogTmp);
-    if (extractTarGz(varLogTar, varLogTmp)) {
+    if (extractTarGz(varLogTar, varLogTmp, failures)) {
       await walkDir(varLogTmp, async (fp) => {
         const base = path.basename(fp);
         if (/^(auth\.log|secure|messages|syslog)(\.1)?$/.test(base)) {
-          const n = await parseAuthLog(fp, caseId, pool, hostname, collectionTime, link).catch(() => 0);
+          const n = await parseAuthLog(fp, caseId, pool, hostname, collectionTime, link).catch(fail('parse', fp));
           if (n > 0) { totalEvents += n; artifacts.push(`auth:${base} (${n})`); }
+        } else if (/^audit\.log(\.\d+)?$/.test(base)) {
+          const n = await parseAuditd(fp, caseId, pool, hostname, link).catch(fail('parse', fp));
+          if (n > 0) { totalEvents += n; artifacts.push(`auditd:${base} (${n})`); }
         }
       });
     }
   }
 
   emit('logon_history');
-  for (const pat of ['last-wtmp', 'last-utmp']) {
-    const fp = findFile(logsDir, pat);
-    if (fp) {
-      const n = await parseLastWtmp(fp, caseId, pool, hostname, link).catch(() => 0);
-      if (n > 0) { totalEvents += n; artifacts.push(`logon:${path.basename(fp)} (${n})`); }
-    }
+  // Every wtmp/utmp file, not just the first: Cat-Scale.sh:393-397 walks the
+  // filesystem for utmp*/wtmp* and can emit several. 'last-utmpdump' is
+  // deliberately excluded — it is a utmpdump dump, not `last` output.
+  for (const fp of findArtifactFiles(logsDir, 'last-wtmp', 'last-wtmpx', 'last-utmp')) {
+    const n = await parseLastWtmp(fp, caseId, pool, hostname, link).catch(fail('parse', fp));
+    if (n > 0) { totalEvents += n; artifacts.push(`logon:${path.basename(fp)} (${n})`); }
   }
 
-  const btmpFile = findFile(logsDir, 'last-btmp');
-  if (btmpFile) {
-    const n = await parseLastWtmp(btmpFile, caseId, pool, hostname, link).catch(() => 0);
+  for (const btmpFile of findArtifactFiles(logsDir, 'last-btmp')) {
+    const n = await parseLastWtmp(btmpFile, caseId, pool, hostname, link).catch(fail('parse', btmpFile));
     if (n > 0) { totalEvents += n; artifacts.push(`failed_logon:${path.basename(btmpFile)} (${n})`); }
   }
 
   emit('processes');
   const procDir = path.join(catscaleRoot, 'Process_and_Network');
-  const procFile = findFile(procDir, 'processes-axwwSo', 'processes-auxSww', 'processes-auxww', 'processes-eF', 'processes-ef', 'processes-e');
+  // Mutually exclusive formats (Cat-Scale.sh:192-202 is an if/elif chain), so the
+  // first one present is the collection's process listing — not one of several.
+  const procFile = findArtifactFile(procDir, 'processes-axwwSo', 'processes-auxSww', 'processes-auxww', 'processes-eF', 'processes-ef', 'processes-e');
   if (procFile) {
-    const n = await parseProcessList(procFile, caseId, pool, collectionTime, hostname, link).catch(() => 0);
+    const n = await parseProcessList(procFile, caseId, pool, collectionTime, hostname, link).catch(fail('parse', procFile));
     if (n > 0) { totalEvents += n; artifacts.push(`process:${path.basename(procFile)} (${n})`); }
   }
 
   emit('network');
-  for (const pat of ['ss-anepo', 'netstat-pvWanoee', 'netstat-pvTanoee', 'netstat-antup', 'netstat-an']) {
-    const fp = findFile(procDir, pat);
-    if (fp) {
-      const n = await parseNetworkConnections(fp, caseId, pool, collectionTime, hostname, link).catch(() => 0);
-      if (n > 0) { totalEvents += n; artifacts.push(`network:${path.basename(fp)} (${n})`); }
-    }
+  // Cat-Scale.sh:269-279 picks ss or one netstat form, but the netstat branch
+  // writes both -antup and -an, so several files can legitimately coexist.
+  for (const fp of findArtifactFiles(procDir, 'ss-anepo', 'netstat-pvWanoee', 'netstat-pvTanoee', 'netstat-antup', 'netstat-an')) {
+    const n = await parseNetworkConnections(fp, caseId, pool, collectionTime, hostname, link).catch(fail('parse', fp));
+    if (n > 0) { totalEvents += n; artifacts.push(`network:${path.basename(fp)} (${n})`); }
   }
 
   emit('history');
@@ -787,14 +955,14 @@ export async function parseCatScale(
   if (fs.existsSync(homeTar)) {
     const homeTmp = path.join(os.tmpdir(), `catscale-home-${caseId}-${Date.now()}`);
     tempDirs.push(homeTmp);
-    if (extractTarGz(homeTar, homeTmp)) {
+    if (extractTarGz(homeTar, homeTmp, failures)) {
       await walkDir(homeTmp, async (fp) => {
         const base = path.basename(fp);
         if (/^\.?(bash_history|zsh_history|sh_history|fish_history|ksh_history|history)$/.test(base)) {
 
           const parts = fp.split(path.sep);
           const username = parts[parts.length - 2] || 'unknown';
-          const n = await parseBashHistory(fp, caseId, pool, collectionTime, username, hostname, link).catch(() => 0);
+          const n = await parseBashHistory(fp, caseId, pool, collectionTime, username, hostname, link).catch(fail('parse', fp));
           if (n > 0) { totalEvents += n; artifacts.push(`history:${username}:${base} (${n})`); }
         }
       });
@@ -804,49 +972,88 @@ export async function parseCatScale(
   emit('persistence');
   const persistDir = path.join(catscaleRoot, 'Persistence');
 
-  const cronTabList = findFile(persistDir, 'cron-tab-list');
-  if (cronTabList) {
-    const n = await parseCronTabList(cronTabList, caseId, pool, collectionTime, hostname, link).catch(() => 0);
-    if (n > 0) { totalEvents += n; artifacts.push(`cron:cron-tab-list (${n})`); }
+  for (const cronTabList of findArtifactFiles(persistDir, 'cron-tab-list')) {
+    const n = await parseCronTabList(cronTabList, caseId, pool, collectionTime, hostname, link).catch(fail('parse', cronTabList));
+    if (n > 0) { totalEvents += n; artifacts.push(`cron:${path.basename(cronTabList)} (${n})`); }
   }
 
-  const cronFolderTar = findFile(persistDir, 'cron-folder.tar.gz');
-  if (cronFolderTar) {
+  for (const cronFolderTar of findArtifactFiles(persistDir, 'cron-folder.tar.gz')) {
     const cronTmp = path.join(os.tmpdir(), `catscale-cron-${caseId}-${Date.now()}`);
     tempDirs.push(cronTmp);
-    if (extractTarGz(cronFolderTar, cronTmp)) {
+    if (extractTarGz(cronFolderTar, cronTmp, failures)) {
       await walkDir(cronTmp, async (fp) => {
         const base = path.basename(fp);
         if (!base.includes('.') || base.endsWith('.txt')) {
-          const n = await parseCronTabList(fp, caseId, pool, collectionTime, hostname, link).catch(() => 0);
+          const n = await parseCronTabList(fp, caseId, pool, collectionTime, hostname, link).catch(fail('parse', fp));
           if (n > 0) { totalEvents += n; artifacts.push(`cron:spool:${base} (${n})`); }
         }
       });
     }
   }
 
-  for (const pat of ['systemctl_service_status', 'systemctl_all', 'persistence-systemdlist']) {
-    const fp = findFile(persistDir, pat);
-    if (fp) {
-      const n = await parseSystemdList(fp, caseId, pool, collectionTime, hostname, link).catch(() => 0);
-      if (n > 0) { totalEvents += n; artifacts.push(`systemd:${path.basename(fp)} (${n})`); }
-    }
+  for (const fp of findArtifactFiles(persistDir, 'systemctl_service_status', 'systemctl_all', 'persistence-systemdlist')) {
+    const n = await parseSystemdList(fp, caseId, pool, collectionTime, hostname, link).catch(fail('parse', fp));
+    if (n > 0) { totalEvents += n; artifacts.push(`systemd:${path.basename(fp)} (${n})`); }
   }
 
   emit('fstimeline');
   const miscDir = path.join(catscaleRoot, 'Misc');
-  const fsTimelineFile = findFile(miscDir, 'full-timeline.csv');
-  if (fsTimelineFile) {
-    const n = await parseFsTimeline(fsTimelineFile, caseId, pool, hostname, collectionTime, link).catch((e) => {
-      logger.warn('[CatScale] fstimeline parse error:', e.message); return 0;
-    });
+  let fsFilter: FsTimelineFilterStats | null = null;
+  for (const fsTimelineFile of findArtifactFiles(miscDir, 'full-timeline.csv')) {
+    fsFilter = fsFilter ?? {
+      scanned: 0, kept: 0,
+      dropped: { container_layer: 0, rebuildable: 0, package_tree: 0, not_relevant: 0, unparsable: 0 },
+      top_dropped_locations: [],
+    };
+    const n = await parseFsTimeline(fsTimelineFile, caseId, pool, hostname, collectionTime, link,
+      fsFilter, options.exhaustiveFsTimeline === true)
+      .catch(fail('parse', fsTimelineFile));
     if (n > 0) { totalEvents += n; artifacts.push(`fstimeline:${path.basename(fsTimelineFile)} (${n})`); }
+  }
+  if (fsFilter) {
+    const d = fsFilter.dropped;
+    const removed = d.container_layer + d.rebuildable + d.package_tree + d.not_relevant + d.unparsable;
+    logger.info(`[CatScale] fs timeline: ${fsFilter.kept} kept of ${fsFilter.scanned} scanned `
+      + `(${removed} filtered — containers ${d.container_layer}, rebuildable ${d.rebuildable}, `
+      + `packages ${d.package_tree}, not relevant ${d.not_relevant}, unparsable ${d.unparsable})`);
+  }
+
+  // ── Host state: Docker, package integrity, kernel modules, /proc/<pid>/exe ──
+  // Docker alone is 88 of the 158 files in a real collection and was never opened
+  // before. These artifacts are inventories, not events, so they go to
+  // catscale_state; only the container lifecycle timestamps reach the timeline.
+  emit('host_state');
+  let stateRows = 0;
+  try {
+    const collected = collectStateArtifacts(catscaleRoot, caseId, hostname, collectionTime, failures);
+    if (collected.stateRows.length) {
+      stateRows = await insertStateRows(pool, caseId, hostname, collectionTime, collected.stateRows, {
+        evidence_id: link.evidenceId ?? null,
+        result_id: link.resultId ?? null,
+      });
+      const byKind = collected.stateRows.reduce<Record<string, number>>((acc, r) => {
+        acc[r.kind] = (acc[r.kind] ?? 0) + 1; return acc;
+      }, {});
+      for (const [kind, n] of Object.entries(byKind)) artifacts.push(`state:${kind} (${n})`);
+    }
+    if (collected.timelineRows.length) {
+      const n = await batchInsert(pool, collected.timelineRows as Row[], link);
+      if (n > 0) { totalEvents += n; artifacts.push(`docker:lifecycle (${n})`); }
+    }
+  } catch (e: any) {
+    // A state-collection failure must not be reported as "no containers found".
+    logger.warn(`[CatScale] host state collection failed: ${e?.message ?? e}`);
+    failures.push({ stage: 'parse', target: catscaleRoot, reason: `host state: ${e?.message ?? e}` });
   }
 
   for (const dir of tempDirs) {
     try { fs.rmSync(dir, { recursive: true, force: true }); } catch (_e) {}
   }
 
-  logger.info(`[CatScale] ${hostname} (${osInfo || 'Linux'}): ${totalEvents} events — ${artifacts.length} sources`);
-  return { events: totalEvents, hostname, os_info: osInfo, collection_time: collectionTime.toISOString(), artifacts, unreadable };
+  logger.info(`[CatScale] ${hostname} (${osInfo || 'Linux'}): ${totalEvents} events, ${stateRows} state rows — ${artifacts.length} sources`);
+  return {
+    events: totalEvents, hostname, os_info: osInfo,
+    collection_time: collectionTime.toISOString(), artifacts, unreadable, failures,
+    state_rows: stateRows, fs_filter: fsFilter,
+  };
 }

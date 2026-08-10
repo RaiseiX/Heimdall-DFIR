@@ -354,6 +354,28 @@ router.get('/yara/results/evidence/:evidenceId', authenticate, async (req, res) 
   }
 });
 
+// Per-rule aggregation across every case a rule has ever run against — "has
+// this rule ever matched anything?" Rules with zero matches are simply absent
+// (never a fabricated zero row: the frontend treats absence as zero). No JOIN
+// to yara_rules: a rule row can be deleted (ON DELETE CASCADE normally takes
+// its results with it) without this query needing to know it ever existed.
+router.get('/yara/rule-stats', authenticate, async (req, res) => {
+  try {
+    const result = await poolMig(req).query(
+      `SELECT rule_id,
+              COUNT(*)::int                AS match_count,
+              COUNT(DISTINCT case_id)::int AS case_count,
+              MAX(scanned_at)              AS last_matched_at
+         FROM yara_scan_results
+        WHERE rule_id IS NOT NULL
+        GROUP BY rule_id`,
+    );
+    res.json({ stats: result.rows });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 router.get('/sigma/rules', authenticate, async (req, res) => {
   try {
     const result = await poolMig(req).query(
@@ -456,6 +478,40 @@ router.delete('/sigma/rules/:id', authenticate, (requireRole as any)('analyst', 
   }
 });
 
+// Both Sigma hunt paths below used to run ONE query bounded by `LIMIT 200`
+// and store `rows.length` as `match_count` — so a rule matching more than 200
+// events silently reported exactly 200, presenting a SQL limit as a detection
+// result. This splits the concern: an unbounded `COUNT(*)` for the true
+// total, and a small bounded sample (`LIMIT 50` — the most `matched_events`
+// ever renders) for the preview. Both queries share this one function so the
+// WHERE/params can never drift between the count and the sample — each call
+// site builds `shiftedWhere`/`allParams` once and passes them in here rather
+// than reconstructing the predicate a second time.
+async function huntMatches(
+  pool: Pool,
+  caseId: string,
+  shiftedWhere: string,
+  allParams: unknown[],
+): Promise<{ matchCount: number; sample: any[] }> {
+  const [countResult, sampleResult] = await Promise.all([
+    pool.query(
+      `SELECT COUNT(*)::int AS count
+         FROM collection_timeline
+        WHERE case_id = $1 AND (${shiftedWhere})`,
+      allParams,
+    ),
+    pool.query(
+      `SELECT timestamp, artifact_type, source, description, raw
+         FROM collection_timeline
+        WHERE case_id = $1 AND (${shiftedWhere})
+        ORDER BY timestamp ASC
+        LIMIT 50`,
+      allParams,
+    ),
+  ]);
+  return { matchCount: countResult.rows[0].count, sample: sampleResult.rows };
+}
+
 router.post('/sigma/hunt/:caseId', authenticate, (requireRole as any)('analyst', 'admin'), async (req: express.Request, res: express.Response) => {
   try {
     const { caseId } = req.params;
@@ -482,22 +538,13 @@ router.post('/sigma/hunt/:caseId', authenticate, (requireRole as any)('analyst',
 
     const shiftedWhere = where.replace(/\$(\d+)/g, (_m, n) => `$${parseInt(n) + 1}`);
 
-    const query = `
-      SELECT timestamp, artifact_type, source, description, raw
-        FROM collection_timeline
-       WHERE case_id = $1 AND (${shiftedWhere})
-       ORDER BY timestamp ASC
-       LIMIT 200
-    `;
-
-    const huntResult = await pool.query(query, allParams);
-    const matchCount  = huntResult.rows.length;
-    const matchedEvents = huntResult.rows.slice(0, 50);
+    const { matchCount, sample: matchedEvents } = await huntMatches(pool, caseId, shiftedWhere, allParams);
+    const sampleSize = matchedEvents.length;
 
     await pool.query(
-      `INSERT INTO sigma_hunt_results (case_id, rule_id, rule_name, match_count, matched_events)
-       VALUES ($1, $2, $3, $4, $5)`,
-      [caseId, ruleId, rule.name, matchCount, JSON.stringify(matchedEvents)],
+      `INSERT INTO sigma_hunt_results (case_id, rule_id, rule_name, match_count, matched_events, sample_size)
+       VALUES ($1, $2, $3, $4, $5, $6)`,
+      [caseId, ruleId, rule.name, matchCount, JSON.stringify(matchedEvents), sampleSize],
     );
 
     const userId = (req as AuthRequest).user?.id;
@@ -507,7 +554,8 @@ router.post('/sigma/hunt/:caseId', authenticate, (requireRole as any)('analyst',
     res.json({
       rule_name:  rule.name,
       match_count: matchCount,
-      events:      huntResult.rows,
+      events:      matchedEvents,
+      sample_size: sampleSize,
     });
   } catch (e: any) {
     res.status(500).json({ error: e.message });
@@ -547,20 +595,12 @@ router.post('/sigma/scan-case/:caseId', authenticate, (requireRole as any)('anal
         const allParams: unknown[] = [caseId, ...params];
         const shiftedWhere = where.replace(/\$(\d+)/g, (_m: string, n: string) => `$${parseInt(n) + 1}`);
 
-        const huntResult = await pool.query(
-          `SELECT timestamp, artifact_type, source, description, raw
-             FROM collection_timeline
-            WHERE case_id = $1 AND (${shiftedWhere})
-            ORDER BY timestamp ASC
-            LIMIT 200`,
-          allParams,
-        );
-        const matchCount = huntResult.rows.length;
+        const { matchCount, sample } = await huntMatches(pool, caseId, shiftedWhere, allParams);
         if (matchCount > 0) {
           await pool.query(
-            `INSERT INTO sigma_hunt_results (case_id, rule_id, rule_name, match_count, matched_events)
-             VALUES ($1, $2, $3, $4, $5)`,
-            [caseId, rule.id, rule.name, matchCount, JSON.stringify(huntResult.rows.slice(0, 50))],
+            `INSERT INTO sigma_hunt_results (case_id, rule_id, rule_name, match_count, matched_events, sample_size)
+             VALUES ($1, $2, $3, $4, $5, $6)`,
+            [caseId, rule.id, rule.name, matchCount, JSON.stringify(sample), sample.length],
           );
         }
         summary.push({ rule_id: rule.id, rule_name: rule.name, match_count: matchCount });
@@ -587,7 +627,7 @@ router.get('/sigma/hunts/:caseId', authenticate, async (req, res) => {
   try {
     const { caseId } = req.params;
     const result = await poolMig(req).query(
-      `SELECT id, rule_id, rule_name, match_count, matched_events, hunted_at
+      `SELECT id, rule_id, rule_name, match_count, matched_events, sample_size, hunted_at
          FROM sigma_hunt_results
         WHERE case_id = $1
         ORDER BY hunted_at DESC

@@ -6,7 +6,7 @@ rules:
     name: "Shell history cleared or neutralised"
     severity: high
     category: anti-forensics
-    target_artifact: [catscale_history, catscale_process, catscale_persistence]
+    target_artifact: [catscale_history, catscale_process, catscale_auditd, catscale_persistence]
     mitre: [T1070.003]
     tags: [AntiForensics, HistoryTampering]
     match:
@@ -22,7 +22,7 @@ rules:
     name: "System log destroyed or truncated"
     severity: critical
     category: anti-forensics
-    target_artifact: [catscale_history, catscale_process, catscale_persistence]
+    target_artifact: [catscale_history, catscale_process, catscale_auditd, catscale_persistence]
     mitre: [T1070.002]
     tags: [AntiForensics, LogTampering]
     match:
@@ -36,7 +36,7 @@ rules:
     name: "File timestamps overwritten"
     severity: high
     category: anti-forensics
-    target_artifact: [catscale_history, catscale_process]
+    target_artifact: [catscale_history, catscale_process, catscale_auditd]
     mitre: [T1070.006]
     tags: [AntiForensics, Timestomp]
     match:
@@ -47,7 +47,7 @@ rules:
     name: "Immutable attribute set — file protected from deletion"
     severity: medium
     category: anti-forensics
-    target_artifact: [catscale_history, catscale_process]
+    target_artifact: [catscale_history, catscale_process, catscale_auditd]
     mitre: [T1222.002]
     tags: [AntiForensics, FilePermissions]
     match:
@@ -58,7 +58,7 @@ rules:
     name: "Audit or syslog daemon disabled"
     severity: high
     category: anti-forensics
-    target_artifact: [catscale_history, catscale_process, catscale_persistence]
+    target_artifact: [catscale_history, catscale_process, catscale_auditd, catscale_persistence]
     mitre: [T1562.001]
     tags: [AntiForensics, ImpairDefenses]
     match:
@@ -72,7 +72,7 @@ rules:
     name: "Host firewall flushed or disabled"
     severity: medium
     category: anti-forensics
-    target_artifact: [catscale_history, catscale_process, catscale_persistence]
+    target_artifact: [catscale_history, catscale_process, catscale_auditd, catscale_persistence]
     mitre: [T1562.004]
     tags: [AntiForensics, ImpairDefenses, Firewall]
     match:

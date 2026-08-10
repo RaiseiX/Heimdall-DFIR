@@ -1,0 +1,39 @@
+-- 20260807010000_collection_platform — persist the detected platform of an
+-- imported collection so a later consumer (the Sigma hunt, Task 3 of the
+-- platform-scoping plan) can join it against sigma_rules.logsource_product
+-- instead of evaluating every rule against every collection.
+--
+-- WHY: sigma_rules already parses and stores logsource_product per rule
+-- (shown as a badge in the UI), and collection.js already detects the
+-- platform of what was imported (CatScale -> 'linux' at import, and — as of
+-- this migration's companion change — every other artifact type via
+-- ARTIFACT_TYPE_PLATFORM, mirroring the per-type `platform` field in
+-- frontend/src/components/collection/CollectionImportPanel.jsx). Neither
+-- side was persisted where the other could read it. Measured on the live DB:
+-- a hunt on a 100% CatScale Linux case evaluates all 3999 active sigma_rules,
+-- 3053 of them Windows-only.
+--
+-- platform lives on parser_results, not a dedicated "collections" table:
+-- there isn't one. The row created by POST /:caseId/import (parser_name =
+-- 'MagnetRESPONSE_Import') is what the rest of the codebase already treats
+-- as "the collection" — see the audit_log entry (entity_type='collection')
+-- recorded against that row's id in collection.js, and the
+-- `parser_name != 'MagnetRESPONSE_Import'` exclusion used in
+-- GET /:caseId/evidence-ids to single out every *other* parser_results row.
+--
+-- Values: 'windows' | 'linux' | 'macos' | NULL. NULL means "unknown or
+-- mixed", never a guess: collection.js only writes a concrete value when
+-- every artifact type detected in that import agrees on one platform.
+--
+-- Existing rows stay NULL: retro-inferring a platform for collections
+-- imported before this column existed — even from their own already-parsed
+-- detected-artifacts data — would fabricate a metadata field on an evidence
+-- platform, which is worse than leaving it absent. Task 3 (Sigma hunt
+-- scoping) treats NULL as "run every rule, with an explicit warning" — the
+-- same behaviour as before this column existed, so nothing becomes
+-- unhuntable because of this migration.
+--
+-- Idempotent: safe to re-run (manifest-driven migrate.sh records it once).
+ALTER TABLE parser_results ADD COLUMN IF NOT EXISTS platform VARCHAR(10)
+  CONSTRAINT parser_results_platform_check
+    CHECK (platform IS NULL OR platform IN ('windows', 'linux', 'macos'));

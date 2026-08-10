@@ -1,20 +1,46 @@
 import { createContext, useContext, useState, useEffect } from 'react';
 
-const themes = {
-  dark: {
-    bg: '#0a0c11', panel: '#0e1118', card: '#131722', border: '#1c2334',
-    accent: '#8b7fff', accentDark: '#6c5be8', warn: '#e69654', danger: '#e0556d',
-    ok: '#6abf8e', gold: '#c9a86a', purple: '#8b7fff', pink: '#c96898',
-    text: '#dde0e8', dim: '#a5acba', muted: '#6e7689',
-    inputBg: '#0a0c11', tableBg: '#0e1118', headerBg: '#0a0c11',
-  },
-  light: {
-    bg: '#f4f6fb', panel: '#ffffff', card: '#f8fafd', border: '#d4dae8',
-    accent: '#6c5df5', accentDark: '#5246e8', warn: '#c4721e', danger: '#cc3355',
-    ok: '#2d9e6e', gold: '#9a7a30', purple: '#6c5df5', pink: '#a63878',
-    text: '#111827', dim: '#4a5568', muted: '#718096',
-    inputBg: '#f4f6fb', tableBg: '#f8fafd', headerBg: '#f4f6fb',
-  },
+/**
+ * Source de vérité des couleurs : `src/index.css` (`:root` + `body.theme-light`).
+ *
+ * Ce module ne définit AUCUNE valeur de couleur. Il expose des alias vers les
+ * custom properties afin que les styles inline JSX (`style={{ color: T.text }}`)
+ * et les feuilles CSS lisent exactement les mêmes tokens.
+ *
+ * Historique : ce provider injectait auparavant 15 hex en style inline sur
+ * <html>. L'inline battant `:root` mais perdant contre `body.theme-light`,
+ * le mode sombre était servi par theme.jsx et le mode clair par index.css.
+ * D'où deux régressions : `--fl-border` opaque en sombre (au lieu du hairline
+ * translucide de la charte Observatory) et `--fl-purple` confondu avec
+ * `--fl-accent` sur 204 occurrences. L'injection est supprimée.
+ *
+ * Contrainte : ne jamais concaténer un suffixe alpha sur ces valeurs
+ * (`${T.accent}22` produirait `var(--fl-accent)22`, invalide). Utiliser
+ * `color-mix(in srgb, ${T.accent} 13%, transparent)`.
+ *
+ * Contrainte : ne pas passer ces valeurs à un canvas (Cytoscape, D3) — ces
+ * moteurs écrivent des attributs et ne résolvent pas `var()`. Ils gardent
+ * leur propre palette d'hex Observatory.
+ */
+const TOKENS = {
+  bg:         'var(--fl-bg)',
+  panel:      'var(--fl-panel)',
+  card:       'var(--fl-card)',
+  border:     'var(--fl-border)',
+  accent:     'var(--fl-accent)',
+  accentDark: 'var(--fl-accent-dark)',
+  warn:       'var(--fl-warn)',
+  danger:     'var(--fl-danger)',
+  ok:         'var(--fl-ok)',
+  gold:       'var(--fl-gold)',
+  purple:     'var(--fl-purple)',
+  pink:       'var(--fl-pink)',
+  text:       'var(--fl-text)',
+  dim:        'var(--fl-dim)',
+  muted:      'var(--fl-muted)',
+  inputBg:    'var(--fl-input-bg)',
+  tableBg:    'var(--fl-panel)',
+  headerBg:   'var(--fl-bg)',
 };
 
 const ThemeContext = createContext();
@@ -41,29 +67,14 @@ export function ThemeProvider({ children }) {
       p.theme = mode;
       localStorage.setItem('heimdall_preferences', JSON.stringify(p));
     } catch (_e) {}
-    const t = themes[mode];
 
-    document.body.style.background = t.bg;
-    document.body.style.color      = t.text;
-
+    // La classe est le seul signal : index.css fait le reste.
     document.body.classList.remove('theme-dark', 'theme-light');
     document.body.classList.add('theme-' + mode);
-
-    const FL_MAP = {
-      bg: '--fl-bg', panel: '--fl-panel', card: '--fl-card',
-      border: '--fl-border', text: '--fl-text', dim: '--fl-dim', muted: '--fl-muted',
-      accent: '--fl-accent', danger: '--fl-danger', warn: '--fl-warn',
-      ok: '--fl-ok', gold: '--fl-gold', purple: '--fl-purple', pink: '--fl-pink',
-      inputBg: '--fl-input-bg',
-    };
-    const root = document.documentElement;
-    Object.entries(t).forEach(([key, val]) => {
-      if (FL_MAP[key]) root.style.setProperty(FL_MAP[key], val);
-    });
   }, [mode]);
 
   const toggle = () => setMode(m => m === 'dark' ? 'light' : 'dark');
-  const value  = { ...themes[mode], mode, toggle };
+  const value  = { ...TOKENS, mode, toggle };
 
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
 }

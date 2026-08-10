@@ -7,6 +7,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "i18n:check": "node scripts/check-i18n.mjs",
+    "design:check": "node scripts/check-design-system.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },

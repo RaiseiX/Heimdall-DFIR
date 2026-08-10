@@ -7,6 +7,7 @@ import {
   Crosshair, Trash2, CheckCircle2, XCircle, ShieldAlert, Clock, User,
 } from 'lucide-react';
 import { casesAPI } from '../utils/api';
+import { isDestructionConfirmed } from '../utils/destructiveConfirm';
 import { Button, Modal, Badge, EmptyState, Spinner } from '../components/ui';
 import { StatusPill, PriorityPill, RiskPill, TimePill, fmtDuration } from '../components/ui/StatusPill';
 
@@ -41,9 +42,14 @@ export default function CasesPage({ user }) {
   const [showNew, setShowNew] = useState(false);
   const [newCase, setNewCase] = useState({ title: '', description: '', priority: 'medium', report_deadline: '' });
 
+  const [loadError, setLoadError] = useState(false);
   const [selected, setSelected] = useState(new Set());
   const [showBulkDelete, setShowBulkDelete] = useState(false);
   const [bulkDeleting, setBulkDeleting] = useState(false);
+  // Destroying N cases must be at least as guarded as destroying one (which
+  // requires retyping the case number). The analyst retypes the count, which
+  // forces them to read how many cases the selection actually holds.
+  const [bulkConfirm, setBulkConfirm] = useState('');
   const [deleteResults, setDeleteResults] = useState(null);
   const [timeStats, setTimeStats] = useState({});
 
@@ -74,12 +80,21 @@ export default function CasesPage({ user }) {
         } catch (_) {}
       }));
       setTimeStats(stats);
+      setLoadError(false);
     } catch {
-      setCases([
-        { id: '1', case_number: 'CASE-2026-001', title: 'Main Server Intrusion', status: 'active', priority: 'critical', investigator_name: 'Agent Dupont', created_at: '2026-02-10T08:30:00Z', evidence_count: 5, ioc_count: 5, tags: ['intrusion', 'apt'] },
-        { id: '2', case_number: 'CASE-2026-002', title: 'Finance Department Ransomware', status: 'active', priority: 'high', investigator_name: 'Agent Martin', created_at: '2026-02-12T14:15:00Z', evidence_count: 3, ioc_count: 3, tags: ['ransomware', 'lockbit'] },
-        { id: '3', case_number: 'CASE-2026-003', title: 'Suspicious USB Analysis', status: 'pending', priority: 'medium', investigator_name: 'Agent Lefevre', created_at: '2026-02-14T09:00:00Z', evidence_count: 1, ioc_count: 0, tags: ['usb', 'malware'] },
-      ]);
+      // Ne JAMAIS substituer de dossiers fabriqués ici.
+      //
+      // Cette branche affichait auparavant trois dossiers codés en dur
+      // (« Main Server Intrusion », « Agent Dupont », id: '1'|'2'|'3'). Pendant
+      // une indisponibilité de l'API, un analyste voyait donc des dossiers
+      // inventés strictement indiscernables des dossiers réels — et a agi
+      // dessus : une suppression définitive a été lancée sur ces identifiants
+      // fictifs (elle n'a échoué que parce que « 1 » n'est pas un UUID).
+      //
+      // Sur une plateforme de preuve numérique, la réponse à une erreur d'API
+      // est de déclarer la donnée indisponible, jamais d'en inventer une.
+      setCases([]);
+      setLoadError(true);
     }
   };
 
@@ -140,8 +155,10 @@ export default function CasesPage({ user }) {
         <div style={{ flex: 1, minWidth: 0 }}>
           <h1 style={{ fontFamily: 'var(--f-display, "Space Grotesk", "Inter", sans-serif)', fontSize: 16, fontWeight: 600, color: 'var(--fl-text)', lineHeight: 1.2, letterSpacing: '-0.02em' }}>{t('cases.title')}</h1>
           <p style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11, color: 'var(--fl-dim)', marginTop: 4 }}>
-            {t('cases.subtitle', { n: cases.length, m: activeCount })}
-            {criticalCount > 0 && (
+            {/* En erreur, ne pas annoncer « 0 cas » : ce serait affirmer un fait
+                sur une donnée qu'on n'a pas — même défaut que le repli fabriqué. */}
+            {loadError ? '—' : t('cases.subtitle', { n: cases.length, m: activeCount })}
+            {!loadError && criticalCount > 0 && (
               <span style={{ color: 'var(--fl-danger)' }}>
                 {' '}{t(criticalCount > 1 ? 'cases.criticals_pl' : 'cases.criticals', { n: criticalCount })}
               </span>
@@ -166,7 +183,7 @@ export default function CasesPage({ user }) {
           <span style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 12, color: 'var(--fl-danger)', flex: 1 }}>
             <strong>{selected.size}</strong> {t(selected.size > 1 ? 'cases.selected_rgpd_pl' : 'cases.selected_rgpd', { n: selected.size })}
           </span>
-          <Button variant="danger" size="sm" icon={Trash2} onClick={() => { setShowBulkDelete(true); setDeleteResults(null); }}>
+          <Button variant="danger" size="sm" icon={Trash2} onClick={() => { setShowBulkDelete(true); setDeleteResults(null); setBulkConfirm(''); }}>
             {t('cases.destroy_selection')}
           </Button>
           <Button variant="secondary" size="sm" icon={X} onClick={() => setSelected(new Set())}>
@@ -234,7 +251,19 @@ export default function CasesPage({ user }) {
         )}
       </div>
 
-      {cases.length === 0 ? (
+      {loadError ? (
+        // État d'erreur explicite : « la liste n'a pas pu être chargée » n'est pas
+        // « il n'y a aucun dossier ». Confondre les deux sur un outil forensique
+        // conduit l'analyste à tirer des conclusions sur des données absentes.
+        <div className="fl-card" style={{ overflow: 'hidden', borderColor: 'color-mix(in srgb, var(--fl-danger) 35%, var(--fl-border))' }}>
+          <EmptyState
+            icon={AlertTriangle}
+            title={t('cases.load_error_title')}
+            subtitle={t('cases.load_error_sub')}
+            action={<Button variant="secondary" size="sm" onClick={loadCases}>{t('cases.load_error_retry')}</Button>}
+          />
+        </div>
+      ) : cases.length === 0 ? (
         <div className="fl-card" style={{ overflow: 'hidden' }}>
           <EmptyState
             icon={FolderOpen}
@@ -282,8 +311,12 @@ export default function CasesPage({ user }) {
                     onMouseLeave={e => { e.currentTarget.style.background = isSelected ? 'color-mix(in srgb, var(--fl-danger) 6%, transparent)' : 'transparent'; }}
                   >
                     {isAdmin && (
-                      <td style={{ ...td, borderLeft: `3px solid ${prioColor}`, paddingLeft: 8 }} onClick={e => toggleSelect(e, c.id)}>
-                        <input type="checkbox" checked={isSelected} onChange={() => {}} style={{ cursor: 'pointer', accentColor: 'var(--fl-danger)' }} />
+                      <td style={{ ...td, borderLeft: `3px solid ${prioColor}`, paddingLeft: 8, width: 40 }} onClick={e => { e.stopPropagation(); toggleSelect(e, c.id); }}>
+                        <input type="checkbox" checked={isSelected}
+                          aria-label={t('cases.select_case', { number: c.case_number })}
+                          onClick={e => e.stopPropagation()}
+                          onChange={e => toggleSelect(e, c.id)}
+                          style={{ cursor: 'pointer', accentColor: 'var(--fl-danger)', width: 15, height: 15 }} />
                       </td>
                     )}
                     <td style={{ ...td, ...(isAdmin ? {} : { borderLeft: `3px solid ${prioColor}` }), fontSize: 10.5, fontFamily: 'var(--f-mono, monospace)', color: 'var(--fl-dim)', whiteSpace: 'nowrap' }}>
@@ -390,6 +423,21 @@ export default function CasesPage({ user }) {
                     </div>
                   ))}
                 </div>
+                <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <span style={{ fontSize: 11, color: 'var(--fl-muted)', lineHeight: 1.6 }}>
+                    {t('cases.confirm_count_prompt', { n: selected.size })}
+                  </span>
+                  <input
+                    value={bulkConfirm}
+                    onChange={e => setBulkConfirm(e.target.value)}
+                    inputMode="numeric"
+                    autoComplete="off"
+                    placeholder={String(selected.size)}
+                    style={{ padding: '8px 10px', borderRadius: 6, background: 'var(--fl-bg)',
+                      color: 'var(--fl-text)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 13,
+                      border: `1px solid ${isDestructionConfirmed(bulkConfirm, String(selected.size)) ? 'var(--fl-danger)' : 'var(--fl-border)'}` }}
+                  />
+                </label>
               </>
             )}
             {bulkDeleting && (
@@ -459,7 +507,9 @@ export default function CasesPage({ user }) {
           ) : (
             <>
               <Button variant="secondary" size="sm" disabled={bulkDeleting} onClick={() => setShowBulkDelete(false)}>{t('common.cancel')}</Button>
-              <Button variant="danger" size="sm" icon={bulkDeleting ? undefined : Trash2} loading={bulkDeleting} onClick={handleBulkDelete}>
+              <Button variant="danger" size="sm" icon={bulkDeleting ? undefined : Trash2} loading={bulkDeleting}
+                disabled={!isDestructionConfirmed(bulkConfirm, String(selected.size))}
+                onClick={handleBulkDelete}>
                 {bulkDeleting ? t('cases.confirming') : t('cases.confirm_destroy')}
               </Button>
             </>

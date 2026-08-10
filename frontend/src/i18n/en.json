@@ -22,7 +22,6 @@
     "dashboard": "Dashboard",
     "triage": "Triage",
     "cases": "Cases",
-    "triage": "Triage",
     "settings": "Settings",
     "operations": "Operations",
     "iocs": "IOCs",
@@ -800,7 +799,12 @@
     "unverified_count": "{{n}} unverified in DB",
     "unverified_count_pl": "{{n}} unverified in DB",
     "confirming": "Destroying…",
-    "confirm_destroy": "Confirm destruction"
+    "confirm_destroy": "Confirm destruction",
+    "load_error_title": "Case list unavailable",
+    "load_error_sub": "The server did not respond. No cases are shown — this is not an empty list.",
+    "load_error_retry": "Retry",
+    "select_case": "Select case {{number}}",
+    "confirm_count_prompt": "Type the number of cases to destroy ({{n}}) to unlock destruction."
   },
   "login": {
     "username": "Username",
@@ -1070,8 +1074,11 @@
     },
     "errors": {
       "load_rules": "Failed to load rules",
+      "load_rule_stats": "Match statistics unavailable — the counts shown may be inaccurate",
       "save_failed": "Save failed",
-      "name_content_required": "Name and content required"
+      "name_content_required": "Name and content required",
+      "hunt_failed": "Hunt failed",
+      "scan_failed": "Scan failed"
     },
     "form": {
       "name": "Name",
@@ -1148,9 +1155,8 @@
       "pending": "pending"
     },
     "yara": {
-      "confirm_delete": "Delete this YARA rule?",
-      "rules_count": "{{count}} rule(s) — used to scan evidence files",
-      "rules_count_plural": "{{count}} rules — used to scan evidence files",
+      "rules_count": "{{count}} rule — used to scan evidence files",
+      "rules_count_other": "{{count}} rules — used to scan evidence files",
       "new_title": "New YARA rule",
       "edit_title": "Edit YARA rule",
       "name_ph": "e.g. Malicious PE detection",
@@ -1162,7 +1168,44 @@
       "no_scan_results": "No results — run a scan to analyze files",
       "matching_rules": "{{count}} matching rule(s)",
       "matching_rules_plural": "{{count}} matching rules",
-      "match_without_strings": "Match without detailed strings"
+      "match_without_strings": "Match without detailed strings",
+      "columns": {
+        "state": "State",
+        "rule": "Rule",
+        "matches": "Matches",
+        "last": "Last match",
+        "actions": "Actions",
+        "description": "Description",
+        "tags": "Tags",
+        "author": "Author",
+        "created_at": "Created"
+      },
+      "filter_all": "All",
+      "filter_matched": "Matched",
+      "filter_muted": "Silent",
+      "filter_inactive": "Inactive",
+      "search_placeholder": "Search a rule by name…",
+      "never_matched": "never",
+      "no_search_results": "No rule matches this search.",
+      "stat_rules": "{{count}} rule",
+      "stat_rules_other": "{{count}} rules",
+      "stat_active": "{{count}} active",
+      "stat_active_other": "{{count}} active",
+      "stat_matched": "{{count}} has matched before",
+      "stat_matched_other": "{{count}} have matched before",
+      "stat_muted": "{{count}} never triggered",
+      "stat_muted_other": "{{count}} never triggered",
+      "stat_matches": "{{count}} match",
+      "stat_matches_other": "{{count}} matches",
+      "delete_modal_title": "Delete YARA rule",
+      "delete_modal_warning": "This action is irreversible. To confirm, type the rule's exact name below.",
+      "delete_modal_type_prompt": "Type \"{{name}}\" to confirm",
+      "aria": {
+        "enable_rule": "Enable rule {{name}}",
+        "disable_rule": "Disable rule {{name}}",
+        "edit_rule": "Edit rule {{name}}",
+        "delete_rule": "Delete rule {{name}}"
+      }
     },
     "sigma": {
       "confirm_delete": "Delete this Sigma rule?",
@@ -1195,13 +1238,6 @@
       "sigma_hunt": "Sigma Hunt",
       "run_all": "Run All",
       "sysmon": "Sysmon"
-    },
-    "errors": {
-      "load_rules": "Failed to load rules",
-      "save_failed": "Save failed",
-      "name_content_required": "Name and content required",
-      "hunt_failed": "Hunt failed",
-      "scan_failed": "Scan failed"
     },
     "hits_count": "{{count}} hit(s)"
   },
@@ -1236,10 +1272,10 @@
     "status_inactive": "Inactive",
     "tabs_accounts": "Accounts",
     "tabs_audit": "Audit Log",
-    "tabs_jobs": "Parser Jobs",
+    "tabs_jobs": "Jobs",
     "tabs_feedback": "Feedback",
     "tabs_rgpd": "GDPR",
-    "tabs_health": "Service Health",
+    "tabs_health": "Health",
     "tabs_backups": "Backups",
     "tabs_infra": "Infrastructure",
     "tabs_settings": "Settings",
@@ -1288,13 +1324,8 @@
     "no_jobs_sub": "No parsing jobs match the selected filters.",
     "no_tickets_sub": "No feedback submitted yet.",
     "no_backups_sub": "Click «Trigger» to create the first backup.",
-    "tabs_health": "Health",
-    "tabs_jobs": "Jobs",
-    "tabs_backups": "Backups",
-    "tabs_infra": "Infrastructure",
     "tabs_ai": "AI",
     "tabs_logs": "Logs",
-    "tabs_feedback": "Feedback",
     "tabs_about": "About",
     "operations_subtitle": "Operations - monitoring & maintenance",
     "health": {
@@ -1962,7 +1993,8 @@
     "feedback_title_ph": "Title (optional)",
     "feedback_description_ph": "Describe the issue or suggestion…",
     "feedback_type_other": "Other",
-    "sending": "Sending…"
+    "sending": "Sending…",
+    "scope_token_remove": "Remove filter: {{label}}"
   },
   "commandPalette": {
     "title": "Command bar",
@@ -2136,16 +2168,46 @@
     "done": "Done",
     "dot_label": "Step {{step}}",
     "steps": {
-      "welcome": { "title": "Welcome to Heimdall", "desc": "A short guided tour. On each page, I’ll show the essentials in a few seconds. You can skip at any time." },
-      "dashboard": { "title": "Dashboard", "desc": "Overview: active cases, detected IOCs, SLA deadlines, and shortcuts. Your starting point every morning." },
-      "cases": { "title": "Cases", "desc": "Create and manage your forensic cases. Each case groups evidence, timelines, detections, IOCs, and reports." },
-      "collection": { "title": "Collection", "desc": "Generate a collection agent (KAPE, Velociraptor, CyLR…) then import the archive — artifacts are parsed automatically." },
-      "iocs": { "title": "IOCs", "desc": "Auto-extracted and enriched indicators of compromise. Search a hash, IP, or domain across all cases." },
-      "documentation": { "title": "Documentation", "desc": "Methodologies, playbooks, and references at hand during the investigation." },
-      "calendar": { "title": "Calendar", "desc": "Deadlines and milestones for your cases. Urgent SLAs surface here and on the dashboard." },
-      "settings": { "title": "Settings", "desc": "Preferences, SLA thresholds, detection rules, integrations, and YARA / Sigma rule management." },
-      "admin": { "title": "Operations", "desc": "System health, jobs, backups, Docker, AI model, and audit log. Create accounts without email, manage roles." },
-      "done": { "title": "Ready to investigate", "desc": "You know the essentials. Open a case, import a collection, and let Heimdall correlate. Good hunting." }
+      "welcome": {
+        "title": "Welcome to Heimdall",
+        "desc": "A short guided tour. On each page, I’ll show the essentials in a few seconds. You can skip at any time."
+      },
+      "dashboard": {
+        "title": "Dashboard",
+        "desc": "Overview: active cases, detected IOCs, SLA deadlines, and shortcuts. Your starting point every morning."
+      },
+      "cases": {
+        "title": "Cases",
+        "desc": "Create and manage your forensic cases. Each case groups evidence, timelines, detections, IOCs, and reports."
+      },
+      "collection": {
+        "title": "Collection",
+        "desc": "Generate a collection agent (KAPE, Velociraptor, CyLR…) then import the archive — artifacts are parsed automatically."
+      },
+      "iocs": {
+        "title": "IOCs",
+        "desc": "Auto-extracted and enriched indicators of compromise. Search a hash, IP, or domain across all cases."
+      },
+      "documentation": {
+        "title": "Documentation",
+        "desc": "Methodologies, playbooks, and references at hand during the investigation."
+      },
+      "calendar": {
+        "title": "Calendar",
+        "desc": "Deadlines and milestones for your cases. Urgent SLAs surface here and on the dashboard."
+      },
+      "settings": {
+        "title": "Settings",
+        "desc": "Preferences, SLA thresholds, detection rules, integrations, and YARA / Sigma rule management."
+      },
+      "admin": {
+        "title": "Operations",
+        "desc": "System health, jobs, backups, Docker, AI model, and audit log. Create accounts without email, manage roles."
+      },
+      "done": {
+        "title": "Ready to investigate",
+        "desc": "You know the essentials. Open a case, import a collection, and let Heimdall correlate. Good hunting."
+      }
     }
   },
   "caseIntelligence": {

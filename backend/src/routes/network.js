@@ -1,10 +1,38 @@
 const express = require('express');
 const multer = require('multer');
-const { pool } = require('../config/database');
+const { pool, readPool, isStatementTimeout } = require('../config/database');
 const { authenticate, requireRole } = require('../middleware/auth');
 const { parse: parseCsv } = require('csv-parse/sync');
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
+
+// `raw->>'Key' IS NOT NULL` is a function call: no index applies and Postgres
+// deserialises every row of collection_timeline. `raw ?| ARRAY[...]` tests key
+// existence and is served by idx_ct_raw_gin.
+//
+// It is a *superset* of the old predicate — it also admits keys whose value is
+// JSON null — which is safe here only because every query below keeps its outer
+// WHERE rejecting empty / '-' / placeholder destinations. Do not reuse this
+// helper in a query that lacks such a filter.
+const rawHasAny = (keys, alias = '') => {
+  const col = alias ? `${alias}.raw` : 'raw';
+  return `${col} ?| ARRAY[${keys.map(k => `'${k}'`).join(',')}]`;
+};
+
+// A cancelled query must never be reported as an empty result: the analyst would
+// read "no network traffic in this collection" when the truth is "the query was
+// too slow to finish".
+function sendQueryError(res, err, context) {
+  if (isStatementTimeout(err)) {
+    logger.warn(`[network] ${context}: cancelled by statement_timeout`);
+    return res.status(504).json({
+      error: 'Requête interrompue : délai maximum dépassé. Réduisez la fenêtre temporelle ou filtrez par source.',
+      code: 'STATEMENT_TIMEOUT',
+    });
+  }
+  logger.error(`[network] ${context}: ${err.message}`);
+  return res.status(500).json({ error: 'Erreur serveur' });
+}
 
 function isInternalIP(ip) {
   const s = (ip || '').replace(/^::ffff:/i, '').replace(/:\d+$/, '');
@@ -129,10 +157,10 @@ router.get('/:caseId', authenticate, async (req, res) => {
     }
 
     query += ' ORDER BY first_seen ASC';
-    const result = await pool.query(query, params);
+    const result = await readPool.query(query, params);
     res.json(result.rows);
   } catch (err) {
-    res.status(500).json({ error: 'Erreur serveur' });
+    return sendQueryError(res, err, 'GET /:caseId');
   }
 });
 
@@ -146,13 +174,13 @@ router.post('/:caseId', authenticate, async (req, res) => {
     );
     res.status(201).json(result.rows[0]);
   } catch (err) {
-    res.status(500).json({ error: 'Erreur serveur' });
+    return sendQueryError(res, err, 'POST /:caseId');
   }
 });
 
 router.get('/:caseId/stats', authenticate, async (req, res) => {
   try {
-    const stats = await pool.query(`
+    const stats = await readPool.query(`
       SELECT
         COUNT(*) as total_connections,
         COUNT(*) FILTER (WHERE is_suspicious) as suspicious_connections,
@@ -165,7 +193,7 @@ router.get('/:caseId/stats', authenticate, async (req, res) => {
     `, [req.params.caseId]);
     res.json(stats.rows[0]);
   } catch (err) {
-    res.status(500).json({ error: 'Erreur serveur' });
+    return sendQueryError(res, err, 'GET /:caseId/stats');
   }
 });
 
@@ -183,7 +211,7 @@ router.get('/:caseId/graph', authenticate, requireRole('admin', 'analyst'), asyn
 
       evidence_id
         ? Promise.resolve({ rows: [] })
-        : pool.query(`
+        : readPool.query(`
         SELECT src_ip, dst_ip, dst_port::text AS dst_port, protocol,
                COUNT(*) AS connection_count,
                SUM(COALESCE(bytes_sent,0) + COALESCE(bytes_received,0)) AS total_bytes,
@@ -198,7 +226,7 @@ router.get('/:caseId/graph', authenticate, requireRole('admin', 'analyst'), asyn
         LIMIT 300
       `, [caseId]),
 
-      pool.query(`
+      readPool.query(`
         SELECT src_ip, dst_ip, dst_port, protocol,
                COUNT(*) AS connection_count, 0::bigint AS total_bytes, false AS is_suspicious,
                MIN(ts) AS first_seen, MAX(ts) AS last_seen
@@ -229,15 +257,10 @@ router.get('/:caseId/graph', authenticate, requireRole('admin', 'analyst'), asyn
           FROM collection_timeline
           WHERE case_id = $1
             ${ctEvidenceFilter}
-            AND (
-              raw->>'RemoteHost'    IS NOT NULL OR
-              raw->>'RemoteAddress' IS NOT NULL OR
-              raw->>'DstIP'         IS NOT NULL OR
-              raw->>'dst_ip'        IS NOT NULL OR
-              raw->>'DestinationIp' IS NOT NULL OR
-              raw->>'id.resp_h'     IS NOT NULL OR
-              raw->>'dst_host'      IS NOT NULL
-            )
+            AND ${rawHasAny([
+              'RemoteHost', 'RemoteAddress', 'DstIP', 'dst_ip',
+              'DestinationIp', 'id.resp_h', 'dst_host',
+            ])}
         ) AS t
         WHERE dst_ip IS NOT NULL AND dst_ip <> '' AND dst_ip <> '-'
           AND dst_ip NOT IN ('0.0.0.0', '::', '255.255.255.255')
@@ -246,7 +269,7 @@ router.get('/:caseId/graph', authenticate, requireRole('admin', 'analyst'), asyn
         LIMIT 300
       `, ctParams),
 
-      pool.query(`
+      readPool.query(`
         SELECT value, ioc_type::text AS ioc_type, is_malicious, severity
         FROM iocs
         WHERE case_id = $1 AND ioc_type IN ('ip', 'domain', 'url')
@@ -254,7 +277,7 @@ router.get('/:caseId/graph', authenticate, requireRole('admin', 'analyst'), asyn
         LIMIT 200
       `, [caseId]),
 
-      pool.query(`
+      readPool.query(`
         SELECT
           COALESCE(NULLIF(TRIM(host_name), ''), 'local') AS src_host,
           raw->>'URL' AS dst_url,
@@ -356,8 +379,7 @@ router.get('/:caseId/graph', authenticate, requireRole('admin', 'analyst'), asyn
       total_records: edges.length,
     });
   } catch (err) {
-    logger.error('[network/graph]', err);
-    res.status(500).json({ error: 'Erreur serveur' });
+    return sendQueryError(res, err, 'GET /:caseId/graph');
   }
 });
 
@@ -498,7 +520,7 @@ async function buildNetworkGraph(caseId, evidenceIdList, pool, fromTs, toTs) {
     // ── Source 1: network_connections table (PCAP / CSV imports) ──
     // network_connections has no evidence_id column, so always query by case_id.
     // A collection-scoped view still shows all TCP flows for the case.
-    pool.query(`
+    readPool.query(`
       SELECT src_ip, dst_ip, dst_port::text AS dst_port, protocol,
              COUNT(*) AS connection_count,
              SUM(COALESCE(bytes_sent,0) + COALESCE(bytes_received,0)) AS total_bytes,
@@ -516,7 +538,7 @@ async function buildNetworkGraph(caseId, evidenceIdList, pool, fromTs, toTs) {
     //   src: SourceIp (Sysmon EID 3) > src_ip column > SourceAddress (WFP 5156) > Computer hostname
     //   dst: DestinationHostname (resolved name, best for display) > DestinationIp > legacy aliases
     //   process: Image field from Sysmon — which process made this connection
-    pool.query(`
+    readPool.query(`
       SELECT src_ip, dst_ip, dst_port, protocol, process_name,
              COUNT(*) AS connection_count, 0::bigint AS total_bytes, false AS is_suspicious
       FROM (
@@ -561,16 +583,11 @@ async function buildNetworkGraph(caseId, evidenceIdList, pool, fromTs, toTs) {
           ${ctEvidenceFilter}
           ${timeFilter}
           AND (
-            raw->>'SourceIp'          IS NOT NULL OR
-            raw->>'DestinationIp'     IS NOT NULL OR
-            raw->>'DestinationHostname' IS NOT NULL OR
-            raw->>'RemoteHost'        IS NOT NULL OR
-            raw->>'RemoteAddress'     IS NOT NULL OR
-            raw->>'DstIP'             IS NOT NULL OR
-            raw->>'dst_ip'            IS NOT NULL OR
-            raw->>'id.resp_h'         IS NOT NULL OR
-            raw->>'dst_host'          IS NOT NULL OR
-            dst_ip                    IS NOT NULL
+            ${rawHasAny([
+              'SourceIp', 'DestinationIp', 'DestinationHostname', 'RemoteHost',
+              'RemoteAddress', 'DstIP', 'dst_ip', 'id.resp_h', 'dst_host',
+            ])}
+            OR dst_ip IS NOT NULL
           )
       ) AS t
       WHERE dst_ip IS NOT NULL AND dst_ip <> '' AND dst_ip <> '-'
@@ -581,7 +598,7 @@ async function buildNetworkGraph(caseId, evidenceIdList, pool, fromTs, toTs) {
     `, ctParams),
 
     // ── Source 3: IOCs ──
-    pool.query(`
+    readPool.query(`
       SELECT value, ioc_type::text AS ioc_type, is_malicious, severity
       FROM iocs
       WHERE case_id = $1 AND ioc_type IN ('ip', 'domain', 'url')
@@ -590,23 +607,21 @@ async function buildNetworkGraph(caseId, evidenceIdList, pool, fromTs, toTs) {
     `, [caseId]),
 
     // ── Source 4: evidence sources that have network data ──
-    pool.query(`
+    readPool.query(`
       SELECT DISTINCT e.id, e.name, e.original_filename
       FROM evidence e
       JOIN parser_results pr ON pr.evidence_id = e.id
       JOIN collection_timeline ct ON ct.result_id = pr.id
       WHERE ct.case_id = $1
         AND (
-          ct.raw->>'SourceIp'      IS NOT NULL OR
-          ct.raw->>'DestinationIp' IS NOT NULL OR
-          ct.raw->>'RemoteAddress' IS NOT NULL OR
-          ct.dst_ip                IS NOT NULL
+          ${rawHasAny(['SourceIp', 'DestinationIp', 'RemoteAddress'], 'ct')}
+          OR ct.dst_ip IS NOT NULL
         )
       LIMIT 50
     `, [caseId]),
 
     // ── Source 5: browser history (SQLite via sqle parser) ──
-    pool.query(`
+    readPool.query(`
       SELECT
         COALESCE(NULLIF(TRIM(host_name), ''), 'local') AS src_host,
         raw->>'URL' AS dst_url,
@@ -716,19 +731,19 @@ async function buildAttackPath(caseId, pool) {
   const MITRE_TAG_RE = /attack\.(t\d{4}(?:\.\d{3})?)/gi;
 
   const [r1, r2, r3] = await Promise.all([
-    pool.query(`
+    readPool.query(`
       SELECT technique_id, tactic, technique_name, confidence, notes, created_at
       FROM case_mitre_techniques WHERE case_id = $1 ORDER BY created_at ASC
     `, [caseId]),
 
-    pool.query(`
+    readPool.query(`
       SELECT id, event_timestamp, title, description, mitre_technique, mitre_tactic, color, artifact_ref
       FROM timeline_bookmarks
       WHERE case_id = $1 AND mitre_technique IS NOT NULL
       ORDER BY event_timestamp ASC
     `, [caseId]),
 
-    pool.query(`
+    readPool.query(`
       SELECT id, hunted_at AS created_at, rule_name, matched_events
       FROM sigma_hunt_results WHERE case_id = $1 ORDER BY hunted_at ASC
     `, [caseId]),
@@ -841,8 +856,7 @@ router.get('/:caseId/graph-data', authenticate, requireRole('admin', 'analyst'),
     }
     res.json(result);
   } catch (err) {
-    logger.error('[network/graph-data]', err);
-    res.status(500).json({ error: 'Erreur serveur' });
+    return sendQueryError(res, err, 'GET /:caseId/graph-data');
   }
 });
 
@@ -855,7 +869,7 @@ router.get('/:caseId/graph-data/events', authenticate, async (req, res) => {
     // Strip cluster/domain prefix for matching
     const matchId = node_id.replace(/^(cluster:|domain:)/, '');
 
-    const result = await pool.query(`
+    const result = await readPool.query(`
       SELECT
         ct.timestamp,
         ct.artifact_type,
@@ -908,8 +922,7 @@ router.get('/:caseId/graph-data/events', authenticate, async (req, res) => {
 
     res.json({ events: result.rows, total: result.rowCount });
   } catch (err) {
-    logger.error('[network/graph-data/events]', err);
-    res.status(500).json({ error: 'Erreur serveur' });
+    return sendQueryError(res, err, 'GET /:caseId/graph-data/events');
   }
 });
 
@@ -979,7 +992,7 @@ router.get('/:caseId/beacons', authenticate, async (req, res) => {
     if (from_ts) { params.push(from_ts); timeFilter += ` AND timestamp >= $${params.length}::timestamptz`; }
     if (to_ts)   { params.push(to_ts);   timeFilter += ` AND timestamp <= $${params.length}::timestamptz`; }
 
-    const result = await pool.query(`
+    const result = await readPool.query(`
       WITH raw_events AS (
         SELECT
           COALESCE(
@@ -1007,10 +1020,8 @@ router.get('/:caseId/beacons', authenticate, async (req, res) => {
           ${timeFilter}
           AND timestamp IS NOT NULL
           AND (
-            raw->>'DestinationIp'      IS NOT NULL OR
-            raw->>'DestinationHostname' IS NOT NULL OR
-            raw->>'RemoteAddress'      IS NOT NULL OR
-            dst_ip                     IS NOT NULL
+            ${rawHasAny(['DestinationIp', 'DestinationHostname', 'RemoteAddress'])}
+            OR dst_ip IS NOT NULL
           )
       ),
       with_gaps AS (
@@ -1061,15 +1072,14 @@ router.get('/:caseId/beacons', authenticate, async (req, res) => {
       total:    result.rows.length,
     });
   } catch (err) {
-    logger.error('[network/beacons]', err);
-    res.status(500).json({ error: 'Erreur serveur' });
+    return sendQueryError(res, err, 'GET /:caseId/beacons');
   }
 });
 
 router.get('/:caseId/dga-analysis', authenticate, async (req, res) => {
   try {
     const { caseId } = req.params;
-    const result = await pool.query(
+    const result = await readPool.query(
       `SELECT value FROM iocs WHERE case_id = $1 AND ioc_type = 'domain'`,
       [caseId]
     );
@@ -1106,8 +1116,7 @@ router.get('/:caseId/dga-analysis', authenticate, async (req, res) => {
       suspicious_count: domains.filter(d => d.is_suspicious).length,
     });
   } catch (err) {
-    logger.error('[network/dga-analysis]', err);
-    res.status(500).json({ error: 'Erreur serveur' });
+    return sendQueryError(res, err, 'GET /:caseId/dga-analysis');
   }
 });
 
@@ -1115,14 +1124,13 @@ router.get('/:caseId/dga-analysis', authenticate, async (req, res) => {
 router.get('/:caseId/annotations', authenticate, requireRole('admin', 'analyst'), async (req, res) => {
   try {
     const { caseId } = req.params;
-    const result = await pool.query(
+    const result = await readPool.query(
       'SELECT data FROM network_annotations WHERE case_id = $1',
       [caseId]
     );
     res.json(result.rows[0]?.data ?? { zones: [], node_overrides: {} });
   } catch (err) {
-    logger.error('[network/annotations GET]', err);
-    res.status(500).json({ error: 'Erreur serveur' });
+    return sendQueryError(res, err, 'GET /:caseId/annotations');
   }
 });
 
@@ -1245,7 +1253,7 @@ router.get('/:caseId/global-graph', authenticate, requireRole('admin', 'analyst'
   try {
     const { caseId } = req.params;
 
-    const evidencesResult = await pool.query(
+    const evidencesResult = await readPool.query(
       `SELECT id, name, original_filename FROM evidence WHERE case_id = $1 ORDER BY created_at ASC`,
       [caseId]
     );
@@ -1262,8 +1270,7 @@ router.get('/:caseId/global-graph', authenticate, requireRole('admin', 'analyst'
     const graph = mergeGlobalGraph(results, evidences);
     res.json(graph);
   } catch (err) {
-    logger.error('[network/global-graph]', err);
-    res.status(500).json({ error: 'Erreur serveur' });
+    return sendQueryError(res, err, 'GET /:caseId/global-graph');
   }
 });
 
@@ -1282,7 +1289,7 @@ router.get('/:caseId/analytics', authenticate, async (req, res) => {
     const flag = (ip, k) => { if (!ip) return; (nodeFlags[ip] = nodeFlags[ip] || {})[k] = true; };
 
     // 1. Exfiltration — large outbound volume to an external destination.
-    const exfil = (await pool.query(
+    const exfil = (await readPool.query(
       `SELECT src_ip, dst_ip, SUM(bytes_sent) AS sent, SUM(bytes_received) AS recv
          FROM network_connections WHERE case_id=$1 AND NOT ${INTERNAL_SQL('dst_ip')}
          GROUP BY src_ip, dst_ip HAVING SUM(bytes_sent) > 52428800
@@ -1290,7 +1297,7 @@ router.get('/:caseId/analytics', authenticate, async (req, res) => {
     exfil.forEach(r => { flag(r.src_ip, 'exfil'); findings.push({ type: 'exfil', severity: 'ÉLEVÉ', mitre: 'T1048', src: r.src_ip, dst: r.dst_ip, label: `Exfiltration possible — ${(r.sent / 1048576).toFixed(0)} Mo sortants vers ${r.dst_ip}` }); });
 
     // 2. Scan / sweep — one source reaching many distinct hosts or ports.
-    const scan = (await pool.query(
+    const scan = (await readPool.query(
       `SELECT src_ip, COUNT(DISTINCT dst_ip) AS hosts, COUNT(DISTINCT dst_port) AS ports
          FROM network_connections WHERE case_id=$1
          GROUP BY src_ip HAVING COUNT(DISTINCT dst_ip) >= 25 OR COUNT(DISTINCT dst_port) >= 25
@@ -1298,7 +1305,7 @@ router.get('/:caseId/analytics', authenticate, async (req, res) => {
     scan.forEach(r => { flag(r.src_ip, 'scanner'); findings.push({ type: 'scan', severity: 'ÉLEVÉ', mitre: 'T1046', src: r.src_ip, label: `Scan/sweep — ${r.hosts} hôtes, ${r.ports} ports depuis ${r.src_ip}` }); });
 
     // 3. Lateral movement — internal→internal on admin ports.
-    const lateral = (await pool.query(
+    const lateral = (await readPool.query(
       `SELECT src_ip, dst_ip, dst_port, COUNT(*) AS n
          FROM network_connections WHERE case_id=$1
            AND dst_port IN (3389,445,5985,5986,22,135,139,5900)
@@ -1308,7 +1315,7 @@ router.get('/:caseId/analytics', authenticate, async (req, res) => {
     lateral.forEach(r => { flag(r.src_ip, 'lateral'); flag(r.dst_ip, 'lateral'); findings.push({ type: 'lateral', severity: 'ÉLEVÉ', mitre: 'T1021', src: r.src_ip, dst: r.dst_ip, label: `Mouvement latéral — ${PORTNAME[r.dst_port] || r.dst_port} ${r.src_ip} → ${r.dst_ip}` }); });
 
     // 4. Pivot host — internal node with high in AND out internal degree.
-    const pivot = (await pool.query(
+    const pivot = (await readPool.query(
       `WITH deg AS (
          SELECT src_ip AS ip, COUNT(DISTINCT dst_ip) AS out_d, 0 AS in_d FROM network_connections WHERE case_id=$1 AND ${INTERNAL_SQL('src_ip')} GROUP BY src_ip
          UNION ALL
@@ -1317,25 +1324,25 @@ router.get('/:caseId/analytics', authenticate, async (req, res) => {
     pivot.forEach(r => { flag(r.ip, 'pivot'); findings.push({ type: 'pivot', severity: 'MOYEN', mitre: 'T1570', src: r.ip, label: `Relais de pivot — ${r.ip} (${r.i} entrants / ${r.o} sortants)` }); });
 
     // 5. Rare external connection — a single connection to an external host on a high port.
-    const rare = (await pool.query(
+    const rare = (await readPool.query(
       `SELECT src_ip, dst_ip, dst_port FROM network_connections
         WHERE case_id=$1 AND NOT ${INTERNAL_SQL('dst_ip')} AND dst_port > 1024 AND dst_port NOT IN (8080,8443,3128)
         GROUP BY src_ip, dst_ip, dst_port HAVING COUNT(*) = 1 ORDER BY dst_port DESC LIMIT 25`, [cid])).rows;
     rare.forEach(r => { flag(r.dst_ip, 'rare'); findings.push({ type: 'rare', severity: 'FAIBLE', mitre: 'T1571', src: r.src_ip, dst: r.dst_ip, label: `Connexion externe rare — ${r.src_ip} → ${r.dst_ip}:${r.dst_port}` }); });
 
     // 6. Threat Intel — node matches a known-bad indicator (TAXII / feed correlation).
-    const ti = (await pool.query(
+    const ti = (await readPool.query(
       `SELECT DISTINCT ioc_value, indicator_name, source_name FROM threat_correlations WHERE case_id=$1 LIMIT 50`, [cid])).rows;
     ti.forEach(r => { flag(r.ioc_value, 'knownBad'); findings.unshift({ type: 'threat-intel', severity: 'CRITIQUE', mitre: 'T1071', src: r.ioc_value, dst: r.ioc_value, label: `Known-bad (${r.source_name || 'feed'}) — ${r.ioc_value}${r.indicator_name ? ' · ' + r.indicator_name : ''}` }); });
 
     // GeoIP summary of external destinations.
-    const geo = (await pool.query(
+    const geo = (await readPool.query(
       `SELECT geo_dst->>'country' AS country, COUNT(DISTINCT dst_ip) AS hosts
          FROM network_connections WHERE case_id=$1 AND COALESCE(geo_dst->>'country','') <> ''
          GROUP BY country ORDER BY hosts DESC LIMIT 10`, [cid])).rows;
 
     // Auto zone classification (internal vs external, + cloud by geo org).
-    const zones = (await pool.query(
+    const zones = (await readPool.query(
       `SELECT
          COUNT(DISTINCT ip) FILTER (WHERE internal)                       AS internal,
          COUNT(DISTINCT ip) FILTER (WHERE NOT internal AND NOT cloud)     AS external,
@@ -1354,8 +1361,7 @@ router.get('/:caseId/analytics', authenticate, async (req, res) => {
       geo, zones,
     });
   } catch (err) {
-    logger.error('[network analytics]', err.message);
-    res.status(500).json({ error: 'Erreur analytics réseau : ' + err.message });
+    return sendQueryError(res, err, 'GET /:caseId/analytics');
   }
 });
 

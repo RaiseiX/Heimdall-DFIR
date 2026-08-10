@@ -22,6 +22,10 @@ const IORedis = require('ioredis');
 const { createAdapter } = require('@socket.io/redis-adapter');
 
 const { pool, testConnection } = require('./config/database');
+const { runGuardedMigrations } = require('./services/schemaMigrations');
+const { COLLECTION_TIMELINE_STATEMENTS, COLLECTION_TIMELINE_EXPECTED_COLUMNS } = require('./config/collectionTimelineDdl');
+const { markDegraded, clearDegraded } = require('./services/schemaState');
+const requireHealthySchema = require('./middleware/requireHealthySchema');
 const { connectRedis } = require('./config/redis');
 const { authenticate, auditLog, JWT_SECRET } = require('./middleware/auth');
 const logger = require('./config/logger').default;
@@ -160,7 +164,7 @@ app.use('/api/network', networkRoutes);
 app.use('/api/reports', reportRoutes);
 app.use('/api/users', usersRoutes);
 app.use('/api/search', searchRoutes);
-app.use('/api/collection', collectionRoutes);
+app.use('/api/collection', requireHealthySchema, collectionRoutes);
 app.use('/api/mitre', mitreRoutes);
 
 const timelineRulesRouter = require('./routes/timelineRules');
@@ -169,8 +173,8 @@ app.use('/api/timeline-rules', timelineRulesRouter);
 const columnPrefsRouter = require('./routes/columnPrefs');
 app.use('/api/column-prefs', columnPrefsRouter);
 
-app.use('/api/upload', authenticate, uploadRoutes);
-app.use('/api/parsers', authenticate, parsersStreamRoutes);
+app.use('/api/upload', authenticate, requireHealthySchema, uploadRoutes);
+app.use('/api/parsers', authenticate, requireHealthySchema, parsersStreamRoutes);
 app.use('/api/artifacts', artifactsRoutes);
 app.use('/api/threat-hunting', threatHuntingRoutes);
 app.use('/api/threat-intel',   threatIntelRoutes);
@@ -220,6 +224,25 @@ app.use((err, req, res, _next) => {
 });
 
 async function runMigrations() {
+  // collection_timeline holds millions of rows, so its DDL is the one that can
+  // actually queue behind a long-running SELECT and, once queued in ACCESS
+  // EXCLUSIVE, block every INSERT arriving after it. Run it under lock_timeout,
+  // and refuse writes rather than let the parsers hit missing columns.
+  try {
+    await runGuardedMigrations(pool, {
+      name: 'collection_timeline',
+      statements: COLLECTION_TIMELINE_STATEMENTS,
+      // On an already-migrated database this skips the batch without taking any
+      // lock, so a restart during a long read cannot disable ingestion for work
+      // that does not exist.
+      skipIfPresent: { table: 'collection_timeline', columns: COLLECTION_TIMELINE_EXPECTED_COLUMNS },
+    });
+    clearDegraded('collection_timeline');
+  } catch (e) {
+    logger.error('[migration] collection_timeline FAILED — ingestion disabled', { error: e.message });
+    markDegraded('collection_timeline', e.message);
+  }
+
   try {
     await pool.query(`ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS hmac VARCHAR(64)`);
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_log(created_at DESC)`);
@@ -448,6 +471,39 @@ async function runMigrations() {
     logger.info('[migration] access_log OK');
   } catch (e) {
     logger.warn('[migration] access_log', { error: e.message });
+  }
+  // Chaînage du journal d'audit. `audit_log.hmac` avait été migré plus haut, mais
+  // pas `prev_hash` ni `seq` — que services/auditChain.js exige tous les deux
+  // (INSERT ... prev_hash, puis SELECT ... ORDER BY seq DESC). Sans eux, chaque
+  // appendAuditRow() échouait et le journal n'écrivait plus rien.
+  //
+  // Les lignes antérieures gardent prev_hash IS NULL : c'est voulu. Reconstruire
+  // une chaîne a posteriori ne prouverait rien (qui peut falsifier peut aussi
+  // re-chaîner) et simulerait une continuité qui n'a pas existé. Elles restent
+  // vérifiées par le schéma HMAC par ligne.
+  try {
+    await pool.query(`ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS prev_hash VARCHAR(64)`);
+    await pool.query(`ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS seq BIGSERIAL`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_audit_seq ON audit_log(seq DESC)`);
+    logger.info('[migration] audit_log chain (prev_hash + seq) OK');
+  } catch (e) {
+    logger.warn('[migration] audit_log chain', { error: e.message });
+  }
+  // Brouillons de rapport collaboratifs (Yjs). services/reportDraftStore.ts
+  // lit/écrit cette table et fait ON CONFLICT (case_id) : case_id doit donc
+  // porter une contrainte d'unicité, d'où la clé primaire.
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS report_drafts (
+        case_id       UUID PRIMARY KEY REFERENCES cases(id) ON DELETE CASCADE,
+        ydoc          BYTEA NOT NULL,
+        text_snapshot JSONB NOT NULL DEFAULT '{}'::jsonb,
+        updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+    logger.info('[migration] report_drafts OK');
+  } catch (e) {
+    logger.warn('[migration] report_drafts', { error: e.message });
   }
 }
 

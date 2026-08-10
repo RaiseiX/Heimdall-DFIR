@@ -5,6 +5,7 @@ import { scanEvidence } from './yaraService';
 import { parseRule, buildQuery } from './sigmaService';
 import { correlateCase } from './taxiiService';
 import { computeTriageScores, saveTriageScores } from './triageScoreService';
+import { readPool } from '../config/database';
 
 export interface SoarRunResult {
   case_id:                  string;
@@ -186,7 +187,9 @@ export async function runSoar(
       })
       .catch(e => logger.warn('[SOAR/ThreatIntel]', e.message)),
 
-    computeTriageScores(pool, caseId)
+    // Read-only and very heavy — bounded by the read pool's statement_timeout so
+    // it cannot hold ACCESS SHARE long enough to starve the startup DDL.
+    computeTriageScores(readPool, caseId)
       .then(async result => {
         await saveTriageScores(pool, caseId, result).catch(e => logger.warn('[SOAR/save-triage]', e.message));
         for (const m of result.machines) {

@@ -16,7 +16,7 @@ const TACTIC_COLORS = {
   'Execution':               'var(--fl-warn)',
   'Persistence':             'var(--fl-pink)',
   'Privilege Escalation':    'var(--fl-accent)',
-  'Defense Evasion':         '#64748b',
+  'Defense Evasion':         'var(--fl-muted)',
   'Credential Access':       'var(--fl-purple)',
   'Discovery':               'var(--fl-ok)',
   'Lateral Movement':        'var(--fl-warn)',
@@ -42,11 +42,14 @@ export default function AttackPathD3({ svgRef: externalSvgRef, caseId, nodes, ed
   const bgColor    = theme?.bg    || 'var(--fl-bg)';
   const panelColor = theme?.panel || 'var(--fl-panel)';
   const dimColor   = theme?.dim   || 'var(--fl-muted)';
-  const inactiveColBg = theme?.mode === 'light' ? '#e8eef4' : 'var(--fl-bg)';
-  const inactiveColHdr = theme?.mode === 'light' ? '#dce4ec' : '#1a2030';
-  const inactiveColTxt = theme?.mode === 'light' ? '#8090a8' : '#3d4f6a';
-  const emptyPrimary   = theme?.mode === 'light' ? '#90a0b8' : '#3d4f6a';
-  const emptySecondary = theme?.mode === 'light' ? '#b0c0d0' : '#2a3a4a';
+  // Les tokens couvrent les deux thèmes : les ternaires clair/sombre ne sont
+  // plus nécessaires. `var()` et `color-mix()` sont résolus dans les attributs
+  // de présentation SVG (vérifié sur Chrome 141 et Firefox 140 ESR).
+  const inactiveColBg  = 'var(--fl-bg)';
+  const inactiveColHdr = 'var(--fl-raised)';
+  const inactiveColTxt = 'var(--fl-subtle)';
+  const emptyPrimary   = 'var(--fl-subtle)';
+  const emptySecondary = 'color-mix(in srgb, var(--fl-subtle) 65%, transparent)';
   const localSvgRef = useRef(null);
   const svgRef = externalSvgRef || localSvgRef;
   const containerRef = useRef(null);

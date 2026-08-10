@@ -6,6 +6,7 @@ export default function FilterChip({
   onClick,
   icon: Icon,
   style,
+  ariaLabel,
 }) {
   const bg = active
     ? `color-mix(in srgb, ${color} 14%, transparent)`
@@ -16,6 +17,7 @@ export default function FilterChip({
   return (
     <button
       onClick={onClick}
+      aria-label={ariaLabel}
       style={{
         display: 'inline-flex',
         alignItems: 'center',

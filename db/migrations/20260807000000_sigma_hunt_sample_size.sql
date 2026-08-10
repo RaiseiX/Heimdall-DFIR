@@ -1,0 +1,21 @@
+-- 20260807000000_sigma_hunt_sample_size — separate the true match count from
+-- the bounded preview stored in matched_events.
+--
+-- WHY: both Sigma hunt paths in threatHunting.ts (per-rule hunt and the
+-- scan-case sweep) ran a single query bounded by `LIMIT 200` and stored
+-- `rows.length` as `match_count` — so any rule matching more than 200 events
+-- silently reported exactly 200, presenting a SQL limit as a detection
+-- result. On the live DB, 229 rows in sigma_hunt_results carry
+-- match_count = 200 for exactly this reason; their true total is unknown.
+--
+-- The fix (threatHunting.ts) now runs an unbounded COUNT(*) for match_count
+-- and keeps a small bounded sample (LIMIT 50) for matched_events. This column
+-- lets a consumer say "50 samples out of 5342" instead of conflating the two.
+--
+-- Existing rows keep sample_size = NULL: their matched_events was capped by
+-- the old LIMIT 200, not by a deliberate 50-row sample, so backfilling a
+-- sample_size for them would fabricate a number nobody measured. NULL means
+-- "unknown", not zero — a consumer must not read it as zero samples.
+--
+-- Idempotent: safe to re-run (manifest-driven migrate.sh records it once).
+ALTER TABLE sigma_hunt_results ADD COLUMN IF NOT EXISTS sample_size INTEGER;

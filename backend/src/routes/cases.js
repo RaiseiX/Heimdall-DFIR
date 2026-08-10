@@ -1,6 +1,6 @@
 const express = require('express');
 const crypto = require('crypto');
-const { pool } = require('../config/database');
+const { pool, readPool } = require('../config/database');
 const { authenticate, requireRole, auditLog } = require('../middleware/auth');
 const { hardDeleteCase } = require('../services/hardDeleteService');
 const { getRiskScore } = require('../services/riskScoreService');
@@ -686,7 +686,11 @@ router.post('/:id/triage', authenticate, async (req, res) => {
     const caseRes = await pool.query('SELECT id FROM cases WHERE id = $1', [id]);
     if (!caseRes.rows.length) return res.status(404).json({ error: 'Cas non trouvé' });
 
-    const result = await computeTriageScores(pool, id);
+    // Read-only, and the heaviest query in the codebase: ~30 `raw::text ~*`
+    // predicates over every row of collection_timeline. Unbounded, it held ACCESS
+    // SHARE for 11 minutes and starved the startup DDL of its lock. The write
+    // pool stays for saveTriageScores.
+    const result = await computeTriageScores(readPool, id);
     await saveTriageScores(pool, id, result);
     await auditLog(req.user.id, 'triage_compute', 'case', id, { machines: result.machines.length }, req.ip);
 

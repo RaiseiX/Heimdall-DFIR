@@ -442,9 +442,6 @@ export default function EventGrid() {
           flex: 1,
           overflow: 'auto',
           position: 'relative',
-          userSelect: 'none',
-          WebkitUserSelect: 'none',
-          MozUserSelect: 'none',
         }}
       >
         {/* Sticky column header — sticks to top of scrollRef viewport; scrolls left/right with data */}

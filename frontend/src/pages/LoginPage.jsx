@@ -155,7 +155,7 @@ export default function LoginPage({ onLogin }) {
               <span style={{ color: 'rgba(229,232,240,0.4)', fontSize: 15 }}> · PLATFORM</span>
             </div>
             {betaPill}
-            <span style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10.5, letterSpacing: '0.06em', color: 'rgba(229,232,240,0.4)' }}>
+            <span style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 'var(--fs-sm)', letterSpacing: '0.06em', color: 'rgba(229,232,240,0.4)' }}>
               v{__APP_VERSION__}
             </span>
           </div>
@@ -167,7 +167,7 @@ export default function LoginPage({ onLogin }) {
               padding: '4px 11px', borderRadius: 999,
               border: '1px solid color-mix(in srgb, var(--fl-accent) 40%, transparent)',
               background: 'color-mix(in srgb, var(--fl-accent) 12%, transparent)',
-              fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10.5,
+              fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 'var(--fs-sm)',
               letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--fl-accent)',
             }}>
               <span style={{ width: 6, height: 6, borderRadius: 2, background: 'var(--fl-accent)' }} />
@@ -177,13 +177,10 @@ export default function LoginPage({ onLogin }) {
               margin: 0, fontFamily: 'var(--f-display, "Space Grotesk", "Inter", sans-serif)',
               fontSize: 'clamp(34px, 3.8vw, 54px)', fontWeight: 600, lineHeight: 1.03, letterSpacing: '-0.025em',
             }}>
-              <span style={{
-                background: 'linear-gradient(105deg, #ffffff 30%, color-mix(in srgb, var(--fl-accent) 70%, #ffffff))',
-                WebkitBackgroundClip: 'text', backgroundClip: 'text', color: 'transparent',
-              }}>{content.hero_primary}</span><br />
+              <span style={{ color: 'var(--fl-text)' }}>{content.hero_primary}</span><br />
               <span style={{ color: 'rgba(229,232,240,0.55)' }}>{content.hero_secondary}</span>
             </h1>
-            <p style={{ marginTop: 20, maxWidth: 440, fontSize: 14.5, lineHeight: 1.6, color: 'rgba(229,232,240,0.72)', fontFamily: 'var(--f-ui, "Inter", sans-serif)' }}>
+            <p style={{ marginTop: 20, maxWidth: 440, fontSize: 'var(--fs-title)', lineHeight: 1.6, color: 'rgba(229,232,240,0.72)', fontFamily: 'var(--f-ui, "Inter", sans-serif)' }}>
               {content.hero_copy}
             </p>
           </div>
@@ -191,10 +188,10 @@ export default function LoginPage({ onLogin }) {
           {/* Rotating forensic quote — pinned at the bottom of the column */}
           <div className="login-rise" style={{ animationDelay: '0.3s', maxWidth: 470 }}>
             <div key={`${qi}-${lang}`} className="login-rise" style={{ borderLeft: '2px solid color-mix(in srgb, var(--fl-accent) 50%, transparent)', paddingLeft: 16 }}>
-              <p style={{ margin: 0, fontStyle: 'italic', fontSize: 14.5, lineHeight: 1.55, color: 'rgba(229,232,240,0.82)', fontFamily: 'var(--f-display, "Space Grotesk", "Inter", sans-serif)' }}>
+              <p style={{ margin: 0, fontStyle: 'italic', fontSize: 'var(--fs-title)', lineHeight: 1.55, color: 'rgba(229,232,240,0.82)', fontFamily: 'var(--f-display, "Space Grotesk", "Inter", sans-serif)' }}>
                 {lang === 'en' ? `"${quote.q}"` : `« ${quote.q} »`}
               </p>
-              <div style={{ marginTop: 8, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10.5, letterSpacing: '0.04em', color: 'var(--fl-accent)' }}>
+              <div style={{ marginTop: 8, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 'var(--fs-sm)', letterSpacing: '0.04em', color: 'var(--fl-accent)' }}>
                 {quote.a}
               </div>
             </div>
@@ -208,7 +205,7 @@ export default function LoginPage({ onLogin }) {
               otherwise it duplicates the hero brand. */}
           <div className="login-card-brand" style={{ alignItems: 'center', gap: 10, marginBottom: 24, flexWrap: 'wrap' }}>
             <HeimdallLogo size={26} id="login" />
-            <div style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11.5, letterSpacing: '0.04em', color: 'rgba(229,232,240,0.72)' }}>
+            <div style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 'var(--fs-base)', letterSpacing: '0.04em', color: 'rgba(229,232,240,0.72)' }}>
               Heimdall <span style={{ color: '#ffffff', fontWeight: 600 }}>DFIR</span>
             </div>
             {betaPill}
@@ -228,7 +225,7 @@ export default function LoginPage({ onLogin }) {
               <div id="login-error" role="alert" aria-live="assertive" key={error.message} className="login-shake" style={{
                 display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: 18, padding: '10px 12px', borderRadius: 8,
                 background: `color-mix(in srgb, ${c} 12%, transparent)`, border: `1px solid color-mix(in srgb, ${c} 32%, transparent)`,
-                color: c, fontSize: 12.5, lineHeight: 1.5,
+                color: c, fontSize: 'var(--fs-md)', lineHeight: 1.5,
               }}>
                 <ErrIcon size={15} style={{ flexShrink: 0, marginTop: 1 }} />
                 <span>{error.message}</span>
@@ -269,7 +266,7 @@ export default function LoginPage({ onLogin }) {
                 </button>
               </div>
               {capsOn && (
-                <div role="status" style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 1, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10.5, color: 'var(--fl-warn)' }}>
+                <div role="status" style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 1, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 'var(--fs-sm)', color: 'var(--fl-warn)' }}>
                   <ArrowBigUp size={13} style={{ flexShrink: 0 }} />
                   {t('login.caps_lock')}
                 </div>
@@ -280,13 +277,12 @@ export default function LoginPage({ onLogin }) {
               style={{
                 position: 'relative', overflow: 'hidden', marginTop: 4, width: '100%', height: 46, borderRadius: 10,
                 cursor: loading ? 'wait' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
-                fontFamily: 'var(--f-ui, "Inter", sans-serif)', fontSize: 14, fontWeight: 600, color: '#fff', border: '1px solid var(--fl-accent)',
-                background: 'linear-gradient(180deg, color-mix(in srgb, var(--fl-accent) 92%, white), var(--fl-accent))',
-                boxShadow: '0 8px 22px color-mix(in srgb, var(--fl-accent) 35%, transparent)',
-                opacity: loading ? 0.75 : 1, transition: 'transform 0.12s ease, box-shadow 0.12s ease',
+                fontFamily: 'var(--f-ui, "Inter", sans-serif)', fontSize: 13, fontWeight: 500, color: '#0a0c11', border: 'none',
+                background: '#e4e7ee',
+                opacity: loading ? 0.75 : 1, transition: 'background 0.16s ease',
               }}
-              onMouseEnter={e => { if (!loading) { e.currentTarget.style.transform = 'translateY(-1px)'; e.currentTarget.style.boxShadow = '0 10px 28px color-mix(in srgb, var(--fl-accent) 45%, transparent)'; } }}
-              onMouseLeave={e => { e.currentTarget.style.transform = 'none'; e.currentTarget.style.boxShadow = '0 8px 22px color-mix(in srgb, var(--fl-accent) 35%, transparent)'; }}>
+              onMouseEnter={e => { if (!loading) e.currentTarget.style.background = '#ffffff'; }}
+              onMouseLeave={e => { e.currentTarget.style.background = '#e4e7ee'; }}>
               {!loading && <span className="login-sheen" />}
               {loading
                 ? <><Loader2 size={16} style={{ animation: 'login-spin 0.7s linear infinite' }} /> {t('login.submit')}…</>

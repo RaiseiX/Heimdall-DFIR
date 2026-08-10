@@ -1,5 +1,5 @@
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
@@ -9,8 +9,15 @@ import {
   Monitor, ExternalLink, Loader, RefreshCw, Play, Rocket,
 } from 'lucide-react';
 import { casesAPI, evidenceAPI, threatHuntingAPI } from '../utils/api';
-import { Button, Modal, TabGroup, Badge, Spinner } from '../components/ui';
+import {
+  Button, Modal, TabGroup, Badge, Spinner,
+  DataTable, constantColumns, ScopeBar, SearchInput, FilterChip, EmptyState, Alert,
+} from '../components/ui';
 import { fmtLocal } from '../utils/formatters';
+import { isDestructionConfirmed } from '../utils/destructiveConfirm';
+import {
+  mergeRuleStats, filterYaraRules, sortByMatchCountDesc, computeYaraRuleStats, SCOPE_CANDIDATE_COLUMNS,
+} from './yaraRulesTable';
 
 const C = {
   yara:    'var(--fl-accent)',
@@ -238,8 +245,10 @@ const YARA_TEMPLATE = `rule ExempleMalware {
 function YaraRulesTab() {
   const { t, i18n } = useTranslation();
   const [rules, setRules]        = useState([]);
+  const [ruleStats, setRuleStats] = useState([]);
   const [loading, setLoading]    = useState(true);
   const [loadError, setLoadError] = useState('');
+  const [statsError, setStatsError] = useState('');
   const [showModal, setShowModal] = useState(false);
   const [showGithub, setShowGithub] = useState(false);
   const [editing, setEditing]    = useState(null);
@@ -247,14 +256,128 @@ function YaraRulesTab() {
   const [saving, setSaving]      = useState(false);
   const [error, setError]        = useState('');
 
+  // Toolbar — search by name, single-select segmented filter, scope columns
+  // the analyst has explicitly asked back after a ScopeBar token removal.
+  const [search, setSearch]       = useState('');
+  const [filter, setFilter]       = useState('all');
+  const [restoredScope, setRestoredScope] = useState(() => new Set());
+
+  // Delete confirmation — retype-to-confirm via the shared destructiveConfirm
+  // gate (utils/destructiveConfirm.js), not a bespoke check: the trash icon
+  // used to sit right next to edit, 566 times, with no guard at all.
+  const [pendingDelete, setPendingDelete] = useState(null);
+  const [deleteConfirmText, setDeleteConfirmText] = useState('');
+  const [deleting, setDeleting] = useState(false);
+
   const load = useCallback(async () => {
-    setLoading(true); setLoadError('');
-    try { const r = await threatHuntingAPI.yaraRules(); setRules(r.data.rules ?? []); }
-    catch (e) { setLoadError(e.response?.data?.error || e.message || t('threat_hunt.errors.load_rules')); }
-    finally { setLoading(false); }
+    setLoading(true); setLoadError(''); setStatsError('');
+    try {
+      const rulesRes = await threatHuntingAPI.yaraRules();
+      setRules(rulesRes.data.rules ?? []);
+    } catch (e) {
+      setLoadError(e.response?.data?.error || e.message || t('threat_hunt.errors.load_rules'));
+      setLoading(false);
+      return;
+    }
+    // Rules and stats are two independent facts — a rule list is fully usable
+    // (browse, search, edit, delete) without match counts. Fetched separately
+    // so a stats-endpoint hiccup degrades to "counts unavailable" rather than
+    // hiding the whole table behind an unrelated error.
+    try {
+      const statsRes = await threatHuntingAPI.yaraRuleStats();
+      setRuleStats(statsRes.data.stats ?? []);
+    } catch (e) {
+      setRuleStats([]);
+      setStatsError(e.response?.data?.error || e.message || t('threat_hunt.errors.load_rule_stats'));
+    }
+    setLoading(false);
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  // Rows: rules joined with match-count stats (Task 1). Absence from `stats`
+  // means zero matches, not a missing rule — see mergeRuleStats' doc comment.
+  const rows = useMemo(() => mergeRuleStats(rules, ruleStats), [rules, ruleStats]);
+  const stats = useMemo(() => computeYaraRuleStats(rows), [rows]);
+  const segmentCounts = useMemo(() => ({
+    all: rows.length,
+    matched: rows.filter(r => r.match_count > 0).length,
+    muted: rows.filter(r => r.match_count === 0).length,
+    inactive: rows.filter(r => !r.is_active).length,
+  }), [rows]);
+  const visibleRows = useMemo(
+    () => sortByMatchCountDesc(filterYaraRules(rows, { search, filter })),
+    [rows, search, filter],
+  );
+
+  // Scope bar — columns constant across every currently-loaded rule (Task 2's
+  // constantColumns) get lifted into a removable token instead of a column.
+  // Removing a token adds its key back to `restoredScope`, which both drops
+  // it from the lifted set below and re-inserts a real column for it.
+  const constantKeys = useMemo(() => constantColumns(rows, SCOPE_CANDIDATE_COLUMNS), [rows]);
+  const liftedKeys = useMemo(
+    () => constantKeys.filter(key => !restoredScope.has(key)),
+    [constantKeys, restoredScope],
+  );
+
+  function restoreScopeColumn(...keys) {
+    setRestoredScope(prev => {
+      const next = new Set(prev);
+      keys.forEach(k => next.add(k));
+      return next;
+    });
+  }
+
+  const scopeTokens = useMemo(() => {
+    const first = rows[0];
+    if (!first) return [];
+    const tokens = [];
+
+    if (liftedKeys.includes('description')) {
+      tokens.push({
+        key: 'description',
+        label: t('threat_hunt.yara.columns.description'),
+        value: first.description || '—',
+        onRemove: () => restoreScopeColumn('description'),
+      });
+    }
+    if (liftedKeys.includes('tagsKey')) {
+      tokens.push({
+        key: 'tagsKey',
+        label: t('threat_hunt.yara.columns.tags'),
+        value: (first.tags || []).join(', ') || '—',
+        onRemove: () => restoreScopeColumn('tagsKey'),
+      });
+    }
+    const authorLifted = liftedKeys.includes('author_username');
+    const dateLifted   = liftedKeys.includes('created_at');
+    if (authorLifted && dateLifted) {
+      tokens.push({
+        key: 'author_date',
+        label: t('threat_hunt.yara.columns.author'),
+        value: t('threat_hunt.by_author', { author: first.author_username || '—', date: fmtDate(first.created_at, i18n.language) }),
+        onRemove: () => restoreScopeColumn('author_username', 'created_at'),
+      });
+    } else {
+      if (authorLifted) {
+        tokens.push({
+          key: 'author_username',
+          label: t('threat_hunt.yara.columns.author'),
+          value: first.author_username || '—',
+          onRemove: () => restoreScopeColumn('author_username'),
+        });
+      }
+      if (dateLifted) {
+        tokens.push({
+          key: 'created_at',
+          label: t('threat_hunt.yara.columns.created_at'),
+          value: fmtDate(first.created_at, i18n.language),
+          onRemove: () => restoreScopeColumn('created_at'),
+        });
+      }
+    }
+    return tokens;
+  }, [liftedKeys, rows, t, i18n.language]);
 
   function openCreate() {
     setEditing(null);
@@ -281,15 +404,101 @@ function YaraRulesTab() {
     } finally { setSaving(false); }
   }
 
-  async function del(id) {
-    if (!confirm(t('threat_hunt.yara.confirm_delete'))) return;
-    try { await threatHuntingAPI.deleteYaraRule(id); load(); } catch (_e) {}
+  function requestDelete(r) {
+    setPendingDelete(r);
+    setDeleteConfirmText('');
+  }
+
+  async function confirmDelete() {
+    if (!pendingDelete) return;
+    setDeleting(true);
+    try { await threatHuntingAPI.deleteYaraRule(pendingDelete.id); setPendingDelete(null); load(); }
+    catch (_e) { /* surfaced via the next load()'s loadError if the list itself fails to refresh */ }
+    finally { setDeleting(false); }
   }
 
   async function toggle(r) {
     try { await threatHuntingAPI.updateYaraRule(r.id, { is_active: !r.is_active }); load(); }
     catch (_e) {}
   }
+
+  const columns = useMemo(() => {
+    const cols = [
+      {
+        key: 'state', width: 34,
+        header: <span className="sr-only">{t('threat_hunt.yara.columns.state')}</span>,
+        render: r => <span className={`rt-state-dot${r.is_active ? ' rt-state-dot--active' : ''}`} aria-hidden="true" />,
+      },
+      {
+        key: 'name', header: t('threat_hunt.yara.columns.rule'), mono: true,
+        render: r => <span className={r.match_count > 0 ? undefined : 'rt-name-muted'}>{r.name}</span>,
+      },
+    ];
+
+    if (restoredScope.has('description')) {
+      cols.push({ key: 'description', header: t('threat_hunt.yara.columns.description') });
+    }
+    if (restoredScope.has('tagsKey')) {
+      cols.push({
+        key: 'tagsDisplay', header: t('threat_hunt.yara.columns.tags'),
+        render: r => (r.tags || []).join(', ') || '—',
+      });
+    }
+    if (restoredScope.has('author_username')) {
+      cols.push({ key: 'author_username', header: t('threat_hunt.yara.columns.author') });
+    }
+    if (restoredScope.has('created_at')) {
+      cols.push({
+        key: 'created_at_display', header: t('threat_hunt.yara.columns.created_at'), mono: true,
+        render: r => fmtDate(r.created_at, i18n.language),
+      });
+    }
+
+    cols.push(
+      {
+        key: 'match_count', header: t('threat_hunt.yara.columns.matches'), width: 120, align: 'right', mono: true,
+        render: r => r.match_count > 0
+          ? <span className="yara-match-count">{r.match_count}</span>
+          : <span className="yara-match-count--zero">—</span>,
+      },
+      {
+        key: 'last_matched_at', header: t('threat_hunt.yara.columns.last'), width: 150, mono: true,
+        render: r => r.last_matched_at
+          ? fmtDate(r.last_matched_at, i18n.language)
+          : <span className="yara-last-never">{t('threat_hunt.yara.never_matched')}</span>,
+      },
+      {
+        key: 'actions', width: 110,
+        header: <span className="sr-only">{t('threat_hunt.yara.columns.actions')}</span>,
+        render: r => (
+          <div className="dt-row-actions">
+            <button
+              type="button" className="rt-action-btn"
+              aria-label={t(r.is_active ? 'threat_hunt.yara.aria.disable_rule' : 'threat_hunt.yara.aria.enable_rule', { name: r.name })}
+              onClick={() => toggle(r)}
+            >
+              {r.is_active ? <ToggleRight size={14} /> : <ToggleLeft size={14} />}
+            </button>
+            <button
+              type="button" className="rt-action-btn"
+              aria-label={t('threat_hunt.yara.aria.edit_rule', { name: r.name })}
+              onClick={() => openEdit(r)}
+            >
+              <Pencil size={12} />
+            </button>
+            <button
+              type="button" className="rt-action-btn rt-action-btn--danger"
+              aria-label={t('threat_hunt.yara.aria.delete_rule', { name: r.name })}
+              onClick={() => requestDelete(r)}
+            >
+              <Trash2 size={12} />
+            </button>
+          </div>
+        ),
+      },
+    );
+    return cols;
+  }, [restoredScope, t, i18n.language]);
 
   return (
     <div>
@@ -310,50 +519,55 @@ function YaraRulesTab() {
           <Spinner size={24} />
         </div>
       ) : loadError ? (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 16px', background: 'rgba(218,54,51,0.08)', border: '1px solid rgba(218,54,51,0.25)', borderRadius: 8, color: 'var(--fl-danger)', fontSize: 13 }}>
-          <AlertCircle size={16} />
-          {loadError}
-        </div>
-      ) : rules.length === 0 ? (
-        <div style={{ textAlign: 'center', padding: 60, color: 'var(--fl-dim)' }}>
-          <Shield size={40} style={{ marginBottom: 12, opacity: 0.3 }} />
-          <p>{t('threat_hunt.no_yara')}</p>
-        </div>
+        <Alert variant="danger" message={loadError} />
+      ) : rows.length === 0 ? (
+        <EmptyState icon={Shield} title={t('threat_hunt.no_yara')} />
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {rules.map(r => (
-            <div key={r.id} style={{
-              background: C.surface, border: `1px solid ${C.border}`,
-              borderRadius: 10, padding: '12px 16px',
-            }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                <div>
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-                    <span style={{ width: 7, height: 7, borderRadius: 2, background: r.is_active ? C.yara : 'var(--fl-subtle)', flexShrink: 0 }} />
-                    <span style={{ fontWeight: 600, color: 'var(--fl-text)', fontSize: 14 }}>{r.name}</span>
-                  </span>
-                  {r.description && (
-                    <p style={{ margin: '3px 0 0', fontSize: 12, color: 'var(--fl-dim)' }}>{r.description}</p>
-                  )}
-                  <div style={{ display: 'flex', gap: 6, marginTop: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-                    {(r.tags || []).map(t => <Badge key={t} variant="accent">{t}</Badge>)}
-                    <span style={{ fontSize: 11, color: 'var(--fl-muted)' }}>
-                      {t('threat_hunt.by_author', { author: r.author_username || '—', date: fmtDate(r.created_at, i18n.language) })}
-                    </span>
-                  </div>
-                </div>
-                <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                  <button onClick={() => toggle(r)} title={r.is_active ? t('threat_hunt.disable') : t('threat_hunt.enable')}
-                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: r.is_active ? 'var(--fl-ok)' : 'var(--fl-dim)' }}>
-                    {r.is_active ? <ToggleRight size={20} /> : <ToggleLeft size={20} />}
-                  </button>
-                  <Button variant="ghost" size="sm" onClick={() => openEdit(r)}><Pencil size={12} /></Button>
-                  <Button variant="ghost" size="sm" onClick={() => del(r.id)}><Trash2 size={12} style={{ color: 'var(--fl-danger)' }} /></Button>
-                </div>
-              </div>
+        <>
+          {statsError && <Alert variant="warn" message={statsError} />}
+
+          <div className="rt-stat-row">
+            <span>{t('threat_hunt.yara.stat_rules', { count: stats.total })}</span>
+            <span>{t('threat_hunt.yara.stat_active', { count: stats.active })}</span>
+            <span>{t('threat_hunt.yara.stat_matched', { count: stats.matched })}</span>
+            <span>{t('threat_hunt.yara.stat_muted', { count: stats.muted })}</span>
+            <span>{t('threat_hunt.yara.stat_matches', { count: stats.totalMatches })}</span>
+          </div>
+
+          <ScopeBar tokens={scopeTokens} />
+
+          <div className="rt-toolbar">
+            <SearchInput
+              value={search}
+              onChange={setSearch}
+              onClear={() => setSearch('')}
+              placeholder={t('threat_hunt.yara.search_placeholder')}
+              style={{ minWidth: 240 }}
+            />
+            <div className="rt-toolbar-filters">
+              <FilterChip active={filter === 'all'} onClick={() => setFilter('all')} count={segmentCounts.all}>
+                {t('threat_hunt.yara.filter_all')}
+              </FilterChip>
+              <FilterChip active={filter === 'matched'} color="var(--fl-warn)" onClick={() => setFilter('matched')} count={segmentCounts.matched}>
+                {t('threat_hunt.yara.filter_matched')}
+              </FilterChip>
+              <FilterChip active={filter === 'muted'} onClick={() => setFilter('muted')} count={segmentCounts.muted}>
+                {t('threat_hunt.yara.filter_muted')}
+              </FilterChip>
+              <FilterChip active={filter === 'inactive'} color="var(--fl-subtle)" onClick={() => setFilter('inactive')} count={segmentCounts.inactive}>
+                {t('threat_hunt.yara.filter_inactive')}
+              </FilterChip>
             </div>
-          ))}
-        </div>
+          </div>
+
+          {visibleRows.length === 0 ? (
+            <EmptyState icon={Search} title={t('threat_hunt.yara.no_search_results')} />
+          ) : (
+            <div className="rt-table-wrap">
+              <DataTable columns={columns} rows={visibleRows} rowKey={r => r.id} density="compact" />
+            </div>
+          )}
+        </>
       )}
 
       <Modal
@@ -389,6 +603,39 @@ function YaraRulesTab() {
         <Modal.Footer>
           <Button variant="secondary" onClick={() => setShowModal(false)}>{t('common.cancel')}</Button>
           <Button variant="primary" loading={saving} onClick={save}>{t('common.save')}</Button>
+        </Modal.Footer>
+      </Modal>
+
+      <Modal
+        open={!!pendingDelete}
+        title={t('threat_hunt.yara.delete_modal_title')}
+        onClose={() => setPendingDelete(null)}
+        size="sm"
+        accentColor="var(--fl-danger)"
+      >
+        <Modal.Body>
+          <p className="rt-delete-warning">{t('threat_hunt.yara.delete_modal_warning')}</p>
+          <label className="fl-label" style={{ display: 'block', marginBottom: 5 }}>
+            {t('threat_hunt.yara.delete_modal_type_prompt', { name: pendingDelete?.name })}
+          </label>
+          <input
+            className="fl-input"
+            value={deleteConfirmText}
+            onChange={e => setDeleteConfirmText(e.target.value)}
+            autoComplete="off"
+          />
+        </Modal.Body>
+        <Modal.Footer>
+          <Button variant="secondary" disabled={deleting} onClick={() => setPendingDelete(null)}>{t('common.cancel')}</Button>
+          <Button
+            variant="danger"
+            icon={deleting ? undefined : Trash2}
+            loading={deleting}
+            disabled={!isDestructionConfirmed(deleteConfirmText, pendingDelete?.name)}
+            onClick={confirmDelete}
+          >
+            {t('common.delete')}
+          </Button>
         </Modal.Footer>
       </Modal>
     </div>

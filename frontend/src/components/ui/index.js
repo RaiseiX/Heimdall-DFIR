@@ -12,3 +12,5 @@ export { default as CommandPalette } from './CommandPalette';
 export { default as FilterChip }   from './FilterChip';
 export { default as SearchInput }  from './SearchInput';
 export { default as PanelShell }   from './PanelShell';
+export { default as ScopeBar }      from './ScopeBar';
+export { default as DataTable, constantColumns } from './DataTable';

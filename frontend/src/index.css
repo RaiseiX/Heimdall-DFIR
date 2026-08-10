@@ -42,13 +42,21 @@
   /* ── Typography ───────────────────────────────────────── */
   --fl-text:     #dde0e8;
   --fl-dim:      #a5acba;
-  --fl-muted:    #6e7689;
-  --fl-subtle:   #3a4155;
+  /* Échelle d'encre alignée sur la charte (refonte.css : subtle et muted pointent
+     tous deux sur --ink-3), puis remontée au seuil WCAG AA.
+       muted  #6e7689 → 3.62 sur --fl-raised, sous les 4.5 requis
+       subtle #3a4155 → 1.62, valeur absente de la charte (dérive non décidée)
+     73 % des usages de --fl-subtle et 78 % de --fl-muted sont des couleurs de
+     texte : les deux doivent donc être conformes. Mesuré sur la surface la plus
+     défavorable (--fl-raised #1a1f2c). Teinte et saturation d'origine conservées. */
+  --fl-muted:    #7e8697;  /* 4.50 */
+  --fl-subtle:   #7e8697;  /* 4.50 — voir note sur les usages décoratifs ci-dessous */
   --fl-sep:      #0e1119;
   --fl-on-dark:  #c0c8d8;
 
   /* ── Accent — aurora violet ───────────────────────────── */
-  --fl-accent:   #8b7fff;
+  --fl-accent:      #8b7fff;
+  --fl-accent-dark: #6c5be8;  /* état pressé / variante sourde */
 
   /* ── Semantic ─────────────────────────────────────────── */
   --fl-danger:   #e0556d;
@@ -94,9 +102,44 @@
   --fl-glow-danger: 0 0 10px rgba(224, 85, 109, 0.15);
 
   /* ── Font system ──────────────────────────────────────── */
-  --f-display: "Space Grotesk", "Inter", system-ui, sans-serif;
-  --f-ui:      "Inter", system-ui, -apple-system, sans-serif;
-  --f-mono:    "JetBrains Mono", "IBM Plex Mono", ui-monospace, monospace;
+  --f-display: "IBM Plex Sans", system-ui, sans-serif;
+  --f-ui:      "IBM Plex Sans", system-ui, -apple-system, sans-serif;
+  --f-mono:    "IBM Plex Mono", ui-monospace, monospace;
+  --f-cond:    "IBM Plex Sans Condensed", "IBM Plex Sans", system-ui, sans-serif;
+
+  /* ── Échelle typographique — 25 valeurs mesurées repliées en 9 pas ──
+     Les demi-pixels (8.5 · 9.5 · 10.5 · 11.5 · 12.5 · 13.5 · 14.5) remontent
+     au pas entier le plus proche : ils ne portaient aucune intention. */
+  --fs-micro:   8px;
+  --fs-xs:      9px;
+  --fs-sm:     10px;
+  --fs-base:   11px;   /* pas dominant — corps de table, 468 usages mesurés */
+  --fs-md:     12px;
+  --fs-lg:     13px;
+  --fs-title:  15px;
+  --fs-display: 20px;
+  --fs-hero:   26px;
+
+  /* ── Échelle d'espacement — 20 valeurs repliées en 9 pas + 1 filet ──
+     Pas de 2 en bas de l'échelle : 1 à 7 px cumulent 971 usages. C'est la
+     densité forensique demandée par docs/design-system.md ; une base 4 la
+     casserait. --sp-hair est un filet, jamais un espacement. */
+  --sp-hair:  1px;
+  --sp-1:     2px;
+  --sp-2:     4px;
+  --sp-3:     6px;
+  --sp-4:     8px;
+  --sp-5:    12px;
+  --sp-6:    16px;
+  --sp-7:    24px;
+  --sp-8:    32px;
+  --sp-9:    48px;
+
+  /* ── Graisses — 4 → 3. Le pas 500 (15 usages) est invisible entre 400 et
+     600 : il est supprimé. */
+  --fw-body:   400;
+  --fw-label:  600;
+  --fw-strong: 700;
 }
 
 /* ─── Light theme ─────────────────────────────────────────── */
@@ -117,7 +160,8 @@ body.theme-light {
   --fl-subtle:   #9baab8;
   --fl-sep:      #d0d8e8;
   --fl-on-dark:  #111827;
-  --fl-accent:   #6c5df5;
+  --fl-accent:      #6c5df5;
+  --fl-accent-dark: #5246e8;
   --fl-danger:   #cc3355;
   --fl-warn:     #c4721e;
   --fl-ok:       #2d9e6e;
@@ -163,8 +207,12 @@ body {
   transition: background 0.2s ease, color 0.2s ease;
 }
 
-body.theme-dark  { background: #0a0c11; color: #dde0e8; }
-body.theme-light { background: #f4f6fb !important; color: #111827 !important; }
+/* Les tokens sont déclarés plus haut (`:root` / `body.theme-light`) ; le fond et
+   la couleur du body les suivent. Le `!important` d'origine ne servait qu'à
+   battre le style inline que theme.jsx posait sur <body> — cette injection a été
+   supprimée, il n'est plus nécessaire. */
+body.theme-dark,
+body.theme-light { background: var(--fl-bg); color: var(--fl-text); }
 
 /* ─── Scrollbars ─────────────────────────────────────────── */
 ::-webkit-scrollbar { width: 5px; height: 5px; }
@@ -177,6 +225,17 @@ input:focus, select:focus, textarea:focus {
   outline: none;
   border-color: var(--fl-accent) !important;
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--fl-accent) 14%, transparent) !important;
+}
+
+/* GLOBAL FOCUS */
+button:focus-visible,
+a:focus-visible,
+[role="button"]:focus-visible,
+summary:focus-visible,
+[tabindex]:not([tabindex="-1"]):focus-visible {
+  outline: 2px solid var(--fl-accent);
+  outline-offset: 2px;
+  border-radius: 3px;
 }
 
 /* ─── Transitions ─────────────────────────────────────────── */
@@ -245,6 +304,18 @@ body.fl-density-comfortable th {
 .fl-log-in { animation: fl-log-in 0.28s ease-out; }
 
 @keyframes fl-drawer-in { from { transform: translateX(100%); } to { transform: translateX(0); } }
+
+@media (prefers-reduced-motion: reduce) {
+/* GLOBAL REDUCED MOTION */
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
 
 /* ═══════════════════════════════════════════════════════════
    LAYOUT PRIMITIVES
@@ -471,6 +542,259 @@ body.fl-density-comfortable th {
 .fl-ioc-table tbody tr:hover { background: color-mix(in srgb, var(--fl-accent) 4%, transparent); }
 .fl-ioc-table .ioc-copy { opacity: 0; transition: opacity 0.12s ease; }
 .fl-ioc-table tbody tr:hover .ioc-copy { opacity: 1; }
+
+/* ═══════════════════════════════════════════════════════════
+   DATA TABLE — dense, virtualized primitive (components/ui/DataTable.jsx)
+   Div-based CSS grid, not <table> — same approach as .tl-row / EventGrid,
+   so a virtualized row can be absolutely positioned at `top: item.start`.
+   Every declaration below composes the --fs-, --sp- and --fw- scales; none
+   is a bare literal, and none needs calc() — the three densities are plain
+   --sp-* tokens (see the Density comment below for why).
+   ═══════════════════════════════════════════════════════════ */
+
+.dt-root {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  font-family: var(--f-ui);
+  color: var(--fl-text);
+}
+
+.dt-scroll {
+  flex: 1;
+  overflow: auto;
+  position: relative;
+}
+
+.dt-grid {
+  display: grid;
+  align-items: center;
+  column-gap: var(--sp-2);
+}
+
+.dt-header-row {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--fl-panel);
+  border-bottom: var(--sp-hair) solid var(--fl-border);
+}
+
+.dt-header-cell {
+  font-family: var(--f-cond);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-label);
+  color: var(--fl-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dt-header-cell[data-align="right"]  { text-align: right; }
+.dt-header-cell[data-align="center"] { text-align: center; }
+
+.dt-body  { position: relative; }
+.dt-vbody { position: relative; }
+.dt-vrow  { position: absolute; left: 0; width: 100%; }
+
+.dt-row {
+  border-bottom: var(--sp-hair) solid var(--fl-border2);
+  transition: background 0.1s ease;
+}
+.dt-row:hover { background: var(--fl-hover-bg); }
+
+.dt-cell {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  min-width: 0;
+  font-size: var(--fs-base);
+}
+.dt-cell[data-align="right"]  { text-align: right; }
+.dt-cell[data-align="center"] { text-align: center; }
+.dt-cell--mono {
+  font-family: var(--f-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Density — compact is the default per the redesign spec. All three
+   densities are plain --sp-* steps, no calc(): the 29/07 design sheet's
+   3/10, 8/12.5, 11/13 px pairs put five of six values outside the spacing
+   scale and one (12.5) on a half-pixel — the exact noise --fs-/--sp- exist
+   to fold away — so they were realigned to the nearest scale steps rather
+   than carried over as-is (2026-08-06 correction).
+   Row heights (25/33/41) are 2 × the vertical padding + 17px content line
+   height (--fs-base 11px at the inherited body line-height of 1.5 = 16.5,
+   rounded up to 17 so a single line of cell text is never clipped). They
+   mirror ROW_HEIGHT in DataTable.jsx exactly: a virtualized row's estimated
+   size must match its rendered height or virtual rows drift apart/overlap. */
+.dt-density-compact .dt-header-cell,
+.dt-density-compact .dt-cell {
+  padding: var(--sp-2) var(--sp-4);
+}
+.dt-density-compact .dt-row,
+.dt-density-compact .dt-header-row { height: 25px; }
+
+.dt-density-standard .dt-header-cell,
+.dt-density-standard .dt-cell {
+  padding: var(--sp-4) var(--sp-5);
+}
+.dt-density-standard .dt-row,
+.dt-density-standard .dt-header-row { height: 33px; }
+
+.dt-density-comfortable .dt-header-cell,
+.dt-density-comfortable .dt-cell {
+  padding: var(--sp-5) var(--sp-6);
+}
+.dt-density-comfortable .dt-row,
+.dt-density-comfortable .dt-header-row { height: 41px; }
+
+/* Row actions — opt-in utility for consumers (Task 3/4 render these via
+   columns[].render; DataTable itself renders no action buttons). Always
+   visible, dimmed until hover *or* keyboard focus — hover-only would
+   recreate the accessibility gap already closed in lot 1's global focus
+   ring (src/index.css GLOBAL FOCUS block). */
+.dt-row-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  opacity: 0.45;
+  transition: opacity 0.12s ease;
+}
+.dt-row:hover .dt-row-actions,
+.dt-row-actions:focus-within {
+  opacity: 1;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   SCOPE BAR — removable constant tokens (components/ui/ScopeBar.jsx)
+   ═══════════════════════════════════════════════════════════ */
+
+.scope-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-3) var(--sp-4);
+  border-bottom: var(--sp-hair) solid var(--fl-border);
+  background: var(--fl-panel);
+}
+
+/* ═══════════════════════════════════════════════════════════
+   RULES TABLE — shared visual vocabulary for a DataTable-backed rule
+   effectiveness view (Threat Hunting redesign, Task 3). Named `.rt-*`
+   rather than `.yara-*` because the state dot, row-action buttons, stat
+   row and scroll wrapper are exactly what Task 4's Sigma tab needs too —
+   only the match-count/last-matched formatting below is YARA-specific
+   (Sigma has no equivalent of `yara_scan_results`, per the plan).
+   ═══════════════════════════════════════════════════════════ */
+
+/* Bounded-height scroll wrapper around a <DataTable>. `DataTable`'s own
+   `.dt-scroll` is `flex: 1; overflow: auto` (see components/ui/DataTable.jsx)
+   and relies on an ancestor with a definite height to actually scroll
+   in-place — this page renders inside the app shell's `<main
+   class="overflow-y-auto">` (src/components/Layout.jsx), which does not
+   itself hand down a bounded height. A standalone viewport-relative height
+   (not dependent on the ancestor flex chain, unlike calc() against a flex
+   parent) keeps this self-contained to the rule tabs — no change needed to
+   ThreatHuntPage's own header/tab-bar layout above it. */
+.rt-table-wrap {
+  height: 70vh;
+}
+
+/* Visually-hidden but screen-reader-accessible column header text — the
+   state-dot and actions columns have no visible header word in the mockup,
+   but a `columnheader` with no accessible name at all is worse than one
+   whose name only assistive tech ever sees. Standard clip-rect technique. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.rt-state-dot {
+  display: inline-block;
+  width: var(--sp-3);
+  height: var(--sp-3);
+  border-radius: var(--fl-radius-sm);
+  background: var(--fl-subtle);
+  flex-shrink: 0;
+}
+.rt-state-dot--active { background: var(--fl-ok); }
+
+.rt-name-muted { color: var(--fl-dim); }
+
+.rt-action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  padding: var(--sp-1);
+  border-radius: var(--fl-radius-sm);
+  color: var(--fl-muted);
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+.rt-action-btn:hover { background: var(--fl-hover-bg); color: var(--fl-text); }
+.rt-action-btn--danger { color: var(--fl-danger); }
+.rt-action-btn--danger:hover { background: color-mix(in srgb, var(--fl-danger) 10%, transparent); }
+
+.rt-stat-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-5);
+  padding: var(--sp-3) 0;
+  font-family: var(--f-ui);
+  font-size: var(--fs-sm);
+  color: var(--fl-dim);
+}
+.rt-stat-row strong {
+  font-family: var(--f-mono);
+  font-weight: var(--fw-strong);
+  color: var(--fl-text);
+  font-variant-numeric: tabular-nums;
+}
+
+.rt-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-4);
+  padding: var(--sp-3) 0;
+}
+.rt-toolbar-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+/* YARA-specific — Correspondances / Dernière columns */
+.yara-match-count {
+  color: var(--fl-warn);
+  font-weight: var(--fw-strong);
+}
+.yara-match-count--zero {
+  color: var(--fl-subtle);
+  font-weight: var(--fw-body);
+}
+.yara-last-never { color: var(--fl-subtle); }
+
+.rt-delete-warning {
+  margin: 0 0 var(--sp-4);
+  font-size: var(--fs-md);
+  color: var(--fl-dim);
+  line-height: 1.6;
+}
 
 /* ═══════════════════════════════════════════════════════════
    BADGE
@@ -1031,20 +1355,23 @@ svg.lucide { stroke-width: 1.6px; }
   flex: 0 0 auto; width: clamp(340px, 30vw, 410px); align-self: center;
   /* Near-opaque so the bright beam + gold embers behind never bleed through and
      create an uneven "stain". Glass feel kept via the subtle blur + top highlight. */
-  background: linear-gradient(180deg, rgba(15,18,27,0.965), rgba(8,11,17,0.975));
-  backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px);
-  border: 1px solid rgba(255,255,255,0.09);
-  border-radius: 18px; padding: 30px 30px 26px;
-  box-shadow: 0 32px 80px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.07);
+  /* Posée, pas suspendue. La carte tient par son filet et sa matière : plus
+     d'ombre flottante de 80px, plus de faux biseau de verre en tête. Le blur
+     servait à garantir l'opacité face au faisceau — un fond plein le fait seul,
+     sans coûter de composition GPU. */
+  background: #0c0f16;
+  border: 1px solid rgba(255,255,255,0.10);
+  border-radius: var(--fl-radius-lg); padding: 26px 24px 22px;
 }
 .login-input {
-  height: 44px; width: 100%; border-radius: 10px;
-  background: rgba(255,255,255,0.045); border: 1px solid rgba(255,255,255,0.12);
-  color: #ffffff; font-size: 13.5px; font-family: var(--f-ui, "Inter", sans-serif);
-  transition: border-color .15s, box-shadow .15s, background .15s;
+  height: 38px; width: 100%; border-radius: var(--fl-radius-md);
+  background: #080a0f; border: 1px solid rgba(255,255,255,0.11);
+  color: var(--fl-text); font-size: 13px; font-family: var(--f-ui, "Inter", sans-serif);
+  transition: border-color .16s ease, background .16s ease;
 }
 .login-input::placeholder { color: rgba(229,232,240,0.4); }
-.login-input:focus { outline: none; border-color: var(--fl-accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--fl-accent) 20%, transparent); background: rgba(255,255,255,0.07); }
+.login-input:hover { border-color: rgba(255,255,255,0.18); }
+.login-input:focus-visible { outline: 2px solid var(--fl-accent); outline-offset: 2px; border-color: var(--fl-accent); background: #0c0f16; }
 /* Ground line: a thin strip below both columns, anchoring the layout and
    filling the lower dead-zone. Holds the live UTC clock, aligned right. */
 .login-footer {
@@ -1060,7 +1387,7 @@ svg.lucide { stroke-width: 1.6px; }
 }
 @media (max-width: 480px) {
   .login-content { padding: 24px 16px 18px; }
-  .login-card { padding: 24px 20px; border-radius: 14px; }
+  .login-card { padding: 22px 18px; border-radius: var(--fl-radius-lg); }
 }
 @keyframes login-shake { 10%,90%{transform:translateX(-1px)} 20%,80%{transform:translateX(2px)} 30%,50%,70%{transform:translateX(-4px)} 40%,60%{transform:translateX(4px)} }
 .login-shake { animation: login-shake .4s ease both; }
@@ -1148,5 +1475,5 @@ svg.lucide { stroke-width: 1.6px; }
 @media (max-width: 980px) { .login-card-brand { display: flex; } }
 
 /* Spinner utility (settings integration loaders) */
-@keyframes spin { to { transform: rotate(360deg); } }
 .spin { animation: spin 0.8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }

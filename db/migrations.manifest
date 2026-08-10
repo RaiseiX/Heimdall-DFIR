@@ -64,3 +64,22 @@ db/migrations/20260712000000_report_drafts.sql
 # Additive to audit_log, which exists from init.sql. Existing rows keep
 # prev_hash = NULL and stay verifiable under the legacy per-row scheme.
 db/migrations/20260727000000_audit_chain.sql
+# --- GIN index on collection_timeline.raw (network map) ---
+# Lets `raw ?| ARRAY[...]` use an index instead of deserialising every row.
+# Built CONCURRENTLY: a plain CREATE INDEX would hold SHARE for the whole build.
+db/migrations/20260731000000_ct_raw_gin.sql
+# --- catscale_state: point-in-time host state (lsof, modules, packages, docker) ---
+# Keeps un-timestamped CatScale inventories out of collection_timeline while
+# staying searchable; detections promote findings into the timeline.
+db/migrations/20260731120000_catscale_state.sql
+# --- sigma_hunt_results.sample_size: honest match counts ---
+# match_count was capped by the hunt query's own LIMIT 200; sample_size lets
+# a consumer distinguish "50 sampled" from "50 total" now that match_count is
+# an unbounded COUNT(*). Existing rows stay NULL (unknown, not zero).
+db/migrations/20260807000000_sigma_hunt_sample_size.sql
+# --- parser_results.platform: persist the detected platform of a collection ---
+# Lets a later consumer (Sigma hunt scoping) join against sigma_rules.logsource_
+# product instead of evaluating every rule on every collection. 'windows' |
+# 'linux' | 'macos' | NULL — NULL means unknown/mixed, never guessed. Existing
+# rows stay NULL: no retro-inference for collections imported before this column.
+db/migrations/20260807010000_collection_platform.sql

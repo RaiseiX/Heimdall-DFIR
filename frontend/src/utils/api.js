@@ -305,6 +305,7 @@ export const artifactsAPI = {
 export const threatHuntingAPI = {
 
   yaraRules:       ()              => api.get('/threat-hunting/yara/rules'),
+  yaraRuleStats:   ()              => api.get('/threat-hunting/yara/rule-stats'),
   createYaraRule:  (data)          => api.post('/threat-hunting/yara/rules', data),
   updateYaraRule:  (id, data)      => api.put(`/threat-hunting/yara/rules/${id}`, data),
   deleteYaraRule:  (id)            => api.delete(`/threat-hunting/yara/rules/${id}`),
