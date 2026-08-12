@@ -1850,7 +1850,7 @@ export default function CaseDetailPage({ user }) {
                       opacity: generating ? 0.7 : 1,
                     }}>
                     <FileDown size={13} />
-                    {generating ? t('casedetail.generating') : reportDone ? t('casedetail.report_generated') : (parsedCount > 1 ? t('casedetail.report_pdf_pl', { n: parsedCount }) : t('casedetail.report_pdf', { n: parsedCount }))}
+                    {generating ? t('casedetail.generating') : reportDone ? t('casedetail.report_generated') : t('casedetail.report_pdf', { count: parsedCount, n: parsedCount })}
                   </button>
                   {reportDone && (
                     <button

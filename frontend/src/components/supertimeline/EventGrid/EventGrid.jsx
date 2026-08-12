@@ -37,7 +37,7 @@ export default function EventGrid() {
     tagData, notedRefs, colorRules,
     groupByFields, caseId, page, totalPages, pageSize, dynamicColsRev,
     setSelectedRow, setSort, loadMore,
-    artifactTypes,
+    artifactTypes, huntMessage,
   } = useTimelineStore();
 
   const scrollRef     = useRef(null);
@@ -547,8 +547,13 @@ export default function EventGrid() {
         </div>
 
         {!loading && records.length === 0 && (
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 200, color: 'var(--fl-muted)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11 }}>
-            No events match current filters
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 200, color: 'var(--fl-muted)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11, textAlign: 'center', padding: '0 24px' }}>
+            {/* A hunt pivot (huntId) that comes back empty must say so explicitly
+               (huntMessage, sourced from collection.js's /timeline `message` field)
+               instead of falling through to the generic filter-mismatch copy — a
+               timeline purged since the hunt ran must not read as a blank screen
+               with no explanation. */}
+            {huntMessage || 'No events match current filters'}
           </div>
         )}
       </div>

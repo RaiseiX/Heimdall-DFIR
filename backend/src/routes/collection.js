@@ -33,6 +33,7 @@ const { findCsvFilesRecursive } = require('../services/csv/findCsvFiles');
 const { scanCollectionCsvs } = require('../services/csv/scanCollectionCsvs');
 const { ZIMMERMAN_DIR, ARTIFACT_PATTERNS, ECS_COLUMNS } = require('../config/artifactPatterns');
 const { purgeFsTimeline, purgeCatScaleState } = require('../services/fsTimelinePurge');
+const { parseRule, buildQuery } = require('../services/sigmaService');
 
 const router = express.Router();
 
@@ -617,18 +618,11 @@ function spawnTool(args, options = {}) {
 // `platform` field already carried by every entry of the ARTIFACTS map in
 // frontend/src/components/collection/CollectionImportPanel.jsx — the existing
 // UI-facing source of truth for "which platform does this artifact type
-// belong to". Kept here as plain data copied from that map, not re-derived
-// from a new heuristic, so the two cannot silently drift apart.
-const ARTIFACT_TYPE_PLATFORM = {
-  evtx: 'windows', prefetch: 'windows', mft: 'windows', usn: 'windows', indx: 'windows',
-  lnk: 'windows', registry: 'windows', userassist: 'windows', netprofile: 'windows',
-  usb: 'windows', schtasks: 'windows', pwsh: 'windows', dns: 'windows', webcache: 'windows',
-  pcap: 'windows', wmi: 'windows', rdpcache: 'windows', amcache: 'windows', shellbags: 'windows',
-  jumplist: 'windows', srum: 'windows', recycle: 'windows', sum: 'windows', sqle: 'windows',
-  wxtcmd: 'windows', appcompat: 'windows', bits: 'windows',
-  auditd: 'linux', syslog: 'linux', bash_history: 'linux',
-  unified_log: 'macos',
-};
+// belong to". Moved to services/artifactPlatform.js (Task 3 of
+// docs/superpowers/plans/2026-08-07-sigma-platform-scoping-and-honest-counts.md)
+// so threatHunting.ts can derive the set of platforms present in a case's
+// timeline from the same table instead of maintaining a second copy.
+const { ARTIFACT_TYPE_PLATFORM } = require('../services/artifactPlatform');
 
 // The collection's platform: the one OS every *detected* artifact type agrees
 // on. `detectedArtifacts` is keyed by artifact type, each entry optionally
@@ -1739,11 +1733,58 @@ function hydrateTimelineRow(r) {
   return r;
 }
 
+// Sigma hunt pivot predicate resolution — shared by GET /timeline and GET
+// /timeline/groups so a hunt-scoped fetch means the same restriction in
+// every view that accepts hunt_id, not just the one it shipped on first.
+// "click a match, land on the SuperTimeline filtered to it" needs the FULL
+// matched set, not the 50-row sample stored on
+// sigma_hunt_results.matched_events. Rather than ship a 5 342-id array
+// through the wire and have the caller filter on `id = ANY(...)` (still a
+// de-facto id list, just moved from the URL to a request the size of the id
+// list), this re-parses the rule that produced the hunt and hands back its
+// predicate for the caller to AND into its own `conditions` — the same
+// "replay, don't read the sample" approach as GET
+// /sigma/hunt/:caseId/:huntId/timeline-ids in threatHunting.ts.
+const HUNT_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+// A hunt-scoped fetch that yields zero rows must say so explicitly — zero
+// here almost always means the matched rows were removed from
+// collection_timeline since the hunt ran, not that the filter was ignored.
+const HUNT_EMPTY_MESSAGE = 'Aucun événement de la timeline ne correspond actuellement à cette chasse — ils ont peut-être été supprimés depuis.';
+
+async function resolveHuntPredicate(caseId, huntId) {
+  if (!HUNT_UUID_RE.test(huntId)) {
+    return { ok: false, status: 400, error: 'Paramètre hunt_id invalide' };
+  }
+  const huntRow = await pool.query(
+    `SELECT r.content
+       FROM sigma_hunt_results h
+       JOIN sigma_rules r ON r.id = h.rule_id
+      WHERE h.id = $1 AND h.case_id = $2`,
+    [huntId, caseId],
+  );
+  if (huntRow.rows.length === 0) {
+    return { ok: false, status: 404, error: 'Chasse introuvable pour ce cas.' };
+  }
+  const huntParsed = parseRule(huntRow.rows[0].content);
+  if (!huntParsed.valid || !huntParsed.parsed) {
+    return { ok: false, status: 500, error: `Règle invalide au moment du pivot : ${huntParsed.error}` };
+  }
+  const { where, params } = buildQuery(huntParsed.parsed);
+  return { ok: true, where, params };
+}
+
+// huntPredicate.where numbers its own placeholders from $1 — shift them onto
+// the next free slot (`nextParamIndex`) in the caller's own params array,
+// the same renumbering `shiftedWhere` does in threatHunting.ts.
+function shiftHuntPredicate(where, nextParamIndex) {
+  return where.replace(/\$(\d+)/g, (_m, n) => `$${parseInt(n, 10) + nextParamIndex - 1}`);
+}
+
 router.get('/:caseId/timeline', authenticate, async (req, res) => {
   try {
     const { caseId } = req.params;
     const { artifact_types, search, search_op = 'contains', start_time, end_time, host_name, user_name, result_id, evidence_id,
-            evidence_ids,
+            evidence_ids, hunt_id,
             tool, event_id, ext, tag, tags: tagsParam, dedupe,
             detections: detectionsParam, detection_severity, detection_category,
             host_name_op = 'contains', user_name_op = 'contains', tool_op, ext_op,
@@ -1761,7 +1802,10 @@ router.get('/:caseId/timeline', authenticate, async (req, res) => {
       : null;
     const collapseDupes = dedupe === 'collapse' || dedupe === '1' || dedupe === 'true';
     const hasDetectionFilter = Boolean(detectionsParam || detection_severity || detection_category);
-    const hasAdvancedFilters = Boolean(toolList || extList || eventIdList || tagList || collapseDupes || hasDetectionFilter);
+    // hunt_id counts as an "advanced filter" purely to keep it off the
+    // Elasticsearch fast path below — ES has no notion of a Sigma predicate,
+    // only Postgres (via huntPredicate, resolved further down) does.
+    const hasAdvancedFilters = Boolean(toolList || extList || eventIdList || tagList || collapseDupes || hasDetectionFilter || hunt_id);
 
     const safeSortMulti = typeof sort_multi === 'string' && /^[\w,:]+$/.test(sort_multi)
       ? sort_multi : undefined;
@@ -1806,6 +1850,19 @@ router.get('/:caseId/timeline', authenticate, async (req, res) => {
         }
         validatedEvidenceIds = ids;
       }
+    }
+
+    // Sigma hunt pivot (Task 5, docs/superpowers/plans/2026-08-07-sigma-
+    // platform-scoping-and-honest-counts.md): "click a match, land on the
+    // SuperTimeline filtered to it" — see resolveHuntPredicate() above for
+    // why this replays the rule's predicate instead of shipping an id list.
+    // Every existing filter (search, host, artifact type…) still composes
+    // with it, same as before extraction.
+    let huntPredicate = null; // { where, params } once resolved
+    if (hunt_id) {
+      const resolvedHunt = await resolveHuntPredicate(caseId, hunt_id);
+      if (!resolvedHunt.ok) return res.status(resolvedHunt.status).json({ error: resolvedHunt.error });
+      huntPredicate = { where: resolvedHunt.where, params: resolvedHunt.params };
     }
 
     if (!host_name && !user_name && !hasAdvancedFilters) {
@@ -1883,10 +1940,15 @@ router.get('/:caseId/timeline', authenticate, async (req, res) => {
       for (const c of catList) params.push(JSON.stringify([{ category: c }]));
       pi += catList.length;
     }
+    if (huntPredicate) {
+      conditions.push(`(${shiftHuntPredicate(huntPredicate.where, pi)})`);
+      params.push(...huntPredicate.params);
+      pi += huntPredicate.params.length;
+    }
 
     const where = conditions.join(' AND ');
 
-    const aggCacheKey = `timeline:aggs:${caseId}:${evidence_id || ''}:${(validatedEvidenceIds || []).join(',')}`;
+    const aggCacheKey = `timeline:aggs:${caseId}:${evidence_id || ''}:${(validatedEvidenceIds || []).join(',')}:${hunt_id || ''}`;
     let cachedAggs = null;
     try {
       const redis = getRedis();
@@ -1967,6 +2029,21 @@ router.get('/:caseId/timeline', authenticate, async (req, res) => {
 
     const total = countRes.rows[0].total;
 
+    // A hunt-scoped fetch (`hunt_id`) that yields zero rows must say so
+    // explicitly, never fall through to the legacy `UnifiedTimeline` blob
+    // below — that fallback ignores the Sigma predicate entirely and could
+    // hand back unrelated events, which would misrepresent a hunt as having
+    // matches it doesn't have. Zero here almost always means the matched
+    // rows were removed from collection_timeline since the hunt ran.
+    if (total === 0 && hunt_id) {
+      return res.json({
+        records: [], total: 0, page: pg, limit: lim, total_pages: 0,
+        artifact_types_available: [],
+        hosts_available: [], users_available: [],
+        hunt_empty: true,
+        message: HUNT_EMPTY_MESSAGE,
+      });
+    }
     if (total === 0 && evidence_id) {
       return res.json({
         records: [], total: 0, page: pg, limit: lim, total_pages: 0,
@@ -2217,7 +2294,7 @@ router.get('/:caseId/timeline/groups', authenticate, async (req, res) => {
       by,
       artifact_types, search, search_op = 'contains',
       start_time, end_time,
-      host_name, user_name, result_id, evidence_id, evidence_ids,
+      host_name, user_name, result_id, evidence_id, evidence_ids, hunt_id,
       tool, event_id, ext, tag, tags: tagsParam, dedupe,
       host_name_op = 'contains', user_name_op = 'contains', tool_op, ext_op,
     } = req.query;
@@ -2238,7 +2315,7 @@ router.get('/:caseId/timeline/groups', authenticate, async (req, res) => {
     const groupSelect = groupCols.map((c, i) => `${c} AS k${i}`).join(', ');
     const groupBy     = groupCols.join(', ');
 
-    // Build WHERE clause — same shape as GET /timeline.
+    // Build WHERE clause — same shape as GET /timeline, hunt_id included.
     const conditions = ['case_id = $1'];
     const params     = [caseId];
     let pi = 2;
@@ -2269,6 +2346,18 @@ router.get('/:caseId/timeline/groups', authenticate, async (req, res) => {
       if (ids.length) { conditions.push(`evidence_id = ANY($${pi++}::uuid[])`); params.push(ids); }
     }
 
+    // Sigma hunt pivot — see resolveHuntPredicate() near GET /timeline above.
+    // A grouped view is still a view of the timeline: a hunt-scoped pivot
+    // must restrict the counts it aggregates the same way it restricts the
+    // flat row list, or the analyst gets case-wide numbers with no sign the
+    // scope changed.
+    let huntPredicate = null;
+    if (hunt_id) {
+      const resolvedHunt = await resolveHuntPredicate(caseId, hunt_id);
+      if (!resolvedHunt.ok) return res.status(resolvedHunt.status).json({ error: resolvedHunt.error });
+      huntPredicate = { where: resolvedHunt.where, params: resolvedHunt.params };
+    }
+
     if (tool_op && (tool || tool_op === 'empty' || tool_op === 'not_empty')) {
       pi = pushTextFilter('tool', tool || '', tool_op, pi, conditions, params);
     } else if (tool) {
@@ -2289,6 +2378,11 @@ router.get('/:caseId/timeline/groups', authenticate, async (req, res) => {
     if (rawTags) {
       const list = String(rawTags).split(',').map(s => s.trim()).filter(t => t && /^[\w:.\-]{1,64}$/.test(t));
       if (list.length) { conditions.push(`tags && $${pi++}::text[]`); params.push(list); }
+    }
+    if (huntPredicate) {
+      conditions.push(`(${shiftHuntPredicate(huntPredicate.where, pi)})`);
+      params.push(...huntPredicate.params);
+      pi += huntPredicate.params.length;
     }
 
     const where = conditions.join(' AND ');
@@ -2328,6 +2422,17 @@ router.get('/:caseId/timeline/groups', authenticate, async (req, res) => {
         sample_ids: row.sample_ids || [],
       };
     });
+    // A hunt-scoped grouping that comes back with nothing to group must say
+    // so explicitly — same contract as GET /timeline's `hunt_empty`, so a
+    // client watching for it doesn't have to special-case which timeline
+    // view it called. See resolveHuntPredicate() near GET /timeline above.
+    if (hunt_id && groups.length === 0) {
+      return res.json({
+        by: groupCols, total_groups: 0, elapsed_ms: elapsed, groups: [],
+        hunt_empty: true,
+        message: HUNT_EMPTY_MESSAGE,
+      });
+    }
     res.json({ by: groupCols, total_groups: groups.length, elapsed_ms: elapsed, groups });
   } catch (e) {
     logger.error('[timeline/groups] error:', e.message);

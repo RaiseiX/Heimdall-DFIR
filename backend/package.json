@@ -10,7 +10,8 @@
     "build": "tsc --project tsconfig.json",
     "typecheck": "tsc --noEmit",
     "test": "jest",
-    "dfiq:seed": "node scripts/seedDfiq.js"
+    "dfiq:seed": "node scripts/seedDfiq.js",
+    "sigma:backfill-metadata": "node scripts/backfillSigmaMetadata.js"
   },
   "dependencies": {
     "@elastic/elasticsearch": "^8.19.2",

@@ -27,7 +27,7 @@ export default function LateralTab({ nodeData, allEdges }) {
   return (
     <div style={{ flex: 1, overflowY: 'auto', padding: '6px 10px' }}>
       <div style={{ fontSize: 7, color: 'var(--fl-subtle)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 6 }}>
-        {t(lateralEdges.length !== 1 ? 'networkMap.lateral_paths_pl' : 'networkMap.lateral_paths', { count: lateralEdges.length })}
+        {t('networkMap.lateral_paths', { count: lateralEdges.length })}
       </div>
       {lateralEdges.map((e, i) => {
         const src = e.data?.source;

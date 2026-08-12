@@ -30,11 +30,23 @@ export async function finishHuntRun(pool: Pool, huntRunId: string, status: 'done
   await pool.query(`UPDATE hunt_runs SET status=$2, finished_at=NOW(), updated_at=NOW() WHERE id=$1`, [huntRunId, status]);
 }
 
-export async function getHuntRun(pool: Pool, caseId: string): Promise<{ caseId: string; status: string; trigger: string|null; steps: HuntStep[] }> {
+export async function getHuntRun(pool: Pool, caseId: string): Promise<{ caseId: string; status: string; trigger: string|null; steps: HuntStep[]; started_at: string|null; finished_at: string|null }> {
+  // `started_at`/`finished_at` are additive (RunAllTab UI rebuild,
+  // 2026-08-11) — the header band's "when the last run happened" is one of
+  // the archetype's five mandated bands, and neither timestamp was
+  // previously selected at all, so there was no way to answer it from this
+  // endpoint. Both columns already existed on `hunt_runs` (see the
+  // migration); this only widens the SELECT and the returned shape. No
+  // field renamed or removed — existing callers (runAllServiceEnqueue's
+  // jest.mock, the route handlers that just `res.json(job)`) keep working
+  // unchanged.
   const r = await pool.query(
-    `SELECT status, trigger, steps FROM hunt_runs WHERE case_id=$1 ORDER BY started_at DESC LIMIT 1`, [caseId]);
-  if (!r.rows[0]) return { caseId, status: 'idle', trigger: null, steps: [] };
-  return { caseId, status: r.rows[0].status, trigger: r.rows[0].trigger, steps: r.rows[0].steps };
+    `SELECT status, trigger, steps, started_at, finished_at FROM hunt_runs WHERE case_id=$1 ORDER BY started_at DESC LIMIT 1`, [caseId]);
+  if (!r.rows[0]) return { caseId, status: 'idle', trigger: null, steps: [], started_at: null, finished_at: null };
+  return {
+    caseId, status: r.rows[0].status, trigger: r.rows[0].trigger, steps: r.rows[0].steps,
+    started_at: r.rows[0].started_at, finished_at: r.rows[0].finished_at,
+  };
 }
 
 // Mark 'running' hunts whose heartbeat (updated_at) froze as 'error' — reclaims rows

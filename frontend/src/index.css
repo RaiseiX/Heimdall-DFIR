@@ -604,6 +604,22 @@ body.fl-density-comfortable th {
 }
 .dt-row:hover { background: var(--fl-hover-bg); }
 
+/* Link rows (Sigma hunt results table, 2026-08-11) — `.dt-row-link` is the
+   real <a> a `rowHref` row wraps its cells in (see DataTable.jsx). `display:
+   contents` removes it from the grid box model so column alignment is
+   unaffected by its presence; `color`/`text-decoration` are reset because an
+   unstyled <a> would otherwise paint every cell in link-blue with an
+   underline, when every cell already carries its own explicit color via
+   `.dt-cell`/`.dt-cell--mono`. `cursor: pointer` on the row (not just the
+   anchor) keeps the whole row looking clickable, consistent with `.dt-row`'s
+   existing hover highlight above. */
+.dt-row--link { cursor: pointer; }
+.dt-row-link {
+  display: contents;
+  color: inherit;
+  text-decoration: none;
+}
+
 .dt-cell {
   overflow: hidden;
   white-space: nowrap;
@@ -729,6 +745,10 @@ body.fl-density-comfortable th {
 }
 .rt-state-dot--active { background: var(--fl-ok); }
 
+/* Means "this rule will not run in a hunt" — disabled, or (Sigma) retired
+   upstream and scoped out before it runs; see `pages/ruleDimming.js`. Does
+   NOT mean "has never matched" — an active rule that just hasn't hit yet
+   stays full-brightness, since it still participates in every hunt. */
 .rt-name-muted { color: var(--fl-dim); }
 
 .rt-action-btn {
@@ -794,6 +814,227 @@ body.fl-density-comfortable th {
   font-size: var(--fs-md);
   color: var(--fl-dim);
   line-height: 1.6;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   EXECUTION TABS — case-scoped control rows and header line, shared
+   by every "run something against a case" tab (Sigma hunt UI rebuild,
+   2026-08-11; extended to YaraScanTab/RunAllTab, 2026-08-11). Named
+   `.rt-*` rather than `.sigma-*` from the start — same reasoning as
+   DataTable.jsx's own doc comment on `.rt-state-dot`/`.rt-stat-row`:
+   a rule earns the shared prefix once a second tab needs it, and by
+   the third (YaraScanTab) keeping the Sigma-specific name would have
+   been actively misleading. Everything else these tabs need — stat
+   rows, toolbars, muted text, table scroll wrap, state dots — already
+   exists above (.rt-stat-row / .rt-toolbar / .rt-name-muted /
+   .rt-state-dot / .rt-table-wrap) and is reused as-is; the rules below
+   cover only what nothing existing did.
+   ═══════════════════════════════════════════════════════════ */
+
+.rt-control-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--sp-5);
+  margin-bottom: var(--sp-5);
+}
+.rt-field {
+  flex: 1;
+  min-width: 240px;
+}
+
+.rt-hunt-header {
+  margin-bottom: var(--sp-2);
+}
+.rt-case-title {
+  margin: 0;
+  font-family: var(--f-ui);
+  font-size: var(--fs-lg);
+  font-weight: var(--fw-strong);
+  color: var(--fl-text);
+}
+
+/* Dot + label inside a Results table cell — started as Sigma's severity dot
+   (dot colour is per-row data, set via the cell's own `style` prop; see the
+   `level` column's `render` in SigmaRulesTab/SigmaHuntTab) and was `.sigma-
+   level-cell` until RunAllTab's UI rebuild (2026-08-11) needed the exact
+   same dot+label inline shape for a per-engine run-status cell — same
+   promotion rule DataTable.jsx's own doc comment already documents for
+   `.rt-state-dot`/`.rt-stat-row`: a class earns the shared `.rt-*` prefix
+   once a second, unrelated tab needs it. */
+.rt-inline-dot {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.sigma-progress-critical {
+  color: var(--fl-danger);
+  font-weight: var(--fw-strong);
+}
+
+/* Danger-coloured cell text reused across execution tabs' Results tables:
+   a YARA match row's rule name (every row IS a hit, by construction — the
+   query only returns matches) and a RunAllTab step's error message. Same
+   `--fl-danger`/`--fw-strong` tokens `.rt-action-btn--danger` and `.sigma-
+   progress-critical` already use for the same meaning; no new colour. */
+.rt-cell-danger {
+  color: var(--fl-danger);
+  font-weight: var(--fw-strong);
+}
+
+/* Scope-band line (YaraScanTab's SSE-derived band, RunAllTab's
+   pre-launch preview) — one line of text per engine/run, muted body
+   copy with a strong inline count. Reuses `.rt-stat-row strong`'s
+   mono/tabular-nums treatment for the numbers via the shared
+   `<strong>` selector below rather than redeclaring it. */
+.rt-scope-line {
+  display: block;
+  font-family: var(--f-ui);
+  font-size: var(--fs-sm);
+  color: var(--fl-dim);
+  line-height: 1.6;
+}
+.rt-scope-line strong {
+  font-family: var(--f-mono);
+  font-weight: var(--fw-strong);
+  color: var(--fl-text);
+  font-variant-numeric: tabular-nums;
+}
+.rt-scope-line + .rt-scope-line {
+  margin-top: var(--sp-1);
+}
+
+/* "Found so far" figure in a progress band — reused from YARA's own
+   match-count colour (.yara-match-count) so "N matches so far" during
+   a run and "N" in the finished results table read as the same signal,
+   never introducing a second colour for the same meaning. */
+.rt-progress-found {
+  color: var(--fl-warn);
+  font-weight: var(--fw-strong);
+}
+
+/* RunAllTab's explanatory paragraph ("runs every engine in the background,
+   safe to leave the page") — the one piece of context neither the scope
+   band nor the results table states. No `max-width`: the page's own root
+   container already caps content width, and no `--sp-*`/`--fs-*` token
+   maps cleanly to an arbitrary prose measure, so it isn't invented here. */
+.rt-intro-text {
+  margin: 0 0 var(--sp-5);
+  font-family: var(--f-ui);
+  font-size: var(--fs-sm);
+  color: var(--fl-muted);
+  line-height: 1.6;
+}
+
+/* Inline command/token snippet inside body copy — SysmonTab's `sysmon -c
+   config.xml` in its header subtitle. No existing shared class covered
+   this (every other `<code>` in the app is styled ad hoc, one `style={{}}`
+   at a time); this is the first one promoted to `.rt-*`, on the same
+   earns-the-prefix rule documented above `.rt-inline-dot`. */
+.rt-inline-code {
+  font-family: var(--f-mono);
+  color: var(--fl-dim);
+}
+
+/* ═══════════════════════════════════════════════════════════
+   SYSMON CATALOGUE — archetype C (header + stats bands only; see
+   docs/superpowers/specs/2026-08-04-unified-design-language-design.md
+   §2.1). Four external configuration files to import, not a corpus to
+   search/filter/sort and not a run to track — no ScopeBar, no toolbar,
+   no DataTable. A dense virtualised table over 4-5 rows would be
+   uniformity for its own sake; this is a plain card list instead.
+   Reuses `.fl-card` for the bordered surface itself and `Badge` for the
+   status/recommended pills — only the layout glue below is new. */
+.rt-catalog-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+}
+
+.rt-catalog-card {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--sp-5);
+  padding: var(--sp-5) var(--sp-6);
+}
+
+.rt-catalog-card-main { min-width: 0; }
+
+.rt-catalog-card-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--sp-4);
+}
+
+.rt-catalog-name {
+  font-family: var(--f-ui);
+  font-size: var(--fs-md);
+  font-weight: var(--fw-label);
+  color: var(--fl-text);
+}
+
+.rt-catalog-desc {
+  margin: var(--sp-3) 0 0;
+  font-family: var(--f-ui);
+  font-size: var(--fs-md);
+  color: var(--fl-dim);
+  line-height: 1.5;
+}
+
+.rt-catalog-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-4);
+  margin-top: var(--sp-4);
+}
+
+.rt-catalog-meta-item {
+  font-family: var(--f-mono);
+  font-size: var(--fs-sm);
+  color: var(--fl-muted);
+}
+
+/* Neutral metadata pill (licence) — deliberately not `.fl-tag`, which is
+   accent-tinted for an active filter/selection; a licence name is inert
+   catalogue metadata, not a status. */
+.rt-catalog-meta-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: var(--sp-1) var(--sp-4);
+  border-radius: var(--fl-radius-sm);
+  font-family: var(--f-mono);
+  font-size: var(--fs-sm);
+  background: var(--fl-raised);
+  color: var(--fl-muted);
+  border: var(--sp-hair) solid var(--fl-border);
+}
+
+.rt-catalog-repo-link {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-family: var(--f-mono);
+  font-size: var(--fs-base);
+  color: var(--fl-accent);
+  text-decoration: none;
+}
+
+.rt-catalog-error {
+  margin: var(--sp-4) 0 0;
+  font-family: var(--f-mono);
+  font-size: var(--fs-base);
+  color: var(--fl-danger);
+}
+
+.rt-catalog-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  flex-shrink: 0;
 }
 
 /* ═══════════════════════════════════════════════════════════

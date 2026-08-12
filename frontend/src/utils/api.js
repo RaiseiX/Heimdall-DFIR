@@ -334,6 +334,7 @@ export const threatHuntingAPI = {
   sysmonLibraryDelete:  (key)                    => api.delete(`/threat-hunting/sysmon/library/${key}`),
   runAll:          (caseId)                      => api.post(`/threat-hunting/run-all/${caseId}`),
   runAllStatus:    (caseId)                      => api.get(`/threat-hunting/run-all/${caseId}/status`),
+  runAllScope:     (caseId)                      => api.get(`/threat-hunting/run-all/${caseId}/scope`),
 };
 
 export const sysmonAPI = {

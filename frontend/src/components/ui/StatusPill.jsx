@@ -83,7 +83,7 @@ export function fmtDuration(seconds) {
 export function TimePill({ totalSeconds, analystCount, compact = false }) {
   const { t } = useTranslation();
   if (!totalSeconds) return null;
-  const analystLabel = t((analystCount || 1) > 1 ? 'common.analyst_count_pl' : 'common.analyst_count', { count: analystCount || 1 });
+  const analystLabel = t('common.analyst_count', { count: analystCount || 1 });
   return (
     <span title={`${analystLabel} · ${fmtDuration(totalSeconds)}`}
       style={{

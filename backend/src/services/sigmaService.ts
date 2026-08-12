@@ -7,11 +7,62 @@ export interface SigmaRule {
   logsource?:  { category?: string; product?: string; service?: string };
   detection:   Record<string, unknown>;
   tags?:       string[];
+  level?:      string;
+  status?:     string;
 }
 
 export interface BuildQueryResult {
   where:  string;
   params: unknown[];
+}
+
+// Sigma's `level:` field. A value outside this set (typo, or absent) is
+// reported as `undefined` by parseRule — never guessed or defaulted — so it
+// lands as SQL NULL on sigma_rules.level.
+const SIGMA_LEVELS = new Set(['critical', 'high', 'medium', 'low', 'informational']);
+
+// Sigma's own `status:` field (upstream lifecycle, not import provenance).
+// Same non-guessing rule as SIGMA_LEVELS.
+const SIGMA_STATUSES = new Set(['stable', 'test', 'experimental', 'deprecated', 'unsupported']);
+
+function normalizeEnum(value: unknown, allowed: Set<string>): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const v = value.trim().toLowerCase();
+  return allowed.has(v) ? v : undefined;
+}
+
+// A Sigma rule's `tags:` list mixes four unrelated ATT&CK reference kinds
+// under one `attack.` prefix:
+//   attack.t1546.004    -> sub-technique   (KEEP)
+//   attack.t1546        -> technique       (KEEP)
+//   attack.persistence   -> tactic          (discard)
+//   attack.s0003         -> software/tool   (discard — Sigma numbers these s\d+)
+//   attack.g0007         -> intrusion group (discard — g\d+)
+//   attack.c0001         -> campaign        (discard — c\d+)
+// Only `attack.t####` / `attack.t####.###` matches a technique or
+// sub-technique, so anchoring on that prefix separates techniques from the
+// other three kinds without needing a tactic/software denylist that would
+// go stale as SigmaHQ's tag vocabulary grows.
+//
+// For a sub-technique, BOTH the sub-technique and its parent are returned
+// (uppercased 'T' form) so a query scoped to the parent technique also finds
+// rules tagged only with a sub-technique of it.
+const TECHNIQUE_TAG_RE = /^attack\.t(\d{4})(?:\.(\d{3}))?$/i;
+
+export function extractMitreTechniques(tags: unknown): string[] {
+  if (!Array.isArray(tags)) return [];
+  const result: string[] = [];
+  const seen = new Set<string>();
+  for (const tag of tags) {
+    if (typeof tag !== 'string') continue;
+    const m = tag.trim().match(TECHNIQUE_TAG_RE);
+    if (!m) continue;
+    const base = `T${m[1]}`;
+    const sub  = m[2] ? `${base}.${m[2]}` : null;
+    if (sub && !seen.has(sub)) { seen.add(sub); result.push(sub); }
+    if (!seen.has(base)) { seen.add(base); result.push(base); }
+  }
+  return result;
 }
 
 export function parseRule(content: string): {
@@ -20,6 +71,9 @@ export function parseRule(content: string): {
   error?:  string;
   logsourceCategory?: string;
   logsourceProduct?:  string;
+  level?:             string;
+  mitreTechniques?:   string[];
+  upstreamStatus?:    string;
 } {
   let doc: unknown;
   try {
@@ -50,6 +104,9 @@ export function parseRule(content: string): {
     parsed:             doc as SigmaRule,
     logsourceCategory:  ls['category'],
     logsourceProduct:   ls['product'],
+    level:              normalizeEnum(rule['level'], SIGMA_LEVELS),
+    mitreTechniques:    extractMitreTechniques(rule['tags']),
+    upstreamStatus:     normalizeEnum(rule['status'], SIGMA_STATUSES),
   };
 }
 

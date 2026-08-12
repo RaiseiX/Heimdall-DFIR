@@ -79,6 +79,64 @@ export function pictogramKeysInFile(file) {
   return pictogramKeys(flatten(readJson(file)));
 }
 
+// ---------------------------------------------------------------------------
+// Pluralisation
+//
+// i18next 23 runs the "v4" JSON format: plural forms are resolved through
+// Intl.PluralRules, so the suffix must be a CLDR category — `_one` / `_other`
+// (plus `_many` for French at >= 1e6). The v2/v3 `_plural` suffix, and the
+// homegrown `_pl` used in parts of this codebase, are NOT resolved: i18next
+// silently ignores the suffixed entry and `t(key, { count })` returns the bare
+// `key` value for every count. That failure is invisible — no warning, no
+// missing-key error, just the singular form forever.
+//
+// Resolution order is `key_<category>` -> bare `key` -> the raw key string, so
+// a family that omits a category the locale actually uses renders the literal
+// dotted key in the UI. French uses three categories, not two: `one` (0 and 1),
+// `other`, and `many` — which fires only on exact multiples of a million
+// (1000000 and 2000000 are `many`; 1500000 is `other`). This project's shape is
+// `_one` + `_other` with no bare alias, so that exact-million case is a known,
+// accepted gap: `t('iocs.ports_count', { count: 1000000 })` renders
+// "iocs.ports_count". Judged not worth duplicating a string into every family;
+// revisit by adding `_many` (not a bare alias) if a real screen ever hits it.
+//
+// Enum values are deliberately exempt: `feedback.type_other` ("Autre") is the
+// "Other" choice next to `type_bug` / `type_suggestion`, not a plural form.
+// A family only counts as a plural family when it carries a count-bearing
+// suffix, which an enum never does — that is the whole disambiguation rule.
+export const DEAD_PLURAL_SUFFIXES = ['plural', 'pl'];
+const COUNT_BEARING = ['zero', 'one', 'two', 'few', 'many'];
+const SUFFIX_RE = new RegExp(`_(${[...DEAD_PLURAL_SUFFIXES, ...COUNT_BEARING, 'other'].join('|')})$`);
+
+/** base key -> Set of suffixes seen, for every suffixed key in the dictionary. */
+export function pluralFamilies(flatDict) {
+  const families = new Map();
+  for (const key of Object.keys(flatDict)) {
+    const match = key.match(SUFFIX_RE);
+    if (!match) continue;
+    const base = key.slice(0, -match[0].length);
+    if (!families.has(base)) families.set(base, new Set());
+    families.get(base).add(match[1]);
+  }
+  return families;
+}
+
+/** Human-readable problems, sorted; empty array means the dictionary is clean. */
+export function pluralFamilyProblems(flatDict) {
+  const problems = [];
+  for (const [base, suffixes] of pluralFamilies(flatDict)) {
+    const dead = DEAD_PLURAL_SUFFIXES.filter(s => suffixes.has(s));
+    for (const suffix of dead) {
+      problems.push(`${base}_${suffix}: i18next v4 ignores "_${suffix}" — use _one/_other`);
+    }
+    if (!COUNT_BEARING.some(s => suffixes.has(s))) continue; // enum family, or nothing to check
+    if (!suffixes.has('other')) {
+      problems.push(`${base}: has ${[...suffixes].sort().join('/')} but no _other — t() returns the raw key for every count outside those categories`);
+    }
+  }
+  return problems.sort();
+}
+
 function main() {
   const auditHardcoded = process.argv.includes('--hardcoded');
 
@@ -105,6 +163,18 @@ function main() {
   if (emptyEn.length) failures.push(`Empty English values:\n${emptyEn.join('\n')}`);
   if (emptyFr.length) failures.push(`Empty French values:\n${emptyFr.join('\n')}`);
 
+  // See pluralFamilyProblems() above for why `_plural` is dead weight. `_pl`
+  // is the same defect wearing a different suffix, and it hid here far longer
+  // because its call sites pluralise by hand — `t(n > 1 ? 'k_pl' : 'k', { n })`
+  // — which the `usedKeys` regex below cannot see, so nothing ever flagged it.
+  const pluralProblems = [
+    ...pluralFamilyProblems(fr).map(p => `fr: ${p}`),
+    ...pluralFamilyProblems(en).map(p => `en: ${p}`),
+  ];
+  if (pluralProblems.length) {
+    failures.push(`Broken plural key families:\n${pluralProblems.join('\n')}`);
+  }
+
   // `\s*[,)]` after the closing quote requires the string to be the *whole*
   // argument (`t('key')` or `t('key', ...)`), not a fragment glued to a
   // runtime value (`t('investigation.status_' + s.status)`). Without this,
@@ -126,7 +196,16 @@ function main() {
     }
   }
 
-  const missingUsed = [...usedKeys].filter(key => !frKeys.has(key) || !enKeys.has(key)).sort();
+  // A literal `t('some.key', { count })` call site is legitimately satisfied
+  // by `some.key_other` (i18next's plural resolution appends the CLDR
+  // category at runtime) even when the bare `some.key` no longer exists —
+  // which is exactly the shape every `_plural` -> `_one`/`_other` migration
+  // produces. Without this, converting a key off the dead `_plural` suffix
+  // would make this very script flag its own literal call site as "missing".
+  const hasKey = (keys, key) => keys.has(key) || keys.has(`${key}_other`);
+  const missingUsed = [...usedKeys]
+    .filter(key => !hasKey(frKeys, key) || !hasKey(enKeys, key))
+    .sort();
   if (missingUsed.length) {
     failures.push(`Used translation keys missing from locale files:\n${missingUsed.join('\n')}`);
   }

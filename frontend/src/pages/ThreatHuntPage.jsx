@@ -4,26 +4,31 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
   Shield, Scan, FileCode2, Search, Plus, Trash2, Pencil,
-  ChevronDown, ChevronRight, CheckCircle2, AlertCircle,
-  Tag, ToggleLeft, ToggleRight, Clock, Github, Download, X,
+  ToggleLeft, ToggleRight, Clock, Github, Download, X,
   Monitor, ExternalLink, Loader, RefreshCw, Play, Rocket,
 } from 'lucide-react';
-import { casesAPI, evidenceAPI, threatHuntingAPI } from '../utils/api';
+import { casesAPI, evidenceAPI, threatHuntingAPI, timelineAPI } from '../utils/api';
 import {
   Button, Modal, TabGroup, Badge, Spinner,
   DataTable, constantColumns, ScopeBar, SearchInput, FilterChip, EmptyState, Alert,
+  CommandPalette,
 } from '../components/ui';
 import { fmtLocal } from '../utils/formatters';
 import { isDestructionConfirmed } from '../utils/destructiveConfirm';
 import {
   mergeRuleStats, filterYaraRules, sortByMatchCountDesc, computeYaraRuleStats, SCOPE_CANDIDATE_COLUMNS,
 } from './yaraRulesTable';
+import { deriveYaraScanStats, matchedStringsTitle } from './yaraScanTable';
+import {
+  sigmaLevelRank, sigmaLevelColor, sigmaLevelLabel, fmtNum, isRetiredUpstream, withTagsKey,
+  filterSigmaRules, sortBySeverityDesc, computeSigmaRuleStats, SIGMA_SCOPE_CANDIDATE_COLUMNS,
+  SIGMA_UPSTREAM_STATUSES,
+} from './sigmaRulesTable';
+import { isRuleDimmed } from './ruleDimming';
 
 const C = {
   yara:    'var(--fl-accent)',
   sigma:   'var(--fl-purple)',
-  match:   'var(--fl-danger)',
-  clean:   'var(--fl-ok)',
   warn:    'var(--fl-warn)',
   surface: 'var(--fl-card)',
   border:  'var(--fl-border)',
@@ -431,7 +436,11 @@ function YaraRulesTab() {
       },
       {
         key: 'name', header: t('threat_hunt.yara.columns.rule'), mono: true,
-        render: r => <span className={r.match_count > 0 ? undefined : 'rt-name-muted'}>{r.name}</span>,
+        // Dimmed means "won't run" (disabled), not "hasn't matched yet" —
+        // see `isRuleDimmed`'s doc comment. A zero-match active rule still
+        // hunts on every run; that state is carried by the `—` in the
+        // Correspondances column and the `Muettes` filter instead.
+        render: r => <span className={isRuleDimmed(r) ? 'rt-name-muted' : undefined}>{r.name}</span>,
       },
     ];
 
@@ -662,28 +671,44 @@ function ScanProgressBar({ progress, color }) {
 
 function YaraScanTab() {
   const { t, i18n } = useTranslation();
-  const [cases, setCases]       = useState([]);
-  const [caseId, setCaseId]     = useState('');
-  const [evidence, setEvidence] = useState([]);
-  const [results, setResults]   = useState([]);
-  const [scanning, setScanning] = useState(false);
-  const [progress, setProgress] = useState(null);
-  const [expanded, setExpanded] = useState({});
+  const [cases, setCases]         = useState([]);
+  const [caseId, setCaseId]       = useState('');
+  const [evidence, setEvidence]   = useState([]);
+  const [results, setResults]     = useState([]);
+  const [scanning, setScanning]   = useState(false);
+  const [scopeInfo, setScopeInfo] = useState(null);
+  const [progress, setProgress]   = useState(null);
+  const [scanStats, setScanStats] = useState(null);
+  const [scanError, setScanError] = useState('');
+  const [scopeExplainOpen, setScopeExplainOpen] = useState(false);
+  const [headerMeta, setHeaderMeta] = useState(null);
 
   useEffect(() => {
     casesAPI.list().then(r => setCases(r.data.cases || [])).catch(() => {});
   }, []);
 
+  // Case switch resets every band tied to a *run* — scope/progress/stats
+  // describe a scan that hasn't happened yet for the newly-picked case.
+  // Same shape as SigmaHuntTab's own case-switch effect.
   useEffect(() => {
-    if (!caseId) { setEvidence([]); setResults([]); return; }
+    setScopeInfo(null); setProgress(null); setScanStats(null); setScanError('');
+    if (!caseId) { setEvidence([]); setResults([]); setHeaderMeta(null); return; }
     evidenceAPI.list(caseId).then(r => setEvidence(r.data.evidence || [])).catch(() => {});
     threatHuntingAPI.yaraResultsCase(caseId).then(r => setResults(r.data.results || [])).catch(() => {});
+    // Same cheap /timeline?limit=1 call SigmaHuntTab uses purely for its
+    // `hosts_available` aggregate — a case's host is a property of the
+    // case, not of whichever engine is currently running, so it's worth
+    // showing here even though a YARA scan itself never touches the
+    // timeline. No new backend endpoint.
+    timelineAPI.list(caseId, { limit: 1 })
+      .then(r => setHeaderMeta({ hosts: r.data?.hosts_available || [] }))
+      .catch(() => setHeaderMeta(null));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [caseId]);
 
   async function scanAll() {
     if (!caseId) return;
-    setScanning(true);
-    setProgress(null);
+    setScanning(true); setScopeInfo(null); setProgress(null); setScanStats(null); setScanError('');
     try {
       const token = localStorage.getItem('heimdall_token');
       const resp = await fetch(`/api/threat-hunting/yara/scan-case/${caseId}`, {
@@ -703,30 +728,124 @@ function YaraScanTab() {
           if (!line.startsWith('data: ')) continue;
           try {
             const ev = JSON.parse(line.slice(6));
-            if (ev.type === 'start')    setProgress({ current: 0, total: ev.total, name: '' });
-            if (ev.type === 'progress') setProgress({ current: ev.current, total: ev.total, name: ev.name });
+            if (ev.type === 'start') {
+              setScopeInfo({
+                evidenceTotal: ev.total,
+                rulesTotal: ev.rules,
+                // `files_to_scan`/`skipped_memory`/`skipped_size` (2026-08-11
+                // scope-band precomputation) are additive on `start` — an
+                // older backend build without them would leave filesToScan
+                // at the full evidence count, i.e. "nothing skipped" rather
+                // than throwing.
+                filesToScan: ev.files_to_scan ?? ev.total,
+                skippedMemory: ev.skipped_memory || 0,
+                skippedSize: ev.skipped_size || 0,
+              });
+            }
+            if (ev.type === 'progress') {
+              setProgress({
+                current: ev.current, total: ev.total, name: ev.name,
+                matchesSoFar: ev.matches_so_far ?? 0, filesFlaggedSoFar: ev.files_flagged_so_far ?? 0,
+              });
+            }
             if (ev.type === 'done') {
               setProgress(null);
+              const summary = ev.summary || [];
+              const matchedRuleNames = new Set();
+              summary.forEach(s => (s.matches || []).forEach(m => matchedRuleNames.add(m.rule_name)));
+              setScanStats({
+                filesScanned: ev.files_scanned ?? summary.filter(s => !s.skipped).length,
+                filesSkipped: ev.files_skipped ?? summary.filter(s => s.skipped).length,
+                rulesChecked: ev.rules_checked ?? null,
+                filesFlagged: ev.files_flagged ?? summary.filter(s => !s.skipped && (s.matches || []).length > 0).length,
+                rulesMatched: matchedRuleNames.size,
+                totalMatches: ev.total_rule_matches ?? summary.reduce((a, s) => a + (s.matches || []).length, 0),
+              });
               const r = await threatHuntingAPI.yaraResultsCase(caseId);
               setResults(r.data.results || []);
             }
+            if (ev.type === 'error') setScanError(ev.error);
           } catch (_e) {}
         }
       }
-    } catch (_e) {} finally { setScanning(false); setProgress(null); }
+    } catch (e) {
+      setScanError(t('threat_hunt.errors.scan_failed'));
+    } finally { setScanning(false); setProgress(null); }
   }
 
-  const grouped = results.reduce((acc, r) => {
-    if (!acc[r.evidence_id]) acc[r.evidence_id] = { evidence_name: r.evidence_name, matches: [] };
-    acc[r.evidence_id].matches.push(r);
-    return acc;
-  }, {});
+  const selectedCase = cases.find(c => c.id === caseId) || null;
+
+  const hostsLabel = useMemo(() => {
+    if (!headerMeta) return null;
+    const hosts = headerMeta.hosts || [];
+    if (hosts.length === 0) return t('threat_hunt.sigma.meta_hosts_none');
+    if (hosts.length === 1) return t('threat_hunt.sigma.meta_host', { host: hosts[0] });
+    return t('threat_hunt.sigma.meta_hosts_count', { count: hosts.length, n: fmtNum(hosts.length, i18n.language) });
+  }, [headerMeta, t, i18n.language]);
+
+  const volumeLabel = useMemo(() => {
+    if (!caseId) return null;
+    const totalSize = evidence.reduce((a, e) => a + (Number(e.file_size) || 0), 0);
+    return t('threat_hunt.yara.meta_volume', { count: evidence.length, n: fmtNum(evidence.length, i18n.language), size: fmtSize(totalSize) });
+  }, [caseId, evidence, t, i18n.language]);
+
+  // YARA persists matches only — `POST /yara/scan-case/:caseId` is a
+  // DELETE-then-INSERT-WHERE-matched (see yaraScanTable.js's own doc
+  // comment), so a scan that found nothing leaves no row anywhere. Unlike
+  // Sigma's `hunted_at` (a hunt record is written every time, match or not),
+  // there is no honest way to say "last scan" here — only "last match".
+  // Distinguishing the two matters: a case scanned five times with zero
+  // hits must not read as "never scanned".
+  const lastMatchLabel = useMemo(() => {
+    const last = results[0]?.scanned_at;
+    return last
+      ? t('threat_hunt.yara.meta_last_match', { date: fmtDate(last, i18n.language) })
+      : t('threat_hunt.yara.meta_last_match_none');
+  }, [results, t, i18n.language]);
+
+  const skippedTotal     = scopeInfo ? scopeInfo.skippedMemory + scopeInfo.skippedSize : 0;
+  const scopeStatus      = scanError ? 'error' : scanning ? 'running' : scanStats ? 'done' : null;
+  const scopeStatusColor = scopeStatus === 'error' ? 'var(--fl-danger)' : scopeStatus === 'running' ? C.yara : 'var(--fl-ok)';
+
+  // Fallback stats built from persisted results alone (page just loaded, no
+  // scan ran this session yet) via yaraScanTable.js's own
+  // deriveYaraScanStats — filesScanned/filesSkipped/rulesChecked stay
+  // `null` ("unknown"), never guessed as 0, since only matches persist.
+  const derivedStats = useMemo(() => {
+    if (scanStats) return scanStats;
+    if (!results.length) return null;
+    const fallback = deriveYaraScanStats(results);
+    return {
+      filesScanned: null, filesSkipped: null, rulesChecked: null,
+      filesFlagged: fallback.filesFlagged, rulesMatched: fallback.rulesMatched, totalMatches: fallback.totalMatches,
+    };
+  }, [scanStats, results]);
+
+  const columns = useMemo(() => [
+    { key: 'evidence_name', header: t('threat_hunt.yara.columns.evidence'), mono: true },
+    {
+      key: 'rule_name', header: t('threat_hunt.yara.columns.rule'), mono: true,
+      render: r => <span className="rt-cell-danger">{r.rule_name}</span>,
+    },
+    {
+      key: 'matched_strings', header: t('threat_hunt.yara.columns.matched_strings'), width: 160, align: 'right', mono: true,
+      render: r => {
+        const count = (r.matched_strings || []).length;
+        if (count === 0) return <span className="rt-name-muted">{t('threat_hunt.yara.match_without_strings')}</span>;
+        return <span title={matchedStringsTitle(r.matched_strings)}>{fmtNum(count, i18n.language)}</span>;
+      },
+    },
+    {
+      key: 'scanned_at', header: t('threat_hunt.yara.columns.scanned_at'), width: 170, mono: true,
+      render: r => (r.scanned_at ? fmtDate(r.scanned_at, i18n.language) : '—'),
+    },
+  ], [t, i18n.language]);
 
   return (
     <div>
-      <div style={{ display: 'flex', gap: 12, marginBottom: 16, alignItems: 'flex-end', flexWrap: 'wrap' }}>
-        <div style={{ flex: 1, minWidth: 240 }}>
-          <label className="fl-label" style={{ display: 'block', marginBottom: 5 }}>{t('threat_hunt.case_label')}</label>
+      <div className="rt-control-row">
+        <div className="rt-field">
+          <label className="fl-label">{t('threat_hunt.case_label')}</label>
           <select value={caseId} onChange={e => setCaseId(e.target.value)} className="fl-input">
             <option value="">{t('threat_hunt.select_case')}</option>
             {cases.map(c => <option key={c.id} value={c.id}>{c.case_number} — {c.title}</option>)}
@@ -737,86 +856,112 @@ function YaraScanTab() {
         </Button>
       </div>
 
-      <ScanProgressBar progress={progress} color={C.yara} />
+      {scanError && <Alert variant="danger" message={scanError} />}
 
-      {caseId && evidence.length > 0 && !scanning && (
-        <div style={{ marginBottom: 16 }}>
-          <p style={{ fontSize: 12, color: 'var(--fl-dim)', margin: '0 0 8px' }}>
-            {t('threat_hunt.yara.files_in_case', { count: evidence.length })}
-          </p>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-            {evidence.map(e => (
-              <span key={e.id} style={{ fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', padding: '3px 8px', borderRadius: 4, background: C.surface, border: `1px solid ${C.border}`, color: 'var(--fl-dim)' }}>
-                {e.name} <span style={{ opacity: 0.5 }}>({fmtSize(e.file_size)})</span>
-              </span>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {Object.keys(grouped).length === 0 && !scanning && caseId && (
-        <div style={{ textAlign: 'center', padding: 40, color: 'var(--fl-dim)' }}>
-          <Scan size={32} style={{ opacity: 0.3, marginBottom: 8 }} />
-          <p style={{ margin: 0 }}>{t('threat_hunt.yara.no_scan_results')}</p>
-        </div>
-      )}
-
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-        {Object.entries(grouped).map(([evId, group]) => {
-          const hasMatch = group.matches.length > 0;
-          const isOpen   = expanded[evId];
-          return (
-            <div key={evId} style={{
-              background: C.surface,
-              border: `1px solid ${hasMatch ? C.match + '50' : C.border}`,
-              borderRadius: 8, overflow: 'hidden',
-            }}>
-              <button onClick={() => setExpanded(x => ({ ...x, [evId]: !x[evId] }))}
-                style={{ width: '100%', background: 'none', border: 'none', cursor: 'pointer', padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 10 }}>
-                {isOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                <span style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 13, color: 'var(--fl-text)', flex: 1, textAlign: 'left' }}>
-                  {group.evidence_name}
-                </span>
-                {hasMatch
-                  ? <Badge variant="danger"><AlertCircle size={11} /> {t('threat_hunt.yara.matching_rules', { count: group.matches.length })}</Badge>
-                  : <Badge variant="ok"><CheckCircle2 size={11} /> {t('threat_hunt.clean')}</Badge>}
-              </button>
-              {isOpen && hasMatch && (
-                <div style={{ padding: '0 16px 14px', borderTop: `1px solid ${C.border}` }}>
-                  {group.matches.map(m => (
-                    <div key={m.id} style={{ marginTop: 10 }}>
-                      <p style={{ margin: '0 0 4px', fontWeight: 700, color: 'var(--fl-danger)', fontSize: 13 }}>{m.rule_name}</p>
-                      {(m.matched_strings || []).length > 0 ? (
-                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}>
-                          <thead>
-                            <tr style={{ borderBottom: `1px solid ${C.border}` }}>
-                              {[t('threat_hunt.table.identifier'), t('threat_hunt.table.offset'), t('threat_hunt.table.data')].map(h => (
-                                <th key={h} style={{ textAlign: 'left', padding: '3px 8px', color: 'var(--fl-dim)', fontWeight: 600 }}>{h}</th>
-                              ))}
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {m.matched_strings.map((s, i) => (
-                              <tr key={i} style={{ borderBottom: `1px solid ${C.border}` }}>
-                                <td style={{ padding: '3px 8px', color: C.yara }}>{s.identifier}</td>
-                                <td style={{ padding: '3px 8px', color: 'var(--fl-dim)' }}>0x{s.offset.toString(16)}</td>
-                                <td style={{ padding: '3px 8px', color: 'var(--fl-text)' }}>{s.data}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      ) : (
-                        <p style={{ margin: 0, fontSize: 11, color: 'var(--fl-dim)' }}>{t('threat_hunt.yara.match_without_strings')}</p>
-                      )}
-                      <p style={{ margin: '4px 0 0', fontSize: 10, color: 'var(--fl-muted)' }}>{t('threat_hunt.scanned_at', { date: fmtDate(m.scanned_at, i18n.language) })}</p>
-                    </div>
-                  ))}
-                </div>
-              )}
+      {!caseId ? (
+        <EmptyState icon={Scan} title={t('threat_hunt.yara.pick_case_prompt')} />
+      ) : (
+        <>
+          {/* 1. Header — case, host(s), evidence volume, last match */}
+          <div className="rt-hunt-header">
+            <h3 className="rt-case-title">{selectedCase ? `${selectedCase.case_number} — ${selectedCase.title}` : caseId}</h3>
+            <div className="rt-stat-row">
+              {volumeLabel && <span>{volumeLabel}</span>}
+              {hostsLabel  && <span>{hostsLabel}</span>}
+              <span>{lastMatchLabel}</span>
             </div>
-          );
-        })}
-      </div>
+          </div>
+
+          {/* 2. Scope band — what WILL be scanned, populated by the SSE
+              `start` event (fires before any file is actually scanned).
+              Evidence files, not the timeline — see the route's own
+              skip-classification comment in threatHunting.ts. */}
+          {scopeInfo && (
+            <div className="rt-toolbar">
+              <Badge color={C.yara}>{t('threat_hunt.yara.scope_rules', { count: scopeInfo.rulesTotal, n: fmtNum(scopeInfo.rulesTotal, i18n.language) })}</Badge>
+              {scopeStatus && <Badge color={scopeStatusColor}>{t(`threat_hunt.yara.status.${scopeStatus}`)}</Badge>}
+              {skippedTotal > 0 && (
+                <FilterChip active color="var(--fl-warn)" onClick={() => setScopeExplainOpen(true)}>
+                  {t('threat_hunt.yara.scope_skipped', { count: skippedTotal, n: fmtNum(skippedTotal, i18n.language) })}
+                </FilterChip>
+              )}
+              <span className="rt-name-muted">
+                {t('threat_hunt.yara.scope_will_scan', {
+                  count: scopeInfo.filesToScan,
+                  n: fmtNum(scopeInfo.filesToScan, i18n.language),
+                  total: fmtNum(scopeInfo.evidenceTotal, i18n.language),
+                })}
+              </span>
+            </div>
+          )}
+
+          {/* 3. Progress band — during the run, what's been found so far,
+              not just current/total/name */}
+          {scanning && progress && (
+            <div>
+              <div className="rt-stat-row">
+                <span className="rt-progress-found">{t('threat_hunt.yara.progress_matches', { count: progress.matchesSoFar, n: fmtNum(progress.matchesSoFar, i18n.language) })}</span>
+                {progress.filesFlaggedSoFar > 0 && (
+                  <span>{t('threat_hunt.yara.files_flagged', { count: progress.filesFlaggedSoFar, n: fmtNum(progress.filesFlaggedSoFar, i18n.language) })}</span>
+                )}
+              </div>
+              <ScanProgressBar progress={progress} color={C.yara} />
+            </div>
+          )}
+
+          {/* 4. Stats row */}
+          {derivedStats && (
+            <div className="rt-stat-row">
+              <span>
+                {derivedStats.filesScanned != null
+                  ? t('threat_hunt.yara.stat_files_scanned', { count: derivedStats.filesScanned, n: fmtNum(derivedStats.filesScanned, i18n.language) })
+                  : t('threat_hunt.yara.stat_files_scanned_unknown')}
+              </span>
+              {derivedStats.filesSkipped > 0 && (
+                <span>{t('threat_hunt.yara.stat_files_skipped', { count: derivedStats.filesSkipped, n: fmtNum(derivedStats.filesSkipped, i18n.language) })}</span>
+              )}
+              <span>{t('threat_hunt.yara.files_flagged', { count: derivedStats.filesFlagged, n: fmtNum(derivedStats.filesFlagged, i18n.language) })}</span>
+              <span>{t('threat_hunt.sigma.rules_with_hits', { count: derivedStats.rulesMatched, n: fmtNum(derivedStats.rulesMatched, i18n.language) })}</span>
+              <span>{t('threat_hunt.yara.stat_total_matches', { count: derivedStats.totalMatches, n: fmtNum(derivedStats.totalMatches, i18n.language) })}</span>
+            </div>
+          )}
+
+          {/* 5. Results table — one row per evidence×rule match; no
+              severity axis to sort by (YARA carries none), so rows stay in
+              the backend's own `ORDER BY scanned_at DESC` — most recent
+              match first, which doubles as "what changed since I was last
+              here". */}
+          <div className="rt-table-wrap">
+            <DataTable
+              columns={columns}
+              rows={results}
+              rowKey={r => r.id}
+              density="compact"
+              emptyState={<EmptyState icon={Scan} title={t('threat_hunt.yara.no_scan_results')} />}
+            />
+          </div>
+        </>
+      )}
+
+      <Modal
+        open={scopeExplainOpen}
+        title={t('threat_hunt.yara.scope_explain_title')}
+        onClose={() => setScopeExplainOpen(false)}
+        size="sm"
+        accentColor={C.yara}
+      >
+        <Modal.Body>
+          {scopeInfo?.skippedMemory > 0 && (
+            <p>{t('threat_hunt.yara.scope_explain_memory', { count: scopeInfo.skippedMemory, n: fmtNum(scopeInfo.skippedMemory, i18n.language) })}</p>
+          )}
+          {scopeInfo?.skippedSize > 0 && (
+            <p>{t('threat_hunt.yara.scope_explain_size', { count: scopeInfo.skippedSize, n: fmtNum(scopeInfo.skippedSize, i18n.language) })}</p>
+          )}
+        </Modal.Body>
+        <Modal.Footer>
+          <Button variant="secondary" onClick={() => setScopeExplainOpen(false)}>{t('common.close')}</Button>
+        </Modal.Footer>
+      </Modal>
     </div>
   );
 }
@@ -852,6 +997,22 @@ function SigmaRulesTab() {
   const [saving, setSaving]       = useState(false);
   const [error, setError]         = useState('');
 
+  // Toolbar — search by name, single-select segmented filter, scope columns
+  // the analyst has explicitly asked back after a ScopeBar token removal.
+  // Same shape as YaraRulesTab (see yaraRulesTable.js's doc comments); the
+  // second caller of these primitives, not a new pattern.
+  const [search, setSearch]       = useState('');
+  const [filter, setFilter]       = useState('all');
+  const [restoredScope, setRestoredScope] = useState(() => new Set());
+
+  // Delete confirmation — retype-to-confirm via the shared destructiveConfirm
+  // gate, exactly like YaraRulesTab. This replaces the bare `confirm()` the
+  // tab used before: the trash icon sat right next to edit, 3999 times, with
+  // no guard at all.
+  const [pendingDelete, setPendingDelete] = useState(null);
+  const [deleteConfirmText, setDeleteConfirmText] = useState('');
+  const [deleting, setDeleting] = useState(false);
+
   const load = useCallback(async () => {
     setLoading(true); setLoadError('');
     try { const r = await threatHuntingAPI.sigmaRules(); setRules(r.data.rules ?? []); }
@@ -860,6 +1021,63 @@ function SigmaRulesTab() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  // Rows: rules plus a stable tagsKey (sigmaRulesTable.js's withTagsKey) so
+  // constantColumns has a scalar to compare tags by. Unlike YaraRulesTab
+  // there is no per-rule stats endpoint to merge — Sigma rules carry no
+  // equivalent of yara_scan_results.
+  const rows = useMemo(() => withTagsKey(rules), [rules]);
+  const stats = useMemo(() => computeSigmaRuleStats(rows), [rows]);
+  const segmentCounts = useMemo(() => ({
+    all: rows.length,
+    critical: rows.filter(r => r.level === 'critical').length,
+    high: rows.filter(r => r.level === 'high').length,
+    retired: rows.filter(isRetiredUpstream).length,
+  }), [rows]);
+  const visibleRows = useMemo(
+    () => sortBySeverityDesc(filterSigmaRules(rows, { search, filter })),
+    [rows, search, filter],
+  );
+
+  // Scope bar — columns constant across every currently-loaded rule
+  // (SIGMA_SCOPE_CANDIDATE_COLUMNS: tagsKey and author_username) get lifted
+  // into a removable token instead of a column. On the real 3999-row set
+  // both are constant — every rule was imported from the same
+  // `{github, sigmahq}` source, under the same account — see the doc
+  // comment on SIGMA_SCOPE_CANDIDATE_COLUMNS in sigmaRulesTable.js.
+  const constantKeys = useMemo(() => constantColumns(rows, SIGMA_SCOPE_CANDIDATE_COLUMNS), [rows]);
+  const liftedKeys = useMemo(
+    () => constantKeys.filter(key => !restoredScope.has(key)),
+    [constantKeys, restoredScope],
+  );
+
+  function restoreScopeColumn(key) {
+    setRestoredScope(prev => new Set(prev).add(key));
+  }
+
+  const scopeTokens = useMemo(() => {
+    const first = rows[0];
+    if (!first) return [];
+    const tokens = [];
+
+    if (liftedKeys.includes('tagsKey')) {
+      tokens.push({
+        key: 'tagsKey',
+        label: t('threat_hunt.sigma.columns.tags'),
+        value: (first.tags || []).join(', ') || '—',
+        onRemove: () => restoreScopeColumn('tagsKey'),
+      });
+    }
+    if (liftedKeys.includes('author_username')) {
+      tokens.push({
+        key: 'author_username',
+        label: t('threat_hunt.sigma.columns.author'),
+        value: first.author_username || '—',
+        onRemove: () => restoreScopeColumn('author_username'),
+      });
+    }
+    return tokens;
+  }, [liftedKeys, rows, t]);
 
   function openCreate() {
     setEditing(null);
@@ -886,10 +1104,118 @@ function SigmaRulesTab() {
     } finally { setSaving(false); }
   }
 
-  async function del(id) {
-    if (!confirm(t('threat_hunt.sigma.confirm_delete'))) return;
-    try { await threatHuntingAPI.deleteSigmaRule(id); load(); } catch (_e) {}
+  function requestDelete(r) {
+    setPendingDelete(r);
+    setDeleteConfirmText('');
   }
+
+  async function confirmDelete() {
+    if (!pendingDelete) return;
+    setDeleting(true);
+    try { await threatHuntingAPI.deleteSigmaRule(pendingDelete.id); setPendingDelete(null); load(); }
+    catch (_e) { /* surfaced via the next load()'s loadError if the list itself fails to refresh */ }
+    finally { setDeleting(false); }
+  }
+
+  async function toggle(r) {
+    try { await threatHuntingAPI.updateSigmaRule(r.id, { is_active: !r.is_active }); load(); }
+    catch (_e) {}
+  }
+
+  // Dims text in a rule's cells (never the whole row via a DataTable prop
+  // DataTable doesn't have — see the report on why that would have been a
+  // contract change) when `isRuleDimmed` says the rule won't run: disabled,
+  // or retired upstream. Applied to every text cell (rule/platform/
+  // technique/status) so the row still reads as muted at a glance, while
+  // the severity dot keeps its true colour — a rule doesn't stop being
+  // critical for being deprecated or disabled.
+  function dimCls(r) {
+    return isRuleDimmed(r) ? 'rt-name-muted' : undefined;
+  }
+
+  const columns = useMemo(() => {
+    const cols = [
+      {
+        key: 'level', header: t('threat_hunt.sigma.columns.severity'), width: 140,
+        render: r => (
+          <span className="rt-inline-dot">
+            <span className="rt-state-dot" style={{ background: sigmaLevelColor(r.level) }} aria-hidden="true" />
+            <span className={dimCls(r)}>{sigmaLevelLabel(r.level, t)}</span>
+          </span>
+        ),
+      },
+      {
+        key: 'name', header: t('threat_hunt.sigma.columns.rule'), mono: true,
+        render: r => <span className={dimCls(r)}>{r.name}</span>,
+      },
+    ];
+
+    if (restoredScope.has('tagsKey')) {
+      cols.push({
+        key: 'tagsDisplay', header: t('threat_hunt.sigma.columns.tags'),
+        render: r => <span className={dimCls(r)}>{(r.tags || []).join(', ') || '—'}</span>,
+      });
+    }
+    if (restoredScope.has('author_username')) {
+      cols.push({
+        key: 'author_username', header: t('threat_hunt.sigma.columns.author'),
+        render: r => <span className={dimCls(r)}>{r.author_username || '—'}</span>,
+      });
+    }
+
+    cols.push(
+      {
+        key: 'logsource_product', header: t('threat_hunt.sigma.columns.platform'), width: 130,
+        render: r => <span className={dimCls(r)}>{r.logsource_product || '—'}</span>,
+      },
+      {
+        key: 'mitre', header: t('threat_hunt.sigma.columns.technique'), width: 110, mono: true,
+        render: r => (
+          <span className={dimCls(r)} title={r.mitre_techniques?.join(', ')}>
+            {r.mitre_techniques?.length ? r.mitre_techniques[0] : '—'}
+          </span>
+        ),
+      },
+      {
+        key: 'upstream_status', header: t('threat_hunt.sigma.columns.status'), width: 130,
+        render: r => (
+          <span className={dimCls(r)}>
+            {t(`threat_hunt.sigma.upstream_status.${r.upstream_status && SIGMA_UPSTREAM_STATUSES.has(r.upstream_status) ? r.upstream_status : 'unknown'}`)}
+          </span>
+        ),
+      },
+      {
+        key: 'actions', width: 110,
+        header: <span className="sr-only">{t('threat_hunt.sigma.columns.actions')}</span>,
+        render: r => (
+          <div className="dt-row-actions">
+            <button
+              type="button" className="rt-action-btn"
+              aria-label={t(r.is_active ? 'threat_hunt.sigma.aria.disable_rule' : 'threat_hunt.sigma.aria.enable_rule', { name: r.name })}
+              onClick={() => toggle(r)}
+            >
+              {r.is_active ? <ToggleRight size={14} /> : <ToggleLeft size={14} />}
+            </button>
+            <button
+              type="button" className="rt-action-btn"
+              aria-label={t('threat_hunt.sigma.aria.edit_rule', { name: r.name })}
+              onClick={() => openEdit(r)}
+            >
+              <Pencil size={12} />
+            </button>
+            <button
+              type="button" className="rt-action-btn rt-action-btn--danger"
+              aria-label={t('threat_hunt.sigma.aria.delete_rule', { name: r.name })}
+              onClick={() => requestDelete(r)}
+            >
+              <Trash2 size={12} />
+            </button>
+          </div>
+        ),
+      },
+    );
+    return cols;
+  }, [restoredScope, t]);
 
   return (
     <div>
@@ -910,45 +1236,53 @@ function SigmaRulesTab() {
           <Spinner size={24} />
         </div>
       ) : loadError ? (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 16px', background: 'rgba(218,54,51,0.08)', border: '1px solid rgba(218,54,51,0.25)', borderRadius: 8, color: 'var(--fl-danger)', fontSize: 13 }}>
-          <AlertCircle size={16} />
-          {loadError}
-        </div>
-      ) : rules.length === 0 ? (
-        <div style={{ textAlign: 'center', padding: 60, color: 'var(--fl-dim)' }}>
-          <FileCode2 size={40} style={{ marginBottom: 12, opacity: 0.3 }} />
-          <p>{t('threat_hunt.no_sigma')}</p>
-        </div>
+        <Alert variant="danger" message={loadError} />
+      ) : rows.length === 0 ? (
+        <EmptyState icon={FileCode2} title={t('threat_hunt.no_sigma')} />
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {rules.map(r => (
-            <div key={r.id} style={{
-              background: C.surface, border: `1px solid ${C.border}`,
-              borderRadius: 10, padding: '12px 16px',
-            }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                <div>
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-                    <span style={{ width: 7, height: 7, borderRadius: 2, background: r.is_active ? C.sigma : 'var(--fl-subtle)', flexShrink: 0 }} />
-                    <span style={{ fontWeight: 600, color: 'var(--fl-text)', fontSize: 14 }}>{r.name}</span>
-                  </span>
-                  <div style={{ display: 'flex', gap: 6, marginTop: 4, flexWrap: 'wrap', alignItems: 'center' }}>
-                    {r.logsource_category && <Badge variant="purple">{r.logsource_category}</Badge>}
-                    {r.logsource_product  && <Badge variant="dim">{r.logsource_product}</Badge>}
-                    {(r.tags || []).map(t => <Badge key={t} variant="purple"><Tag size={9} /> {t}</Badge>)}
-                    <span style={{ fontSize: 11, color: 'var(--fl-muted)' }}>
-                      {t('threat_hunt.by_author', { author: r.author_username || '—', date: fmtDate(r.created_at, i18n.language) })}
-                    </span>
-                  </div>
-                </div>
-                <div style={{ display: 'flex', gap: 6 }}>
-                  <Button variant="ghost" size="sm" onClick={() => openEdit(r)}><Pencil size={12} /></Button>
-                  <Button variant="ghost" size="sm" onClick={() => del(r.id)}><Trash2 size={12} style={{ color: 'var(--fl-danger)' }} /></Button>
-                </div>
-              </div>
+        <>
+          <div className="rt-stat-row">
+            <span>{t('threat_hunt.sigma.stat_rules', { count: stats.total, n: fmtNum(stats.total, i18n.language) })}</span>
+            <span>{t('threat_hunt.sigma.count_critical', { count: stats.critical, n: fmtNum(stats.critical, i18n.language) })}</span>
+            <span>{t('threat_hunt.sigma.count_high', { count: stats.high, n: fmtNum(stats.high, i18n.language) })}</span>
+            <span>{t('threat_hunt.sigma.stat_retired', { count: stats.retired, n: fmtNum(stats.retired, i18n.language) })}</span>
+            <span>{t('threat_hunt.sigma.stat_platforms', { count: stats.platforms, n: fmtNum(stats.platforms, i18n.language) })}</span>
+          </div>
+
+          <ScopeBar tokens={scopeTokens} />
+
+          <div className="rt-toolbar">
+            <SearchInput
+              value={search}
+              onChange={setSearch}
+              onClear={() => setSearch('')}
+              placeholder={t('threat_hunt.sigma.search_placeholder')}
+              style={{ minWidth: 240 }}
+            />
+            <div className="rt-toolbar-filters">
+              <FilterChip active={filter === 'all'} onClick={() => setFilter('all')} count={segmentCounts.all}>
+                {t('threat_hunt.sigma.filter_all')}
+              </FilterChip>
+              <FilterChip active={filter === 'critical'} color="var(--fl-danger)" onClick={() => setFilter('critical')} count={segmentCounts.critical}>
+                {t('threat_hunt.sigma.filter_critical')}
+              </FilterChip>
+              <FilterChip active={filter === 'high'} color="var(--fl-warn)" onClick={() => setFilter('high')} count={segmentCounts.high}>
+                {t('threat_hunt.sigma.filter_high')}
+              </FilterChip>
+              <FilterChip active={filter === 'retired'} onClick={() => setFilter('retired')} count={segmentCounts.retired}>
+                {t('threat_hunt.sigma.filter_retired')}
+              </FilterChip>
             </div>
-          ))}
-        </div>
+          </div>
+
+          {visibleRows.length === 0 ? (
+            <EmptyState icon={Search} title={t('threat_hunt.sigma.no_search_results')} />
+          ) : (
+            <div className="rt-table-wrap">
+              <DataTable columns={columns} rows={visibleRows} rowKey={r => r.id} density="compact" />
+            </div>
+          )}
+        </>
       )}
 
       <Modal
@@ -982,6 +1316,39 @@ function SigmaRulesTab() {
           <Button variant="primary" loading={saving} onClick={save}>{t('common.save')}</Button>
         </Modal.Footer>
       </Modal>
+
+      <Modal
+        open={!!pendingDelete}
+        title={t('threat_hunt.sigma.delete_modal_title')}
+        onClose={() => setPendingDelete(null)}
+        size="sm"
+        accentColor="var(--fl-danger)"
+      >
+        <Modal.Body>
+          <p className="rt-delete-warning">{t('threat_hunt.sigma.delete_modal_warning')}</p>
+          <label className="fl-label" style={{ display: 'block', marginBottom: 5 }}>
+            {t('threat_hunt.sigma.delete_modal_type_prompt', { name: pendingDelete?.name })}
+          </label>
+          <input
+            className="fl-input"
+            value={deleteConfirmText}
+            onChange={e => setDeleteConfirmText(e.target.value)}
+            autoComplete="off"
+          />
+        </Modal.Body>
+        <Modal.Footer>
+          <Button variant="secondary" disabled={deleting} onClick={() => setPendingDelete(null)}>{t('common.cancel')}</Button>
+          <Button
+            variant="danger"
+            icon={deleting ? undefined : Trash2}
+            loading={deleting}
+            disabled={!isDestructionConfirmed(deleteConfirmText, pendingDelete?.name)}
+            onClick={confirmDelete}
+          >
+            {t('common.delete')}
+          </Button>
+        </Modal.Footer>
+      </Modal>
     </div>
   );
 }
@@ -992,46 +1359,76 @@ const ARTIFACT_COLORS = {
 };
 function ac(t) { return ARTIFACT_COLORS[t] || 'var(--fl-dim)'; }
 
+// ── Sigma severity vocabulary (SIGMA_LEVEL_RANK/COLOR, sigmaLevelRank/Color/
+// Label) and fmtNum now live in ./sigmaRulesTable.js — SigmaRulesTab (the
+// rules inventory, below) and SigmaHuntTab (the case-scoped results table)
+// both need the exact same "critical is always red, unknown never guessed"
+// rules, and a shared, independently-tested source beats two copies drifting
+// apart. See the import at the top of this file.
+
 function SigmaHuntTab() {
   const { t, i18n } = useTranslation();
   const [cases, setCases]           = useState([]);
   const [sigmaRules, setSigmaRules] = useState([]);
+  const [rulesError, setRulesError] = useState('');
   const [caseId, setCaseId]         = useState('');
   const [ruleId, setRuleId]         = useState('');
+  const [pickerOpen, setPickerOpen] = useState(false);
   const [hunting, setHunting]       = useState(false);
+  const [huntError, setHuntError]   = useState('');
   const [scanning, setScanning]     = useState(false);
+  const [scopeInfo, setScopeInfo]   = useState(null);
   const [progress, setProgress]     = useState(null);
-  const [huntResult, setHuntResult] = useState(null);
-  const [scanResult, setScanResult] = useState(null);
+  const [scanStats, setScanStats]   = useState(null);
+  const [scanError, setScanError]   = useState('');
+  const [scopeExplainOpen, setScopeExplainOpen] = useState(false);
   const [history, setHistory]       = useState([]);
-  const [expandedHistory, setExpandedHistory] = useState({});
+  const [historyError, setHistoryError] = useState('');
+  const [headerMeta, setHeaderMeta] = useState(null);
 
   useEffect(() => {
     casesAPI.list().then(r => setCases(r.data.cases || [])).catch(() => {});
-    threatHuntingAPI.sigmaRules().then(r => setSigmaRules(r.data.rules || [])).catch(() => {});
+    threatHuntingAPI.sigmaRules()
+      .then(r => setSigmaRules(r.data.rules || []))
+      .catch(e => setRulesError(e.response?.data?.error || e.message || t('threat_hunt.errors.load_rules')));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Case switch resets every band tied to a *run* (scope/progress/stats are
+  // about a scan that hasn't happened for the newly-picked case) but leaves
+  // `ruleId` alone — an analyst probing the same Sigma rule across several
+  // cases in a row is a real workflow, and the rule list isn't case-scoped.
   useEffect(() => {
-    if (!caseId) { setHistory([]); setScanResult(null); return; }
-    threatHuntingAPI.sigmaHunts(caseId).then(r => setHistory(r.data.hunts || [])).catch(() => {});
+    setScopeInfo(null); setProgress(null); setScanStats(null); setScanError(''); setHuntError('');
+    if (!caseId) { setHistory([]); setHistoryError(''); setHeaderMeta(null); return; }
+    threatHuntingAPI.sigmaHunts(caseId)
+      .then(r => { setHistory(r.data.hunts || []); setHistoryError(''); })
+      .catch(e => { setHistory([]); setHistoryError(e.response?.data?.error || e.message || t('threat_hunt.sigma.errors.load_history')); });
+    // Cheapest possible call into the SuperTimeline's own /timeline route
+    // (limit: 1 — one record) purely for its `total` and `hosts_available`
+    // aggregates, which the header band needs. No new backend endpoint: this
+    // one already computes both for every SuperTimeline page load.
+    timelineAPI.list(caseId, { limit: 1 })
+      .then(r => setHeaderMeta({ total: r.data?.total ?? 0, hosts: r.data?.hosts_available || [] }))
+      .catch(() => setHeaderMeta(null));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [caseId]);
 
-  async function hunt() {
-    if (!caseId || !ruleId) return;
-    setHunting(true); setHuntResult(null);
+  async function hunt(pickedRuleId) {
+    if (!caseId || !pickedRuleId) return;
+    setHunting(true); setHuntError('');
     try {
-      const r = await threatHuntingAPI.sigmaHunt(caseId, ruleId);
-      setHuntResult(r.data);
+      await threatHuntingAPI.sigmaHunt(caseId, pickedRuleId);
       const h = await threatHuntingAPI.sigmaHunts(caseId);
       setHistory(h.data.hunts || []);
     } catch (e) {
-      setHuntResult({ error: e.response?.data?.error || t('threat_hunt.errors.hunt_failed') });
+      setHuntError(e.response?.data?.error || t('threat_hunt.errors.hunt_failed'));
     } finally { setHunting(false); }
   }
 
   async function scanAll() {
     if (!caseId) return;
-    setScanning(true); setScanResult(null); setProgress(null);
+    setScanning(true); setScopeInfo(null); setProgress(null); setScanStats(null); setScanError('');
     try {
       const token = localStorage.getItem('heimdall_token');
       const resp = await fetch(`/api/threat-hunting/sigma/scan-case/${caseId}`, {
@@ -1051,191 +1448,322 @@ function SigmaHuntTab() {
           if (!line.startsWith('data: ')) continue;
           try {
             const ev = JSON.parse(line.slice(6));
-            if (ev.type === 'start')    setProgress({ current: 0, total: ev.total, name: '' });
-            if (ev.type === 'progress') setProgress({ current: ev.current, total: ev.total, name: ev.name });
+            if (ev.type === 'start') {
+              setScopeInfo({
+                total: ev.total,
+                // rules_to_run is the exact count (added alongside skipped_platform/
+                // collection_platform — see threatHunting.ts); the total-minus-
+                // skipped_platform fallback below only covers if an older backend
+                // build is somehow still running, and slightly overstates when
+                // status-excluded rules also fall inside the matching platforms.
+                rulesToRun: ev.rules_to_run ?? Math.max(0, ev.total - (ev.skipped_platform || 0)),
+                skippedPlatform: ev.skipped_platform || 0,
+                collectionPlatform: ev.collection_platform,
+              });
+            }
+            if (ev.type === 'progress') {
+              setProgress({
+                current: ev.current, total: ev.total, name: ev.name,
+                matchedSoFar: ev.matched_so_far ?? 0, criticalSoFar: ev.critical_so_far ?? 0,
+              });
+            }
             if (ev.type === 'done') {
               setProgress(null);
-              setScanResult(ev);
+              const summary = ev.summary || [];
+              setScanStats({
+                rulesChecked: ev.rules_checked ?? summary.length,
+                rulesMatched: ev.rules_matched ?? summary.filter(s => s.match_count > 0).length,
+                totalMatches: ev.total_matches ?? summary.reduce((a, s) => a + (s.match_count || 0), 0),
+                critical: summary.filter(s => s.match_count > 0 && s.level === 'critical').length,
+                high:     summary.filter(s => s.match_count > 0 && s.level === 'high').length,
+              });
               const h = await threatHuntingAPI.sigmaHunts(caseId);
               setHistory(h.data.hunts || []);
             }
-            if (ev.type === 'error') setScanResult({ error: ev.error });
+            if (ev.type === 'error') setScanError(ev.error);
           } catch (_e) {}
         }
       }
     } catch (e) {
-      setScanResult({ error: t('threat_hunt.errors.scan_failed') });
+      setScanError(t('threat_hunt.errors.scan_failed'));
     } finally { setScanning(false); setProgress(null); }
   }
 
+  const selectedCase = cases.find(c => c.id === caseId) || null;
+  const selectedRule = sigmaRules.find(r => r.id === ruleId) || null;
+
+  // CommandPalette in generic mode (components/ui/CommandPalette.jsx) —
+  // replaces the 3999-option <select> this tab used to render. `sub` folds
+  // severity + the most specific MITRE technique into the picker's second
+  // line so an analyst can find "that one critical T1055 rule" by typing
+  // either the name or either of those, without opening it first.
+  const ruleItems = useMemo(() => sigmaRules.map(r => ({
+    id: r.id,
+    label: r.name,
+    sub: [r.level ? sigmaLevelLabel(r.level, t) : null, r.mitre_techniques?.[0] || null].filter(Boolean).join(' · ') || undefined,
+  })), [sigmaRules, t]);
+
+  function pickRule(item) { setRuleId(item.id); }
+
+  const hostsLabel = useMemo(() => {
+    if (!headerMeta) return null;
+    const hosts = headerMeta.hosts || [];
+    if (hosts.length === 0) return t('threat_hunt.sigma.meta_hosts_none');
+    if (hosts.length === 1) return t('threat_hunt.sigma.meta_host', { host: hosts[0] });
+    return t('threat_hunt.sigma.meta_hosts_count', { count: hosts.length, n: fmtNum(hosts.length, i18n.language) });
+  }, [headerMeta, t, i18n.language]);
+
+  const eventsLabel = useMemo(() => {
+    if (!headerMeta) return null;
+    return t('threat_hunt.sigma.meta_events', { count: headerMeta.total, n: fmtNum(headerMeta.total, i18n.language) });
+  }, [headerMeta, t, i18n.language]);
+
+  const lastHuntLabel = useMemo(() => {
+    const last = history[0]?.hunted_at;
+    return last
+      ? t('threat_hunt.sigma.meta_last_hunt', { date: fmtDate(last, i18n.language) })
+      : t('threat_hunt.sigma.meta_last_hunt_never');
+  }, [history, t, i18n.language]);
+
+  // Default sort is severity descending (design spec) — match_count breaks
+  // ties within a tier. A level absent or unrecognised (rank 0) sinks to the
+  // bottom rather than being folded into `low`: this project's rule is that
+  // a decision never collapses into an absence of data, and "we don't know
+  // this rule's severity" is not the same claim as "this rule is low
+  // severity".
+  const sortedHistory = useMemo(() => {
+    return [...history].sort((a, b) => {
+      const r = sigmaLevelRank(b.level) - sigmaLevelRank(a.level);
+      return r !== 0 ? r : (b.match_count || 0) - (a.match_count || 0);
+    });
+  }, [history]);
+
+  // The stats row's "rules evaluated" figure only exists for a scan run THIS
+  // session (it comes off the SSE `done` event, never persisted). Falling
+  // back to `history` still gives honest "rules with matches" / "total
+  // events" / severity breakdown counts — but `rulesChecked` stays `null`
+  // rather than being guessed, and the row below renders that as "unknown",
+  // not as 0.
+  const derivedStats = useMemo(() => {
+    if (scanStats) return scanStats;
+    if (!history.length) return null;
+    return {
+      rulesChecked: null,
+      rulesMatched: history.filter(h => h.match_count > 0).length,
+      totalMatches: history.reduce((a, h) => a + (h.match_count || 0), 0),
+      critical: history.filter(h => h.match_count > 0 && h.level === 'critical').length,
+      high:     history.filter(h => h.match_count > 0 && h.level === 'high').length,
+    };
+  }, [scanStats, history]);
+
+  const skippedTotal  = scopeInfo ? Math.max(0, scopeInfo.total - scopeInfo.rulesToRun) : 0;
+  const skippedStatus = scopeInfo ? Math.max(0, skippedTotal - scopeInfo.skippedPlatform) : 0;
+  const scopeStatus      = scanError ? 'error' : scanning ? 'running' : scanStats ? 'done' : null;
+  const scopeStatusColor = scopeStatus === 'error' ? 'var(--fl-danger)' : scopeStatus === 'running' ? C.sigma : 'var(--fl-ok)';
+
+  const columns = useMemo(() => [
+    {
+      key: 'level', header: t('threat_hunt.sigma.columns.severity'), width: 140,
+      render: r => {
+        const dotStyle = { background: sigmaLevelColor(r.level) };
+        return (
+          <span className="rt-inline-dot">
+            <span className="rt-state-dot" style={dotStyle} aria-hidden="true" />
+            {sigmaLevelLabel(r.level, t)}
+          </span>
+        );
+      },
+    },
+    { key: 'rule_name', header: t('threat_hunt.sigma.columns.rule'), mono: true },
+    {
+      key: 'mitre', header: t('threat_hunt.sigma.columns.technique'), width: 110, mono: true,
+      render: r => (r.mitre_techniques?.length
+        ? <span title={r.mitre_techniques.join(', ')}>{r.mitre_techniques[0]}</span>
+        : '—'),
+    },
+    {
+      // Honest counts (Task 1 of the platform-scoping plan): `match_count`
+      // is a real COUNT(*), `sample_size` how much of it `matched_events`
+      // actually samples. `sample_size == null` (rows from before that
+      // column existed) is shown as "unknown", never silently as 0 — the
+      // same rule this whole product enforces everywhere else.
+      key: 'match_count', header: t('threat_hunt.sigma.columns.matches'), width: 150, align: 'right', mono: true,
+      render: r => {
+        if (r.match_count == null) return '—';
+        const matchFmt = fmtNum(r.match_count, i18n.language);
+        if (r.match_count === 0) return <span className="rt-name-muted">{matchFmt}</span>;
+        if (r.sample_size == null) {
+          return <span>{matchFmt} <span className="rt-name-muted">{t('threat_hunt.sigma.sample_unknown')}</span></span>;
+        }
+        if (r.sample_size < r.match_count) {
+          return (
+            <span>
+              {matchFmt}{' '}
+              <span className="rt-name-muted">
+                {t('threat_hunt.sigma.sample_of', { count: r.sample_size, n: fmtNum(r.sample_size, i18n.language) })}
+              </span>
+            </span>
+          );
+        }
+        return <span>{matchFmt}</span>;
+      },
+    },
+    {
+      key: 'first_match', header: t('threat_hunt.sigma.columns.first_match'), width: 180, mono: true,
+      render: r => (r.matched_events?.[0]?.timestamp ? fmtLocal(r.matched_events[0].timestamp) : '—'),
+    },
+  ], [t, i18n.language]);
+
   return (
     <div>
-      
-      <div style={{ display: 'flex', gap: 12, marginBottom: 12, alignItems: 'flex-end', flexWrap: 'wrap' }}>
-        <div style={{ flex: 1, minWidth: 240 }}>
-          <label className="fl-label" style={{ display: 'block', marginBottom: 5 }}>{t('threat_hunt.case_label')}</label>
-          <select value={caseId} onChange={e => { setCaseId(e.target.value); setHuntResult(null); setScanResult(null); }} className="fl-input">
+      <div className="rt-control-row">
+        <div className="rt-field">
+          <label className="fl-label">{t('threat_hunt.case_label')}</label>
+          <select value={caseId} onChange={e => setCaseId(e.target.value)} className="fl-input">
             <option value="">{t('threat_hunt.select_case')}</option>
             {cases.map(c => <option key={c.id} value={c.id}>{c.case_number} — {c.title}</option>)}
           </select>
         </div>
-        <Button variant="secondary" size="sm" icon={scanning ? undefined : Scan} loading={scanning} disabled={!caseId} onClick={scanAll}>
+        <Button variant="primary" size="sm" icon={scanning ? undefined : Scan} loading={scanning} disabled={!caseId} onClick={scanAll}>
           {t('threat_hunt.sigma.scan_all_rules')}
         </Button>
       </div>
 
-      <ScanProgressBar progress={progress} color={C.sigma} />
-
-      {scanResult && (
-        <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: 14, marginBottom: 20 }}>
-          {scanResult.error ? (
-            <p style={{ margin: 0, color: 'var(--fl-danger)', fontSize: 13 }}>{scanResult.error}</p>
-          ) : (
-            <>
-              <div style={{ display: 'flex', gap: 16, marginBottom: scanResult.rules_matched > 0 ? 12 : 0, flexWrap: 'wrap' }}>
-                <span style={{ fontSize: 13 }}><strong>{scanResult.rules_checked}</strong> {t('threat_hunt.sigma.rules_tested', { count: scanResult.rules_checked })}</span>
-                <span style={{ fontSize: 13, color: scanResult.rules_matched > 0 ? 'var(--fl-danger)' : 'var(--fl-ok)' }}>
-                  <strong>{scanResult.rules_matched}</strong> {t('threat_hunt.sigma.rules_with_hits', { count: scanResult.rules_matched })}
-                </span>
-                <span style={{ fontSize: 13 }}><strong>{scanResult.total_matches}</strong> {t('threat_hunt.sigma.total_events', { count: scanResult.total_matches })}</span>
-              </div>
-              {scanResult.summary?.filter(s => s.match_count > 0).length > 0 && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                  {scanResult.summary.filter(s => s.match_count > 0).map(s => (
-                    <div key={s.rule_id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
-                      <AlertCircle size={12} style={{ color: 'var(--fl-danger)', flexShrink: 0 }} />
-                      <span style={{ flex: 1, color: 'var(--fl-text)' }}>{s.rule_name}</span>
-                      <Badge variant="danger">{t('threat_hunt.hits_count', { count: s.match_count })}</Badge>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </>
-          )}
+      <div className="rt-control-row">
+        <div className="rt-field">
+          <label className="fl-label">{t('threat_hunt.sigma.rule_label')}</label>
+          <Button
+            variant="secondary" icon={Search} disabled={!caseId}
+            title={t('threat_hunt.sigma.aria.open_picker')}
+            onClick={() => setPickerOpen(true)}
+          >
+            {selectedRule ? selectedRule.name : t('threat_hunt.sigma.pick_rule_placeholder')}
+          </Button>
         </div>
-      )}
-
-      <div style={{ display: 'flex', gap: 12, marginBottom: 20, alignItems: 'flex-end', flexWrap: 'wrap' }}>
-        <div style={{ flex: 1, minWidth: 240 }}>
-          <label className="fl-label" style={{ display: 'block', marginBottom: 5 }}>{t('threat_hunt.sigma.rule_label')}</label>
-          <select value={ruleId} onChange={e => { setRuleId(e.target.value); setHuntResult(null); }} className="fl-input">
-            <option value="">{t('threat_hunt.sigma.select_rule')}</option>
-            {sigmaRules.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
-          </select>
-        </div>
-        <Button variant="primary" size="sm" icon={hunting ? undefined : Search} loading={hunting} disabled={!caseId || !ruleId} onClick={hunt}>
+        <Button variant="secondary" size="sm" icon={hunting ? undefined : Search} loading={hunting} disabled={!caseId || !ruleId} onClick={() => hunt(ruleId)}>
           {t('threat_hunt.sigma.run_hunt')}
         </Button>
       </div>
 
-      {huntResult && (
-        <div style={{
-          background: huntResult.error ? 'color-mix(in srgb, var(--fl-danger) 8%, transparent)' : huntResult.match_count > 0 ? 'color-mix(in srgb, var(--fl-danger) 8%, transparent)' : 'color-mix(in srgb, var(--fl-ok) 8%, transparent)',
-          border: `1px solid ${huntResult.error ? 'color-mix(in srgb, var(--fl-danger) 40%, transparent)' : huntResult.match_count > 0 ? 'color-mix(in srgb, var(--fl-danger) 40%, transparent)' : 'color-mix(in srgb, var(--fl-ok) 40%, transparent)'}`,
-          borderRadius: 8, padding: 16, marginBottom: 20,
-        }}>
-          {huntResult.error ? (
-            <p style={{ margin: 0, color: 'var(--fl-danger)', fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}>
-              <AlertCircle size={14} /> {huntResult.error}
-            </p>
-          ) : (
-            <>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: huntResult.events?.length > 0 ? 14 : 0 }}>
-                {huntResult.match_count > 0
-                  ? <AlertCircle size={16} style={{ color: 'var(--fl-danger)' }} />
-                  : <CheckCircle2 size={16} style={{ color: 'var(--fl-ok)' }} />}
-                <span style={{ fontWeight: 700, fontSize: 15, color: huntResult.match_count > 0 ? 'var(--fl-danger)' : 'var(--fl-ok)' }}>
-                  {t('threat_hunt.sigma.matching_events', { count: huntResult.match_count })}
-                </span>
-                <span style={{ fontSize: 12, color: 'var(--fl-dim)' }}>— {huntResult.rule_name}</span>
-              </div>
-              {huntResult.events?.length > 0 && (
-                <div style={{ overflowX: 'auto' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-                    <thead>
-                      <tr style={{ borderBottom: `1px solid ${C.border}` }}>
-                        {[t('threat_hunt.table.timestamp'), t('threat_hunt.table.type'), t('threat_hunt.table.source'), t('threat_hunt.table.description')].map(h => (
-                          <th key={h} style={{ textAlign: 'left', padding: '5px 8px', color: 'var(--fl-dim)', fontWeight: 600 }}>{h}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {huntResult.events.map((e, i) => (
-                        <tr key={i} style={{ borderBottom: `1px solid ${C.border}` }}>
-                          <td style={{ padding: '4px 8px', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-dim)', whiteSpace: 'nowrap' }}>
-                            {e.timestamp ? fmtLocal(e.timestamp) : '—'}
-                          </td>
-                          <td style={{ padding: '4px 8px' }}>
-                            {e.artifact_type && <Badge color={ac(e.artifact_type)}>{e.artifact_type}</Badge>}
-                          </td>
-                          <td style={{ padding: '4px 8px', color: 'var(--fl-dim)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                            {e.source || '—'}
-                          </td>
-                          <td style={{ padding: '4px 8px', color: 'var(--fl-text)', maxWidth: 400, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                            {e.description || '—'}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                  {huntResult.match_count > huntResult.events.length && (
-                    <p style={{ margin: '8px 0 0', fontSize: 11, color: 'var(--fl-muted)' }}>
-                      {t('threat_hunt.sigma.showing_results', { shown: huntResult.events.length, total: huntResult.match_count })}
-                    </p>
-                  )}
-                </div>
+      <CommandPalette
+        open={pickerOpen}
+        onClose={() => setPickerOpen(false)}
+        items={ruleItems}
+        onSelect={pickRule}
+        placeholder={t('threat_hunt.sigma.picker_placeholder')}
+        title={t('threat_hunt.sigma.picker_title')}
+      />
+
+      {rulesError   && <Alert variant="warn"   message={rulesError} />}
+      {huntError    && <Alert variant="danger" message={huntError} />}
+      {scanError    && <Alert variant="danger" message={scanError} />}
+      {historyError && <Alert variant="warn"   message={historyError} />}
+
+      {!caseId ? (
+        <EmptyState icon={Shield} title={t('threat_hunt.sigma.pick_case_prompt')} />
+      ) : (
+        <>
+          {/* 1. Header — case, host(s), event count, last hunt date */}
+          <div className="rt-hunt-header">
+            <h3 className="rt-case-title">{selectedCase ? `${selectedCase.case_number} — ${selectedCase.title}` : caseId}</h3>
+            <div className="rt-stat-row">
+              {eventsLabel && <span>{eventsLabel}</span>}
+              {hostsLabel  && <span>{hostsLabel}</span>}
+              <span>{lastHuntLabel}</span>
+            </div>
+          </div>
+
+          {/* 2. Scope band — what WILL run, populated by the SSE `start`
+              event (fires before any rule is actually evaluated) */}
+          {scopeInfo && (
+            <div className="rt-toolbar">
+              <Badge color={C.sigma}>
+                {scopeInfo.collectionPlatform?.length
+                  ? t('threat_hunt.sigma.scope_platform_known', { platforms: scopeInfo.collectionPlatform.join(', ') })
+                  : t('threat_hunt.sigma.scope_platform_unknown')}
+              </Badge>
+              {scopeStatus && <Badge color={scopeStatusColor}>{t(`threat_hunt.sigma.status.${scopeStatus}`)}</Badge>}
+              {skippedTotal > 0 && (
+                <FilterChip active color="var(--fl-warn)" onClick={() => setScopeExplainOpen(true)}>
+                  {t('threat_hunt.sigma.scope_skipped', { count: skippedTotal, n: fmtNum(skippedTotal, i18n.language) })}
+                </FilterChip>
               )}
-            </>
+              <span className="rt-name-muted">
+                {t('threat_hunt.sigma.scope_will_run', {
+                  count: scopeInfo.rulesToRun,
+                  n: fmtNum(scopeInfo.rulesToRun, i18n.language),
+                  total: fmtNum(scopeInfo.total, i18n.language),
+                })}
+              </span>
+            </div>
           )}
-        </div>
+
+          {/* 3. Progress band — during the run, what's been found so far,
+              not just current/total/name */}
+          {scanning && progress && (
+            <div>
+              <div className="rt-stat-row">
+                <span>{t('threat_hunt.sigma.progress_matched', { count: progress.matchedSoFar, n: fmtNum(progress.matchedSoFar, i18n.language) })}</span>
+                {progress.criticalSoFar > 0 && (
+                  <span className="sigma-progress-critical">
+                    {t('threat_hunt.sigma.count_critical', { count: progress.criticalSoFar, n: fmtNum(progress.criticalSoFar, i18n.language) })}
+                  </span>
+                )}
+              </div>
+              <ScanProgressBar progress={progress} color={C.sigma} />
+            </div>
+          )}
+
+          {/* 4. Stats row */}
+          {derivedStats && (
+            <div className="rt-stat-row">
+              <span>
+                {derivedStats.rulesChecked != null
+                  ? t('threat_hunt.sigma.stat_rules_evaluated', { count: derivedStats.rulesChecked, n: fmtNum(derivedStats.rulesChecked, i18n.language) })
+                  : t('threat_hunt.sigma.stat_rules_evaluated_unknown')}
+              </span>
+              <span>{t('threat_hunt.sigma.count_critical', { count: derivedStats.critical, n: fmtNum(derivedStats.critical, i18n.language) })}</span>
+              <span>{t('threat_hunt.sigma.count_high', { count: derivedStats.high, n: fmtNum(derivedStats.high, i18n.language) })}</span>
+              <span>{t('threat_hunt.sigma.rules_with_hits', { count: derivedStats.rulesMatched, n: fmtNum(derivedStats.rulesMatched, i18n.language) })}</span>
+              <span>{t('threat_hunt.sigma.total_events', { count: derivedStats.totalMatches, n: fmtNum(derivedStats.totalMatches, i18n.language) })}</span>
+            </div>
+          )}
+
+          {/* 5. Results table — severity descending by default; every
+              matched row is a real react-router Link (DataTable's rowHref),
+              never an onClick-as-navigation div */}
+          <div className="rt-table-wrap">
+            <DataTable
+              columns={columns}
+              rows={sortedHistory}
+              rowKey={r => r.id}
+              density="compact"
+              rowHref={r => (r.match_count > 0 ? `/super-timeline?caseId=${caseId}&huntId=${r.id}` : null)}
+              emptyState={<EmptyState icon={Search} title={t('threat_hunt.sigma.no_history')} />}
+            />
+          </div>
+        </>
       )}
 
-      {history.length > 0 && (
-        <div>
-          <h4 style={{ margin: '0 0 10px', fontSize: 13, fontWeight: 700, color: 'var(--fl-dim)', display: 'flex', alignItems: 'center', gap: 6 }}>
-            <Clock size={13} /> {t('threat_hunt.sigma.hunt_history')}
-          </h4>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            {history.map(h => {
-              const isOpen = expandedHistory[h.id];
-              return (
-                <div key={h.id} style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 6, overflow: 'hidden' }}>
-                  <button onClick={() => setExpandedHistory(x => ({ ...x, [h.id]: !x[h.id] }))}
-                    style={{ width: '100%', background: 'none', border: 'none', cursor: 'pointer', padding: '9px 14px', display: 'flex', alignItems: 'center', gap: 10 }}>
-                    {isOpen ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
-                    <span style={{ flex: 1, textAlign: 'left', fontSize: 13, color: 'var(--fl-text)' }}>{h.rule_name}</span>
-                    {h.match_count > 0
-                      ? <Badge variant="danger">{t('threat_hunt.hits_count', { count: h.match_count })}</Badge>
-                      : <Badge variant="ok">{t('threat_hunt.hits_count', { count: 0 })}</Badge>}
-                    <span style={{ fontSize: 11, color: 'var(--fl-muted)' }}>{fmtDate(h.hunted_at, i18n.language)}</span>
-                  </button>
-                  {isOpen && (h.matched_events || []).length > 0 && (
-                    <div style={{ padding: '0 14px 12px', borderTop: `1px solid ${C.border}` }}>
-                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, marginTop: 8 }}>
-                        <tbody>
-                          {h.matched_events.map((e, i) => (
-                            <tr key={i} style={{ borderBottom: `1px solid ${C.border}` }}>
-                              <td style={{ padding: '3px 8px', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-dim)', whiteSpace: 'nowrap' }}>
-                                {e.timestamp ? fmtLocal(e.timestamp) : '—'}
-</td>
-                              <td style={{ padding: '3px 8px' }}>
-                                {e.artifact_type && <Badge color={ac(e.artifact_type)}>{e.artifact_type}</Badge>}
-                              </td>
-                              <td style={{ padding: '3px 8px', color: 'var(--fl-text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 350 }}>
-                                {e.description || '—'}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
+      <Modal
+        open={scopeExplainOpen}
+        title={t('threat_hunt.sigma.scope_explain_title')}
+        onClose={() => setScopeExplainOpen(false)}
+        size="sm"
+        accentColor={C.sigma}
+      >
+        <Modal.Body>
+          {scopeInfo?.skippedPlatform > 0 && (
+            <p>{t('threat_hunt.sigma.scope_explain_platform', { count: scopeInfo.skippedPlatform, n: fmtNum(scopeInfo.skippedPlatform, i18n.language) })}</p>
+          )}
+          {skippedStatus > 0 && (
+            <p>{t('threat_hunt.sigma.scope_explain_status', { count: skippedStatus, n: fmtNum(skippedStatus, i18n.language) })}</p>
+          )}
+        </Modal.Body>
+        <Modal.Footer>
+          <Button variant="secondary" onClick={() => setScopeExplainOpen(false)}>{t('common.close')}</Button>
+        </Modal.Footer>
+      </Modal>
     </div>
   );
 }
@@ -1341,60 +1869,106 @@ function SysmonTab() {
     } catch { /* ignore */ }
   }
 
+  // Band ② measures — small integers only (catalogue tops out at 5 entries),
+  // so plain `{{count}}` is enough; no locale thousands-formatting needed
+  // (contrast Sigma/YARA's `fmtNum`, built for four-digit rule counts).
+  const importedEntries   = Object.values(lib);
+  const importedCount     = importedEntries.length;
+  const notImportedCount  = SYSMON_CONFIGS.length - importedCount;
+  const storedBytes       = importedEntries.reduce((sum, c) => sum + (c.size || 0), 0);
+  const lastImportedAt    = importedEntries.reduce((latest, c) => (
+    c.imported_at && (!latest || new Date(c.imported_at) > new Date(latest)) ? c.imported_at : latest
+  ), null);
+
   return (
     <div>
-      <p style={{ fontSize: 12.5, color: 'var(--fl-muted)', fontFamily: 'var(--f-ui, sans-serif)', margin: '0 0 16px', maxWidth: 760, lineHeight: 1.5 }}>
-        {t('threat_hunt.sysmon.intro_before')}
-        <code style={{ fontFamily: 'var(--f-mono, monospace)', color: 'var(--fl-dim)' }}>sysmon -c config.xml</code>
-        {t('threat_hunt.sysmon.intro_after')}
-      </p>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      {/* 1. Header — archetype C has no case/scope to name, so the title is
+          the catalogue itself; subtitle is what a config actually does and
+          how it's used, since "recommended community configs" alone
+          wouldn't tell an analyst why importing one matters. */}
+      <div className="rt-hunt-header">
+        <h3 className="rt-case-title">{t('threat_hunt.sysmon.header_title')}</h3>
+        <p className="rt-intro-text">
+          {t('threat_hunt.sysmon.intro_before')}
+          <code className="rt-inline-code">sysmon -c config.xml</code>
+          {t('threat_hunt.sysmon.intro_after')}
+        </p>
+      </div>
+
+      {/* 2. Stats — the only other band this archetype gets (§2.1). No
+          scope band (nothing is filtered), no toolbar (4-5 items, nothing
+          to search/sort), no DataTable (a table over 4-5 rows is the
+          uniformity the design spec explicitly warns against). */}
+      <div className="rt-stat-row">
+        <span>{t('threat_hunt.sysmon.stat_total', { count: SYSMON_CONFIGS.length })}</span>
+        <span>{t('threat_hunt.sysmon.stat_imported', { count: importedCount })}</span>
+        <span>{t('threat_hunt.sysmon.stat_not_imported', { count: notImportedCount })}</span>
+        <span>{t('threat_hunt.sysmon.stat_stored_size', { size: fmtSize(storedBytes) })}</span>
+        <span>
+          {lastImportedAt
+            ? t('threat_hunt.sysmon.stat_last_import', { date: fmtDate(lastImportedAt, i18n.language) })
+            : t('threat_hunt.sysmon.stat_last_import_none')}
+        </span>
+      </div>
+
+      <div className="rt-catalog-list">
         {SYSMON_CONFIGS.map(cfg => {
           const imported = lib[cfg.key];
           return (
-          <div key={cfg.key} style={{ background: C.surface, border: '1px solid var(--fl-border)', borderRadius: 10, padding: '14px 16px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
-              <div style={{ minWidth: 0 }}>
-                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-                  <span style={{ width: 7, height: 7, borderRadius: 2, background: cfg.recommended ? 'var(--fl-accent)' : 'var(--fl-subtle)', flexShrink: 0 }} />
-                  <span style={{ fontWeight: 600, fontSize: 14, color: 'var(--fl-text)' }}>{cfg.name}</span>
-                  {imported && <span style={{ fontSize: 9.5, fontFamily: 'var(--f-mono, monospace)', padding: '1px 7px', borderRadius: 4, background: 'color-mix(in srgb, var(--fl-ok) 10%, transparent)', color: 'var(--fl-ok)', border: '1px solid color-mix(in srgb, var(--fl-ok) 21%, transparent)' }}>{t('threat_hunt.sysmon.imported')}</span>}
-                </span>
-                <p style={{ margin: '5px 0 0', fontSize: 12, color: 'var(--fl-dim)', lineHeight: 1.5 }}>{t(cfg.descKey)}</p>
-                <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-                  <span style={{ fontSize: 10.5, fontFamily: 'var(--f-mono, monospace)', color: 'var(--fl-muted)' }}>{cfg.author}</span>
-                  <span style={{ fontSize: 10, fontFamily: 'var(--f-mono, monospace)', padding: '1px 7px', borderRadius: 4, background: 'var(--fl-card)', color: 'var(--fl-muted)', border: '1px solid var(--fl-border)' }}>{cfg.licenseKey ? t(cfg.licenseKey) : cfg.license}</span>
-                  {cfg.recommended && <span style={{ fontSize: 10, fontFamily: 'var(--f-mono, monospace)', padding: '1px 7px', borderRadius: 4, background: 'color-mix(in srgb, var(--fl-accent) 10%, transparent)', color: 'var(--fl-accent)', border: '1px solid color-mix(in srgb, var(--fl-accent) 21%, transparent)' }}>{t('threat_hunt.sysmon.recommended')}</span>}
-                  <a href={cfg.repo} target="_blank" rel="noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, fontFamily: 'var(--f-mono, monospace)', color: 'var(--fl-accent)', textDecoration: 'none' }}>
+            <div key={cfg.key} className="fl-card rt-catalog-card">
+              <div className="rt-catalog-card-main">
+                <div className="rt-catalog-card-head">
+                  <span className="rt-catalog-name">{cfg.name}</span>
+                  {cfg.recommended && <Badge variant="accent">{t('threat_hunt.sysmon.recommended')}</Badge>}
+                  {imported && <Badge variant="ok">{t('threat_hunt.sysmon.imported')}</Badge>}
+                </div>
+                <p className="rt-catalog-desc">{t(cfg.descKey)}</p>
+                <div className="rt-catalog-meta">
+                  <span className="rt-catalog-meta-item">{cfg.author}</span>
+                  <span className="rt-catalog-meta-tag">{cfg.licenseKey ? t(cfg.licenseKey) : cfg.license}</span>
+                  <a href={cfg.repo} target="_blank" rel="noreferrer" className="rt-catalog-repo-link">
                     <Github size={11} /> {t('threat_hunt.sysmon.repository')} <ExternalLink size={9} />
                   </a>
-                  {imported && <span style={{ fontSize: 10, fontFamily: 'var(--f-mono, monospace)', color: 'var(--fl-subtle)' }}>· {t('threat_hunt.sysmon.size_kb', { size: (imported.size/1024).toFixed(0) })} · {new Date(imported.imported_at).toLocaleDateString(localeFor(i18n.language))}</span>}
+                  {imported && (
+                    <span className="rt-catalog-meta-item">
+                      {t('threat_hunt.sysmon.size_kb', { size: (imported.size / 1024).toFixed(0) })} · {fmtDate(imported.imported_at, i18n.language)}
+                    </span>
+                  )}
                 </div>
-                {err[cfg.key] && <p style={{ margin: '8px 0 0', fontSize: 11, fontFamily: 'var(--f-mono, monospace)', color: 'var(--fl-danger)' }}>{err[cfg.key]}</p>}
+                {/* A failed import says why (server error text), never just
+                    silence — same "never turn a decision into an absence of
+                    data" rule the stats row above follows for zero counts. */}
+                {err[cfg.key] && <p className="rt-catalog-error">{err[cfg.key]}</p>}
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+              <div className="rt-catalog-actions">
                 {imported && (
                   <>
-                    <button onClick={() => downloadStored(cfg)} title={t('threat_hunt.sysmon.download_title')}
-                      style={{ display: 'inline-flex', alignItems: 'center', padding: '7px 9px', borderRadius: 7, cursor: 'pointer', background: 'transparent', color: 'var(--fl-muted)', border: '1px solid var(--fl-border)' }}>
+                    <button
+                      type="button" className="rt-action-btn"
+                      aria-label={t('threat_hunt.sysmon.download_title')}
+                      onClick={() => downloadStored(cfg)}
+                    >
                       <Download size={12} />
                     </button>
-                    <button onClick={() => removeCfg(cfg.key)} title={t('threat_hunt.sysmon.remove_title')}
-                      style={{ display: 'inline-flex', alignItems: 'center', padding: '7px 9px', borderRadius: 7, cursor: 'pointer', background: 'transparent', color: 'var(--fl-subtle)', border: '1px solid var(--fl-border)' }}>
+                    <button
+                      type="button" className="rt-action-btn rt-action-btn--danger"
+                      aria-label={t('threat_hunt.sysmon.remove_title')}
+                      onClick={() => removeCfg(cfg.key)}
+                    >
                       <Trash2 size={12} />
                     </button>
                   </>
                 )}
-                <button onClick={() => importCfg(cfg)} disabled={busy === cfg.key}
-                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 13px', borderRadius: 7, cursor: busy === cfg.key ? 'wait' : 'pointer',
-                    background: imported ? 'var(--fl-card)' : 'var(--fl-accent)', color: imported ? 'var(--fl-dim)' : '#fff',
-                    border: `1px solid ${imported ? 'var(--fl-border)' : 'var(--fl-accent)'}`, fontFamily: 'var(--f-mono, monospace)', fontSize: 11.5, fontWeight: 600 }}>
-                  {busy === cfg.key ? <Loader size={12} style={{ animation: 'spin 1s linear infinite' }} /> : (imported ? <RefreshCw size={12} /> : <Download size={12} />)}
+                <Button
+                  variant={imported ? 'secondary' : 'primary'} size="sm"
+                  icon={busy === cfg.key ? undefined : (imported ? RefreshCw : Download)}
+                  loading={busy === cfg.key}
+                  onClick={() => importCfg(cfg)}
+                >
                   {busy === cfg.key ? t('threat_hunt.sysmon.importing') : (imported ? t('threat_hunt.sysmon.reimport') : t('common.import'))}
-                </button>
+                </Button>
               </div>
             </div>
-          </div>
           );
         })}
       </div>
@@ -1404,18 +1978,37 @@ function SysmonTab() {
 
 // ── "Run all" — launch every engine on a case in the background ──────────────
 function RunAllTab() {
-  const { t } = useTranslation();
-  const MONO = 'var(--f-mono, "JetBrains Mono", monospace)';
-  const [cases, setCases]       = useState([]);
-  const [caseId, setCaseId]     = useState('');
-  const [job, setJob]           = useState(null);
+  const { t, i18n } = useTranslation();
+  const [cases, setCases]         = useState([]);
+  const [caseId, setCaseId]       = useState('');
+  const [job, setJob]             = useState(null);
   const [launching, setLaunching] = useState(false);
+  const [scope, setScope]         = useState(null);
+  const [scopeError, setScopeError] = useState('');
+  const [headerMeta, setHeaderMeta] = useState(null);
 
   useEffect(() => { casesAPI.list().then(r => setCases(r.data.cases || [])).catch(() => {}); }, []);
+
   useEffect(() => {
-    if (!caseId) { setJob(null); return; }
+    setScope(null); setScopeError('');
+    if (!caseId) { setJob(null); setHeaderMeta(null); return; }
     threatHuntingAPI.runAllStatus(caseId).then(r => setJob(r.data)).catch(() => setJob(null));
+    // Read-only preview (backend/src/routes/threatHunting.ts's `/run-all/
+    // :caseId/scope`, 2026-08-11) — no scan runs, nothing is written; safe
+    // to call on every case switch, before the analyst decides to launch
+    // anything. Reuses Sigma's own platform/status scoping policy for its
+    // half, so this can never drift from what a real launch evaluates.
+    threatHuntingAPI.runAllScope(caseId).then(r => setScope(r.data))
+      .catch(() => setScopeError(t('threat_hunt.run_all.scope_error')));
+    // Same cheap /timeline?limit=1 call the other two execution tabs use
+    // purely for `hosts_available` — a case's host, not tied to any one
+    // engine.
+    timelineAPI.list(caseId, { limit: 1 })
+      .then(r => setHeaderMeta({ hosts: r.data?.hosts_available || [] }))
+      .catch(() => setHeaderMeta(null));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [caseId]);
+
   useEffect(() => {
     if (job?.status !== 'running' || !caseId) return;
     const iv = setInterval(() => { threatHuntingAPI.runAllStatus(caseId).then(r => setJob(r.data)).catch(() => {}); }, 3000);
@@ -1428,54 +2021,159 @@ function RunAllTab() {
     try { const r = await threatHuntingAPI.runAll(caseId); setJob(r.data); } catch { /* ignore */ } finally { setLaunching(false); }
   }
 
-  const running = job?.status === 'running';
-  const totalHits = (job?.steps || []).reduce((s, st) => s + (st.count || 0), 0);
+  const selectedCase = cases.find(c => c.id === caseId) || null;
+  const running  = job?.status === 'running';
+  const steps    = job?.steps || [];
+  const hasSteps = steps.length > 0;
+  const doneCount  = steps.filter(s => s.status === 'done').length;
+  const errorCount = steps.filter(s => s.status === 'error').length;
+  const totalHits  = steps.reduce((s, st) => s + (st.count || 0), 0);
   const STATUS_C = { pending: 'var(--fl-subtle)', running: 'var(--fl-accent)', done: 'var(--fl-ok)', error: 'var(--fl-danger)' };
+
+  const hostsLabel = useMemo(() => {
+    if (!headerMeta) return null;
+    const hosts = headerMeta.hosts || [];
+    if (hosts.length === 0) return t('threat_hunt.sigma.meta_hosts_none');
+    if (hosts.length === 1) return t('threat_hunt.sigma.meta_host', { host: hosts[0] });
+    return t('threat_hunt.sigma.meta_hosts_count', { count: hosts.length, n: fmtNum(hosts.length, i18n.language) });
+  }, [headerMeta, t, i18n.language]);
+
+  // `hunt_runs` only ever keeps the latest row per case (getHuntRun orders
+  // by started_at DESC LIMIT 1), so "last run" is finished_at once a run
+  // has completed, started_at while one is still going, and an honest
+  // "never" when no row exists at all for this case yet.
+  const lastRunLabel = useMemo(() => {
+    if (!job || job.status === 'idle') return t('threat_hunt.run_all.meta_last_run_never');
+    const date = job.finished_at || job.started_at;
+    return date
+      ? t('threat_hunt.run_all.meta_last_run', { date: fmtDate(date, i18n.language) })
+      : t('threat_hunt.run_all.meta_last_run_never');
+  }, [job, t, i18n.language]);
+
+  const columns = useMemo(() => [
+    { key: 'label', header: t('threat_hunt.run_all.columns.engine'), mono: true },
+    {
+      key: 'status', header: t('threat_hunt.run_all.columns.status'), width: 130,
+      render: st => (
+        <span className="rt-inline-dot">
+          {st.status === 'running'
+            ? <Loader size={12} className="animate-spin" aria-hidden="true" />
+            : <span className="rt-state-dot" style={{ background: STATUS_C[st.status] }} aria-hidden="true" />}
+          {t(`threat_hunt.run_all.status.${st.status}`)}
+        </span>
+      ),
+    },
+    {
+      key: 'count', header: t('threat_hunt.run_all.columns.findings'), width: 140, align: 'right', mono: true,
+      render: st => {
+        // Never guess a number for a step that hasn't finished — `count`
+        // only means something once the step is `done`.
+        if (st.status === 'error') return <span className="rt-cell-danger" title={st.error || undefined}>{t('threat_hunt.run_all.status.error')}</span>;
+        if (st.status === 'done')  return <span className={(st.count || 0) > 0 ? 'rt-cell-danger' : 'rt-name-muted'}>{fmtNum(st.count ?? 0, i18n.language)}</span>;
+        return <span className="rt-name-muted">—</span>;
+      },
+    },
+  ], [t, i18n.language]);
 
   return (
     <div>
-      <p style={{ fontSize: 12.5, color: 'var(--fl-muted)', fontFamily: 'var(--f-ui, sans-serif)', margin: '0 0 16px', maxWidth: 760, lineHeight: 1.5 }}>
+      <p className="rt-intro-text">
         {t('threat_hunt.run_all.intro_before_engines')}<strong>{t('threat_hunt.run_all.all_engines')}</strong>{t('threat_hunt.run_all.intro_between')}<strong>{t('threat_hunt.run_all.background')}</strong>{t('threat_hunt.run_all.intro_after')}
       </p>
-      <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 18, flexWrap: 'wrap' }}>
-        <select value={caseId} onChange={e => setCaseId(e.target.value)}
-          style={{ minWidth: 280, padding: '8px 10px', borderRadius: 7, background: 'var(--fl-input-bg)', border: '1px solid var(--fl-border)', color: 'var(--fl-text)', fontFamily: MONO, fontSize: 12, cursor: 'pointer' }}>
-          <option value="">{t('threat_hunt.select_case')}</option>
-          {cases.map(c => <option key={c.id} value={c.id}>{c.case_number} — {c.title}</option>)}
-        </select>
-        <button onClick={launch} disabled={!caseId || running || launching}
-          style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '8px 16px', borderRadius: 7, fontFamily: MONO, fontSize: 12, fontWeight: 600,
-            cursor: (!caseId || running) ? 'not-allowed' : 'pointer', background: (!caseId || running) ? 'var(--fl-card)' : 'var(--fl-accent)',
-            color: (!caseId || running) ? 'var(--fl-muted)' : '#fff', border: `1px solid ${(!caseId || running) ? 'var(--fl-border)' : 'var(--fl-accent)'}` }}>
-          {running ? <Loader size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <Rocket size={13} />}
+
+      <div className="rt-control-row">
+        <div className="rt-field">
+          <label className="fl-label">{t('threat_hunt.case_label')}</label>
+          <select value={caseId} onChange={e => setCaseId(e.target.value)} className="fl-input">
+            <option value="">{t('threat_hunt.select_case')}</option>
+            {cases.map(c => <option key={c.id} value={c.id}>{c.case_number} — {c.title}</option>)}
+          </select>
+        </div>
+        <Button variant="primary" size="sm" icon={running ? undefined : Rocket} loading={running || launching} disabled={!caseId || running || launching} onClick={launch}>
           {running ? t('threat_hunt.run_all.running') : t('threat_hunt.run_all.launch')}
-        </button>
+        </Button>
       </div>
 
-      {job && job.steps?.length > 0 && (
-        <div style={{ border: '1px solid var(--fl-border)', borderRadius: 10, overflow: 'hidden', background: 'var(--fl-card)' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 16px', borderBottom: '1px solid var(--fl-border2)' }}>
-            <span style={{ width: 8, height: 8, borderRadius: 2, background: running ? 'var(--fl-accent)' : 'var(--fl-ok)' }} className={running ? 'fl-pulse' : ''} />
-            <span style={{ fontSize: 13, fontWeight: 600, fontFamily: 'var(--f-ui, sans-serif)', color: 'var(--fl-text)' }}>
-              {running ? t('threat_hunt.run_all.running') : t('threat_hunt.run_all.done')}
-            </span>
-            <span style={{ flex: 1 }} />
-            <span style={{ fontSize: 12, fontFamily: MONO, color: totalHits > 0 ? 'var(--fl-danger)' : 'var(--fl-muted)', fontFeatureSettings: '"tnum"' }}>{t('threat_hunt.results_count', { count: totalHits })}</span>
-          </div>
-          {job.steps.map(st => (
-            <div key={st.key} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 16px', borderBottom: '1px solid var(--fl-border2)' }}>
-              {st.status === 'running'
-                ? <Loader size={12} style={{ animation: 'spin 1s linear infinite', color: 'var(--fl-accent)', flexShrink: 0 }} />
-                : <span style={{ width: 8, height: 8, borderRadius: 2, background: STATUS_C[st.status], flexShrink: 0 }} />}
-              <span style={{ fontSize: 12.5, fontFamily: 'var(--f-ui, sans-serif)', color: 'var(--fl-text)', flex: 1 }}>{st.label}</span>
-              {st.error
-                ? <span style={{ fontSize: 10.5, fontFamily: MONO, color: 'var(--fl-danger)', maxWidth: 360, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={st.error}>{st.error}</span>
-                : st.status === 'done'
-                  ? <span style={{ fontSize: 12, fontFamily: MONO, color: (st.count || 0) > 0 ? 'var(--fl-danger)' : 'var(--fl-muted)', fontFeatureSettings: '"tnum"' }}>{st.count ?? 0}</span>
-                  : <span style={{ fontSize: 11, fontFamily: MONO, color: 'var(--fl-subtle)' }}>{st.status === 'running' ? '…' : t('threat_hunt.run_all.pending')}</span>}
+      {!caseId ? (
+        <EmptyState icon={Rocket} title={t('threat_hunt.run_all.pick_case_prompt')} />
+      ) : (
+        <>
+          {/* 1. Header — case, host(s), last run (this endpoint's own
+              status/steps, not tied to any one engine's substrate) */}
+          <div className="rt-hunt-header">
+            <h3 className="rt-case-title">{selectedCase ? `${selectedCase.case_number} — ${selectedCase.title}` : caseId}</h3>
+            <div className="rt-stat-row">
+              {hostsLabel && <span>{hostsLabel}</span>}
+              <span>{lastRunLabel}</span>
             </div>
-          ))}
-        </div>
+          </div>
+
+          {scopeError && <Alert variant="warn" message={scopeError} />}
+
+          {/* 2. Scope band — one line per engine, never a merged figure:
+              YARA counts evidence files, Sigma counts timeline events, and
+              the two substrates aren't comparable. See threatHunting.ts's
+              own `/run-all/:caseId/scope` comment for why this preview can
+              never drift from what launching for real would evaluate. */}
+          {scope && (
+            <div>
+              <div className="rt-scope-line">
+                {'YARA · '}
+                <strong>{t('threat_hunt.run_all.scope_rules_count', { count: scope.yara.rules, n: fmtNum(scope.yara.rules, i18n.language) })}</strong>
+                {` ${t('threat_hunt.run_all.scope_over')} `}
+                <strong>{t('threat_hunt.run_all.scope_yara_files', { count: scope.yara.evidence_files, n: fmtNum(scope.yara.evidence_files, i18n.language) })}</strong>
+              </div>
+              <div className="rt-scope-line">
+                {'Sigma · '}
+                <strong>{t('threat_hunt.run_all.scope_rules_count', { count: scope.sigma.rules_to_run, n: fmtNum(scope.sigma.rules_to_run, i18n.language) })}</strong>
+                {` ${t('threat_hunt.run_all.scope_over')} `}
+                <strong>{t('threat_hunt.sigma.meta_events', { count: scope.sigma.total_events, n: fmtNum(scope.sigma.total_events, i18n.language) })}</strong>
+                {scope.sigma.skipped > 0 && (
+                  <>
+                    {', '}
+                    <strong>{t('threat_hunt.run_all.scope_sigma_skipped', { count: scope.sigma.skipped, n: fmtNum(scope.sigma.skipped, i18n.language) })}</strong>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* 3. Progress band — while running, what's been found so far
+              across the engines that already finished, not just which
+              engine is currently active. */}
+          {running && (
+            <div className="rt-stat-row">
+              <span>{t('threat_hunt.run_all.engines_done', { done: doneCount, total: steps.length })}</span>
+              <span className="rt-progress-found">{t('threat_hunt.results_count', { count: totalHits })}</span>
+            </div>
+          )}
+
+          {/* 4. Stats row — post-run summary; not shown mid-run so it never
+              duplicates band 3's own numbers. */}
+          {hasSteps && !running && (
+            <div className="rt-stat-row">
+              <span>{t('threat_hunt.run_all.done')}</span>
+              <span>{t('threat_hunt.run_all.engines_done', { done: doneCount, total: steps.length })}</span>
+              <span>{t('threat_hunt.results_count', { count: totalHits })}</span>
+              {errorCount > 0 && (
+                <span className="rt-cell-danger">{t('threat_hunt.run_all.stat_errors', { count: errorCount, n: fmtNum(errorCount, i18n.language) })}</span>
+              )}
+            </div>
+          )}
+
+          {/* 5. Results — one row per engine; no severity axis (fixed
+              built-in analyses, not a rule corpus with a level column), so
+              rows keep the engines' own declared order. */}
+          <div className="rt-table-wrap">
+            <DataTable
+              columns={columns}
+              rows={steps}
+              rowKey={st => st.key}
+              density="compact"
+              emptyState={<EmptyState icon={Rocket} title={t('threat_hunt.run_all.not_launched_yet')} />}
+            />
+          </div>
+        </>
       )}
     </div>
   );

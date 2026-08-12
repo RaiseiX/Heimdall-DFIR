@@ -1,5 +1,6 @@
 import { useMemo, useRef } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
+import { Link } from 'react-router-dom';
 
 /**
  * `DataTable` — dense, virtualized table primitive.
@@ -126,19 +127,53 @@ function DataTableCell({ col, row }) {
   );
 }
 
-function DataTableBody({ rows, columns, rowKey, gridStyle }) {
+/**
+ * One row's cells, either as a plain `role="row"` div or — when `href` is
+ * given — the same div with a real `<Link>` wrapping its cells so the whole
+ * row is a genuine anchor (middle-click, ctrl/cmd-click and keyboard Tab+
+ * Enter all work natively; no `onClick`-as-navigation, the exact anti-pattern
+ * the product's UX audit already flags elsewhere). `display: contents` on
+ * the `Link` keeps it out of the CSS grid box model — its children lay out
+ * as if they were direct children of `.dt-grid.dt-row`, which is what keeps
+ * column alignment identical to the non-link row — while the anchor itself
+ * still fully exists in the DOM for focus/click semantics. `role="row"`
+ * stays on the outer div, matching every other row in the table (grid
+ * semantics) rather than on the anchor, which would otherwise override the
+ * anchor's own implicit link role for assistive tech.
+ */
+function DataTableRowInner({ row, columns, gridStyle, href }) {
+  const cells = columns.map(col => <DataTableCell key={col.key} col={col} row={row} />);
+  if (href) {
+    return (
+      <div className="dt-grid dt-row dt-row--link" style={gridStyle} role="row">
+        <Link to={href} className="dt-row-link">{cells}</Link>
+      </div>
+    );
+  }
+  return (
+    <div className="dt-grid dt-row" style={gridStyle} role="row">
+      {cells}
+    </div>
+  );
+}
+
+function DataTableBody({ rows, columns, rowKey, gridStyle, rowHref }) {
   return (
     <div className="dt-body">
       {rows.map((row, index) => (
-        <div key={rowKey(row, index)} className="dt-grid dt-row" style={gridStyle} role="row">
-          {columns.map(col => <DataTableCell key={col.key} col={col} row={row} />)}
-        </div>
+        <DataTableRowInner
+          key={rowKey(row, index)}
+          row={row}
+          columns={columns}
+          gridStyle={gridStyle}
+          href={rowHref ? rowHref(row) : null}
+        />
       ))}
     </div>
   );
 }
 
-function DataTableVirtualBody({ virtualizer, rows, columns, rowKey, gridStyle }) {
+function DataTableVirtualBody({ virtualizer, rows, columns, rowKey, gridStyle, rowHref }) {
   const spacerStyle = { height: virtualizer.getTotalSize() };
   const items = virtualizer.getVirtualItems();
   return (
@@ -148,9 +183,12 @@ function DataTableVirtualBody({ virtualizer, rows, columns, rowKey, gridStyle })
         const posStyle = { position: 'absolute', top: item.start, left: 0, width: '100%' };
         return (
           <div key={rowKey(row, item.index)} className="dt-vrow" style={posStyle}>
-            <div className="dt-grid dt-row" style={gridStyle} role="row">
-              {columns.map(col => <DataTableCell key={col.key} col={col} row={row} />)}
-            </div>
+            <DataTableRowInner
+              row={row}
+              columns={columns}
+              gridStyle={gridStyle}
+              href={rowHref ? rowHref(row) : null}
+            />
           </div>
         );
       })}
@@ -167,6 +205,7 @@ function DataTableVirtualBody({ virtualizer, rows, columns, rowKey, gridStyle })
  * @param {boolean} [props.virtualize] — force on/off; default is "on past 100 rows"
  * @param {React.ReactNode} [props.emptyState] — rendered in place of the body when `rows` is empty. DataTable owns no copy of its own here — the message is the caller's to translate.
  * @param {string} [props.className]
+ * @param {(row: object) => (string|null|undefined)} [props.rowHref] — when given, a row whose call returns a truthy path is rendered as a real `<Link>` (see `DataTableRowInner`); a row that returns falsy stays a plain, non-interactive row. Caller's decision per-row (e.g. "nothing to pivot to" for a zero-match result), never DataTable's.
  */
 export default function DataTable({
   columns,
@@ -176,6 +215,7 @@ export default function DataTable({
   virtualize,
   emptyState = null,
   className,
+  rowHref,
 }) {
   const scrollRef = useRef(null);
   const safeColumns = columns ?? [];
@@ -221,9 +261,10 @@ export default function DataTable({
             columns={safeColumns}
             rowKey={rowKey}
             gridStyle={gridStyle}
+            rowHref={rowHref}
           />
         ) : (
-          <DataTableBody rows={safeRows} columns={safeColumns} rowKey={rowKey} gridStyle={gridStyle} />
+          <DataTableBody rows={safeRows} columns={safeColumns} rowKey={rowKey} gridStyle={gridStyle} rowHref={rowHref} />
         )}
       </div>
     </div>

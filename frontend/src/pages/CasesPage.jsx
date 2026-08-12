@@ -160,7 +160,7 @@ export default function CasesPage({ user }) {
             {loadError ? '—' : t('cases.subtitle', { n: cases.length, m: activeCount })}
             {!loadError && criticalCount > 0 && (
               <span style={{ color: 'var(--fl-danger)' }}>
-                {' '}{t(criticalCount > 1 ? 'cases.criticals_pl' : 'cases.criticals', { n: criticalCount })}
+                {' '}{t('cases.criticals', { count: criticalCount, n: criticalCount })}
               </span>
             )}
           </p>
@@ -181,7 +181,7 @@ export default function CasesPage({ user }) {
         }}>
           <ShieldAlert size={15} style={{ color: 'var(--fl-danger)', flexShrink: 0 }} />
           <span style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 12, color: 'var(--fl-danger)', flex: 1 }}>
-            <strong>{selected.size}</strong> {t(selected.size > 1 ? 'cases.selected_rgpd_pl' : 'cases.selected_rgpd', { n: selected.size })}
+            <strong>{selected.size}</strong> {t('cases.selected_rgpd', { count: selected.size, n: selected.size })}
           </span>
           <Button variant="danger" size="sm" icon={Trash2} onClick={() => { setShowBulkDelete(true); setDeleteResults(null); setBulkConfirm(''); }}>
             {t('cases.destroy_selection')}
@@ -461,7 +461,7 @@ export default function CasesPage({ user }) {
                     {r.ok && (
                       <div style={{ display: 'flex', gap: 16, marginLeft: 23, flexWrap: 'wrap' }}>
                         <span style={{ fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-ok)' }}>
-                          ✓ {t(r.files_destroyed > 1 ? 'cases.files_destroyed_pl' : 'cases.files_destroyed', { n: r.files_destroyed })}
+                          ✓ {t('cases.files_destroyed', { count: r.files_destroyed, n: r.files_destroyed })}
                         </span>
                         <span style={{ fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: r.verified ? 'var(--fl-ok)' : 'var(--fl-danger)' }}>
                           {r.verified ? `✓ ${t('cases.db_confirmed')}` : `⚠ ${t('cases.db_still_exists')}`}
@@ -484,16 +484,16 @@ export default function CasesPage({ user }) {
                   background: 'var(--fl-bg)', border: '1px solid var(--fl-border)',
                   fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-dim)', display: 'flex', gap: 20 }}>
                   <span style={{ color: 'var(--fl-ok)' }}>
-                    ✓ {t(deleteResults.filter(r => r.ok).length > 1 ? 'cases.deleted_count_pl' : 'cases.deleted_count', { n: deleteResults.filter(r => r.ok).length })}
+                    ✓ {t('cases.deleted_count', { count: deleteResults.filter(r => r.ok).length, n: deleteResults.filter(r => r.ok).length })}
                   </span>
                   {deleteResults.filter(r => !r.ok).length > 0 && (
                     <span style={{ color: 'var(--fl-danger)' }}>
-                      ✗ {t(deleteResults.filter(r => !r.ok).length > 1 ? 'cases.error_count_pl' : 'cases.error_count', { n: deleteResults.filter(r => !r.ok).length })}
+                      ✗ {t('cases.error_count', { count: deleteResults.filter(r => !r.ok).length, n: deleteResults.filter(r => !r.ok).length })}
                     </span>
                   )}
                   {deleteResults.filter(r => r.ok && !r.verified).length > 0 && (
                     <span style={{ color: 'var(--fl-gold)' }}>
-                      ⚠ {t(deleteResults.filter(r => r.ok && !r.verified).length > 1 ? 'cases.unverified_count_pl' : 'cases.unverified_count', { n: deleteResults.filter(r => r.ok && !r.verified).length })}
+                      ⚠ {t('cases.unverified_count', { count: deleteResults.filter(r => r.ok && !r.verified).length, n: deleteResults.filter(r => r.ok && !r.verified).length })}
                     </span>
                   )}
                 </div>

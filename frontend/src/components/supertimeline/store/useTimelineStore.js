@@ -30,7 +30,7 @@ const filterDefaults = () => ({
   toolFilter: '', toolFilterOp: 'contains',
   extFilter:  '', extFilterOp:  'contains',
   eventIdFilter: '', tagFilter: '',
-  evidenceIds: [], resultId: '',
+  evidenceIds: [], resultId: '', huntId: '',
   hitsOnly: false, detSeverity: '', dedupe: false,
   sortCol: 'timestamp', sortDir: 'desc',
   multiSort: [{ col: 'timestamp', dir: 'desc' }],
@@ -75,6 +75,7 @@ function buildQueryParams(s) {
   if (s.evidenceIds.length)    p.evidence_ids = s.evidenceIds.join(',');
   if (s.evidenceId)            p.evidence_id  = s.evidenceId;
   if (s.resultId)              p.result_id    = s.resultId;
+  if (s.huntId)                p.hunt_id      = s.huntId;
   if (s.hitsOnly)              p.detections   = 'hits_only';
   if (s.detSeverity)           p.detection_severity = s.detSeverity;
   if (s.dedupe)                p.dedupe       = 'collapse';
@@ -91,7 +92,8 @@ export const useTimelineStore = create((set, get) => ({
   toolFilter: '', toolFilterOp: 'contains',
   extFilter:  '', extFilterOp:  'contains',
   eventIdFilter: '', tagFilter: '',
-  evidenceIds: [], evidenceId: null, resultId: '',
+  evidenceIds: [], evidenceId: null, resultId: '', huntId: '',
+  huntMessage: null,
   hitsOnly: false, detSeverity: '', dedupe: false,
 
   // ── Sort ──
@@ -203,6 +205,11 @@ export const useTimelineStore = create((set, get) => ({
         hostsAvail:  res.data.hosts_available?.length  ? res.data.hosts_available  : get().hostsAvail,
         usersAvail:  res.data.users_available?.length  ? res.data.users_available  : get().usersAvail,
         tagData:     newTagData,
+        // A hunt-scoped fetch (huntId set) that comes back empty must say so
+        // explicitly (`hunt_empty` + `message`, from collection.js's /timeline
+        // route) — never render as an unexplained blank grid. Cleared once
+        // records come back non-empty or huntId is no longer set.
+        huntMessage: s.huntId && res.data.hunt_empty ? (res.data.message || null) : null,
       });
     } catch { if (seq === _loadSeq) set({ records: [], total: 0, appendMode: false }); }
     finally  { if (seq === _loadSeq) set({ loading: false }); }

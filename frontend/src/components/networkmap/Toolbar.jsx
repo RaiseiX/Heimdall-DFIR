@@ -64,7 +64,7 @@ export default function Toolbar({ graphData, filters, onFilterChange, onSearch, 
 
       {/* Intelligence badges */}
       {iocCount > 0    && <span style={{ padding: '3px 9px', borderRadius: 4, fontSize: 12, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', background: 'color-mix(in srgb, var(--fl-danger) 6%, transparent)', color: 'var(--fl-danger)', border: '1px solid color-mix(in srgb, var(--fl-danger) 19%, transparent)', flexShrink: 0 }}>⚠ {iocCount} IOC</span>}
-      {beaconCount > 0 && <span style={{ padding: '3px 9px', borderRadius: 4, fontSize: 12, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', background: 'color-mix(in srgb, var(--fl-warn) 6%, transparent)', color: 'var(--fl-warn)', border: '1px solid color-mix(in srgb, var(--fl-warn) 19%, transparent)', flexShrink: 0 }}>◎ {beaconCount > 1 ? t('networkMap.beacons_pl', { count: beaconCount }) : t('networkMap.beacons', { count: beaconCount })}</span>}
+      {beaconCount > 0 && <span style={{ padding: '3px 9px', borderRadius: 4, fontSize: 12, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', background: 'color-mix(in srgb, var(--fl-warn) 6%, transparent)', color: 'var(--fl-warn)', border: '1px solid color-mix(in srgb, var(--fl-warn) 19%, transparent)', flexShrink: 0 }}>◎ {t('networkMap.beacons', { count: beaconCount })}</span>}
       {dgaCount > 0    && <span style={{ padding: '3px 9px', borderRadius: 4, fontSize: 12, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', background: 'color-mix(in srgb, var(--fl-accent) 6%, transparent)', color: 'var(--fl-accent)', border: '1px solid color-mix(in srgb, var(--fl-accent) 19%, transparent)', flexShrink: 0 }}>⁉ {dgaCount} DGA</span>}
     </div>
   );

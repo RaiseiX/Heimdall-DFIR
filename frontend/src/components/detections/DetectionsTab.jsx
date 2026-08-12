@@ -363,7 +363,7 @@ function DetailDrawer({ detail, onClose, caseId }) {
         </div>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '12px 16px', borderTop: '1px solid var(--fl-border)' }}>
           <span style={{ fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-subtle)' }}>
-            {fieldTotal} {t(fieldTotal > 1 ? 'detections.detail.fields_count_plural' : 'detections.detail.fields_count')}
+            {fieldTotal} {t(fieldTotal > 1 ? 'detections.detail.fields_count_other' : 'detections.detail.fields_count_one')}
           </span>
           {detectionType && <ResultActions caseId={caseId} detectionType={detectionType} item={item} onDone={onClose} />}
         </div>

@@ -1,64 +1,30 @@
 # Heimdall DFIR
 
-Self-hosted DFIR and threat-hunting platform for handling cases, importing evidence, building timelines, and writing reports.
+Self-hosted case management, evidence review and threat-hunting for DFIR teams.
 
-[![FR](https://img.shields.io/badge/lang-FR-blueviolet)](README.fr.md)
-[![Docker Compose](https://img.shields.io/badge/runtime-Docker%20Compose-2496ED)](docker-compose.yml)
-[![Node.js](https://img.shields.io/badge/backend-Node.js%2020-339933)](backend/package.json)
-[![React](https://img.shields.io/badge/frontend-React%2018-61DAFB)](frontend/package.json)
-[![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[Français](README.fr.md) · [Roadmap](ROADMAP.md) · [Documentation](docs/README.md) · [Discord](https://discord.gg/sx7DnNYMNF)
 
-Heimdall DFIR is built for CSIRT, SOC, and DFIR teams that need to keep case data on their own infrastructure.
-It imports forensic sources such as Windows/Linux artifacts, network captures, and RAM dumps, then helps analysts work through them without jumping between a dozen tools.
-Discord: https://discord.gg/sx7DnNYMNF
+![Heimdall DFIR dashboard](shots/dashboard.webp)
 
-> Heimdall is in active development. Validate the full workflow in a controlled environment before using it for production investigations.
+Heimdall brings imported evidence, timelines, detections, investigation notes and reports into one web interface. It is intended for labs, internal SOCs and incident-response teams that want to keep case data on infrastructure they control.
 
-## Table of Contents
+The project is under active development. Use test evidence first and review the deployment and evidence-handling model before relying on it for a live investigation.
 
-- [What Heimdall Does](#what-heimdall-does)
-- [Core Capabilities](#core-capabilities)
-- [Architecture](#architecture)
-- [Repository Layout](#repository-layout)
-- [Quick Start](#quick-start)
-- [Configuration](#configuration)
-- [Operations](#operations)
-- [Developer Workflow](#developer-workflow)
-- [Forensic Tooling](#forensic-tooling)
-- [Documentation](#documentation)
-- [Security Notes](#security-notes)
-- [Credits](#credits)
-- [License](#license)
+## What is available today
 
-## What Heimdall Does
-
-Heimdall gives CSIRT, SOC, and DFIR teams one place to:
-
-- manage investigations and evidence by case;
-- upload and parse forensic artifacts;
-- build searchable timelines;
-- run YARA, Sigma, threat-intelligence, and rule-based detections;
-- collaborate through notes, pins, chat, and analyst review views;
-- analyze memory dumps through VolWeb and Volatility 3;
-- generate investigation reports and preserve evidence context.
-
-The project is meant for self-hosted labs, internal SOCs, and sensitive client work where evidence needs to stay under operator control.
-
-## Core Capabilities
-
-| Area | Capabilities |
+| Area | What Heimdall provides |
 | --- | --- |
-| Case management | Case records, evidence inventory, comments, notes, pins, reports |
-| Timeline analysis | Super Timeline, artifact filters, column preferences, grouping, search, CSV export |
-| Evidence ingestion | Standard uploads, chunked memory uploads, collection imports, parser streaming |
-| Windows forensics | EVTX, Hayabusa, MFT, Prefetch, LNK, Shellbags, registry-oriented workflows |
-| Network analysis | PCAP-derived flows, network map, beaconing indicators, global graph views |
-| Memory forensics | VolWeb integration, MinIO storage, Volatility 3 worker stack |
-| Threat hunting | YARA, Sigma, TAXII/STIX, IOC enrichment, detection summaries |
-| Automation | BullMQ workers, SOAR alerts, triage scoring, playbooks |
-| Collaboration | Socket.io presence, case chat, evidence pins, audit ledger |
-| Local AI | Optional Ollama-backed copilot and case-aware assistant workflows |
-| Administration | Users, backups, service health, Docker container visibility, access logs |
+| Investigations | Cases, assignees, structured notes, findings, DFIQ question sets, Kanban workflow and reports |
+| Evidence ingestion | KAPE, Magnet RESPONSE, Velociraptor and CyLR collections; CatScale data; CSV imports; regular and chunked uploads |
+| Timeline work | Case-scoped timeline, full-text search, field filters, grouping, saved searches, context view, comparison and CSV export |
+| Detection | YARA and Sigma hunting, YAML threat rules, Hayabusa results, IOC correlation, triage scores and automated post-ingestion hunts |
+| Network and memory | PCAP-derived connections, network and lateral-movement views, beaconing indicators, VolWeb and Volatility 3 |
+| Analyst workflow | Timeline bookmarks, shared case chat, real-time updates, investigation status, collaborative report drafts and audit trails |
+| Threat intelligence | TAXII/STIX feeds, MISP pull, cross-case IOCs and optional VirusTotal, AbuseIPDB and HIBP enrichment |
+| Operations | User and session management, security and retention settings, health views, backups and access logs |
+| Local model support | Ollama-backed chat and report assistance. Prompts stay on the configured Ollama service; results still require analyst review |
+
+Heimdall analyses evidence that has already been collected. It is not an endpoint collection platform, a SIEM, or a substitute for validated forensic procedure. The [roadmap](ROADMAP.md) describes the project boundary and the work still ahead.
 
 ## Architecture
 
@@ -66,54 +32,32 @@ The project is meant for self-hosted labs, internal SOCs, and sensitive client w
 Browser
   |
   v
-bifrost / Traefik :80/:443
+Traefik :80/:443
   |
-  +--> asgard / frontend :3000
-  |      React 18, Vite, Tailwind, D3, TanStack Table
+  +-- React frontend :3000
   |
-  +--> odin / backend :4000
-         Node.js, Express, TypeScript, Socket.io
-         |
-         +--> yggdrasil / PostgreSQL 16
-         +--> hermod / Redis 7
-         +--> mimir / Elasticsearch 8.13
-         +--> tyr / ClamAV
-         +--> huginn / BullMQ worker
-         +--> njord / MinIO
-         +--> hel-api, hel-worker, hel-ui / VolWeb + Volatility 3
-         +--> ollama / optional local LLM
+  +-- Node.js API :4000
+        |
+        +-- PostgreSQL        cases, users, evidence metadata, audit data
+        +-- Elasticsearch     timeline search
+        +-- Redis / BullMQ    queues, cache and real-time coordination
+        +-- ClamAV            upload scanning
+        +-- MinIO / VolWeb    memory evidence and Volatility 3
+        +-- Ollama            local model inference
 ```
 
-The runtime topology is defined in [docker-compose.yml](docker-compose.yml). Traefik handles external routing and TLS. Internal services are split across frontend, Heimdall, and VolWeb networks.
+The complete service definition lives in [docker-compose.yml](docker-compose.yml). Uploaded evidence and application state are stored in Docker volumes; PostgreSQL remains the source of truth for case and workflow data.
 
-## Repository Layout
+## Quick start
 
-```text
-.
-├── backend/              Node.js API, services, middleware, workers, parsers
-├── frontend/             React/Vite application and UI modules
-├── db/                   Initial schema, migrations, migration runners
-├── docker/               Traefik and VolWeb support configuration
-├── docs/                 Architecture, backend, UI, infra, workflow notes
-├── nginx/                VolWeb proxy configuration and legacy nginx files
-├── prompts/              Agent prompts for scoped audits and implementation
-├── tasks/                Engineering decisions, backlog, lessons, active notes
-├── templates/            Delivery templates for audits, bugs, features, redesigns
-├── docker-compose.yml    Main runtime stack
-├── start.sh              Linux/macOS bootstrap script
-└── start.ps1             Windows bootstrap script
-```
+### Requirements
 
-## Quick Start
+- Docker Engine 24 or later with Docker Compose v2
+- `openssl` on Linux and macOS
+- at least 16 GB of RAM for the complete stack; memory analysis and larger Ollama models need more
+- enough free storage for Docker images, indexes and evidence; 50 GB is a practical starting point for a lab
 
-### Prerequisites
-
-- Docker 24+ with Docker Compose v2
-- `openssl` for secret generation on Linux/macOS
-- 16 GB RAM recommended for a full local stack, especially with Elasticsearch, VolWeb, ClamAV, and Ollama
-- 50 GB free disk recommended for test evidence and Docker volumes
-
-### Linux / macOS
+### Linux and macOS
 
 ```bash
 git clone https://github.com/RaiseiX/Heimdall-DFIR.git
@@ -124,54 +68,53 @@ bash start.sh
 ### Windows PowerShell
 
 ```powershell
+git clone https://github.com/RaiseiX/Heimdall-DFIR.git
+cd Heimdall-DFIR
 Set-ExecutionPolicy -Scope Process Bypass
 .\start.ps1
 ```
 
-The bootstrap scripts create `.env` from [.env.example](.env.example), generate secrets, build images, start services, wait for PostgreSQL, and apply database migrations.
+The bootstrap script creates `.env` from [.env.example](.env.example), generates infrastructure secrets, builds the images, starts the services and applies the database migrations.
 
-### Access
+After the first start:
 
-| Service | URL |
+1. Open `https://localhost`. A local installation uses a self-signed certificate, so the browser will display a warning.
+2. Sign in as `admin` or `analyst`. Their initial passwords come from `ADMIN_DEFAULT_PASSWORD` and `ANALYST_DEFAULT_PASSWORD`.
+3. Change both application passwords before making Heimdall reachable from another machine.
+
+The account variables are only read when the database is created. Editing them later does not rotate an existing account password; use the user settings in Heimdall instead.
+
+### Local endpoints
+
+| Service | Address |
 | --- | --- |
-| Heimdall UI | `https://localhost` or `http://localhost` depending on local browser/TLS handling |
+| Heimdall | `https://localhost` |
 | API health | `https://localhost/api/health` |
+| VolWeb | `http://localhost:8888` |
 | MinIO console | `http://localhost:9001` |
-| VolWeb proxy | `http://localhost:8888` |
 
-Default accounts are initialized from `.env` on first database creation:
-
-| Role | Username | Default password source |
-| --- | --- | --- |
-| Admin | `admin` | `ADMIN_DEFAULT_PASSWORD` |
-| Analyst | `analyst` | `ANALYST_DEFAULT_PASSWORD` |
-
-Change these values before exposing the platform outside a local lab.
+For a public hostname, set `DOMAIN`, `ACME_EMAIL` and `ALLOWED_ORIGINS` before starting the stack, then review the Traefik router and certificate-resolver settings for that domain. Do not rely on the local self-signed configuration for a public deployment.
 
 ## Configuration
 
-The main configuration file is `.env`, created from [.env.example](.env.example).
+The main settings live in `.env`.
 
 | Variable | Purpose |
 | --- | --- |
-| `DOMAIN` | Hostname routed by Traefik |
-| `ACME_EMAIL` | Let's Encrypt registration email for public deployments |
-| `DB_PASSWORD` | PostgreSQL application password |
-| `REDIS_PASSWORD` | Redis password |
-| `JWT_SECRET` | JWT signing secret |
+| `DOMAIN`, `ACME_EMAIL` | External hostname and Let's Encrypt registration address |
+| `DB_PASSWORD`, `REDIS_PASSWORD` | PostgreSQL and Redis credentials |
+| `JWT_SECRET` | Session signing; the audit key currently derives from it in the default Compose stack |
+| `ADMIN_DEFAULT_PASSWORD`, `ANALYST_DEFAULT_PASSWORD` | Initial accounts on a fresh database |
 | `ALLOWED_ORIGINS` | CORS allow-list |
-| `MINIO_ROOT_USER`, `MINIO_ROOT_PASSWORD` | MinIO and VolWeb object-storage credentials |
-| `VOLWEB_*` | VolWeb integration and public URL settings |
-| `DOCKER_GID` | Host Docker socket group for the admin infrastructure panel |
-| `VIRUSTOTAL_API_KEY`, `ABUSEIPDB_API_KEY` | Optional IOC enrichment providers |
-| `GITHUB_TOKEN` | Optional GitHub API token for rule imports |
-| `OLLAMA_URL`, `AI_*` | Optional local AI configuration |
+| `MINIO_ROOT_USER`, `MINIO_ROOT_PASSWORD` | MinIO credentials used by VolWeb |
+| `VOLWEB_*` | VolWeb connection and public URL |
+| `GITHUB_TOKEN` | Optional token for public rule imports |
+| `OLLAMA_URL` | Ollama service used by the assistant |
+| `DOCKER_GID` | Host Docker group used by the operations view on Linux |
 
-For public deployments, update `DOMAIN`, `ACME_EMAIL`, `ALLOWED_ORIGINS`, and all secrets before first start.
+Do not commit `.env`. Keep a protected copy if you need to restore the deployment: it contains the credentials required to read or operate several services.
 
-## Operations
-
-Common commands:
+## Routine operations
 
 ```bash
 docker compose ps
@@ -182,11 +125,20 @@ docker compose restart backend worker
 bash db/migrate.sh
 ```
 
-Resetting the stack with `docker compose down -v` deletes persistent case data, evidence metadata, queues, Elasticsearch indexes, MinIO objects, and application state. Use it only for disposable labs.
+`docker compose down -v` deletes the persistent volumes for the stack. On a non-disposable installation, take a tested backup before removing volumes or changing the storage layout.
 
-Persistent Docker volumes include PostgreSQL, Redis, Elasticsearch, uploaded evidence, collections, MinIO data, ClamAV signatures, backups, Ollama models, and Let's Encrypt certificates.
+## Security and evidence handling
 
-## Developer Workflow
+- Keep the platform on a trusted network until the deployment has been reviewed for its environment.
+- Replace the initial account passwords and every placeholder in `.env`.
+- The code supports a separate `AUDIT_HMAC_KEY`, but the default Compose service does not pass it to the backend yet. Wire a distinct key into the backend before relying on key separation.
+- Review TLS, CORS, upload limits, MinIO exposure and host firewall rules before remote access.
+- The backend mounts the Docker socket for the operations panel. Treat backend administrator access as host-sensitive and remove that capability if it is not needed.
+- ClamAV scanning does not make an uploaded file safe to open outside the analysis workflow.
+- Audit hash chains can reveal some forms of modification or deletion; they are not, by themselves, a legal chain-of-custody guarantee.
+- Test backup and restore procedures with representative evidence before using the platform for real cases.
+
+## Development
 
 Backend:
 
@@ -206,49 +158,39 @@ npm install
 npm run dev
 npm run typecheck
 npm run i18n:check
+npm test
 npm run build
 ```
 
-The production stack is container-first. When changing runtime behavior, validate against Docker Compose because service names, mounted volumes, networks, proxy timeouts, and healthchecks are part of the application contract.
+Node.js 24 is used by the Docker images. Runtime changes should also be tested through Docker Compose because networks, health checks, volumes and proxy timeouts are part of the application.
 
-## Forensic Tooling
+## Repository guide
 
-Some third-party tools are downloaded into the backend image during Docker build when network access is available. Check their upstream licenses before packaging or redistributing images.
-
-| Tool | Use |
-| --- | --- |
-| Zimmerman Tools | Windows artifacts such as MFT, Prefetch, LNK, Shellbags, registry-oriented data |
-| Hayabusa | Sigma-driven EVTX detection |
-| tshark | PCAP parsing |
-| VolWeb / Volatility 3 | Memory analysis |
-| ClamAV | Antivirus scanning of uploaded evidence |
-| SigmaHQ / YARA rule sources | Threat-hunting rules |
-
-Manual Hayabusa repair, if the build-time download failed:
-
-```bash
-docker cp hayabusa odin:/app/hayabusa/hayabusa
-docker exec odin chmod +x /app/hayabusa/hayabusa
+```text
+backend/      API, services, workers and parsers
+frontend/     React application
+db/           schema, migrations and migration tooling
+docker/       Traefik and VolWeb support files
+docs/         maintained architecture and contributor documentation
+tasks/        implementation notes and engineering backlog
 ```
 
-## Documentation
+Useful starting points:
 
-- [French README](README.fr.md)
-- [Documentation index](docs/README.md)
 - [Architecture](docs/architecture.md)
-- [Backend architecture](docs/backend.md)
+- [Backend](docs/backend.md)
 - [Infrastructure](docs/infra.md)
-- [UI architecture](docs/ui.md)
+- [Frontend](docs/ui.md)
 - [Design system](docs/design-system.md)
-- [Delivery workflows](docs/workflows.md)
-- [Roadmap](ROADMAP.md)
 - [Changelog](CHANGELOG.md)
 - [User tutorial](TUTORIAL.md)
 
-## Credits
+## Project and community
 
-Heimdall builds on open-source DFIR and infrastructure projects including Zimmerman Tools, Hayabusa, VolWeb, Volatility 3, ClamAV, Elasticsearch, SigmaHQ, YARA rule communities, Redis, PostgreSQL, React, Node.js, and MITRE ATT&CK.
+Questions and feedback are welcome on [Discord](https://discord.gg/sx7DnNYMNF). For a bug or a proposed change, open a GitHub issue with the affected version, reproduction steps and relevant logs with sensitive case data removed. Report suspected vulnerabilities privately by following the [security policy](SECURITY.md), not through a public issue or Discord.
+
+Heimdall relies on open-source work from the wider DFIR ecosystem, including Zimmerman Tools, Hayabusa, VolWeb, Volatility 3, ClamAV, SigmaHQ, YARA communities and MITRE ATT&CK. Check the upstream licences of bundled or downloaded tools before redistributing images.
 
 ## License
 
-[MIT](LICENSE) © Heimdall DFIR Contributors
+[MIT](LICENSE) © Heimdall DFIR contributors

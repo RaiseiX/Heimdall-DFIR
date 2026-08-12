@@ -23,6 +23,13 @@ function buildGroupParams(store) {
   if (store.evidenceId)           p.evidence_id = store.evidenceId;
   if (store.evidenceIds?.length)  p.evidence_ids = store.evidenceIds.join(',');
   if (store.hitsOnly)             p.detections = 'hits_only';
+  // A Sigma hunt pivot (huntId, set from the ?huntId= URL param on landing —
+  // see SuperTimelinePage.jsx) must keep restricting the grouped counts the
+  // same way it restricts the flat row list, or switching to a group-by
+  // silently widens the scope back to the whole case with no sign anything
+  // changed. Mirrors collectionAPI.timeline's own hunt_id forwarding in
+  // store/useTimelineStore.js's buildQueryParams().
+  if (store.huntId)               p.hunt_id    = store.huntId;
   return p;
 }
 
@@ -47,7 +54,7 @@ function GroupBySection({ field, label, onRemove }) {
   useEffect(() => { load(); }, [load]);
 
   const filterSig = [store.search, store.artifactTypes.join(','), store.startTime, store.endTime,
-    store.hostFilter, store.userFilter, store.hitsOnly].join('|');
+    store.hostFilter, store.userFilter, store.hitsOnly, store.huntId].join('|');
   useEffect(() => { load(); }, [filterSig]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function applyGroupValue(value) {

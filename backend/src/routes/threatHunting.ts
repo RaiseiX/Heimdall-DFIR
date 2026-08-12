@@ -14,6 +14,8 @@ import axios from 'axios';
 import type { AuthRequest } from '../types/index';
 import { validateRule, scanEvidence } from '../services/yaraService';
 import { parseRule, buildQuery } from '../services/sigmaService';
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const { platformForArtifactType } = require('../services/artifactPlatform');
 
 const router = express.Router();
 
@@ -63,6 +65,9 @@ async function ensureTables(pool: Pool): Promise<void> {
       logsource_category  VARCHAR(100),
       logsource_product   VARCHAR(100),
       tags                VARCHAR[] DEFAULT '{}',
+      level               VARCHAR(20),
+      mitre_techniques    TEXT[] NOT NULL DEFAULT '{}',
+      upstream_status     VARCHAR(20),
       is_active           BOOLEAN DEFAULT true,
       created_at          TIMESTAMPTZ DEFAULT NOW(),
       updated_at          TIMESTAMPTZ DEFAULT NOW()
@@ -269,18 +274,59 @@ router.post('/yara/scan-case/:caseId', authenticate, (requireRole as any)('analy
       return res.end();
     }
 
-    send({ type: 'start', total: evResult.rows.length, rules: rulesResult.rows.length });
+    // Skip classification computed BEFORE `start` is sent (YARA/Tout lancer
+    // scope-band rebuild, 2026-08-11) — previously each evidence row's
+    // memory-dump/oversize check ran lazily inside the loop, so the scope
+    // band had no way to say how many of `total` evidence files would
+    // actually be scanned until the run was already underway. Same shape as
+    // Sigma's `skipped_platform` precomputation in `/sigma/scan-case`: the
+    // decision that will exclude a row is made once, up front, and reused —
+    // never recomputed a second time inside the loop below.
+    const YARA_MAX_SIZE = 500 * 1024 * 1024;
+    const skipReason = (ev: any): string | null => {
+      if (ev.evidence_type === 'memory') return 'dump mémoire';
+      if (Number(ev.file_size) > YARA_MAX_SIZE) return 'fichier > 500 MB';
+      return null;
+    };
+    const skippedMemory = evResult.rows.filter((ev: any) => ev.evidence_type === 'memory').length;
+    const skippedSize = evResult.rows.filter(
+      (ev: any) => ev.evidence_type !== 'memory' && Number(ev.file_size) > YARA_MAX_SIZE,
+    ).length;
+    const filesToScan = evResult.rows.length - skippedMemory - skippedSize;
+
+    // `files_to_scan`/`skipped_memory`/`skipped_size` are additive to the
+    // pre-existing `total`/`rules` fields — no field renamed or removed, so
+    // an older frontend build reading only `total`/`rules` keeps working
+    // unchanged (same additive contract Sigma's `start` event already
+    // established with `rules_to_run`/`skipped_platform`).
+    send({
+      type: 'start',
+      total: evResult.rows.length,
+      rules: rulesResult.rows.length,
+      files_to_scan: filesToScan,
+      skipped_memory: skippedMemory,
+      skipped_size: skippedSize,
+    });
 
     await pool.query('DELETE FROM yara_scan_results WHERE case_id = $1', [caseId]);
 
-    const YARA_MAX_SIZE = 500 * 1024 * 1024;
     const summary: any[] = [];
+    // Live tally for the UI's progress band (mirrors Sigma's `matched_so_far`/
+    // `critical_so_far` — see `/sigma/scan-case` above), cumulative over every
+    // evidence file fully scanned BEFORE the one this `progress` frame names.
+    // YARA carries no severity axis, so the second figure is "files flagged"
+    // rather than a severity count.
+    let matchesSoFar = 0;
+    let filesFlaggedSoFar = 0;
     for (let i = 0; i < evResult.rows.length; i++) {
       const ev = evResult.rows[i];
-      send({ type: 'progress', current: i + 1, total: evResult.rows.length, name: ev.name });
+      send({
+        type: 'progress', current: i + 1, total: evResult.rows.length, name: ev.name,
+        matches_so_far: matchesSoFar, files_flagged_so_far: filesFlaggedSoFar,
+      });
 
-      if (ev.evidence_type === 'memory' || Number(ev.file_size) > YARA_MAX_SIZE) {
-        const reason = ev.evidence_type === 'memory' ? 'dump mémoire' : 'fichier > 500 MB';
+      const reason = skipReason(ev);
+      if (reason) {
         logger.info(`[YARA] Skip ${ev.name}: ${reason}`);
         summary.push({ evidence_id: ev.id, evidence_name: ev.name, matches: [], skipped: true, reason });
         continue;
@@ -303,16 +349,26 @@ router.post('/yara/scan-case/:caseId', authenticate, (requireRole as any)('analy
         }
       }
       summary.push({ evidence_id: ev.id, evidence_name: ev.name, matches: fileMatches });
+      matchesSoFar += fileMatches.length;
+      if (fileMatches.length > 0) filesFlaggedSoFar++;
     }
 
     const scanned = summary.filter(s => !s.skipped).length;
     const skipped = summary.filter(s => s.skipped).length;
+    const filesFlagged = summary.filter(s => !s.skipped && s.matches.length > 0).length;
     const totalMatches = summary.reduce((acc, s) => acc + s.matches.length, 0);
     const userId = (req as AuthRequest).user?.id;
     await auditLog(userId, 'run_yara_scan', 'case', caseId,
       { files_scanned: scanned, files_skipped: skipped, rules_checked: rulesResult.rows.length, match_count: totalMatches }, req.ip);
 
-    send({ type: 'done', case_id: caseId, files_scanned: scanned, files_skipped: skipped, summary });
+    // `rules_checked`/`files_flagged`/`total_rule_matches` are additive on
+    // `done`, same rule as `start` above — `files_scanned`/`files_skipped`/
+    // `summary`/`case_id` are all untouched.
+    send({
+      type: 'done', case_id: caseId, files_scanned: scanned, files_skipped: skipped,
+      rules_checked: rulesResult.rows.length, files_flagged: filesFlagged, total_rule_matches: totalMatches,
+      summary,
+    });
     res.end();
   } catch (e: any) {
     send({ type: 'error', error: e.message });
@@ -378,9 +434,15 @@ router.get('/yara/rule-stats', authenticate, async (req, res) => {
 
 router.get('/sigma/rules', authenticate, async (req, res) => {
   try {
+    // level / mitre_techniques / upstream_status added here (Sigma hunt UI
+    // rebuild, 2026-08-11) — purely additive columns on an existing SELECT.
+    // SigmaRulesTab.jsx (the caller left untouched by this change) simply
+    // ignores the extra fields; the Sigma hunt tab's rule picker and its
+    // results table are the actual consumers, and need them to show
+    // severity/technique without shipping the raw rule content.
     const result = await poolMig(req).query(
       `SELECT r.id, r.name, r.description, r.content, r.logsource_category, r.logsource_product,
-              r.tags, r.is_active, r.created_at, r.updated_at,
+              r.tags, r.level, r.mitre_techniques, r.upstream_status, r.is_active, r.created_at, r.updated_at,
               u.username AS author_username
          FROM sigma_rules r
          LEFT JOIN users u ON u.id = r.author_id
@@ -401,12 +463,18 @@ router.post('/sigma/rules', authenticate, (requireRole as any)('analyst', 'admin
     if (!validation.valid) return res.status(400).json({ error: validation.error });
 
     const userId = (req as AuthRequest).user?.id;
+    // tagsArr is import provenance (e.g. ['github', 'sigmahq']), supplied by
+    // the caller — never overwritten by the rule's own YAML tags, which are
+    // extracted separately into mitre_techniques below (Task 4 of the
+    // platform-scoping plan). See sigmaService.ts::extractMitreTechniques.
     const tagsArr = Array.isArray(tags) ? tags : [];
     const result = await poolMig(req).query(
       `INSERT INTO sigma_rules
-         (name, description, content, author_id, logsource_category, logsource_product, tags)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
-       RETURNING id, name, description, logsource_category, logsource_product, tags, is_active, created_at`,
+         (name, description, content, author_id, logsource_category, logsource_product, tags,
+          level, mitre_techniques, upstream_status)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+       RETURNING id, name, description, logsource_category, logsource_product, tags,
+                 level, mitre_techniques, upstream_status, is_active, created_at`,
       [
         name.trim(),
         validation.parsed?.description ?? null,
@@ -415,6 +483,9 @@ router.post('/sigma/rules', authenticate, (requireRole as any)('analyst', 'admin
         validation.logsourceCategory ?? null,
         validation.logsourceProduct ?? null,
         tagsArr,
+        validation.level ?? null,
+        validation.mitreTechniques ?? [],
+        validation.upstreamStatus ?? null,
       ],
     );
     res.status(201).json({ rule: result.rows[0] });
@@ -430,11 +501,17 @@ router.put('/sigma/rules/:id', authenticate, (requireRole as any)('analyst', 'ad
 
     let logsourceCat: string | null = null;
     let logsourceProd: string | null = null;
+    let level: string | null = null;
+    let mitreTechniques: string[] = [];
+    let upstreamStatus: string | null = null;
     if (content !== undefined) {
       const validation = parseRule(content);
       if (!validation.valid) return res.status(400).json({ error: validation.error });
-      logsourceCat  = validation.logsourceCategory ?? null;
-      logsourceProd = validation.logsourceProduct ?? null;
+      logsourceCat    = validation.logsourceCategory ?? null;
+      logsourceProd   = validation.logsourceProduct ?? null;
+      level           = validation.level ?? null;
+      mitreTechniques = validation.mitreTechniques ?? [];
+      upstreamStatus  = validation.upstreamStatus ?? null;
     }
 
     const pool = poolMig(req);
@@ -445,9 +522,12 @@ router.put('/sigma/rules/:id', authenticate, (requireRole as any)('analyst', 'ad
     const result = await pool.query(
       `UPDATE sigma_rules
           SET name = $1, content = $2, tags = $3, is_active = $4,
-              logsource_category = $5, logsource_product = $6, updated_at = NOW()
-        WHERE id = $7
-        RETURNING id, name, description, logsource_category, logsource_product, tags, is_active, updated_at`,
+              logsource_category = $5, logsource_product = $6,
+              level = $7, mitre_techniques = $8, upstream_status = $9,
+              updated_at = NOW()
+        WHERE id = $10
+        RETURNING id, name, description, logsource_category, logsource_product, tags,
+                  level, mitre_techniques, upstream_status, is_active, updated_at`,
       [
         name ?? r.name,
         content ?? r.content,
@@ -455,6 +535,9 @@ router.put('/sigma/rules/:id', authenticate, (requireRole as any)('analyst', 'ad
         is_active !== undefined ? is_active : r.is_active,
         content ? logsourceCat : r.logsource_category,
         content ? logsourceProd : r.logsource_product,
+        content ? level : r.level,
+        content ? mitreTechniques : r.mitre_techniques,
+        content ? upstreamStatus : r.upstream_status,
         id,
       ],
     );
@@ -477,6 +560,80 @@ router.delete('/sigma/rules/:id', authenticate, (requireRole as any)('analyst', 
     res.status(500).json({ error: e.message });
   }
 });
+
+// Task 3 (docs/superpowers/plans/2026-08-07-sigma-platform-scoping-and-honest-
+// counts.md): scope a Sigma scan-case hunt to the platforms actually present
+// in the case, instead of evaluating all 3999 active rules against every
+// case regardless of what it holds.
+//
+// The platform is a SET, not a scalar (2026-08-07 correction to this plan): a
+// hunt runs per CASE, and a case commonly holds more than one collection — a
+// compromised Linux server *and* the Windows workstation it was reached from.
+// Electing one winning platform would leave the other half of the evidence
+// unhunted, a silent false negative. So this derives every platform present,
+// from every distinct collection_timeline.artifact_type in the case.
+//
+// parser_results.platform (Task 2) is provenance/fallback, not the source of
+// truth: it is consulted only when the timeline itself yields nothing
+// recognisable (e.g. a case with no timeline rows yet, or artifact types this
+// map doesn't cover) — never overriding a platform actually observed in the
+// timeline.
+async function casePlatforms(pool: Pool, caseId: string): Promise<Set<string>> {
+  const timelineTypes = await pool.query(
+    `SELECT DISTINCT artifact_type FROM collection_timeline WHERE case_id = $1`,
+    [caseId],
+  );
+  const platforms = new Set<string>();
+  for (const row of timelineTypes.rows) {
+    const platform = platformForArtifactType(row.artifact_type);
+    if (platform) platforms.add(platform);
+  }
+  if (platforms.size > 0) return platforms;
+
+  // Fallback only — parser_results.platform (Task 2) is provenance, never the
+  // source of truth. Guarded separately: that column only exists once
+  // db/migrations/20260807010000_collection_platform.sql has run, and this
+  // hunt must not hard-fail on a database where it hasn't (or hasn't yet on
+  // every environment) — the whole point of this policy is that "unknown" is
+  // handled by running everything, never by erroring out.
+  try {
+    // Task 2's own report flagged this: parser_results also holds rows from
+    // other parsers (Hayabusa, CSV imports, ...) with parser_name !=
+    // 'MagnetRESPONSE_Import'. Only the collection-import row ever gets a
+    // non-NULL platform written today, so `platform IS NOT NULL` alone would
+    // happen to scope correctly — but naming the parser explicitly means this
+    // stays correct even if some other parser starts writing a platform
+    // later, instead of relying on that incidental fact.
+    const imported = await pool.query(
+      `SELECT DISTINCT platform FROM parser_results
+        WHERE case_id = $1 AND parser_name = 'MagnetRESPONSE_Import' AND platform IS NOT NULL`,
+      [caseId],
+    );
+    for (const row of imported.rows) if (row.platform) platforms.add(row.platform);
+  } catch (e: any) {
+    logger.warn('[ThreatHunting] parser_results.platform fallback unavailable:', e.message);
+  }
+  return platforms;
+}
+
+// SigmaHQ marks a rule 'deprecated' or 'unsupported' almost always because of
+// excessive false positives — a detection that can't be defended is worthless
+// in an evidentiary context, so these are skipped regardless of platform.
+// 'experimental' rules run: they often cover a recent technique, and the cost
+// of a false positive there is lower than the cost of an uncovered technique.
+//
+// Task 4 (docs/superpowers/plans/2026-08-07-sigma-platform-scoping-and-honest-
+// counts.md) added sigma_rules.upstream_status, extracted at import/update
+// from the rule's own YAML `status:` field (sigmaService.ts::parseRule) and
+// backfilled for the pre-existing rules by scripts/backfillSigmaMetadata.js.
+// This used to be a Postgres regex over the raw `content` column — cheaper
+// than loading all 3999 rows into Node to re-parse YAML, but a heuristic that
+// couldn't anchor to a line start cheaply and missed a quoted value
+// (`status: "deprecated"`). An equality check on the parsed column has none
+// of those edge cases, so this replaces the regex now that the column exists.
+// NULL (no `status:` in the YAML) is treated as "not known-bad" — same
+// behaviour as before this column existed.
+const STATUS_EXCLUDES_HUNT = `(upstream_status IS NULL OR upstream_status NOT IN ('deprecated', 'unsupported'))`;
 
 // Both Sigma hunt paths below used to run ONE query bounded by `LIMIT 200`
 // and store `rows.length` as `match_count` — so a rule matching more than 200
@@ -501,7 +658,14 @@ async function huntMatches(
       allParams,
     ),
     pool.query(
-      `SELECT timestamp, artifact_type, source, description, raw
+      // Task 5 (docs/superpowers/plans/2026-08-07-sigma-platform-scoping-and-
+      // honest-counts.md): `id` is selected here — it wasn't before — because
+      // without it `matched_events` cannot point at any collection_timeline
+      // row, making a click-through pivot impossible even though the table
+      // has always had an `id` column. This is additive only: existing
+      // consumers of `events`/`matched_events` read fields off the object by
+      // name, so one more field on each row changes nothing for them.
+      `SELECT id, timestamp, artifact_type, source, description, raw
          FROM collection_timeline
         WHERE case_id = $1 AND (${shiftedWhere})
         ORDER BY timestamp ASC
@@ -562,6 +726,83 @@ router.post('/sigma/hunt/:caseId', authenticate, (requireRole as any)('analyst',
   }
 });
 
+// Task 5 (docs/superpowers/plans/2026-08-07-sigma-platform-scoping-and-honest-
+// counts.md): pivot from one hunt match into the full set of
+// collection_timeline rows that produced it, for the "click a match, land on
+// the SuperTimeline filtered to it" flow.
+//
+// `matched_events` (and the `/sigma/hunt` response's `events`) only ever
+// carries a bounded sample — `sample_size`, capped at 50 by huntMatches()
+// above. A rule that matched 5 342 events must not silently hand the caller
+// 50 ids and let it believe that's everything: that's the exact
+// LIMIT-as-result defect Task 1 fixed for the count. So this route does NOT
+// read matched_events — it re-parses the rule that produced this hunt and
+// replays its predicate against collection_timeline right now, unbounded.
+// That's what makes the full id set (not just the sample) available, and
+// nothing here is ever passed back through a URL: the caller gets it in the
+// response body.
+//
+// This also means the answer reflects the CURRENT timeline, not a frozen
+// snapshot from when the hunt ran. If rows were purged since (evidence
+// re-ingested, a collection deleted, a case pruned), the id set legitimately
+// shrinks — possibly to zero. Zero is reported explicitly (`count: 0` plus a
+// human-readable `message`), never as a bare empty array a UI could render as
+// a blank screen with no explanation.
+//
+// `:caseId` already runs through router.param('caseId', caseAccessParam)
+// declared at the top of this file, so authentication and case-level access
+// control are enforced before this handler ever executes. The query below
+// additionally scopes the hunt lookup to that case_id — a caller with access
+// to case A cannot use a hunt id belonging to case B to read case B's ids.
+router.get('/sigma/hunt/:caseId/:huntId/timeline-ids', authenticate, async (req: express.Request, res: express.Response) => {
+  try {
+    const { caseId, huntId } = req.params;
+    const pool = poolMig(req);
+
+    const huntResult = await pool.query(
+      `SELECT h.id, h.rule_id, h.rule_name, r.content
+         FROM sigma_hunt_results h
+         JOIN sigma_rules r ON r.id = h.rule_id
+        WHERE h.id = $1 AND h.case_id = $2`,
+      [huntId, caseId],
+    );
+    if (huntResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Chasse introuvable pour ce cas.' });
+    }
+    const hunt = huntResult.rows[0];
+
+    const parsed = parseRule(hunt.content);
+    if (!parsed.valid || !parsed.parsed) {
+      return res.status(500).json({ error: `Règle invalide au moment du pivot : ${parsed.error}` });
+    }
+
+    const { where, params } = buildQuery(parsed.parsed);
+    const allParams: unknown[] = [caseId, ...params];
+    const shiftedWhere = where.replace(/\$(\d+)/g, (_m, n) => `$${parseInt(n, 10) + 1}`);
+
+    const idsResult = await pool.query(
+      `SELECT id FROM collection_timeline
+        WHERE case_id = $1 AND (${shiftedWhere})
+        ORDER BY timestamp ASC`,
+      allParams,
+    );
+    const ids = idsResult.rows.map((r: any) => r.id);
+
+    res.json({
+      hunt_id:   hunt.id,
+      rule_id:   hunt.rule_id,
+      rule_name: hunt.rule_name,
+      ids,
+      count: ids.length,
+      message: ids.length === 0
+        ? "Aucun événement de la timeline ne correspond actuellement à cette chasse — ils ont peut-être été supprimés depuis."
+        : null,
+    });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 router.post('/sigma/scan-case/:caseId', authenticate, (requireRole as any)('analyst', 'admin'), async (req: express.Request, res: express.Response) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
@@ -572,22 +813,115 @@ router.post('/sigma/scan-case/:caseId', authenticate, (requireRole as any)('anal
     const { caseId } = req.params;
     const pool = poolMig(req);
 
-    const rulesResult = await pool.query('SELECT * FROM sigma_rules WHERE is_active = true');
-    if (rulesResult.rows.length === 0) {
+    const totalActiveResult = await pool.query('SELECT COUNT(*)::int AS count FROM sigma_rules WHERE is_active = true');
+    const totalActive: number = totalActiveResult.rows[0].count;
+    if (totalActive === 0) {
       send({ type: 'done', summary: [], rules_checked: 0, rules_matched: 0, total_matches: 0, message: 'Aucune règle Sigma active' });
       return res.end();
     }
 
-    send({ type: 'start', total: rulesResult.rows.length });
+    const platforms = await casePlatforms(pool, caseId);
+    // Sorted so `collection_platform` in the `start` event (and the array
+    // bound into the SQL below) has a stable order — `SELECT DISTINCT` makes
+    // no ordering guarantee, and a UI/test comparing this array shouldn't
+    // have to care about Postgres's scan order.
+    const platformList = [...platforms].sort();
+    // No recognisable platform anywhere in the case's evidence (a case with
+    // no timeline yet, or one imported before platform detection existed):
+    // do not guess which OS to scope to — apply no platform predicate at all,
+    // rather than risk a false negative by excluding a real platform. The
+    // `start` event still says so explicitly.
+    //
+    // Status is a different axis and stays applied even here: a rule marked
+    // deprecated/unsupported upstream is defective regardless of which OS is
+    // being hunted (SigmaHQ retires a rule almost always for excessive false
+    // positives) — not knowing the platform is no reason to also run rules
+    // already known to be bad.
+    const noKnownPlatform = platformList.length === 0;
+
+    let rulesResult;
+    let skippedPlatform = 0;
+    if (noKnownPlatform) {
+      rulesResult = await pool.query(
+        `SELECT * FROM sigma_rules
+          WHERE is_active = true
+            AND ${STATUS_EXCLUDES_HUNT}`,
+      );
+    } else {
+      const platformMatchCount = await pool.query(
+        `SELECT COUNT(*)::int AS count FROM sigma_rules
+          WHERE is_active = true
+            AND (logsource_product IS NULL OR logsource_product = ANY($1::text[]))`,
+        [platformList],
+      );
+      skippedPlatform = totalActive - platformMatchCount.rows[0].count;
+
+      rulesResult = await pool.query(
+        `SELECT * FROM sigma_rules
+          WHERE is_active = true
+            AND (logsource_product IS NULL OR logsource_product = ANY($1::text[]))
+            AND ${STATUS_EXCLUDES_HUNT}`,
+        [platformList],
+      );
+    }
+
+    // `start` carries the full picture — total active rules, how many were
+    // scoped out by platform, and the platform set the decision was made
+    // against — BEFORE checking whether anything is left to iterate. A rule
+    // skipped in silence is indistinguishable from a rule that found nothing;
+    // reporting 0-rules-evaluated without saying 3999 existed and N were
+    // skipped for platform reasons would reintroduce exactly that defect.
+    //
+    // `rules_to_run` (Sigma hunt UI rebuild, 2026-08-11) is `rulesResult.rows
+    // .length` — the exact count this run will iterate over, already
+    // computed above. It's deliberately NOT derived by the UI as
+    // `total - skipped_platform`: that arithmetic only accounts for the
+    // platform axis and would overstate the true count whenever a
+    // deprecated/unsupported rule (STATUS_EXCLUDES_HUNT, a separate axis)
+    // also happens to match the case's platform. Sending the real number
+    // costs nothing extra — the query already ran — and is what lets the
+    // scope band state "406 rules will be evaluated, out of 3999" honestly.
+    send({
+      type: 'start',
+      total: totalActive,
+      rules_to_run: rulesResult.rows.length,
+      skipped_platform: skippedPlatform,
+      collection_platform: noKnownPlatform ? null : platformList,
+    });
+
+    if (rulesResult.rows.length === 0) {
+      send({
+        type: 'done', summary: [], rules_checked: 0, rules_matched: 0, total_matches: 0,
+        message: 'Aucune règle Sigma applicable à la plateforme de ce cas',
+      });
+      return res.end();
+    }
 
     const summary: any[] = [];
+    // Live tally for the UI's progress band — Sigma hunt UI rebuild,
+    // 2026-08-11. A multi-minute sweep over 400+ rules used to tell the
+    // analyst only "264/425 — rule_name": no way to judge, mid-run, whether
+    // anything worth stopping for has been found yet. `matched_so_far` /
+    // `critical_so_far` are cumulative counts over every rule fully
+    // evaluated BEFORE the one this `progress` frame names (the current
+    // rule's own outcome isn't known until after it runs) — deliberately
+    // additive to the existing `progress` payload so nothing that reads
+    // current/total/name today breaks.
+    let matchedSoFar = 0;
+    let criticalSoFar = 0;
     for (let i = 0; i < rulesResult.rows.length; i++) {
       const rule = rulesResult.rows[i];
-      send({ type: 'progress', current: i + 1, total: rulesResult.rows.length, name: rule.name });
+      send({
+        type: 'progress', current: i + 1, total: rulesResult.rows.length, name: rule.name,
+        matched_so_far: matchedSoFar, critical_so_far: criticalSoFar,
+      });
 
       const parsed = parseRule(rule.content);
       if (!parsed.valid || !parsed.parsed) {
-        summary.push({ rule_id: rule.id, rule_name: rule.name, match_count: 0, error: parsed.error });
+        summary.push({
+          rule_id: rule.id, rule_name: rule.name, match_count: 0, error: parsed.error,
+          level: rule.level, mitre_techniques: rule.mitre_techniques,
+        });
         continue;
       }
       try {
@@ -602,10 +936,18 @@ router.post('/sigma/scan-case/:caseId', authenticate, (requireRole as any)('anal
              VALUES ($1, $2, $3, $4, $5, $6)`,
             [caseId, rule.id, rule.name, matchCount, JSON.stringify(sample), sample.length],
           );
+          matchedSoFar++;
+          if (rule.level === 'critical') criticalSoFar++;
         }
-        summary.push({ rule_id: rule.id, rule_name: rule.name, match_count: matchCount });
+        summary.push({
+          rule_id: rule.id, rule_name: rule.name, match_count: matchCount,
+          level: rule.level, mitre_techniques: rule.mitre_techniques,
+        });
       } catch (err: any) {
-        summary.push({ rule_id: rule.id, rule_name: rule.name, match_count: 0, error: err.message });
+        summary.push({
+          rule_id: rule.id, rule_name: rule.name, match_count: 0, error: err.message,
+          level: rule.level, mitre_techniques: rule.mitre_techniques,
+        });
       }
     }
 
@@ -623,14 +965,23 @@ router.post('/sigma/scan-case/:caseId', authenticate, (requireRole as any)('anal
   }
 });
 
+// level / mitre_techniques joined in from sigma_rules (Sigma hunt UI rebuild,
+// 2026-08-11) — the results table needs them to sort by severity and show a
+// technique without shipping the full rule set (3999 rows) to the browser
+// just to look two fields up client-side. LEFT JOIN, not INNER: rule_id
+// cascades on delete today (so an orphan row shouldn't occur in practice),
+// but a hunt result must still render — with level/mitre_techniques simply
+// absent, never with the whole row silently dropped — if that ever changes.
 router.get('/sigma/hunts/:caseId', authenticate, async (req, res) => {
   try {
     const { caseId } = req.params;
     const result = await poolMig(req).query(
-      `SELECT id, rule_id, rule_name, match_count, matched_events, sample_size, hunted_at
-         FROM sigma_hunt_results
-        WHERE case_id = $1
-        ORDER BY hunted_at DESC
+      `SELECT h.id, h.rule_id, h.rule_name, h.match_count, h.matched_events, h.sample_size, h.hunted_at,
+              r.level, r.mitre_techniques
+         FROM sigma_hunt_results h
+         LEFT JOIN sigma_rules r ON r.id = h.rule_id
+        WHERE h.case_id = $1
+        ORDER BY h.hunted_at DESC
         LIMIT 50`,
       [caseId],
     );
@@ -788,13 +1139,15 @@ router.post('/github/import', authenticate, (requireRole as any)('admin'),
           const v = parseRule(content);
           if (!v.valid) { skipped++; errors.push(`${ruleName}: ${v.error}`); continue; }
           await pool.query(
-            `INSERT INTO sigma_rules (name, description, content, author_id, logsource_category, logsource_product, tags)
-             VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+            `INSERT INTO sigma_rules (name, description, content, author_id, logsource_category, logsource_product, tags,
+                                       level, mitre_techniques, upstream_status)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
             [ruleName,
              (v.parsed as any)?.description ?? `Importé depuis ${owner}/${repo}`,
              content, userId,
              v.logsourceCategory ?? null, v.logsourceProduct ?? null,
-             ['github', owner.toLowerCase()]],
+             ['github', owner.toLowerCase()],
+             v.level ?? null, v.mitreTechniques ?? [], v.upstreamStatus ?? null],
           );
         }
         imported++;
@@ -912,8 +1265,9 @@ router.post('/github/import-zip', authenticate, (requireRole as any)('admin'),
             const v = parseRule(content);
             if (!v.valid) { skipped++; if (errors.length < 50) errors.push(`${ruleName}: ${v.error}`); continue; }
             await pool.query(
-              `INSERT INTO sigma_rules (name, description, content, author_id, logsource_category, logsource_product, tags)
-               VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+              `INSERT INTO sigma_rules (name, description, content, author_id, logsource_category, logsource_product, tags,
+                                         level, mitre_techniques, upstream_status)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
               [
                 ruleName,
                 (v.parsed as any)?.description ?? `Importé depuis ${owner}/${repo}`,
@@ -921,6 +1275,9 @@ router.post('/github/import-zip', authenticate, (requireRole as any)('admin'),
                 v.logsourceCategory ?? null,
                 v.logsourceProduct  ?? null,
                 ['github', owner.toLowerCase()],
+                v.level ?? null,
+                v.mitreTechniques ?? [],
+                v.upstreamStatus ?? null,
               ],
             );
           }
@@ -1033,6 +1390,72 @@ router.delete('/sysmon/library/:key', authenticate, (requireRole as any)('admin'
 // the page; reuses existing endpoints via internal HTTP with a short-lived JWT.
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const { startRunAll, getRunAllJob } = require('../services/runAllService');
+
+// "Tout lancer" UI rebuild (2026-08-11) — its central defect was launching
+// nine engines without ever saying what any of them would actually run
+// against. Two of those nine — YARA and Sigma — have a "N rules over M
+// items" substrate the other seven (Hayabusa, persistence, etc.) don't carry
+// (they are fixed built-in analyses, not a user-editable rule corpus), so
+// this preview is scoped to exactly those two rather than inventing a
+// figure for engines that have none. Read-only: no scan runs, no
+// yara_scan_results/sigma_hunt_results row is written, nothing is deleted —
+// safe to call on every case switch, before the analyst has decided to
+// launch anything.
+//
+// Sigma's half reuses `casePlatforms()`/`STATUS_EXCLUDES_HUNT` — the exact
+// same scoping policy `/sigma/scan-case/:caseId` applies at run time (see its
+// own comment above) — so the number shown here is never a separate guess
+// that could drift from what a launch would actually evaluate.
+router.get('/run-all/:caseId/scope', authenticate, async (req: express.Request, res: express.Response) => {
+  try {
+    const { caseId } = req.params;
+    const pool = poolMig(req);
+
+    const [yaraRulesResult, evidenceCountResult, sigmaTotalResult, timelineCountResult] = await Promise.all([
+      pool.query('SELECT COUNT(*)::int AS count FROM yara_rules WHERE is_active = true'),
+      pool.query('SELECT COUNT(*)::int AS count FROM evidence WHERE case_id = $1', [caseId]),
+      pool.query('SELECT COUNT(*)::int AS count FROM sigma_rules WHERE is_active = true'),
+      pool.query('SELECT COUNT(*)::int AS count FROM collection_timeline WHERE case_id = $1', [caseId]),
+    ]);
+
+    const totalActiveSigma: number = sigmaTotalResult.rows[0].count;
+    let rulesToRun = 0;
+    let collectionPlatform: string[] | null = null;
+    if (totalActiveSigma > 0) {
+      const platforms = await casePlatforms(pool, caseId);
+      const platformList = [...platforms].sort();
+      const noKnownPlatform = platformList.length === 0;
+      collectionPlatform = noKnownPlatform ? null : platformList;
+
+      const rulesToRunResult = noKnownPlatform
+        ? await pool.query(`SELECT COUNT(*)::int AS count FROM sigma_rules WHERE is_active = true AND ${STATUS_EXCLUDES_HUNT}`)
+        : await pool.query(
+            `SELECT COUNT(*)::int AS count FROM sigma_rules
+              WHERE is_active = true
+                AND (logsource_product IS NULL OR logsource_product = ANY($1::text[]))
+                AND ${STATUS_EXCLUDES_HUNT}`,
+            [platformList],
+          );
+      rulesToRun = rulesToRunResult.rows[0].count;
+    }
+
+    res.json({
+      yara: {
+        rules: yaraRulesResult.rows[0].count,
+        evidence_files: evidenceCountResult.rows[0].count,
+      },
+      sigma: {
+        rules_to_run: rulesToRun,
+        total_active: totalActiveSigma,
+        skipped: Math.max(0, totalActiveSigma - rulesToRun),
+        total_events: timelineCountResult.rows[0].count,
+        collection_platform: collectionPlatform,
+      },
+    });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
 
 router.post('/run-all/:caseId', authenticate, (requireRole as any)('analyst', 'admin'), async (req: AuthRequest, res: any) => {
   const { caseId } = req.params;

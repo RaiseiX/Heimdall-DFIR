@@ -83,3 +83,10 @@ db/migrations/20260807000000_sigma_hunt_sample_size.sql
 # 'linux' | 'macos' | NULL — NULL means unknown/mixed, never guessed. Existing
 # rows stay NULL: no retro-inference for collections imported before this column.
 db/migrations/20260807010000_collection_platform.sql
+# --- sigma_rules.level / mitre_techniques / upstream_status ---
+# Extracts what was already in every rule's YAML but never parsed: severity
+# level, MITRE ATT&CK techniques (separated from tactics/software/groups in
+# the attack.* tag namespace), and the rule's own upstream status. Schema
+# only — backend/scripts/backfillSigmaMetadata.js re-parses the existing
+# rows' stored content afterwards (idempotent, run separately).
+db/migrations/20260810000000_sigma_rule_metadata.sql

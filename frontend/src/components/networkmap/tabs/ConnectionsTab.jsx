@@ -43,7 +43,7 @@ export default function ConnectionsTab({ nodeData, allEdges, onSelectPeer }) {
   return (
     <div style={{ flex: 1, overflowY: 'auto', padding: '6px 10px' }}>
       <div style={{ fontSize: 7, color: 'var(--fl-subtle)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 6 }}>
-        {t(peers.length !== 1 ? 'networkMap.connections_count_pl' : 'networkMap.connections_count', { count: peers.length })}
+        {t('networkMap.connections_count', { count: peers.length })}
       </div>
 
       {peers.map(({ peerId, direction, edge }, i) => {

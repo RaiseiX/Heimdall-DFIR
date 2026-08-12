@@ -1,299 +1,144 @@
-# Heimdall DFIR — Roadmap V2.0
+# Roadmap de Heimdall DFIR
 
-> *Mis à jour le 2026-04-20*
-> *Maintenu comme plan d'ingénierie concret, pas comme support marketing.*
->
-> Les contributions sont les bienvenues — ouvre une issue pour discuter d'une idée.
+Dernière revue : 10 août 2026
 
-[![EN](https://img.shields.io/badge/lang-EN-blue)](ROADMAP.md)
-[![FR](https://img.shields.io/badge/lang-FR-blueviolet)](ROADMAP.fr.md)
+[English](ROADMAP.md) · [README](README.fr.md) · [Historique des changements](CHANGELOG.md)
 
----
+Cette roadmap donne une direction, pas des promesses de livraison. Les priorités peuvent changer lorsqu'une investigation révèle un problème d'intégrité, de sécurité ou de workflow. Le travail déjà livré appartient à l'[historique des changements](CHANGELOG.md) ; ce document ne garde que le contexte récent nécessaire pour comprendre la suite.
 
-## Direction
+## État actuel
 
-### Pourquoi la roadmap bouge
+Heimdall permet déjà de suivre un dossier de laboratoire de bout en bout : ouvrir une investigation, importer une collecte Windows ou Linux, examiner la timeline, lancer les détections, organiser les constats et préparer un rapport. Le travail principal consiste maintenant à rendre ce parcours prévisible et maintenable avant d'ajouter une nouvelle série d'écrans.
 
-Le DFIR bouge vite. De nouvelles sources de logs arrivent, le volume d'événements augmente, et chaque incident montre un trou dans l'outillage. Heimdall doit suivre sans devenir un SIEM obèse ni un service cloud.
+| Domaine | État dans le dépôt |
+| --- | --- |
+| Suivi des dossiers | Dossiers, assignations, phases d'investigation, Kanban, constats, questions DFIQ et brouillons de rapport collaboratifs sont présents |
+| Import | Les collectes Windows, CatScale, CSV, PCAP et mémoire sont prises en charge ; les travaux récents ont ajouté l'état par fichier, la déduplication et des résultats de parsing plus clairs |
+| Timeline | Recherche, regroupement, préférences de colonnes, recherches enregistrées, contexte et comparaison sont présents |
+| Chasse | YARA, Sigma, Hayabusa, corrélation d'IOC et packs de règles YAML sont présents ; certains anciens panneaux de revue et d'alerte doivent encore être rebranchés ou retirés |
+| Analyse réseau | Graphes par dossier et globaux, mouvements latéraux, annotations et connexions extraites des PCAP sont présents |
+| Collaboration | Assignations, chat par dossier, notebooks, salons temps réel et édition partagée des rapports sont présents |
+| Administration | Comptes, sessions, politique de mot de passe, rétention, vérification de l'audit, sauvegardes et état des services sont présents |
+| Tests | Des suites unitaires et d'intégration existent côté backend et frontend, mais les parcours navigateur critiques et les tests de déploiement manquent encore |
 
-### Là où Heimdall doit être utile
+La version de l'application n'est volontairement pas indiquée ici : les paquets, l'endpoint de santé et le changelog ne donnent pas encore le même numéro. L'établissement d'une version unique fait partie des travaux ci-dessous.
 
-| Concurrent | Force | Notre réponse |
-|-----------|-------|---------------|
-| **Magnet AXIOM** | 1000+ parsers, mobile | Garder les preuves en local, faciliter la revue en équipe, ajouter une aide IA offline |
-| **Elastic Security** | Scale, ML, SIEM | Rester auto-hébergé, fonctionner en réseau fermé, garder un setup lisible |
-| **TheHive + Cortex** | Case management | Rapprocher timeline, hunting, preuves et graphe dans le même flux |
-| **Timesketch** | Timeline Elasticsearch | Ajouter workflow de cas, détections, rapports et contexte multi-cas |
-| **Velociraptor** | Live response | Se concentrer sur les preuves importées, l'analyse offline et des écrans de revue clairs |
-| **Autopsy** | Carving, GUI | Proposer une interface web, multi-utilisateur, pratique pendant un incident |
+## Travaux récents
 
-### Cible V2.0
+Depuis la rédaction de l'ancienne roadmap, le dépôt a notamment reçu ou profondément revu :
 
-Heimdall doit permettre à un analyste d'importer une collecte, lire la timeline, lancer des détections, poser des notes et produire un rapport sans perdre la chaîne de preuve.
+- l'espace d'investigation, les questionnaires DFIQ, le Kanban et l'édition collaborative des rapports ;
+- les recherches de timeline enregistrées, les vues de contexte et la comparaison ;
+- une chaîne d'import plus explicite, avec état par fichier, déduplication, import CSV et lancement automatique des chasses ;
+- le parsing CatScale et des règles de détection propres à Linux ;
+- des salons temps réel isolés par dossier et des contrôles d'accès renforcés au niveau des routes ;
+- le chaînage du journal d'audit et les paramètres de sécurité et de rétention ;
+- le workflow d'investigation réseau et les vues de mouvement latéral ;
+- un langage visuel commun aux principaux écrans et au threat hunting ;
+- des suites de tests backend et frontend beaucoup plus fournies.
 
-Pour la V2.0, l'objectif est simple : garder la timeline solide, ajouter les pièces de workflow qui manquent, rendre la collaboration utilisable sous pression, et garder l'IA locale et optionnelle. Si une fonction ne fait pas gagner du temps à l'analyste ou ne protège pas mieux les preuves, elle n'a rien à faire dans la roadmap court terme.
+## Maintenant : fiabilité et confiance
 
----
+Ces sujets passent avant l'ajout de nouveaux domaines forensiques.
 
-## ✅ v0.9.9 — Threat Engine & Revue analyste (actuel — Avril 2026)
+### Une seule version de référence
 
-### 0.9.9 — Threat Engine automatisé & Greyware Tagging
-- [x] **Threat Engine v2.26** — moteur de règles YAML, matcher bucketed par artifact/event-id, hot-path ≤ 5 µs/record, hot-reload mtime (`backend/src/services/threatEngine.js`)
-- [x] **5 packs de règles / 61 règles** — RMM (8), Anti-Forensics (8), LOLBIN (20), Credential Access (10), Persistence (15) sous `backend/config/threat_rules/*.yaml`
-- [x] **DB v2.26** — `collection_timeline.detections JSONB` + index GIN `jsonb_path_ops` + index partiel hits-only
-- [x] **Câblage ingest** — le moteur évalue chaque record dans la boucle COPY, fusionne les tags des règles dans `tags[]`, persiste `detections[]` en DB
-- [x] **Filtres timeline** — `?detections=hits_only`, `?detection_severity=critical|high|medium|greyware`, `?detection_category=…` via `jsonb @>` containment safe
-- [x] **`GET /api/collection/:caseId/detections/summary`** — `{ total, by_severity, by_category, top_rules[10] }`
-- [x] **UI** — colonne `🎯 Detections` (pastilles de sévérité + tooltip), bordure gauche 3px (règle "No-Christmas-Tree"), toggle `🎯 Hits uniquement` + dropdown sévérité-min, bannière de résumé des détections
+Utiliser le même numéro de version dans le backend, le frontend, l'endpoint de santé, l'installeur et le changelog. Les notes de version doivent distinguer clairement la version de l'application des numéros de migration de la base.
 
-### 0.9.8 — Evidence Bridge & Revue analyste
-- [x] **Evidence Bridge** (Zustand + localStorage `heimdall.evidenceBridge.v1`, 500 pins/case)
-- [x] **Onglet revue analyste** — cartes colorées par artefact, notes analyste, statut tri-state, fuzzy search, export MD/JSON
-- [x] **Findings Board kanban** — 3 colonnes, drag-and-drop HTML5 natif, persistance par cas
-- [x] **Sync backend** — persistance des pins de preuves (v2.25), endpoint REST + broadcast WebSocket
-- [x] **Ledger inviolable** — chaîne SHA-256, endpoint `GET /audit`, bannière de vérification
-- [x] **Persistence Sweep analyzer** — 11 règles MITRE, Persistence Score pondéré
-- [x] **Reconstruction de sessions logon** — groupe les EID 4624/4625/4634/4647/4648 par `LogonId`
-- [x] **Pin → Rapport** — document de findings imprimable avec table chain-of-custody
-- [x] **Onglets Super Timeline réduits** — 13 → 6 (Timeline, MITRE, Persistance, IoA, Kill Chain, Export)
-- [x] **Timeline Explorer** — grille TanStack Table v8 avec grouping, drag-to-group panel, filtres regex/négation par colonne, column pinning, details drawer (clone web TE)
-- [x] **Map MITRE par EID EVTX** + enrichissement forensique Hayabusa + backfill `hydrateTimelineRow` (v2.24)
+Ce travail sera terminé lorsqu'un build tagué donnera la même version partout et que les deux README pourront pointer vers les mêmes notes de version.
 
----
+### Une première installation sûre
 
-## ✅ v0.9.0 — Socle (complété)
+Supprimer les mots de passe initiaux faibles, rendre les services optionnels réellement optionnels et nettoyer les commentaires obsolètes de Compose et des installeurs. Documenter la frontière de confiance créée par le socket Docker, les ports MinIO exposés et un service Elasticsearch sans authentification interne.
 
-### Missions fondations
-- [x] **M1** — Super Timeline Elasticsearch (index par cas, bulkIndex, searchTimeline)
-- [x] **M2** — Hard Delete DoD 5220.22-M (shred 7 passes + fallback Node.js)
-- [x] **M3** — Collaboration temps réel (Socket.io rooms, présence, dashboard:update)
-- [x] **M4** — Architecture Workers BullMQ (file parser-jobs, Redis pub/sub, service worker isolé)
-- [x] **M5** — ClamAV + VolWeb (Volatility 3, MinIO, SSO Magic Link, upload chunked 256 GB)
-- [x] **M6** — UI de notes d'investigation (TanStack Table, Split-Pane, sanitisation XSS)
-- [x] **M7** — Revue sécurité complète (injection SQL/cmd, secrets, CORS, Docker, Nginx headers)
-- [x] **M8** — YARA / Sigma Threat Hunting + import depuis GitHub (Neo23x0, Yara-Rules, SigmaHQ)
-- [x] **M9** — TAXII / STIX Threat Intel (index ES `threat_intel`, corrélation automatique)
+Ce travail sera terminé lorsqu'une installation neuve pourra se faire sans mot de passe connu et que l'opérateur pourra choisir de démarrer ou non Ollama et les fonctions d'administration de l'hôte.
 
-### Missions fonctionnalités
-- [x] **C.1** — IOC Enrichissement VirusTotal + AbuseIPDB (cache Redis 24h)
-- [x] **B.1** — Score de triage par machine (0–100, 16 règles EVTX + Sysmon) + Sysmon Configs open-source
-- [x] **B.2** — Graphe de mouvement latéral D3.js (EIDs 4624/4648/4768/4769/4776)
+### Un parcours analyste testé
 
-### Plans DFIR v2.7 (Blocs 1–6)
-- [x] **Bloc 1** — ECS sur collection_timeline, Hayabusa → Timeline, filtres host/user, gaps temporels
-- [x] **Bloc 2** — Multi-select artefacts, surlignage sévérité Hayabusa, détection Persistence
-- [x] **Bloc 3** — Détections automatiques : Timestomping, Double Extension, Beaconing C2
-- [x] **Bloc 4** — Chat live par cas, export CSV universel, export STIX 2.1, rapport PDF enrichi
-- [x] **Bloc 5** — Health Dashboard, JWT Rotation + blacklist Redis, Backup DB automatique
-- [x] **Bloc 6** — Playbooks DFIR (Ransomware/RDP/Phishing), Legal Hold HMAC, PCAP parser (tshark), Infrastructure Docker
+Rebrancher ou retirer les anciens panneaux de revue, de playbooks, de SOAR et de triage. Corriger la navigation selon les rôles afin qu'une action ne mène jamais vers une page inaccessible à l'utilisateur. Ajouter des tests navigateur depuis la création du dossier jusqu'à l'import, la timeline, le constat et le rapport.
 
-### Missions critiques
-- [x] **Isolation collectes** (v2.18) — `evidence_id` FK + anti-IDOR 3 couches, zéro spillage
-- [x] **SOAR Engine** — YARA + Sigma + TI + Triage en parallèle post-ingestion, alertes socket
-- [x] **RAM Stabilisation** (v2.22) — écriture positionnelle sparse, idempotence `INTEGER[]`, resume localStorage, streaming async VolWeb
-- [x] **IA Copilot** (Ollama) — chat global SSE, copilot par cas avec contexte forensique injecté, persistance DB
+Ce travail sera terminé lorsque le parcours pris en charge ne contiendra plus de navigation morte et s'exécutera en CI sur une base neuve.
 
-### Features hors roadmap initiale (bonus livrés)
-- [x] CyberChef Forensic natif (Base64/Hex/XOR/ROT13, détection obfuscation automatique)
-- [x] MITRE ATT&CK tab + APT Attribution
-- [x] Attack Chain (kill chain 14 phases, bookmarks)
-- [x] Network Graph + PCAP analysis (tshark)
-- [x] Collection Agent scripts (CatScale)
-- [x] IOC multi-cas (`/api/iocs/cross-case`)
-- [x] Case Risk Score (`riskScoreService.ts`)
-- [x] Fix SSRF TAXII (`networkUtils.ts`)
-- [x] Logging structuré winston (`config/logger.ts`)
-- [x] Rate limiting par utilisateur (`rateLimiter.ts`)
+### Des imports prévisibles
 
----
+Étendre les tests sur des collectes réelles et versionnées : interruption d'un travail, échec d'un parseur, nouvel import et variantes d'arborescence. Aligner les limites d'import documentées avec celles que chaque route applique réellement. Rendre les étapes de reprise visibles pour l'opérateur.
 
-## 📊 Statut d'implémentation global
+Ce travail sera terminé lorsque chaque fichier importé atteindra un état final clair et qu'une relance ne pourra pas dupliquer silencieusement la timeline.
 
-```
-Quick Wins    : ▓▓▓▓▓▓░░░░  6/9  implémentés  (1 partiel · 2 non démarrés)
-Core Features : ▓▓▓▓▓░░░░░  5/25 implémentés  (5 partiels · 15 non démarrés)
-Long terme   : ░░░░░░░░░░  0/7  (plus tard, non commencé)
-Hors roadmap  : ▓▓▓▓▓▓▓▓▓▓ 13 features supplémentaires livrées
-```
+### Exercices de restauration et d'audit
 
-### Quick Wins
+Tester ensemble la restauration de PostgreSQL, Elasticsearch, MinIO et des volumes de preuves. Maintenir une clé d'audit distincte et vérifier à la fois l'intégrité des lignes et la continuité de la chaîne. Décrire l'effacement sécurisé comme une propriété dépendante du stockage, sans promettre une norme donnée sur tous les volumes.
 
-| ID | Feature | Statut | Notes |
-|----|---------|:------:|-------|
-| QW-1 | IOC multi-cas | ✅ | `/api/iocs/cross-case`, vue SQL, widget dashboard |
-| QW-2 | Enrichissement Timeline | 🔶 | Bouton ContextMenu OK, manque intégration dans l'inspector |
-| QW-3 | Case Risk Score | ✅ | `riskScoreService.ts` — score 0-100, cache Redis |
-| QW-4 | Fix SSRF TAXII | ✅ | `networkUtils.ts` — validation hostname/IP privées |
-| QW-5 | Logging structuré (winston) | ✅ | `config/logger.ts` — JSON structuré + AsyncLocalStorage |
-| QW-6 | Rate limiting par user | ✅ | `rateLimiter.ts` — 5 jobs max/user, HTTP 429 |
-| QW-7 | MFA TOTP / FIDO2 | ❌ | Non commencé |
-| QW-8 | Case Templates | 🔶 | Report templates OK, manque checklist/workflow de cas |
-| QW-9 | PWA mobile | ❌ | Non commencé |
+Ce travail sera terminé lorsqu'un exercice documenté pourra restaurer un dossier représentatif et expliquer ce qui est vérifié, ainsi que ce qui ne l'est pas.
 
-### Core Features
+## Ensuite : les manques utiles
 
-| ID | Feature | Statut | Notes |
-|----|---------|:------:|-------|
-| CF-1 | LLM Copilot local (Ollama) | ✅ | `aiService.ts`, streaming SSE, contexte par cas |
-| CF-2 | Investigation Graph | 🔶 | NetworkGraphD3 réseau OK, manque graphe d'investigation complet |
-| CF-3 | Case Team Management | ❌ | Non commencé |
-| CF-4 | Export SIEM | 🔶 | STIX 2.1 + ES OK, manque format Splunk HEC natif |
-| CF-5 | Prometheus + Grafana | ❌ | Non commencé |
-| CF-6 | Tests automatisés | 🔶 | Jest configuré, 1 test unitaire — pas de suite systématique |
-| CF-7 | Rapport PDF enrichi | ✅ | `reports.js` — templates, sections paramétrables, AI optionnel |
-| CF-8 | Cloud Forensics AWS/Azure/M365 | ❌ | Non commencé |
-| CF-9 | Live Response Bridge (Velociraptor) | ❌ | Non commencé |
-| CF-10 | Binary Triage local | ❌ | Non commencé |
-| CF-11 | OpenAPI + Webhooks | ❌ | Non commencé |
-| CF-12 | Community Hub YARA/Sigma | ❌ | Non commencé |
-| CF-13 | Email Forensics (.eml/.msg/.pst) | ❌ | Non commencé |
-| CF-14 | SSO / SAML 2.0 / LDAP | ❌ | Non commencé |
-| CF-15 | CTF / Mode Formation | ❌ | Non commencé |
-| CF-16 | NLP Search | ❌ | Dépend CF-1 ✅ — peut démarrer |
-| CF-17 | Session Recording & Audit Log | ✅ | `auditLog` middleware + `audit_logs` table |
-| CF-18 | Container / Docker Forensics | ❌ | Non commencé |
-| CF-19 | Linux Forensics natif (CatScale) | ✅ | `catscaleService.ts`, parser complet, tab dédié |
-| CF-20 | NTDS.dit / AD Forensics | 🔶 | Détection credential dump OK, manque parsing NTDS.dit |
-| CF-21 | MISP bidirectionnel | ❌ | TAXII/STIX pull OK, manque push vers MISP |
-| CF-22 | EDR Integration | ❌ | Non commencé |
-| CF-23 | Déduplication & Noise Reduction | 🔶 | Dédup STIX/IOC OK, manque mode Signal global |
-| CF-24 | NIS2/RGPD Breach Notification | ❌ | Non commencé |
-| CF-25 | Similar Case Detection | ❌ | Non commencé |
+L'ordre au sein de chaque groupe reste volontairement ouvert. Une issue doit définir le périmètre et les critères d'acceptation avant le début de l'implémentation.
 
-### Paris long terme
+### Workflow analyste
 
-| ID | Feature | Statut |
-|----|---------|:------:|
-| MS-1 | Campaign Intelligence cross-cas | ❌ |
-| MS-2 | Architecture Big Data (500M événements/cas) | ❌ |
-| MS-3 | AI Copilot avancé proactif | ❌ |
-| MS-4 | Certification Air-gapped & Sovereign | ❌ |
-| MS-5 | Multi-tenancy MSSP | ❌ |
-| MS-6 | Plugin System (architecture extensible) | ❌ |
-| MS-7 | UEBA — User & Entity Behavior Analytics | ❌ |
+- des modèles de dossier réutilisables avec checklist, champs obligatoires et rapport par défaut ;
+- l'assignation à des équipes ou groupes, au-delà des personnes ;
+- une base responsive pour le triage et la revue, sans prétendre faire tenir toute la timeline de bureau sur un téléphone ;
+- la traduction anglaise complète de la documentation forensique intégrée ;
+- des tests de bout en bout pour les confirmations destructives, le legal hold et l'édition concurrente des rapports.
 
----
+### Qualité des détections
 
-## 🗓️ Planning
+- une boucle de retour analyste pour les faux positifs et les exceptions de règles ;
+- des signaux de prévalence et de fichiers connus pour réduire le bruit ;
+- le contexte de signature et de vulnérabilité des pilotes ;
+- une mesure de qualité des packs fondée sur des jeux de test versionnés ;
+- une meilleure analyse du beaconing irrégulier ou à faible volume.
 
-> **Principe directeur** : *Faire fonctionner correctement → Faire fonctionner de façon fiable → Faire scaler.*
+### Interopérabilité
 
-```
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
- SOCLE — Sécurité & Fiabilité (non négociable)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+- une documentation OpenAPI et des webhooks sortants ;
+- le transfert du journal d'audit et un format d'export SIEM documenté, notamment Splunk HEC ;
+- des échanges MISP bidirectionnels ; l'intégration actuelle importe seulement les indicateurs ;
+- une passerelle vers Velociraptor pour la réponse à distance, sans reconstruire la collecte d'endpoints dans Heimdall ;
+- des contrats d'import et d'export testables sans passer par l'interface.
 
-2026 Q1 — Sprint 0
-  ├─ [SÉCU]   QW-7 : MFA TOTP / FIDO2
-  ├─ [CODE]   CF-6 : Tests backend — services critiques
-  ├─ [INFRA]  pgBouncer (connection pooling PostgreSQL)
-  ├─ [INFRA]  Backup PG + ES → MinIO + test restauration
-  └─ [CODE]   QW-8 : Case Templates
+### Sources de preuves supplémentaires
 
-2026 Q1-Q2 — Sprint 1 : Observabilité & Quick Wins
-  ├─ CF-5  : Prometheus + Grafana
-  ├─ QW-9  : PWA mobile
-  ├─ CF-16 : NLP Search (dépend CF-1 ✅)
-  └─ CF-6  : Tests routes + intégration
+- les messages et conteneurs de messagerie (`.eml`, `.msg`, `.pst`) ;
+- les journaux cloud de Microsoft 365, Azure et AWS ;
+- NTDS.dit et des artefacts Active Directory plus complets ;
+- les artefacts de conteneurs et de Docker ;
+- le triage local de binaires, avec des limites explicites pour la sandbox et les licences.
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
- FEATURES — Nouvelles fonctionnalités
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+### Exploitation et identité
 
-2026 Q2 (Avril → Juillet)
-  ├─ CF-14 : SSO / SAML / LDAP        ← déblocage enterprise
-  ├─ CF-13 : Email Forensics           ← vecteur #1
-  ├─ CF-8  : Cloud Forensics AWS/Azure/M365
-  ├─ CF-19 : Linux Forensics natif (✅ partiel)
-  └─ CF-11 : OpenAPI + Webhooks
+- la MFA par TOTP ou WebAuthn/FIDO2 ;
+- la revue périodique de la politique de sécurité, des versions prises en charge et du canal de signalement privé ;
+- le SSO par SAML ou OIDC, puis LDAP uniquement si le besoin de déploiement est clair ;
+- des métriques Prometheus et un tableau Grafana restreint et maintenu ;
+- la planification testée des sauvegardes, les alertes de capacité et de saturation des files ;
+- un guide de déploiement pour les réseaux isolés.
 
-2026 Q3 (Juillet → Octobre)
-  ├─ CF-2  : Investigation Graph       ← différenciateur #2
-  ├─ CF-3  : Case Team Management
-  ├─ CF-9  : Live Response (Velociraptor)
-  ├─ CF-10 : Binary Triage local
-  ├─ CF-18 : Container / Docker Forensics
-  ├─ CF-20 : NTDS.dit / Active Directory
-  ├─ CF-22 : EDR Integration (Phase 1)
-  ├─ CF-23 : Déduplication & Noise Reduction
-  └─ CF-6  : Tests e2e + coverage complet
+## Plus tard : mesurer avant de distribuer
 
-2026 Q4 (Octobre → Janvier 2027)
-  ├─ CF-4  : Export SIEM (Splunk HEC)
-  ├─ CF-12 : Community Hub YARA/Sigma
-  ├─ CF-15 : CTF / Mode Formation
-  ├─ CF-21 : MISP bidirectionnel
-  ├─ CF-24 : NIS2/RGPD Breach Notification
-  ├─ CF-25 : Similar Case Detection
-  └─ MS-4  : Air-gapped certification
+Le travail multi-serveur ne devrait commencer qu'après des tests de charge représentatifs montrant les limites réelles du déploiement Compose.
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
- SCALE — Multi-serveur (stack prouvée en prod)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+- workers de parsing et de chasse horizontaux ;
+- analyse de campagnes entre dossiers avec des règles d'accès explicites ;
+- stockage de timelines plus volumineuses, ClickHouse n'étant envisagé qu'après mesure ;
+- multi-tenant MSSP avec isolation stricte entre clients ;
+- API de plugins versionnée ;
+- packaging Kubernetes lorsque les contrats de service et de stockage seront stables.
 
-2027 Q1 — Docker Swarm (>20 analystes / multi-incidents)
-  ├─ Migration Compose → Swarm
-  ├─ Scaling horizontal BullMQ workers (0–10)
-  └─ MS-1 : Campaign Intelligence
+## Limites du projet
 
-2027 Q2-Q3 — Paris long terme
-  ├─ MS-2 : Architecture Big Data (ClickHouse)
-  ├─ MS-5 : Multi-tenancy MSSP
-  ├─ MS-3 : AI Copilot avancé (proactif)
-  └─ MS-7 : UEBA — Behavior Analytics
+Heimdall ne cherche pas à devenir un SIEM généraliste, un service hébergé de conservation des preuves ou un remplacement de la réponse à distance sur les endpoints. Les fonctions basées sur un modèle local peuvent aider à chercher ou à rédiger, mais elles ne doivent jamais transformer une réponse non vérifiée en conclusion forensique ni masquer les preuves qui la soutiennent.
 
-2027 Q4+ — Kubernetes (>50 analystes / MSSP)
-  ├─ Helm chart Heimdall
-  ├─ HPA sur parser-worker (autoscaling queue depth)
-  └─ MS-6 : Plugin System
-```
+## Choix des travaux
 
----
+Lorsque deux sujets sont en concurrence, la priorité va à celui qui :
 
-## Tableau de synthèse
+1. protège l'isolation des dossiers ou l'intégrité des preuves ;
+2. supprime un échec du parcours normal de l'analyste ;
+3. améliore la répétabilité par des tests, des journaux ou une procédure de reprise ;
+4. prend en charge une source de preuve pour laquelle des exemples peuvent être fournis et maintenus ;
+5. conserve un déploiement auto-hébergé compréhensible.
 
-| ID | Feature | Effort | Impact | Différenciant | Priorité |
-|----|---------|:------:|:------:|:-------------:|:--------:|
-| QW-7 | MFA TOTP / FIDO2 | S | XL | — | 🔴 P0 |
-| CF-16 | NLP Search | S | XL | ✅ | 🔴 P0 |
-| CF-6 | Tests automatisés | M | L | — | 🟠 P1 |
-| CF-5 | Prometheus + Grafana | M | L | — | 🟠 P1 |
-| CF-8 | Cloud Forensics AWS/Azure/M365 | M | XL | ✅✅ | 🟠 P1 |
-| CF-9 | Live Response Bridge (Velociraptor) | M | XL | ✅✅ | 🟠 P1 |
-| CF-13 | Email Forensics | M | XL | ✅ | 🟠 P1 |
-| CF-14 | SSO / SAML / LDAP | S | L | — | 🟠 P1 |
-| CF-18 | Container / Docker Forensics | M | XL | ✅ | 🟠 P1 |
-| CF-19 | Linux Forensics natif | M | XL | ✅ | 🟠 P1 |
-| CF-20 | NTDS.dit / AD Forensics | M | XL | ✅ | 🟠 P1 |
-| CF-22 | EDR Integration | M | XL | ✅✅ | 🟠 P1 |
-| CF-23 | Déduplication & Noise Reduction | M | L | — | 🟠 P1 |
-| QW-8 | Case Templates | S | L | — | 🟠 P1 |
-| QW-9 | PWA mobile | S | M | — | 🟡 P2 |
-| CF-2 | Investigation Graph | M | XL | ✅✅ | 🟡 P2 |
-| CF-3 | Case Team Management | M | L | — | 🟡 P2 |
-| CF-4 | Export SIEM | M | L | — | 🟡 P2 |
-| CF-10 | Binary Triage local | M | XL | ✅ | 🟡 P2 |
-| CF-11 | OpenAPI + Webhooks | M | L | — | 🟡 P2 |
-| CF-12 | Community Hub YARA/Sigma | M | XL | ✅✅ | 🟡 P2 |
-| CF-15 | CTF / Mode Formation | M | L | ✅✅ | 🟡 P2 |
-| CF-17 | Session Recording & Audit Log | M | L | — | 🟡 P2 |
-| CF-21 | MISP bidirectionnel | M | L | — | 🟡 P2 |
-| CF-24 | NIS2/RGPD Breach Notification | M | M | ✅✅ | 🟡 P2 |
-| CF-25 | Similar Case Detection | M | L | ✅ | 🟡 P2 |
-| MS-4 | Air-gapped certification | XL | XL | ✅✅ | 🟡 P2 |
-| MS-1 | Campaign Intelligence | XL | XL | ✅✅ | 🔵 P3 |
-| MS-2 | Architecture Big Data | XL | XL | ✅ | 🔵 P3 |
-| MS-3 | AI Copilot avancé | XL | XL | ✅✅ | 🔵 P3 |
-| MS-5 | Multi-tenancy MSSP | XL | XL | ✅✅ | 🔵 P3 |
-| MS-6 | Plugin System | XL | XL | ✅✅ | 🔵 P3 |
-| MS-7 | UEBA Behavior Analytics | XL | XL | ✅✅ | 🔵 P3 |
-
----
-
-## Contribuer
-
-1. Fork le projet
-2. Crée une branche `feature/ma-fonctionnalite`
-3. Ouvre une Pull Request avec description claire
-
-Toutes les contributions sont soumises à la licence MIT.
+Pour proposer un sujet, ouvrez une issue en décrivant le problème rencontré par l'analyste, une entrée représentative et le résultat attendu. Une modification réduite et testable est plus simple à relire qu'une proposition de fonctionnalité sans échantillon de preuve.

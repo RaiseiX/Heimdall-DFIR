@@ -28,8 +28,10 @@ export default function SuperTimelinePage() {
 
     const initSearch   = searchParams.get('search');
     const initResultId = searchParams.get('resultId');
+    const initHuntId   = searchParams.get('huntId');
     if (initSearch)   setFilter('search', initSearch);
     if (initResultId) setFilter('resultId', initResultId);
+    if (initHuntId)   setFilter('huntId', initHuntId);
 
     // Load color rules first (fast DB query), then kick off timeline so first render has correct row colors
     timelineRulesAPI.list(caseId)
