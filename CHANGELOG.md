@@ -5,13 +5,61 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — Semantic Ve
 
 ---
 
-## [Unreleased]
+## [2026-08-13]
+
+### Added (Ingestion & Forensic Coverage)
+
+- **Pipeline d'ingestion centré sur les preuves** — les archives et arborescences sont désormais parcourues, classifiées et suivies fichier par fichier. La déduplication tient compte de la preuve, du hash, du parseur et de sa version ; l'état reste explicite jusqu'à l'émission de `evidence:ready`
+- **Threat hunting automatique après ingestion** — une preuve prête peut déclencher le hunt complet en arrière-plan via BullMQ. Les exécutions sont persistées dans `hunt_runs`, protégées contre les doublons par cas et restent consultables après un redémarrage
+- **Matérialisation dans la Super Timeline** — les résultats des parseurs sont injectés dans `collection_timeline`, ce qui rend les événements ingérés visibles dans la timeline et réellement exploitables par les détecteurs SQL
+- **Prise en charge des collections mixtes brutes + CSV** — les artefacts natifs sont analysés en priorité, puis les CSV complètent uniquement les types qui n'ont produit aucun résultat. Les mappings sont dérivés du registre d'artefacts, avec une déduplication fondée sur la colonne temporelle effectivement résolue
+- **Journal de parsing exploitable** — la page des logs expose les décisions d'import CSV, les raisons précises des fichiers ignorés et permet d'exporter le journal d'exécution
+- **Détection de plateforme** — la plateforme d'une collection importée est détectée et persistée afin d'appliquer les parseurs, règles et vues adaptés
+- **Couverture Linux CatScale** — les champs forensiques importants sont promus en colonnes structurées, l'ancrage temporel a été fiabilisé et cinq packs de détection Linux couvrent l'accès, l'accès aux identifiants, l'évasion, l'exécution et la persistance
+
+### Added (Investigation & Collaboration)
+
+- **Kanban d'investigation** — les étapes d'une enquête peuvent être organisées par statut (`todo`, `doing`, `done`, `blocked`) avec glisser-déposer, mise à jour optimiste et synchronisation avec le suivi de workflow existant
+- **Catalogue DFIQ complet** — les scénarios, facettes, questions et approches DFIQ sont disponibles dans l'espace d'investigation, avec création de questions personnalisées et rattachement aux preuves du dossier
+- **Rapports collaboratifs en temps réel** — les brouillons utilisent Yjs, sont persistés côté serveur et se resynchronisent après une reconnexion pour permettre l'édition simultanée sans écrasement
+- **Super Timeline enrichie** — ajout des recherches sauvegardées, d'une vue de contexte autour d'un événement et de la comparaison entre deux timelines par preuve ou par hôte
+- **Actions d'enquête depuis la carte réseau** — un artefact réseau peut ouvrir son événement dans la timeline, devenir un IOC ou être épinglé comme finding sans quitter le flux d'analyse
+- **Temps réel par dossier** — les événements de preuve, parsing, timeline, rapport et réseau utilisent des rooms Socket.IO cohérentes et filtrées selon les droits d'accès au cas
+
+### Changed (Threat Hunting & Interface)
+
+- **Refonte complète du Threat Hunting** — les six onglets ont été reconstruits sur un langage visuel commun, avec des tables Sigma et YARA plus lisibles, des états cohérents et des filtres plus faciles à comprendre
+- **Contexte Sigma enrichi** — les métadonnées des règles sont persistées et rétro-remplissables ; la taille d'échantillon d'un hunt est conservée pour interpréter correctement les résultats
+- **Design system unifié** — adoption locale des familles IBM Plex, nouveaux composants `DataTable` et `ScopeBar`, styles globaux harmonisés et contrôles automatiques de cohérence visuelle et i18n
+- **Documentation remaniée** — README, feuille de route, guide de sécurité et tutoriels français/anglais ont été alignés sur les parcours et fonctionnalités actuels
 
 ### Added (Lateral Movement)
 
 - **Propagation latérale dérivée du réseau** — la vue « Propagation Latérale » construit désormais des arêtes depuis `network_connections` (imports PCAP / CSV), et plus seulement depuis les events de logon Windows EVTX. Les connexions internes↔internes sur les protocoles latéraux (SMB 445, NetBIOS 139, WMI/RPC 135, RDP 3389, WinRM 5985/5986, SSH 22, VNC 5900) sont injectées dans le graphe latéral, de sorte qu'un cas alimenté uniquement par un PCAP fait apparaître le pivoting au lieu d'une vue vide (`backend/src/services/lateralMovementService.ts`, `backend/src/routes/cases.js`)
 - **Origine des arêtes** — chaque arête latérale porte une `origin` (`evtx` / `network` / `both`) ; les arêtes réseau s'affichent en pointillés avec une couleur par protocole et une entrée de légende dédiée (`frontend/src/components/network/LateralMovementD3.jsx`)
 - **Facteurs de score réseau** — un nœud atteint via RDP/SSH/VNC gagne un facteur « Accès distant réseau » (+10) ; un nœud n'ayant que des preuves réseau est marqué « Preuve réseau seule (non confirmée par auth) »
+
+### Security
+
+- **RBAC homogène sur les dossiers** — les routes REST et les handlers Socket.IO liés à un cas vérifient désormais systématiquement que l'utilisateur peut y accéder, y compris pour le chat, les rapports, le parsing et la carte réseau
+- **Confinement des fichiers téléversés** — les noms provenant des uploads sont normalisés avant toute construction de chemin afin de bloquer les traversées de répertoires sur les anciens flux d'import
+- **Journal d'audit chaîné** — chaque entrée est liée cryptographiquement à la précédente ; une suppression ou une altération de l'historique devient détectable depuis l'interface d'administration
+- **Migrations canoniques et contrôle du schéma** — le démarrage Linux et Windows suit le même manifeste de migrations et les routes dépendantes refusent de fonctionner lorsqu'un schéma requis est incomplet
+
+### Fixed
+
+- **Messages de connexion localisés** — l'API d'authentification renvoie des codes d'erreur stables ; l'interface traduit correctement les identifiants invalides, comptes verrouillés ou désactivés et limitations de débit, sans afficher un message anglais brut
+- **Carte réseau plus robuste** — les layouts sauvegardés dégénérés sont rejetés et l'ancien graphe D3 inutilisé a été retiré, ce qui évite les cartes comprimées ou illisibles au chargement
+- **Collections extraites lisibles** — les permissions des fichiers extraits sont corrigées et les erreurs `EACCES` ne sont plus masquées comme de simples fichiers absents
+- **Navigation des collections** — les routes enfants statiques s'affichent à nouveau grâce au rétablissement de l'outlet dans le layout de collection
+- **Détection Windows fiable** — les détecteurs acceptent les variantes `EventId` et `EventID`, évitant de manquer silencieusement les événements produits par EvtxECmd
+- **Dédoublonnage CSV/native cohérent** — le hash est calculé à partir de la colonne temporelle réellement sélectionnée, ce qui évite de réimporter le même événement sous deux formes
+
+### Changed (Runtime & Repository)
+
+- **Socle d'exécution modernisé** — les images et dépendances backend/frontend ont quitté leurs versions en fin de vie
+- **Démarrage de base de données simplifié** — la création des structures de timeline a été déplacée vers les migrations de démarrage, tandis que la gestion des archives a été extraite du routeur de collection
+- **Dépôt public assaini** — les sauvegardes de sources, échantillons de preuves et outils internes ne sont plus suivis ; le dépôt publié se concentre sur le code et les ressources nécessaires au produit
 
 ---
 
