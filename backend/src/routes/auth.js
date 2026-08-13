@@ -20,7 +20,7 @@ const authLimiter = rateLimit({
   standardHeaders:         'draft-7',
   legacyHeaders:           false,
   skipSuccessfulRequests:  true,
-  message:                 { error: 'Trop de tentatives depuis cette adresse. Réessayez plus tard.' },
+  message:                 { code: 'rate_limited', error: 'Trop de tentatives depuis cette adresse. Réessayez plus tard.' },
 });
 
 const REFRESH_TOKEN_EXPIRY_DAYS = 30;   // fallback if policy unset
@@ -99,7 +99,7 @@ router.post('/login', authLimiter, async (req, res) => {
   try {
     const { username, password } = req.body;
     if (!username || !password) {
-      return res.status(400).json({ error: 'Username et password requis' });
+      return res.status(400).json({ code: 'missing_fields', error: 'Username et password requis' });
     }
 
     const policy = await getSecurityPolicy();
@@ -108,7 +108,11 @@ router.post('/login', authLimiter, async (req, res) => {
     // Account lockout — keyed by username (also throttles user enumeration).
     if (await isLockedOut(username, redis, policy)) {
       await auditLog(null, 'login_blocked', 'user', null, { username, reason: 'lockout' }, req.ip);
-      return res.status(429).json({ error: `Compte temporairement verrouillé après trop de tentatives. Réessayez dans ${policy.lockoutWindowMin} min.` });
+      return res.status(429).json({
+        code: 'account_locked',
+        windowMin: policy.lockoutWindowMin,
+        error: `Compte temporairement verrouillé après trop de tentatives. Réessayez dans ${policy.lockoutWindowMin} min.`,
+      });
     }
 
     const result = await pool.query(
@@ -119,20 +123,20 @@ router.post('/login', authLimiter, async (req, res) => {
     if (result.rows.length === 0) {
       await recordLoginFailure(username, redis, policy);
       await auditLog(null, 'login_failed', 'user', null, { username, reason: 'user_not_found' }, req.ip);
-      return res.status(401).json({ error: 'Identifiants invalides' });
+      return res.status(401).json({ code: 'invalid_credentials', error: 'Identifiants invalides' });
     }
 
     const user = result.rows[0];
     if (!user.is_active) {
       await auditLog(user.id, 'login_blocked', 'user', user.id, { username, reason: 'account_disabled' }, req.ip);
-      return res.status(403).json({ error: 'Compte désactivé' });
+      return res.status(403).json({ code: 'account_disabled', error: 'Compte désactivé' });
     }
 
     const valid = await bcrypt.compare(password, user.password_hash);
     if (!valid) {
       await recordLoginFailure(username, redis, policy);
       await auditLog(user.id, 'login_failed', 'user', user.id, { username, reason: 'wrong_password' }, req.ip);
-      return res.status(401).json({ error: 'Identifiants invalides' });
+      return res.status(401).json({ code: 'invalid_credentials', error: 'Identifiants invalides' });
     }
 
     await clearLoginFailures(username, redis);

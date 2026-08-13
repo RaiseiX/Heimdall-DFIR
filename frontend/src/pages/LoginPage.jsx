@@ -4,6 +4,7 @@ import HeimdallLogo from '../components/ui/HeimdallLogo';
 import { useTranslation } from 'react-i18next';
 import { authAPI } from '../utils/api';
 import { getLoginContent } from '../i18n/loginContent';
+import { resolveLoginError } from './loginErrors';
 
 export default function LoginPage({ onLogin }) {
   const { t, i18n } = useTranslation();
@@ -81,18 +82,8 @@ export default function LoginPage({ onLogin }) {
       const { data } = await authAPI.login({ username, password });
       onLogin(data.user, data.token, data.refreshToken);
     } catch (err) {
-      // Distinguish bad credentials from a locked/disabled account or an unreachable server.
-      if (!err.response) {
-        setError({ message: t('login.error_network'), tone: 'danger', net: true });
-      } else {
-        const status = err.response.status;
-        const backendMsg = err.response.data?.error;
-        if (status === 429)      setError({ message: backendMsg || t('login.error_locked'), tone: 'warn' });
-        else if (status === 403) setError({ message: backendMsg || t('login.error_disabled'), tone: 'warn' });
-        else if (status === 401) setError({ message: t('login.error_credentials'), tone: 'danger' });
-        else if (status >= 500)  setError({ message: t('login.error_server'), tone: 'danger' });
-        else                     setError({ message: backendMsg || t('login.error'), tone: 'danger' });
-      }
+      const { key, vars, tone, net } = resolveLoginError(err);
+      setError({ message: t(key, vars), tone, net });
     } finally {
       setLoading(false);
     }

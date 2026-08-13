@@ -54,6 +54,21 @@ RULES.md
 INVESTIGATION_COMMITS.txt
 mockup-nordic.html
 
+# Instantanés de source et copies de travail — jamais publiés.
+# `frontend/src_backup_20260411_103440/` (110 fichiers) avait échappé aux motifs
+# précédents et se trouvait publié sur un dépôt public. Ajouter une règle ici ne
+# le retire PAS du suivi : il faut un `git rm -r --cached` sur le chemin concerné.
+*_backup_*/
+*_backup/
+src_backup*/
+*.orig
+*.rej
+*~
+
+# Maquettes et livrables de conception — construits hors du produit.
+*.mockup.html
+maquettes/
+
 # Tests et outillage de test — développement local uniquement, jamais publiés.
 # Politique : seul le code de production est livré sur GitHub.
 # NOTE : sans tests dans le dépôt, .github/workflows/ci.yml n'a plus d'objet —
