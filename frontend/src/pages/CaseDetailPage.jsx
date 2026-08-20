@@ -3,7 +3,7 @@ import * as Y from 'yjs';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '../utils/theme';
 import { useParams, useNavigate, useOutletContext } from 'react-router-dom';
-import { FolderOpen, Clock, Globe, FileDown, Star, Plus, AlertTriangle, Download, Loader2, Shield, Trash2, Cpu, Copy, RefreshCw, CalendarDays, Pencil, Wifi, Lock, Activity, FileJson, Sparkles, X, Info, BookOpen, Crosshair } from 'lucide-react';
+import { FolderOpen, Clock, Globe, FileDown, Star, Plus, AlertTriangle, Download, Loader2, Shield, Trash2, Cpu, Copy, RefreshCw, CalendarDays, Pencil, Wifi, Lock, Activity, FileJson, Sparkles, X, Info, BookOpen, Crosshair, XCircle, CheckCircle2 } from 'lucide-react';
 import api, { casesAPI, evidenceAPI, iocsAPI, collectionAPI, parsersAPI, pcapAPI, legalHoldAPI } from '../utils/api';
 import AiCopilotModal from '../components/ai/AiCopilotModal';
 import { Button, Modal, Spinner } from '../components/ui';
@@ -326,6 +326,12 @@ export default function CaseDetailPage({ user }) {
     refreshEvResultMap();
   });
 
+  // A parse that errors never emits collection:parse:done — refresh anyway so the
+  // evidence badges reflect the real (partial) state instead of staying 'not analyzed'.
+  useSocketEvent(socket, 'collection:parse:error', () => {
+    refreshEvResultMap();
+  });
+
   const refetchEvidence = useCallback(async () => {
     try {
       const evRes = await evidenceAPI.list(id);
@@ -438,17 +444,30 @@ export default function CaseDetailPage({ user }) {
   }, [evidence, id]);
 
   // Poll server-side parse progress so the monitor re-attaches after navigation
-  // (the parse itself runs detached server-side and survives leaving the page).
+  // (the parse itself runs detached server-side and survives leaving the page),
+  // and so a client that missed the socket events still receives the terminal
+  // outcome (done / error) instead of a blank void.
+  const terminalRefreshedRef = useRef(false);
   useEffect(() => {
-    if (!id || tab !== 'evidence') { setParseProg(null); return; }
+    if (!id || tab !== 'evidence') { setParseProg(null); terminalRefreshedRef.current = false; return; }
     let alive = true;
     const poll = () => collectionAPI.parseProgress(id)
-      .then(r => { if (alive) setParseProg(r.data?.active ? r.data : null); })
+      .then(r => {
+        if (!alive) return;
+        const d = r.data;
+        setParseProg(d);
+        if (d && d.active) {
+          terminalRefreshedRef.current = false;
+        } else if (d && d.done && !terminalRefreshedRef.current) {
+          terminalRefreshedRef.current = true;
+          refreshEvResultMap();
+        }
+      })
       .catch(() => {});
     poll();
     const timer = setInterval(poll, 2500);
     return () => { alive = false; clearInterval(timer); };
-  }, [id, tab]);
+  }, [id, tab, refreshEvResultMap]);
 
   // Case audit log — fetched when the Audit tab is opened.
   useEffect(() => {
@@ -1291,6 +1310,27 @@ export default function CaseDetailPage({ user }) {
               live={parseProg.live}
             />
           )}
+
+          {parseProg && !parseProg.active && parseProg.done && (() => {
+            const pstates = parseProg.parsers || {};
+            const errN = Object.values(pstates).filter(s => s && s.status === 'error').length;
+            const isErr = parseProg.outcome === 'error';
+            const color = isErr ? 'var(--fl-danger)' : (errN > 0 ? '#d9a400' : 'var(--fl-ok)');
+            return (
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, border: `1px solid color-mix(in srgb, ${color} 40%, transparent)`, borderRadius: 8, background: `color-mix(in srgb, ${color} 8%, transparent)`, padding: '10px 14px', marginBottom: 12 }}>
+                {isErr
+                  ? <XCircle size={15} style={{ color, flexShrink: 0, marginTop: 1 }} />
+                  : <CheckCircle2 size={15} style={{ color, flexShrink: 0, marginTop: 1 }} />}
+                <div style={{ fontSize: 12.5, color: 'var(--fl-text)', fontFamily: 'var(--f-ui, Inter, sans-serif)', lineHeight: 1.45 }}>
+                  {isErr
+                    ? <><b style={{ color }}>{t('casedetail.parse_failed')}</b> — {parseProg.error || t('casedetail.parse_failed_default')}</>
+                    : errN > 0
+                      ? <><b style={{ color }}>{t('casedetail.parse_done_errors', { n: errN })}</b> — {t('casedetail.parse_done_errors_hint')}</>
+                      : <b style={{ color }}>{t('casedetail.parse_done')}</b>}
+                </div>
+              </div>
+            );
+          })()}
 
           <RightDrawer open={!!drawerEv} onClose={() => setDrawerEv(null)} title={drawerEv?.name}>
             {drawerEv && (

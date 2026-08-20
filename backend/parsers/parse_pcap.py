@@ -35,8 +35,10 @@ def epoch_iso(ep):
         return ''
 
 
-def run_tshark(path):
+def run_tshark(path, display_filter=None):
     cmd = ['tshark', '-r', path, '-T', 'fields', '-E', 'separator=,', '-E', 'quote=n', '-n']
+    if display_filter:
+        cmd += ['-Y', display_filter]
     for f in TSHARK_FIELDS:
         cmd += ['-e', f]
     proc = subprocess.run(cmd, capture_output=True, text=True, timeout=1800)
@@ -45,9 +47,9 @@ def run_tshark(path):
     return proc.stdout.splitlines()
 
 
-def parse(path):
+def parse(path, display_filter=None):
     flows = {}  # (src,sport,dst,dport,proto) -> aggregate
-    for line in run_tshark(path):
+    for line in run_tshark(path, display_filter):
         c = line.split(',')
         if len(c) < 11:
             continue
@@ -89,12 +91,12 @@ def parse(path):
     return records
 
 
-def parse_dir(base):
+def parse_dir(base, display_filter=None):
     records = []
     for root_dir, _dirs, files in os.walk(base):
         for name in files:
             if name.lower().endswith(('.pcap', '.pcapng', '.cap')):
-                records += parse(os.path.join(root_dir, name))
+                records += parse(os.path.join(root_dir, name), display_filter)
     return records
 
 
@@ -104,12 +106,13 @@ def main():
     ap.add_argument('-f', '--file', help='Single pcap file')
     ap.add_argument('--csv', required=True, help='Output directory')
     ap.add_argument('--csvf', default='pcap_results.csv', help='Output CSV filename')
+    ap.add_argument('--filter', dest='display_filter', default=None, help="Wireshark display filter (e.g. 'tcp.port == 443')")
     args = ap.parse_args()
 
     if args.file and os.path.isfile(args.file):
-        records = parse(args.file)
+        records = parse(args.file, args.display_filter)
     elif args.dir and os.path.isdir(args.dir):
-        records = parse_dir(args.dir)
+        records = parse_dir(args.dir, args.display_filter)
     else:
         print('ERROR: provide -f <pcap> or -d <dir>', file=sys.stderr)
         sys.exit(1)

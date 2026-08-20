@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
   FolderOpen, Clock, Network, Shield, AlertTriangle, Activity, ScrollText,
-  RefreshCw, Loader2, ArrowRight, Database, ShieldCheck,
+  RefreshCw, Loader2, ArrowRight, Database, ShieldCheck, Files, Boxes,
 } from 'lucide-react';
 import { evidenceAPI, parsersAPI, collectionAPI } from '../../utils/api';
 import { artifactColor } from '../../constants/artifactColors';
@@ -26,6 +26,8 @@ const QUICK_TABS = [
   { tab: 'mitre',      labelKey: 'collectionOverview.tiles.mitre',      fallback: 'MITRE',          icon: Shield,         accent: 'var(--fl-accent)' },
   { tab: 'hayabusa',   labelKey: 'collectionOverview.tiles.hayabusa',   fallback: 'Hayabusa',       icon: Activity,       accent: 'var(--fl-danger)' },
   { tab: 'logs',       labelKey: 'collectionOverview.tiles.logs',       fallback: 'Logs',           icon: ScrollText,     accent: 'var(--fl-dim)' },
+  { tab: 'artifacts',  labelKey: 'collectionOverview.tiles.artifacts',  fallback: 'Artifacts',      icon: Boxes,          accent: 'var(--fl-accent)' },
+  { tab: 'files',      labelKey: 'collectionOverview.tiles.files',      fallback: 'Files',          icon: Files,          accent: 'var(--fl-purple)' },
 ];
 
 export default function CollectionOverview({ caseId, collectionId, collName }) {
@@ -131,22 +133,58 @@ export default function CollectionOverview({ caseId, collectionId, collName }) {
           </div>
         </div>
 
-        <button
-          onClick={handleReparse}
-          disabled={reparsing}
-          style={{
-            display: 'inline-flex', alignItems: 'center', gap: 6, flexShrink: 0,
-            padding: '7px 13px', borderRadius: 7, cursor: reparsing ? 'wait' : 'pointer',
-            fontFamily: MONO, fontSize: 11.5, fontWeight: 600,
-            background: 'transparent', color: 'var(--fl-dim)', border: '1px solid var(--fl-border)',
-            transition: 'color 0.15s, border-color 0.15s',
-          }}
-          onMouseEnter={e => { e.currentTarget.style.color = 'var(--fl-accent)'; e.currentTarget.style.borderColor = 'color-mix(in srgb, var(--fl-accent) 35%, transparent)'; }}
-          onMouseLeave={e => { e.currentTarget.style.color = 'var(--fl-dim)'; e.currentTarget.style.borderColor = 'var(--fl-border)'; }}
-        >
-          {reparsing ? <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <RefreshCw size={12} />}
-          {t('casedetail.reparse')}
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+          <button
+            onClick={() => navigate(`/cases/${caseId}/collections/${collectionId}/artifacts`)}
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: 6, flexShrink: 0,
+              padding: '7px 13px', borderRadius: 7, cursor: 'pointer',
+              fontFamily: MONO, fontSize: 11.5, fontWeight: 600,
+              background: 'color-mix(in srgb, var(--fl-accent) 11%, transparent)',
+              color: 'var(--fl-accent)', border: '1px solid color-mix(in srgb, var(--fl-accent) 30%, transparent)',
+              transition: 'background 0.15s, border-color 0.15s',
+            }}
+            onMouseEnter={e => { e.currentTarget.style.background = 'color-mix(in srgb, var(--fl-accent) 18%, transparent)'; }}
+            onMouseLeave={e => { e.currentTarget.style.background = 'color-mix(in srgb, var(--fl-accent) 11%, transparent)'; }}
+          >
+            <Boxes size={12} />
+            {t('collectionOverview.artifacts', 'Artifacts')}
+          </button>
+
+          <button
+            onClick={() => navigate(`/cases/${caseId}/collections/${collectionId}/files`)}
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: 6, flexShrink: 0,
+              padding: '7px 13px', borderRadius: 7, cursor: 'pointer',
+              fontFamily: MONO, fontSize: 11.5, fontWeight: 600,
+              background: 'color-mix(in srgb, var(--fl-purple) 11%, transparent)',
+              color: 'var(--fl-purple)', border: '1px solid color-mix(in srgb, var(--fl-purple) 30%, transparent)',
+              transition: 'background 0.15s, border-color 0.15s',
+            }}
+            onMouseEnter={e => { e.currentTarget.style.background = 'color-mix(in srgb, var(--fl-purple) 18%, transparent)'; }}
+            onMouseLeave={e => { e.currentTarget.style.background = 'color-mix(in srgb, var(--fl-purple) 11%, transparent)'; }}
+          >
+            <Files size={12} />
+            {t('collectionOverview.files', 'Files')}
+          </button>
+
+          <button
+            onClick={handleReparse}
+            disabled={reparsing}
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: 6, flexShrink: 0,
+              padding: '7px 13px', borderRadius: 7, cursor: reparsing ? 'wait' : 'pointer',
+              fontFamily: MONO, fontSize: 11.5, fontWeight: 600,
+              background: 'transparent', color: 'var(--fl-dim)', border: '1px solid var(--fl-border)',
+              transition: 'color 0.15s, border-color 0.15s',
+            }}
+            onMouseEnter={e => { e.currentTarget.style.color = 'var(--fl-accent)'; e.currentTarget.style.borderColor = 'color-mix(in srgb, var(--fl-accent) 35%, transparent)'; }}
+            onMouseLeave={e => { e.currentTarget.style.color = 'var(--fl-dim)'; e.currentTarget.style.borderColor = 'var(--fl-border)'; }}
+          >
+            {reparsing ? <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <RefreshCw size={12} />}
+            {t('casedetail.reparse')}
+          </button>
+        </div>
       </div>
 
       {!isParsed ? (

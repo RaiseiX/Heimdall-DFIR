@@ -25,10 +25,30 @@ export function buildTextFilter(
 }
 
 /**
- * Multi-column search filter (description, source, artifact_type).
+ * Multi-column search filter. Covers the free-text columns plus the forensic
+ * identity columns analysts search for (event_id, host, user, tool, path…), so
+ * typing e.g. "600" finds every EVTX row with event_id 600 even when the
+ * description doesn't contain the number.
  * Positive ops use OR; negative ops use AND NOT.
  * `empty`/`not_empty` target `description` only (the primary meaningful field).
  */
+const SEARCH_COLS = [
+  'description',
+  'source',
+  'artifact_type',
+  'event_id::text',
+  'host_name',
+  'user_name',
+  'tool',
+  'details',
+  '"path"',
+  'ext',
+  'process_name',
+];
+
+const SEARCH_OR  = (op: string) => SEARCH_COLS.map(c => `${c} ${op} $N`).join(' OR ');
+const SEARCH_AND = (op: string) => SEARCH_COLS.map(c => `${c} ${op} $N`).join(' AND ');
+
 export function buildSearchFilter(
   value: string,
   op: string,
@@ -37,44 +57,23 @@ export function buildSearchFilter(
   const safe   = String(value ?? '').replace(/[%_]/g, '\\$&');
   switch (safeOp) {
     case 'not_contains':
-      return {
-        sql:   '(description NOT ILIKE $N AND source NOT ILIKE $N AND artifact_type NOT ILIKE $N)',
-        param: '%' + safe + '%',
-      };
+      return { sql: `(${SEARCH_AND('NOT ILIKE')})`, param: '%' + safe + '%' };
     case 'not_equals':
-      return {
-        sql:   '(description NOT ILIKE $N AND source NOT ILIKE $N AND artifact_type NOT ILIKE $N)',
-        param: safe,
-      };
+      return { sql: `(${SEARCH_AND('NOT ILIKE')})`, param: safe };
     case 'equals':
-      return {
-        sql:   '(description ILIKE $N OR source ILIKE $N OR artifact_type ILIKE $N)',
-        param: safe,
-      };
+      return { sql: `(${SEARCH_OR('ILIKE')})`,       param: safe };
     case 'starts_with':
-      return {
-        sql:   '(description ILIKE $N OR source ILIKE $N OR artifact_type ILIKE $N)',
-        param: safe + '%',
-      };
+      return { sql: `(${SEARCH_OR('ILIKE')})`,       param: safe + '%' };
     case 'ends_with':
-      return {
-        sql:   '(description ILIKE $N OR source ILIKE $N OR artifact_type ILIKE $N)',
-        param: '%' + safe,
-      };
+      return { sql: `(${SEARCH_OR('ILIKE')})`,       param: '%' + safe };
     case 'regex':
-      return {
-        sql:   '(description ~* $N OR source ~* $N OR artifact_type ~* $N)',
-        param: String(value ?? ''),
-      };
+      return { sql: `(${SEARCH_OR('~*')})`,          param: String(value ?? '') };
     case 'empty':
       return { sql: "(description IS NULL OR description = '')",         param: null };
     case 'not_empty':
       return { sql: "(description IS NOT NULL AND description != '')",   param: null };
     default: // contains
-      return {
-        sql:   '(description ILIKE $N OR source ILIKE $N OR artifact_type ILIKE $N)',
-        param: '%' + safe + '%',
-      };
+      return { sql: `(${SEARCH_OR('ILIKE')})`,       param: '%' + safe + '%' };
   }
 }
 

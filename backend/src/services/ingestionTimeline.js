@@ -54,7 +54,7 @@ async function importCsvToTimeline(csvPath, { pool, caseId, resultId, evidenceId
     const host = firstNonEmpty(record, cfg.hostColumns);
     const eventId = cfg.eventIdColumn ? (record[cfg.eventIdColumn] || null) : null;
     const raw = buildSlimRaw(record, artifactType);
-    const dh = computeDedupeHash(artifactType, { tsColumn: ts.column, source, description, eventId, record });
+    const dh = computeDedupeHash(artifactType, { tsColumn: ts.column, tsValue: ts.timestamp, source, description, eventId, record });
     batch.push({ ts: ts.timestamp, descr: description || null, src: source, hn: host, raw, dh });
     if (batch.length >= BATCH_SIZE) await flush();
   }

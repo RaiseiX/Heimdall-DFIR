@@ -2,7 +2,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { useParams, useSearchParams, useOutletContext } from 'react-router-dom';
 import { useTimelineStore } from '../components/supertimeline/store/useTimelineStore';
-import { timelineRulesAPI } from '../utils/api';
+import { timelineRulesAPI, collectionAPI } from '../utils/api';
 import { sortRules } from '../utils/colorRulesEngine';
 import CommandBar  from '../components/supertimeline/CommandBar/CommandBar';
 import EventGrid   from '../components/supertimeline/EventGrid/EventGrid';
@@ -10,6 +10,7 @@ import StatusBar   from '../components/supertimeline/StatusBar/StatusBar';
 import DetailPanel from '../components/supertimeline/DetailPanel/DetailPanel';
 import ContextPanel from '../components/supertimeline/ContextPanel/ContextPanel';
 import TipsTab     from '../components/supertimeline/ExplorerPanel/TipsTab';
+import TaggerTab   from '../components/supertimeline/ExplorerPanel/TaggerTab';
 import TimelineDiff from '../components/supertimeline/TimelineDiff/TimelineDiff';
 
 export default function SuperTimelinePage() {
@@ -44,6 +45,29 @@ export default function SuperTimelinePage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [routeCaseId, routeEvidenceId]);
 
+  // While a collection parse is running for this case, refresh the timeline so
+  // the "view already-parsed events during analysis" button shows live growth.
+  useEffect(() => {
+    if (!routeCaseId) return;
+    let alive = true;
+    let pollIv = null;
+    const poll = async () => {
+      try {
+        const r = await collectionAPI.parseProgress(routeCaseId);
+        if (!alive) return;
+        if (r.data?.active) {
+          loadTimeline();
+          if (!pollIv) pollIv = setInterval(poll, 8000);
+        } else if (pollIv) {
+          clearInterval(pollIv);
+          pollIv = null;
+        }
+      } catch (_e) { /* transient error — keep current polling state */ }
+    };
+    poll();
+    return () => { alive = false; if (pollIv) clearInterval(pollIv); };
+  }, [routeCaseId]);
+
   return (
     <div style={{ height: '100%', background: 'var(--fl-bg)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       <HeaderStrip showDiff={showDiff} setShowDiff={setShowDiff} />
@@ -62,7 +86,9 @@ export default function SuperTimelinePage() {
 function HeaderStrip({ showDiff, setShowDiff }) {
   const { total, caseId } = useTimelineStore();
   const [tipsOpen, setTipsOpen] = useState(false);
+  const [tagsOpen, setTagsOpen] = useState(false);
   const panelRef = useRef(null);
+  const tagsRef = useRef(null);
 
   useEffect(() => {
     if (!tipsOpen) return;
@@ -72,6 +98,15 @@ function HeaderStrip({ showDiff, setShowDiff }) {
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, [tipsOpen]);
+
+  useEffect(() => {
+    if (!tagsOpen) return;
+    function handler(e) {
+      if (tagsRef.current && !tagsRef.current.contains(e.target)) setTagsOpen(false);
+    }
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [tagsOpen]);
 
   const MONO = 'var(--f-mono, "JetBrains Mono", monospace)';
   return (
@@ -84,6 +119,34 @@ function HeaderStrip({ showDiff, setShowDiff }) {
         </span>
       )}
       <div style={{ flex: 1 }} />
+      <div ref={tagsRef} style={{ position: 'relative' }}>
+        <button
+          onClick={() => setTagsOpen(v => !v)}
+          title="Tagger — auto-tags & rules"
+          style={{
+            display: 'inline-flex', alignItems: 'center', gap: 5, height: 24, padding: '0 9px',
+            borderRadius: 6, border: `1px solid ${tagsOpen ? 'color-mix(in srgb, var(--fl-accent) 30%, transparent)' : 'var(--fl-border)'}`,
+            background: tagsOpen ? 'var(--fl-card)' : 'transparent',
+            color: tagsOpen ? 'var(--fl-accent)' : 'var(--fl-muted)',
+            cursor: 'pointer', fontFamily: MONO, fontSize: 11, fontWeight: 600,
+          }}
+          onMouseEnter={e => { if (!tagsOpen) e.currentTarget.style.color = 'var(--fl-dim)'; }}
+          onMouseLeave={e => { if (!tagsOpen) e.currentTarget.style.color = 'var(--fl-muted)'; }}
+        >
+          <span style={{ fontSize: 11 }}>🏷</span> Tags
+        </button>
+        {tagsOpen && (
+          <div style={{
+            position: 'absolute', top: '100%', right: 0, marginTop: 6, zIndex: 2000,
+            width: 360, height: 'min(560px, calc(100vh - 130px))',
+            background: 'var(--fl-panel)', border: '1px solid var(--fl-border)', borderRadius: 8,
+            boxShadow: 'var(--fl-shadow-lg)',
+            display: 'flex', flexDirection: 'column', overflow: 'hidden',
+          }}>
+            <TaggerTab />
+          </div>
+        )}
+      </div>
       <button
         onClick={() => setShowDiff(v => !v)}
         title="Comparer deux collectes"

@@ -29,6 +29,19 @@ const requireHealthySchema = require('./middleware/requireHealthySchema');
 const { connectRedis } = require('./config/redis');
 const { authenticate, auditLog, JWT_SECRET } = require('./middleware/auth');
 const logger = require('./config/logger').default;
+
+// Safety net: the parse runs IN this process. A single unhandled rejection from
+// any async route (e.g. a pg pool.connect() timing out under write saturation)
+// used to crash the whole backend mid-parse, killing the multi-30-min parse with
+// it and leaving a zombie 'parsing' row that the UI spins on forever. Log instead
+// of dying so one bad request can never take a running analysis down.
+process.on('unhandledRejection', (reason) => {
+  logger.error('[process] unhandledRejection:', reason instanceof Error ? `${reason.message}\n${reason.stack}` : String(reason));
+});
+process.on('uncaughtException', (err) => {
+  logger.error('[process] uncaughtException:', err && err.stack ? err.stack : String(err));
+});
+
 const { requestIdMiddleware } = require('./middleware/requestId');
 const { accessLogMiddleware } = require('./middleware/accessLogMiddleware');
 
@@ -241,6 +254,35 @@ async function runMigrations() {
   } catch (e) {
     logger.error('[migration] collection_timeline FAILED — ingestion disabled', { error: e.message });
     markDegraded('collection_timeline', e.message);
+  }
+
+  // Network-map GIN: index only the top-level keys of `raw` (jsonb_top_keys)
+  // instead of the whole jsonb — the write-cost fix for 5000-row UNNEST batches.
+  // The function must exist before network.js / cases.js call it, so this
+  // self-heals on every boot: migrate.sh (start.sh) applies db/migrations, but
+  // `docker compose up -d` does NOT, and the old index only disappears here.
+  // A missing index only slows the network map — never a crash — so a failure
+  // is logged, not marked degraded.
+  try {
+    await runGuardedMigrations(pool, {
+      name: 'collection_timeline.raw top-level-keys GIN',
+      statements: [
+        `CREATE OR REPLACE FUNCTION jsonb_top_keys(j jsonb)
+         RETURNS text[]
+         LANGUAGE sql
+         IMMUTABLE
+         STRICT
+         AS $$ SELECT CASE jsonb_typeof(j) WHEN 'object' THEN ARRAY(SELECT jsonb_object_keys(j)) ELSE '{}'::text[] END $$`,
+        `DROP INDEX CONCURRENTLY IF EXISTS idx_ct_raw_gin`,
+        {
+          sql: `CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_ct_raw_keys_gin
+                ON collection_timeline USING GIN (jsonb_top_keys(raw))`,
+          indexName: 'idx_ct_raw_keys_gin',
+        },
+      ],
+    });
+  } catch (e) {
+    logger.warn('[migration] collection_timeline.raw GIN (best-effort): ' + e.message);
   }
 
   try {
@@ -516,6 +558,31 @@ async function start() {
     logger.info('✓ Redis connecté');
 
     await runMigrations();
+
+    // Zombie-parse recovery: the parse runs IN this process, so any UnifiedTimeline
+    // row still marked 'parsing' at boot is a parse that died with the previous
+    // process (crash, OOM, docker restart). Mark it interrupted so the UI cockpit
+    // resolves to a terminal state instead of spinning forever on a dead parse.
+    try {
+      const { rows: zombies } = await pool.query(
+        `SELECT case_id FROM parser_results
+          WHERE parser_name = 'UnifiedTimeline' AND output_data->>'status' = 'parsing'`
+      );
+      for (const z of zombies) {
+        await pool.query(
+          `UPDATE parser_results
+              SET output_data = output_data
+                  || '{"status":"error","error":"Analyse interrompue par un redémarrage du serveur. Relancez l analyse."}'::jsonb,
+                  updated_at = NOW()
+            WHERE case_id = $1 AND parser_name = 'UnifiedTimeline'
+              AND output_data->>'status' = 'parsing'`,
+          [z.case_id]
+        );
+        logger.warn(`[boot] parse interrompu pour le cas ${z.case_id} (processus redémarré) — marqué erreur`);
+      }
+    } catch (e) {
+      logger.warn('[boot] zombie-parse sweep failed:', e.message);
+    }
 
     server.listen(PORT, '0.0.0.0', () => {
       logger.info('Heimdall DFIR API démarrée', {

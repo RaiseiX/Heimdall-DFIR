@@ -3,7 +3,7 @@ import { useParams, NavLink, Outlet, useOutletContext, useNavigate } from 'react
 import {
   FolderOpen, Clock, Crosshair, AlertTriangle, Network,
   Shield, ScrollText, FileText, Activity, FlaskConical, ChevronLeft,
-  Brain, ExternalLink,
+  Brain, ExternalLink, Files, Boxes,
 } from 'lucide-react';
 import UiIcon from '../components/ui/Icon';
 import { evidenceAPI } from '../utils/api';
@@ -125,6 +125,24 @@ export default function CollectionLayout() {
         >
           <FileText size={12} />
           Logs
+        </NavLink>
+
+        <NavLink
+          to={`${base}/files`}
+          style={({ isActive }) => tabSt(isActive)}
+          onMouseEnter={tabHoverIn} onMouseLeave={tabHoverOut}
+        >
+          <Files size={12} />
+          Files
+        </NavLink>
+
+        <NavLink
+          to={`${base}/artifacts`}
+          style={({ isActive }) => tabSt(isActive)}
+          onMouseEnter={tabHoverIn} onMouseLeave={tabHoverOut}
+        >
+          <Boxes size={12} />
+          Artifacts
         </NavLink>
 
         <span style={{ width: 1, height: 16, background: 'var(--fl-border)', flexShrink: 0, margin: '0 4px' }} />

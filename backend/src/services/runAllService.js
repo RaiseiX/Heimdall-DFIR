@@ -16,7 +16,10 @@ const { startHuntRun, updateHuntStep, finishHuntRun, getHuntRun } = require('./h
 const RUN_ALL_ENGINES = [
   { key: 'yara',              label: 'YARA (preuves)',          method: 'post', path: (c) => `/api/threat-hunting/yara/scan-case/${c}`, timeout: 600000 },
   { key: 'sigma',             label: 'Sigma (logs)',            method: 'post', path: (c) => `/api/threat-hunting/sigma/scan-case/${c}`, timeout: 600000 },
-  { key: 'hayabusa',          label: 'Hayabusa',                method: 'post', path: (c) => `/api/collection/${c}/hayabusa`, timeout: 900000 },
+  // Hayabusa on a large EVTX set (4961 rules, --enable-all-rules) can run 30+
+  // minutes; a 15-min timeout made the auto-hunt mark the step error while the
+  // backend kept inserting in the background. 2h matches the frontend's timeout.
+  { key: 'hayabusa',          label: 'Hayabusa',                method: 'post', path: (c) => `/api/collection/${c}/hayabusa`, timeout: 7200000 },
   { key: 'persistence',       label: 'Persistance',             method: 'get',  path: (c) => `/api/cases/${c}/detections/persistence` },
   { key: 'sysmon-behavior',   label: 'Sysmon comportemental',   method: 'get',  path: (c) => `/api/cases/${c}/detections/sysmon-behavior` },
   { key: 'anti-forensic',     label: 'Anti-forensique',         method: 'get',  path: (c) => `/api/cases/${c}/detections/anti-forensic` },
@@ -37,18 +40,47 @@ function extractCount(d) {
 
 const initialSteps = () => RUN_ALL_ENGINES.map(e => ({ key: e.key, label: e.label, status: 'pending', count: null, error: null }));
 
-// Guard + persist + enqueue. Shared by routes (via startRunAll) and workers.
-async function triggerHunt(p, caseId, userId, trigger = 'manual', evidenceId = null) {
-  const { started, huntRunId } = await startHuntRun(p, caseId, trigger, evidenceId, initialSteps());
-  if (!started) return { started: false };
+async function enqueueHunt(p, huntRunId, caseId, userId, trigger, evidenceId) {
   try {
     await huntingQueue.add('hunt', { caseId, userId, trigger, evidenceId: evidenceId || undefined, huntRunId });
   } catch (err) {
     // Enqueue failed (e.g. Redis blip) after the 'running' row was inserted — release the
     // per-case guard so future auto-hunts aren't blocked forever by an orphaned row.
     await finishHuntRun(p, huntRunId, 'error');
+    throw err;
+  }
+}
+
+// Guard + persist + enqueue. Shared by routes (via startRunAll) and workers.
+async function triggerHunt(p, caseId, userId, trigger = 'manual', evidenceId = null) {
+  const { started, huntRunId } = await startHuntRun(p, caseId, trigger, evidenceId, initialSteps());
+  if (!started) {
+    // Guard blocked by a 'running' row. A worker crash / backend restart can leave that
+    // row frozen forever — the per-case guard then silently swallows every later
+    // auto-hunt (incl. Hayabusa), which is exactly how "Hayabusa never launches" shows
+    // up in the UI. Reclaim runs whose heartbeat froze (> 30 min, matching
+    // reconcileStaleHunts), then retry once.
+    try {
+      const stale = await p.query(
+        `UPDATE hunt_runs SET status='error', finished_at=NOW(), updated_at=NOW()
+          WHERE case_id=$1 AND status='running' AND updated_at < NOW() - interval '30 minutes'
+          RETURNING id`,
+        [caseId]
+      );
+      if (stale.rowCount > 0) {
+        logger.warn(`[hunt] reclaimed ${stale.rowCount} stale 'running' run(s) for case ${caseId} — retrying trigger`);
+        const retry = await startHuntRun(p, caseId, trigger, evidenceId, initialSteps());
+        if (retry.started) {
+          await enqueueHunt(p, retry.huntRunId, caseId, userId, trigger, evidenceId);
+          return { started: true, huntRunId: retry.huntRunId };
+        }
+      }
+    } catch (err) {
+      logger.warn('[hunt] stale-reclaim error:', err.message);
+    }
     return { started: false };
   }
+  await enqueueHunt(p, huntRunId, caseId, userId, trigger, evidenceId);
   return { started: true, huntRunId };
 }
 
@@ -66,7 +98,14 @@ async function runAllEngines(p, caseId, userId, huntRunId) {
         data: e.method === 'post' ? {} : undefined });
       await updateHuntStep(p, huntRunId, e.key, { status: 'done', count: extractCount(resp.data) });
     } catch (err) {
-      await updateHuntStep(p, huntRunId, e.key, { status: 'error', error: err.response?.data?.error || err.message });
+      // 409 = another Hayabusa run is already in flight for this case (e.g. the
+      // frontend pipeline started it first). That's not a failure — the step is
+      // effectively done; the running instance writes the same rows.
+      if (err.response?.status === 409 && e.key === 'hayabusa') {
+        await updateHuntStep(p, huntRunId, e.key, { status: 'done', count: null, error: null });
+      } else {
+        await updateHuntStep(p, huntRunId, e.key, { status: 'error', error: err.response?.data?.error || err.message });
+      }
     }
   }
   await finishHuntRun(p, huntRunId, 'done');

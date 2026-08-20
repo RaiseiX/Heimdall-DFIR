@@ -4,12 +4,22 @@
 // extracted. Evidence integrity is carried by the hashes, not by these mode bits.
 const TAR_EXT = new Set(['.tar', '.gz', '.tgz']);
 
-function extractArgs(ext, archivePath, destDir) {
+// `password` decrypts password-protected .zip / .7z archives. Passed as a command
+// line argument (unzip -P / 7z -p) — the password is momentarily visible in the
+// process list on the server, an accepted trade-off for a local forensic tool.
+function extractArgs(ext, archivePath, destDir, password) {
   if (TAR_EXT.has(ext)) {
     return ['tar', 'xzf', archivePath, '--no-same-owner', '--no-same-permissions', '-C', destDir];
   }
-  if (ext === '.zip') return ['unzip', '-o', '-q', archivePath, '-d', destDir];
-  return ['7z', 'x', archivePath, `-o${destDir}`, '-y'];
+  if (ext === '.zip') {
+    const args = ['unzip', '-o', '-q'];
+    if (password) { args.push('-P', password); }
+    args.push(archivePath, '-d', destDir);
+    return args;
+  }
+  const args = ['7z', 'x', archivePath, `-o${destDir}`, '-y'];
+  if (password) { args.push(`-p${password}`); }
+  return args;
 }
 
 // unzip and 7z have their own handling of stored modes, and a directory without

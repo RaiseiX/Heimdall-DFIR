@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useNavigate } from 'react-router-dom';
 import { useSocket } from '../../hooks/useSocket';
-import { Upload, CheckCircle2, Loader2, Package, Cpu, Shield, ChevronRight, AlertTriangle, X, Terminal, Network, Lock, Clock, HardDrive, Server, Copy } from 'lucide-react';
+import { Upload, CheckCircle2, Loader2, Package, Cpu, Shield, ChevronRight, AlertTriangle, X, Terminal, Network, Lock, Clock, HardDrive, Server, Copy, SlidersHorizontal, ChevronDown, ChevronUp, Eye } from 'lucide-react';
 import { collectionAPI } from '../../utils/api';
 import { zipSync } from 'fflate';
 import ParsingMonitor from './ParsingMonitor';
@@ -167,8 +168,116 @@ const CATSCALE_TYPE_COLORS = {
   fstimeline:   'var(--fl-muted)',
 };
 
+// Collapsible per-parser configuration driven by the backend schema
+// (GET /collection/:caseId/parser-options). Only options for the artifacts the
+// analyst actually selected are rendered; `_global` applies to every parser.
+function ParserOptionsPanel({ schema, values, onChange, groups, groupLabel, t }) {
+  const [open, setOpen] = useState(false);
+  if (!schema || !schema.options) return null;
+
+  const relevant = groups.filter(k => schema.options[k] && schema.options[k].length > 0);
+  if (relevant.length === 0) return null;
+
+  const defaults = schema.defaults || {};
+  let changed = 0;
+  for (const k of relevant) {
+    for (const opt of schema.options[k]) {
+      const def = defaults[k]?.[opt.key];
+      const cur = values?.[k]?.[opt.key] === undefined ? def : values[k][opt.key];
+      const curNorm = opt.type === 'boolean' ? !!cur : (cur ?? '');
+      const defNorm = opt.type === 'boolean' ? !!def : (def ?? '');
+      if (String(curNorm) !== String(defNorm)) changed++;
+    }
+  }
+
+  const labelStyle = { display: 'flex', flexDirection: 'column', gap: 4 };
+  const labelText = { fontSize: 11, color: 'var(--fl-text)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' };
+  const descText = { fontSize: 10, color: 'var(--fl-muted)', lineHeight: 1.4 };
+  const inputStyle = {
+    width: '100%', marginTop: 3, padding: '5px 8px', borderRadius: 6,
+    background: 'var(--fl-card)', border: '1px solid var(--fl-border2)', color: 'var(--fl-text)',
+    fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11.5, outline: 'none',
+  };
+
+  return (
+    <div style={{ border: '1px solid var(--fl-border2)', borderRadius: 8, background: 'var(--fl-bg)', marginBottom: 16, overflow: 'hidden' }}>
+      <button
+        onClick={() => setOpen(o => !o)}
+        style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '9px 12px', background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--fl-dim)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11.5, fontWeight: 600, textAlign: 'left' }}
+        onMouseEnter={e => { e.currentTarget.style.color = 'var(--fl-accent)'; }}
+        onMouseLeave={e => { e.currentTarget.style.color = 'var(--fl-dim)'; }}
+      >
+        <SlidersHorizontal size={13} style={{ color: 'var(--fl-accent)' }} />
+        {t('collection.import.parser_options', 'Options des parsers')}
+        {changed > 0 && (
+          <span style={{ fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontWeight: 700, padding: '1px 6px', borderRadius: 3, background: 'color-mix(in srgb, var(--fl-accent) 12%, transparent)', color: 'var(--fl-accent)', border: '1px solid color-mix(in srgb, var(--fl-accent) 24%, transparent)' }}>
+            {changed} {t('collection.import.parser_options_changed', 'modifiée(s)')}
+          </span>
+        )}
+        <span style={{ flex: 1 }} />
+        {open ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+      </button>
+
+      {open && (
+        <div style={{ padding: '4px 12px 12px', borderTop: '1px solid var(--fl-border2)', display: 'flex', flexDirection: 'column', gap: 14 }}>
+          {relevant.map(k => (
+            <div key={k}>
+              <div style={{ fontSize: 9.5, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--fl-muted)', marginBottom: 7 }}>
+                {k === '_global' ? t('collection.import.parser_options_global', 'Toutes les sources') : groupLabel(k)}
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 10 }}>
+                {schema.options[k].map(opt => {
+                  const val = values?.[k]?.[opt.key];
+                  const set = v => onChange(k, opt.key, v);
+                  return (
+                    <div key={opt.key} style={labelStyle}>
+                      {opt.type === 'boolean' ? (
+                        <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, cursor: 'pointer' }}>
+                          <input
+                            type="checkbox"
+                            checked={!!(val ?? opt.default)}
+                            onChange={e => set(e.target.checked)}
+                            style={{ marginTop: 2, accentColor: 'var(--fl-accent)' }}
+                          />
+                          <span style={{ ...labelText, display: 'block' }}>{opt.label}</span>
+                        </label>
+                      ) : opt.type === 'enum' ? (
+                        <label style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                          <span style={labelText}>{opt.label}</span>
+                          <select value={val ?? opt.default} onChange={e => set(e.target.value)} style={inputStyle}>
+                            {opt.values.map(v => (
+                              <option key={v} value={v}>{v}</option>
+                            ))}
+                          </select>
+                        </label>
+                      ) : (
+                        <label style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                          <span style={labelText}>{opt.label}</span>
+                          <input
+                            type="text"
+                            value={val ?? opt.default ?? ''}
+                            placeholder={opt.placeholder || ''}
+                            onChange={e => set(e.target.value)}
+                            style={inputStyle}
+                          />
+                        </label>
+                      )}
+                      {opt.description && <span style={descText}>{opt.description}</span>}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function CollectionImportPanel({ caseId, caseObj, onDone }) {
   const { t, i18n } = useTranslation();
+  const navigate = useNavigate();
   const { socket, socketId } = useSocket();
   const fileRef = useRef(null);
   const logRef = useRef(null);
@@ -187,10 +296,16 @@ export default function CollectionImportPanel({ caseId, caseObj, onDone }) {
   const [dragging,        setDragging]        = useState(false);
   const [copiedHash,      setCopiedHash]      = useState(null);
   const [catscaleDetail,  setCatscaleDetail]  = useState(null);
+  const [exhaustiveFs, setExhaustiveFs] = useState(false);
   const [catscaleStep,    setCatscaleStep]    = useState(null);
   const [parserStates,    setParserStates]    = useState({}); // key -> { status, records }
+  const [parserSchema,    setParserSchema]    = useState(null); // { options, defaults } from backend
+  const [parserOptions,   setParserOptions]   = useState({});  // artifactType -> { optionKey: value }
+  const [archivePassword, setArchivePassword] = useState('');  // optional password for encrypted zip/7z
+  const [evidenceId,     setEvidenceId]     = useState(null);  // evidence/collection id → link to its evidence view
   const doneCountRef = useRef(0);   // parsers finished (parallel-safe progress)
   const totalRef     = useRef(0);   // total parsers in this run
+  const startingRef  = useRef(false); // one analysis launch at a time
   const locale = i18n.language === 'fr' ? 'fr-FR' : 'en-US';
   const artifactLabel = (type) => {
     const artifact = ARTIFACTS[type];
@@ -203,6 +318,29 @@ export default function CollectionImportPanel({ caseId, caseObj, onDone }) {
 
   // Auto-scroll the pipeline journal to the latest line.
   useEffect(() => { if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight; }, [pipelineLog.length]);
+
+  // Load the parser option schema once artifacts are detected, so the
+  // "Run pipeline" step can offer real knobs instead of a fixed invocation.
+  useEffect(() => {
+    if (step !== 'detected' || !caseId) return;
+    let cancelled = false;
+    collectionAPI.parserOptions(caseId)
+      .then(res => {
+        if (cancelled) return;
+        setParserSchema(res.data || null);
+        const defaults = res.data?.defaults || {};
+        setParserOptions(prev => {
+          const next = {};
+          for (const [k, d] of Object.entries(defaults)) next[k] = { ...d, ...(prev[k] || {}) };
+          return next;
+        });
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [step, caseId]);
+
+  const setOption = (artifactType, key, value) =>
+    setParserOptions(prev => ({ ...prev, [artifactType]: { ...(prev[artifactType] || {}), [key]: value } }));
 
   const keyFromEventName = (name) => {
     if (!name) return null;
@@ -227,6 +365,15 @@ export default function CollectionImportPanel({ caseId, caseObj, onDone }) {
         addLog('→ ' + data.name + '…');
         const _k = keyFromEventName(data.name);
         if (_k) setParserStates(p => ({ ...p, [_k]: { ...(p[_k] || {}), status: 'parsing' } }));
+      } else if (data.type === 'artifact_progress') {
+        // Live per-batch record count from the streaming phase (fires every ~2s),
+        // so the cockpit advances instead of freezing at the last batch boundary.
+        const _kp = keyFromEventName(data.name || data.artifact);
+        if (_kp) setParserStates(p => ({ ...p, [_kp]: {
+          ...(p[_kp] || {}),
+          status: p[_kp]?.status || 'parsing',
+          records: typeof data.records === 'number' ? data.records : p[_kp]?.records,
+        } }));
       } else if (data.type === 'artifact_done') {
         doneCountRef.current += 1;
         const t = totalRef.current || data.total || 1;
@@ -257,6 +404,61 @@ export default function CollectionImportPanel({ caseId, caseObj, onDone }) {
 
   const addLog = (msg) => setPipelineLog(prev => [...prev, { time: new Date().toLocaleTimeString(locale), msg }]);
 
+  // Re-attach to an in-progress parse after a page refresh. The parse runs
+  // detached server-side and its socket events are lost on refresh, so poll the
+  // durable /parse-progress record and restore the pipeline when idle.
+  const reattachedRef = useRef(false);
+  const handledDoneRef = useRef(false);
+  useEffect(() => {
+    if (!caseId) return;
+    const locallyActive = ['uploading', 'extracting', 'detecting', 'parsing', 'hayabusa'].includes(step) && !reattachedRef.current;
+    if (locallyActive) return;
+    let alive = true;
+    const poll = () => collectionAPI.parseProgress(caseId)
+      .then(r => {
+        if (!alive) return;
+        const d = r.data;
+        if (d?.active) {
+          handledDoneRef.current = false;
+          if (!reattachedRef.current) {
+            reattachedRef.current = true;
+            addLog('↻ Session re-attachée — analyse en cours');
+          }
+          setStep('parsing');
+          setProgress(Math.min(99, d.globalPct || 0));
+          setParserStates(d.parsers || {});
+        } else if (d?.done && !handledDoneRef.current) {
+          handledDoneRef.current = true;
+          reattachedRef.current = false;
+          if (d.outcome === 'error') addLog(`✗ Analyse terminée en erreur : ${d.error || 'voir les logs'}`);
+          else {
+            addLog('✓ Analyse terminée — consultez le cas');
+            // The live pipeline triggers Hayabusa after parse:done; a page
+            // refresh loses that call. If the parse just finished and EVTX was
+            // among the parsed types, trigger Hayabusa now (backend 409s if the
+            // auto-hunt already started it — treated as success).
+            if (d.parsers && d.parsers.evtx && d.parsers.evtx.status === 'done') {
+              addLog(t('collection.import.log.start_hayabusa'));
+              collectionAPI.runHayabusa(caseId)
+                .then(res => addLog(t('collection.import.log.hayabusa_done', { count: res.data?.total || res.data?.detections?.length || 0 })))
+                .catch(err => {
+                  if (err.response?.status === 409) addLog(t('collection.import.log.hayabusa_running'));
+                  else addLog(t('collection.import.log.hayabusa_error', { error: err.response?.data?.error || err.message || t('collection.import.errors.unavailable') }));
+                });
+            }
+          }
+          setProgress(100);
+          setStep('idle');
+        } else if (reattachedRef.current && !d?.done) {
+          reattachedRef.current = false;
+        }
+      })
+      .catch(() => {});
+    poll();
+    const timer = setInterval(poll, 3000);
+    return () => { alive = false; clearInterval(timer); };
+  }, [caseId, step]);
+
   const handleFile = async (file) => {
     if (!file || !caseId) return;
     setFileName(file.name);
@@ -264,12 +466,14 @@ export default function CollectionImportPanel({ caseId, caseObj, onDone }) {
     setPipelineLog([]);
     setHayabusaResults(null);
     setResults(null);
+    setEvidenceId(null);
 
     if (!socket) { setError(t('collection.import.errors.socket_required')); return; }
 
     const formData = new FormData();
     formData.append('collection', file);
     formData.append('socketId', socket.id || '');
+    if (archivePassword.trim()) formData.append('password', archivePassword.trim());
 
     try {
       setStep('uploading');
@@ -304,6 +508,7 @@ export default function CollectionImportPanel({ caseId, caseObj, onDone }) {
 
           const detectedArtifacts = data?.detected_artifacts || null;
           if (data?.collection_dir) setCollDir(data.collection_dir);
+          if (data?.evidence_id) setEvidenceId(data.evidence_id);
           if (data?.hashes) setFileHashes(data.hashes);
 
           if (detectedArtifacts && Object.keys(detectedArtifacts).length > 0) {
@@ -356,6 +561,11 @@ export default function CollectionImportPanel({ caseId, caseObj, onDone }) {
 
   const startParsing = async () => {
     if (!caseId || selected.length === 0) return;
+    // Guard against double-clicks / rapid re-launches: a second POST while the
+    // first job is still initializing would wipe its rows (backend also 409s
+    // same-collection re-parses, but the guard avoids the round-trip entirely).
+    if (startingRef.current) return;
+    startingRef.current = true;
     setParserStates(Object.fromEntries(selected.map(k => [k, { status: 'queued' }])));
     try {
       setStep('parsing');
@@ -370,7 +580,7 @@ export default function CollectionImportPanel({ caseId, caseObj, onDone }) {
         addLog(t('collection.import.log.parsers', { parsers: parseTypes.map(t => ARTIFACTS[t]?.parser || t).join(', ') }));
 
       try {
-        await collectionAPI.parse(caseId, { collection_dir: collDir, artifact_types: isCatScaleCollection ? 'all' : parseTypes, socketId });
+        await collectionAPI.parse(caseId, { collection_dir: collDir, artifact_types: isCatScaleCollection ? 'all' : parseTypes, socketId, parser_options: parserOptions, exhaustive_fs_timeline: isCatScaleCollection ? exhaustiveFs : undefined });
       } catch (e) {
         const errMsg = (e.response?.data?.error || e.message || t('common.unknown'))
           + (e.response?.data?.details ? ' — ' + e.response.data.details : '');
@@ -381,27 +591,40 @@ export default function CollectionImportPanel({ caseId, caseObj, onDone }) {
       }
 
       const doneData = await new Promise((resolve, reject) => {
-        const timer = setTimeout(() => {
+        let settled = false;
+        let sawActive = false;
+        let pollIv = null;
+        const cleanup = () => {
+          if (pollIv) clearInterval(pollIv);
           socket.off('collection:parse:done', onParseDone);
           socket.off('collection:parse:error', onParseError);
-          reject(new Error(t('collection.import.errors.parsing_timeout')));
-        }, 2 * 60 * 60 * 1000);
+        };
+        const finish = (data) => { if (settled) return; settled = true; clearTimeout(timer); cleanup(); resolve(data); };
+        const fail = (err) => { if (settled) return; settled = true; clearTimeout(timer); cleanup(); reject(err); };
 
-        function onParseDone(data) {
-          clearTimeout(timer);
-          socket.off('collection:parse:done', onParseDone);
-          socket.off('collection:parse:error', onParseError);
-          resolve(data);
-        }
-        function onParseError(data) {
-          clearTimeout(timer);
-          socket.off('collection:parse:done', onParseDone);
-          socket.off('collection:parse:error', onParseError);
-          reject(new Error(data?.details || data?.error || t('collection.import.errors.parsing')));
-        }
+        const timer = setTimeout(() => fail(new Error(t('collection.import.errors.parsing_timeout'))), 2 * 60 * 60 * 1000);
+
+        function onParseDone(data) { finish(data); }
+        function onParseError(data) { fail(new Error(data?.details || data?.error || t('collection.import.errors.parsing'))); }
 
         socket.on('collection:parse:done', onParseDone);
         socket.on('collection:parse:error', onParseError);
+
+        // If the socket drops/reconnects mid-parse the done/error event is lost.
+        // Poll the durable /parse-progress record; once it flips active→inactive
+        // the server-side parse settled — fetch the stored result and finish.
+        const poll = async () => {
+          try {
+            const r = await collectionAPI.parseProgress(caseId);
+            if (r.data?.active) { sawActive = true; return; }
+            if (!sawActive) return;
+            const res = await collectionAPI.parseResult(caseId);
+            if (res.data?.failed) { fail(new Error(t('collection.import.errors.parsing'))); return; }
+            finish({ results: res.data?.results || {}, total_records: res.data?.total_records || 0 });
+          } catch (_e) { /* keep waiting on the socket */ }
+        };
+        pollIv = setInterval(poll, 3000);
+        poll();
       });
 
       const perResults = doneData?.results || {};
@@ -429,6 +652,8 @@ export default function CollectionImportPanel({ caseId, caseObj, onDone }) {
           os_info: perResults.catscale.os_info || '',
           artifacts: perResults.catscale.artifacts || [],
           events: perResults.catscale.events || total,
+          fs_filter: perResults.catscale.fs_filter || null,
+          exhaustive: perResults.catscale.exhaustive_fs_timeline === true,
         });
       }
       setProgress(hasEvtx ? 84 : 90);
@@ -442,7 +667,13 @@ export default function CollectionImportPanel({ caseId, caseObj, onDone }) {
           setHayabusaResults(hayRes.data);
           addLog(t('collection.import.log.hayabusa_done', { count: hayRes.data.total || hayRes.data.detections?.length || 0 }));
         } catch (e) {
-          addLog(t('collection.import.log.hayabusa_error', { error: e.response?.data?.error || e.message || t('collection.import.errors.unavailable') }));
+          // 409 = the backend auto-hunt already started Hayabusa for this case
+          // (parse completion → startRunAll). That's success, not an error.
+          if (e.response?.status === 409) {
+            addLog(t('collection.import.log.hayabusa_running'));
+          } else {
+            addLog(t('collection.import.log.hayabusa_error', { error: e.response?.data?.error || e.message || t('collection.import.errors.unavailable') }));
+          }
         }
       }
 
@@ -454,6 +685,8 @@ export default function CollectionImportPanel({ caseId, caseObj, onDone }) {
       setError(err.message || t('collection.import.errors.parsing'));
       addLog(t('collection.import.log.fatal_error', { error: err.message }));
       setStep('idle');
+    } finally {
+      startingRef.current = false;
     }
   };
 
@@ -461,6 +694,8 @@ export default function CollectionImportPanel({ caseId, caseObj, onDone }) {
     setStep('idle'); setDetected(null); setResults(null);
     setHayabusaResults(null); setPipelineLog([]); setFileName('');
     setFileHashes(null); setError(''); setCatscaleDetail(null); setCatscaleStep(null);
+    setParserSchema(null); setParserOptions({}); setArchivePassword('');
+    setEvidenceId(null);
   };
 
   const toggle = (t) => setSelected(p => p.includes(t) ? p.filter(x => x !== t) : [...p, t]);
@@ -543,6 +778,29 @@ export default function CollectionImportPanel({ caseId, caseObj, onDone }) {
                 Linux — CatScale
               </span>
             </div>
+            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 10 }} onClick={e => e.stopPropagation()}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 7, background: 'var(--fl-card)', border: '1px solid var(--fl-border2)', borderRadius: 7, padding: '6px 11px', maxWidth: 420, width: '100%' }}>
+                <Lock size={12} style={{ color: 'var(--fl-muted)', flexShrink: 0 }} />
+                <input
+                  type="password"
+                  value={archivePassword}
+                  onChange={e => setArchivePassword(e.target.value)}
+                  placeholder={t('collection.import.archive_password_placeholder', 'Mot de passe de l\'archive (zip/7z chiffré) — optionnel')}
+                  onClick={e => e.stopPropagation()}
+                  onKeyDown={e => e.stopPropagation()}
+                  style={{ flex: 1, minWidth: 0, background: 'transparent', border: 'none', outline: 'none', color: 'var(--fl-text)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11 }}
+                />
+                {archivePassword && (
+                  <button
+                    onClick={e => { e.stopPropagation(); setArchivePassword(''); }}
+                    title={t('collection.import.clear_password', 'Effacer')}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--fl-muted)', display: 'inline-flex', padding: 2, flexShrink: 0 }}
+                  >
+                    <X size={12} />
+                  </button>
+                )}
+              </div>
+            </div>
             <p className="text-xs font-mono" style={{ color: 'var(--fl-muted)' }}>{t('collection.import.accepted_formats')}</p>
           </div>
           <input ref={fileRef} type="file" accept=".zip,.tar,.gz,.7z,.evtx,.pf,.lnk,.dat,.hve,.db,.sqlite,.pcap,.pcapng,.cap" multiple className="hidden"
@@ -616,7 +874,20 @@ export default function CollectionImportPanel({ caseId, caseObj, onDone }) {
                 : step === 'parsing' && t('collection.import.status.parsing')}
               {step === 'hayabusa'   && t('collection.import.status.hayabusa')}
             </span>
-            <span className="font-mono text-sm font-bold" style={{ color: 'var(--fl-accent)' }}>{progress}%</span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              {step === 'parsing' && (
+                <button
+                  onClick={() => navigate(evidenceId
+                    ? `/cases/${caseId}/collections/${evidenceId}/evidence`
+                    : `/cases/${caseId}/evidence`)}
+                  className="fl-btn fl-btn-ghost fl-btn-sm"
+                  title={t('collection.import.view_parsed_title', 'Ouvre la vue preuves de cette collecte — les artefacts déjà parsés s\'y trouvent')}
+                >
+                  <Eye size={12} /> {t('collection.import.view_parsed', 'Voir les événements déjà parsés')}
+                </button>
+              )}
+              <span className="font-mono text-sm font-bold" style={{ color: 'var(--fl-accent)' }}>{progress}%</span>
+            </span>
           </div>
           <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--fl-panel)' }}>
             <div className="h-full rounded-full transition-all duration-500"
@@ -743,6 +1014,15 @@ export default function CollectionImportPanel({ caseId, caseObj, onDone }) {
             </div>
           )}
 
+          <ParserOptionsPanel
+            schema={parserSchema}
+            values={parserOptions}
+            onChange={setOption}
+            groups={isCatScaleCollection ? ['_global', 'catscale'] : ['_global', ...selected]}
+            groupLabel={artifactLabel}
+            t={t}
+          />
+
           <div className="flex justify-between items-center">
             <div className="flex items-center gap-3">
               {isCatScaleCollection ? (
@@ -758,6 +1038,12 @@ export default function CollectionImportPanel({ caseId, caseObj, onDone }) {
                 </>
               )}
             </div>
+            {isCatScaleCollection && (
+              <label className="flex items-center gap-2 mr-1" style={{ fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-dim)', cursor: 'pointer', userSelect: 'none' }} title={t('collection.import.exhaustive_fs_hint', 'Ingérer toutes les entrées de full-timeline.csv (conteneurs, paquets, fichiers anciens) au lieu du filtre anti-bruit. Beaucoup plus de lignes.')}>
+                <input type="checkbox" checked={exhaustiveFs} onChange={e => setExhaustiveFs(e.target.checked)} style={{ accentColor: 'var(--fl-accent)', cursor: 'pointer' }} />
+                {t('collection.import.exhaustive_fs', 'FS timeline exhaustive')}
+              </label>
+            )}
             <button onClick={startParsing} disabled={!selected.length && !isCatScaleCollection}
               className="fl-btn fl-btn-primary"
               style={{ opacity: (selected.length || isCatScaleCollection) ? 1 : 0.5 }}>
@@ -807,6 +1093,27 @@ export default function CollectionImportPanel({ caseId, caseObj, onDone }) {
                       </div>
                     );
                   })}
+                </div>
+              )}
+              {catscaleDetail.fs_filter && (
+                <div className="mt-2 rounded p-2" style={{ background: 'var(--fl-bg)', border: '1px solid var(--fl-border)' }}>
+                  <div className="text-xs font-mono" style={{ color: 'var(--fl-gold)' }}>
+                    {t('collection.import.fs_filter_title', 'Timeline FS — filtre anti-bruit')}
+                  </div>
+                  <div className="text-xs font-mono" style={{ color: 'var(--fl-dim)', marginTop: 2 }}>
+                    {catscaleDetail.exhaustive
+                      ? t('collection.import.fs_filter_exhaustive', 'Mode exhaustif : toutes les entrées parsables ont été ingérées.')
+                      : t('collection.import.fs_filter_summary', '{kept} entrées conservées sur {scanned} scannées — {removed} filtrées (conteneurs {containers}, paquets {packages}, fichiers anciens {old}, reconstruisibles {rebuild}, non parsables {unparsable}).', {
+                          kept: (catscaleDetail.fs_filter.kept || 0).toLocaleString(locale),
+                          scanned: (catscaleDetail.fs_filter.scanned || 0).toLocaleString(locale),
+                          removed: ((catscaleDetail.fs_filter.dropped?.container_layer || 0) + (catscaleDetail.fs_filter.dropped?.package_tree || 0) + (catscaleDetail.fs_filter.dropped?.not_relevant || 0) + (catscaleDetail.fs_filter.dropped?.rebuildable || 0) + (catscaleDetail.fs_filter.dropped?.unparsable || 0)).toLocaleString(locale),
+                          containers: (catscaleDetail.fs_filter.dropped?.container_layer || 0).toLocaleString(locale),
+                          packages: (catscaleDetail.fs_filter.dropped?.package_tree || 0).toLocaleString(locale),
+                          old: (catscaleDetail.fs_filter.dropped?.not_relevant || 0).toLocaleString(locale),
+                          rebuild: (catscaleDetail.fs_filter.dropped?.rebuildable || 0).toLocaleString(locale),
+                          unparsable: (catscaleDetail.fs_filter.dropped?.unparsable || 0).toLocaleString(locale),
+                        })}
+                  </div>
                 </div>
               )}
             </div>

@@ -74,7 +74,9 @@ function ParserCard({ parser, state, justDone, t }) {
       <div style={{ fontSize: 10, fontFamily: MONO, color: 'var(--fl-muted)', fontFeatureSettings: '"tnum"' }}>
         {status === 'done' && records != null
           ? t('collection.pm_records', { n: Number(records).toLocaleString() })
-          : t(meta.k)}
+          : status === 'parsing' && records != null && records > 0
+            ? `${Number(records).toLocaleString('fr-FR')} ${t('collection.pm_records_live', { defaultValue: 'enreg.' })}…`
+            : t(meta.k)}
       </div>
     </div>
   );

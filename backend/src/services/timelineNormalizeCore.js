@@ -8,6 +8,9 @@ function stripNullBytes(record) {
   return clean;
 }
 
+// Any parseable date is accepted — no year window. Junk/future timestamps are
+// excluded at display time (histogram clamps to 1990-2100), never by dropping
+// rows, so every ingested event stays searchable.
 function normalizeTimestamp(value) {
   if (!value || value === '' || value === '(null)') return null;
   try {
@@ -17,8 +20,6 @@ function normalizeTimestamp(value) {
     if (/[+-]\d{2}:\d{2}$/.test(cleaned)) {
       const d = new Date(cleaned.replace(' ', 'T'));
       if (isNaN(d.getTime())) return null;
-      const year = d.getUTCFullYear();
-      if (year < 1980 || year > 2035) return null;
       return d.toISOString();
     }
 
@@ -27,8 +28,6 @@ function normalizeTimestamp(value) {
     if (cleaned.includes(' ') && !cleaned.includes('T')) cleaned = cleaned.replace(' ', 'T');
     const d = new Date(cleaned + 'Z');
     if (isNaN(d.getTime())) return null;
-    const year = d.getUTCFullYear();
-    if (year < 1980 || year > 2035) return null;
     return d.toISOString();
   } catch {
     return null;
@@ -61,17 +60,17 @@ function extractDescription(record, descriptionColumns) {
 }
 
 // mirrors collection.js:623-638 (legacy dedupe scheme) — keep in sync
-function computeDedupeHash(artifactType, { tsColumn, source, description, eventId, record }) {
+function computeDedupeHash(artifactType, { tsColumn, tsValue, source, description, eventId, record }) {
   const extraUnique =
     artifactType === 'evtx'
-      ? `|${record['EventRecordId'] || record['RecordNumber'] || ''}|${record['Computer'] || ''}`
+      ? `|${record['EventRecordId'] || record['RecordNumber'] || record['RecordId'] || ''}|${record['Computer'] || ''}`
       : artifactType === 'mft'
       ? `|${record['EntryNumber'] || ''}|${record['SequenceNumber'] || ''}`
       : '';
   return crypto
     .createHash('md5')
     .update([
-      tsColumn || '', source || '', artifactType || '',
+      tsValue || '', tsColumn || '', source || '', artifactType || '',
       (description || '').slice(0, 200), eventId == null ? '' : String(eventId),
     ].join('|') + extraUnique)
     .digest('hex')

@@ -7,16 +7,17 @@ const { parse: parseCsv } = require('csv-parse/sync');
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
 
 // `raw->>'Key' IS NOT NULL` is a function call: no index applies and Postgres
-// deserialises every row of collection_timeline. `raw ?| ARRAY[...]` tests key
-// existence and is served by idx_ct_raw_gin.
+// deserialises every row of collection_timeline. `jsonb_top_keys(raw) && ARRAY[...]`
+// tests top-level key existence and is served by idx_ct_raw_keys_gin (a GIN over
+// just the top-level keys, far cheaper to maintain than a full jsonb_ops GIN).
 //
-// It is a *superset* of the old predicate — it also admits keys whose value is
-// JSON null — which is safe here only because every query below keeps its outer
-// WHERE rejecting empty / '-' / placeholder destinations. Do not reuse this
-// helper in a query that lacks such a filter.
+// It is a *superset* of the old `->>` predicate — it also admits keys whose value
+// is JSON null — which is safe here only because every query below keeps its outer
+// WHERE rejecting empty / '-' / placeholder destinations. Do not reuse this helper
+// in a query that lacks such a filter.
 const rawHasAny = (keys, alias = '') => {
   const col = alias ? `${alias}.raw` : 'raw';
-  return `${col} ?| ARRAY[${keys.map(k => `'${k}'`).join(',')}]`;
+  return `jsonb_top_keys(${col}) && ARRAY[${keys.map(k => `'${k}'`).join(',')}]`;
 };
 
 // A cancelled query must never be reported as an empty result: the analyst would

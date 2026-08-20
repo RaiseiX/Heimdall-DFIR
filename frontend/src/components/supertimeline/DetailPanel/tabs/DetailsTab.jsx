@@ -61,7 +61,7 @@ function FieldBlock({ label, value, highlight, wrap = false }) {
           ? { wordBreak: 'break-all' }
           : { overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }),
       }}>
-        {str.length > 4000 ? str.slice(0, 4000) + '…' : str}
+        {str.length > 50000 ? str.slice(0, 50000) + '…' : str}
       </div>
     </div>
   );

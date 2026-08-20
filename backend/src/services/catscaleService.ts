@@ -123,6 +123,49 @@ async function* readLines(filePath: string): AsyncIterable<string> {
   for await (const line of rl) yield line;
 }
 
+// Full-timeline.csv is CSV: paths and usernames can legitimately contain commas
+// and are then double-quoted. A naive line.split(',') shifts every column after
+// such a field, dropping rows or inventing rows from the wrong columns. Parse
+// quoted fields properly (doubled "" is an escaped quote).
+function splitCsvLine(line: string): string[] {
+  const out: string[] = [];
+  let cur = '';
+  let inQ = false;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (inQ) {
+      if (c === '"') {
+        if (line[i + 1] === '"') { cur += '"'; i++; }
+        else inQ = false;
+      } else cur += c;
+    } else if (c === '"') {
+      inQ = true;
+    } else if (c === ',') {
+      out.push(cur); cur = '';
+    } else cur += c;
+  }
+  out.push(cur);
+  return out;
+}
+
+// Linux `stat` writes wall-clock timestamps with nanosecond precision and no
+// offset — e.g. "2026-07-30 12:44:06.123456789 +0000". `new Date()` on the raw
+// string is fragile (space separator, 9-digit fraction, offset without colon can
+// all fail) and every failed parse silently drops the row later on. Normalise to
+// ISO: 'T' separator, milliseconds only, UTC anchor.
+function parseFsTs(s: string): Date | null {
+  if (!s) return null;
+  let str = String(s).trim();
+  if (!str || str === '-') return null;
+  str = str.replace(/ /, 'T');
+  str = str.replace(/([+-]\d{2})(\d{2})$/, '$1:$2'); // +0000 → +00:00
+  const fracM = /\.(\d+)/.exec(str);
+  if (fracM) str = str.replace(fracM[0], '.' + (fracM[1] + '000').slice(0, 3));
+  if (!/[+-]\d{2}:\d{2}$|Z$/i.test(str)) str += 'Z';
+  const d = new Date(str);
+  return isNaN(d.getTime()) ? null : d;
+}
+
 type Row = {
   case_id: string;
   timestamp: Date;
@@ -741,7 +784,7 @@ async function parseFsTimeline(
 ): Promise<number> {
   const rows: Row[] = [];
   let inserted = 0;
-  let headerSeen = false;
+  let firstLine = true;
   const dropped = new Map<string, number>();
   const note = (reason: keyof FsTimelineFilterStats['dropped'], p?: string) => {
     if (!stats) return;
@@ -753,12 +796,18 @@ async function parseFsTimeline(
   const cutoff = new Date(collectedAt.getTime() - 90 * 24 * 60 * 60 * 1000);
 
   for await (const line of readLines(filePath)) {
-    if (!headerSeen) { headerSeen = true; continue; } // skip CSV header
     if (!line.trim()) continue;
+    if (firstLine) {
+      firstLine = false;
+      // Skip the CSV header — unless the first non-blank line is already a data
+      // row (no header, or a leading blank line was consumed elsewhere).
+      const probe = splitCsvLine(line);
+      if (!(probe[2] && String(probe[2]).trim().startsWith('/'))) continue;
+    }
 
     if (stats) stats.scanned += 1;
 
-    const parts = line.split(',');
+    const parts = splitCsvLine(line);
     if (parts.length < 11) { note('unparsable'); continue; }
 
     const fullPath = parts[2];
@@ -789,12 +838,14 @@ async function parseFsTimeline(
     }
     let modTs: Date | null = null;
     if (lastMod && lastMod !== '-') {
-      modTs = new Date(lastMod.trim());
-      if (isNaN(modTs.getTime())) modTs = null;
+      modTs = parseFsTs(lastMod);
     }
     const isRecent = modTs && modTs >= cutoff;
 
-    if (!exhaustive && !isSuspiciousPath && !isSuspiciousExt && !isRecent) {
+    // Only a real, parsed mtime can be judged "not recent". An unparsable
+    // timestamp must not silently discard the row — keep it, anchored to the
+    // collection time, exactly like the fallback below.
+    if (!exhaustive && modTs && !isSuspiciousPath && !isSuspiciousExt && !isRecent) {
       note('not_relevant', fullPath); continue;
     }
     if (stats) stats.kept += 1;

@@ -14,7 +14,7 @@ const crypto = require('crypto');
 const { matchTags: matchKeywordTags } = require('./timelineKeywords');
 const threatEngine = require('./threatEngine');
 
-function extractForensicFields(record, artifactType, config, tsColumn, description, source) {
+function extractForensicFields(record, artifactType, config, tsColumn, tsValue, description, source) {
   const toolRaw = (config && config.tool) || artifactType;
   const tool = String(toolRaw).replace(/\.[^.]+$/, '').slice(0, 32);
 
@@ -57,22 +57,27 @@ function extractForensicFields(record, artifactType, config, tsColumn, descripti
     const ads = record['HasAds'] === 'True' ? 'ADS' : null;
     details = [ads, record['ZoneIdContents']].filter(Boolean).join(' | ') || null;
   }
-  if (details) details = details.slice(0, 500);
+  // Keep full payloads (PowerShell scripts, command lines…) — details is a TEXT
+  // column, only guard against pathological rows.
+  if (details) details = details.slice(0, 200000);
 
   // EVTX: EventRecordId+Computer make the record globally unique without relying on description truncation.
   // MFT: EntryNumber+SequenceNumber is the stable per-file identity in the MFT.
   // Without these, high-frequency events (same EventId+Channel+second) collide and are silently dropped.
   const extraUnique =
     artifactType === 'evtx'
-      ? `|${record['EventRecordId'] || record['RecordNumber'] || ''}|${record['Computer'] || ''}`
+      ? `|${record['EventRecordId'] || record['RecordNumber'] || record['RecordId'] || ''}|${record['Computer'] || ''}`
       : artifactType === 'mft'
       ? `|${record['EntryNumber'] || ''}|${record['SequenceNumber'] || ''}`
       : '';
 
+  // The timestamp VALUE is part of the hash — without it, high-frequency events
+  // with identical content (e.g. PowerShell 600 "Provider started" repeated in a
+  // channel) all hashed identically and only the first survived dedup.
   const dedupeHash = crypto
     .createHash('md5')
     .update([
-      tsColumn || '', source || '', artifactType || '',
+      tsValue || '', tsColumn || '', source || '', artifactType || '',
       (description || '').slice(0, 200), eventId == null ? '' : String(eventId),
     ].join('|') + extraUnique)
     .digest('hex')
@@ -80,7 +85,7 @@ function extractForensicFields(record, artifactType, config, tsColumn, descripti
 
   // v2.23 — keyword enrichment (matches backend/config/timeline_keywords.yaml)
   let tags = [];
-  try { tags = matchKeywordTags(record, description); } catch (_e) {}
+  try { tags = matchKeywordTags(record, description, artifactType); } catch (_e) {}
 
   // v2.26 — Threat Engine: per-row detection evaluation.
   // Builds a synthetic record shape the engine expects (artifact_type, event_id,

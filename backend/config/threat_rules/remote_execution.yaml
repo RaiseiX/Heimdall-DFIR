@@ -1,0 +1,102 @@
+# Remote execution / lateral movement pack — T1021 / T1047 / T1053 / T1543 / T1569
+# Tools and patterns commonly used for remote command execution on Windows.
+# The SQL vectors in cases.js (attack-techniques) are the deep per-case scan;
+# these rules run at ingest and tag individual timeline rows.
+rules:
+  - id: rex_psexec_remote
+    name: "PsExec / remote service execution"
+    severity: high
+    category: remote_execution
+    target_artifact: ['*']
+    mitre: [T1021.002, T1569.002]
+    tags: [LateralMovement, PsExec, RemoteExec]
+    match:
+      any:
+        - { field: description, op: iregex, value: '(psexec|psexesvc|paexec|remcom)(\.exe)?\b' }
+        - all:
+            - { field: event_id, op: eq, value: 7045 }
+            - { field: description, op: icontains, value: 'PSEXESVC' }
+
+  - id: rex_wmi_remote
+    name: "WMI remote execution (wmic process call create, Invoke-WmiMethod)"
+    severity: high
+    category: remote_execution
+    target_artifact: ['*']
+    mitre: [T1047]
+    tags: [LateralMovement, WMI, RemoteExec]
+    match:
+      any:
+        # /node: seul = requête (admin légitime) ; process call create = exécution distante
+        - { field: description, op: iregex, value: 'wmic(\.exe)?\s+/node:[^\s]+\s+process\s+call\s+create' }
+        - { field: description, op: iregex, value: 'invoke-wmimethod\s+-computername' }
+        - { field: description, op: iregex, value: 'invoke-cimmethod\s+-computername' }
+        - { field: description, op: iregex, value: 'new-cimsession\s+-computername' }
+
+  - id: rex_wmiprvse_spawn
+    name: "wmiprvse.exe spawning a command interpreter"
+    severity: critical
+    category: remote_execution
+    target_artifact: [evtx, sysmon, hayabusa]
+    mitre: [T1047]
+    tags: [LateralMovement, WMI, RemoteExec]
+    match:
+      all:
+        - any:
+            - { field: description, op: iregex, value: 'wmiprvse(\.exe)?' }
+            - { field: process_name, op: iregex, value: '^wmiprvse' }
+        - any:
+            - { field: description, op: iregex, value: '(cmd|powershell|pwsh|wscript|cscript)(\.exe)?' }
+
+  - id: rex_winrm_psremoting
+    name: "PowerShell remoting / WinRM session"
+    severity: high
+    category: remote_execution
+    target_artifact: ['*']
+    mitre: [T1021.006]
+    tags: [LateralMovement, WinRM, PowerShellRemoting]
+    match:
+      any:
+        # EID 91/168 nus = bruit réseau (chaque session WinRM légitime les génère)
+        - { field: description, op: iregex, value: 'wsmprovhost' }
+        - { field: description, op: iregex, value: 'winrs\s+-r:' }
+        - { field: description, op: iregex, value: '(enter-pssession|new-pssession|invoke-command)\s+-computername' }
+        - { field: description, op: iregex, value: 'evil-winrm' }
+
+  - id: rex_remote_schtask
+    name: "Scheduled task created on remote host (schtasks /s)"
+    severity: high
+    category: remote_execution
+    target_artifact: ['*']
+    mitre: [T1053.005]
+    tags: [LateralMovement, ScheduledTask, RemoteExec]
+    match:
+      all:
+        - { field: description, op: iregex, value: 'schtasks(\.exe)?\s' }
+        - { field: description, op: iregex, value: '/create' }
+        - { field: description, op: iregex, value: '/s\s' }
+
+  - id: rex_remote_service
+    name: "Service created on remote host (sc \\host)"
+    severity: high
+    category: remote_execution
+    target_artifact: ['*']
+    mitre: [T1543.003]
+    tags: [LateralMovement, Service, RemoteExec]
+    match:
+      any:
+        - { field: description, op: iregex, value: 'sc(\.exe)?\s+\\[^\s]+\s+create' }
+        - { field: description, op: iregex, value: 'sc(\.exe)?\s+create\s+\\' }
+
+  - id: rex_smb_admin_share
+    name: "SMB admin share access (C$/ADMIN$/IPC$)"
+    severity: medium
+    category: remote_execution
+    target_artifact: [evtx, hayabusa]
+    mitre: [T1021.002]
+    tags: [LateralMovement, SMB, AdminShare]
+    match:
+      any:
+        - all:
+            - { field: event_id, op: eq, value: 5140 }
+            - { field: description, op: iregex, value: '\\[^\s]+\\(C\$|ADMIN\$|IPC\$)' }
+        - { field: description, op: iregex, value: 'net\s+use\s+\\[^\s]+\\(C\$|ADMIN\$)' }

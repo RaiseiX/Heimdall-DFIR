@@ -12,13 +12,14 @@ const { from: pgCopyFrom } = require('pg-copy-streams');
 const { parse } = require('csv-parse/sync');
 const { parse: parseStream } = require('csv-parse');
 const multer = require('multer');
-const { pool } = require('../config/database');
+const { pool, readPool } = require('../config/database');
 const { authenticate, auditLog } = require('../middleware/auth');
 
 const esService = require('../services/elasticsearchService');
 const { getRedis } = require('../config/redis');
 const logger = require('../config/logger').default;
 const { matchTags: matchKeywordTags } = require('../services/timelineKeywords');
+const { invalidateDetectionCache } = require('../services/detectionExceptions');
 const { safeBasename } = require('../services/uploadService');
 const { detectMapping, loadMappings } = require('../services/timelineMappings');
 const { buildSlimRaw } = require('../services/timelineFieldExtract');
@@ -32,6 +33,7 @@ const { importCsvFile } = require('../services/csv/importCsvFile');
 const { findCsvFilesRecursive } = require('../services/csv/findCsvFiles');
 const { scanCollectionCsvs } = require('../services/csv/scanCollectionCsvs');
 const { ZIMMERMAN_DIR, ARTIFACT_PATTERNS, ECS_COLUMNS } = require('../config/artifactPatterns');
+const { PARSER_OPTIONS, defaultParserOptions, sanitizeParserOptions, appendCliFlags, buildTimeWindow } = require('../config/parserOptions');
 const { purgeFsTimeline, purgeCatScaleState } = require('../services/fsTimelinePurge');
 const { parseRule, buildQuery } = require('../services/sigmaService');
 
@@ -212,6 +214,21 @@ function findFiles(dir, patterns) {
   return [...new Set(results)];
 }
 
+function countFilesRecursive(dir) {
+  let n = 0;
+  const stack = [dir];
+  while (stack.length > 0) {
+    const d = stack.pop();
+    let entries;
+    try { entries = fs.readdirSync(d, { withFileTypes: true }); } catch { continue; }
+    for (const e of entries) {
+      if (e.isDirectory()) stack.push(path.join(d, e.name));
+      else n++;
+    }
+  }
+  return n;
+}
+
 async function readCsvFile(csvPath) {
   let stat;
   try { stat = fs.statSync(csvPath); } catch { return []; }
@@ -271,6 +288,10 @@ async function readCsvFile(csvPath) {
 }
 
 const CT_DB_BATCH = 5000;
+// Failsafe for a batch insert that wedges (lock wait under DB thrash): client-side
+// timeout, then insertRowsResilient splits-and-retries so healthy rows still land.
+// Generous (10 min) — a merely slow batch must be allowed to finish.
+const BATCH_QUERY_TIMEOUT_MS = parseInt(process.env.PARSE_BATCH_QUERY_TIMEOUT_MS, 10) || 600000;
 // All selected parsers start at once by default (runConcurrent caps to the item count).
 // Tunable via env if a host needs to throttle CPU. DB writes are bounded separately below.
 const PARSE_CONCURRENCY = parseInt(process.env.PARSE_CONCURRENCY, 10) || 99;
@@ -301,6 +322,51 @@ const dbWriteSem = makeSemaphore(DB_WRITE_CONCURRENCY);
 // returning client poll the current state. Lost on backend restart (acceptable).
 const PARSE_PROGRESS = new Map(); // caseId -> { parsers:{key:{status,records,name}}, globalPct, updatedAt }
 
+// Active parse jobs, keyed by `${caseId}::${collDir}`. Prevents launching a
+// second analysis on the SAME collection while one is still writing: the new
+// job's init transaction deletes the old job's parser_results + timeline rows,
+// which would wipe the first job's output mid-write. Different collections of
+// the same case may still parse concurrently.
+const ACTIVE_PARSE_LOCKS = new Set();
+// Per-case in-flight guard for the /hayabusa route. The parse pipeline auto-
+// triggers Hayabusa after an EVTX parse (startRunAll) AND the frontend calls
+// POST /hayabusa after parse:done — without a lock those two would race,
+// each wiping the other's partial stream-insert (initHayabusaRecord deletes
+// existing rows first). 409 the loser instead.
+const ACTIVE_HAYABUSA_LOCKS = new Set();
+
+// Parser outcomes that map to a finished (green) state in the cockpit — the
+// parse loop emits 'success' for Windows parsers but 'ok' for pcap/rdpcache/
+// CatScale and 'degraded' for empty-but-valid runs.
+const DONE_STATUSES = new Set(['success', 'ok', 'degraded']);
+
+// Durable progress mirror. The in-memory PARSE_PROGRESS map is fast for live
+// polls but vanishes on a backend restart; every throttled write here snapshots
+// it into the active UnifiedTimeline parser_results row so a returning client
+// (or a restarted backend) can still re-attach the cockpit.
+const progressPersistTimers = new Map(); // caseId -> setTimeout handle
+function persistParseProgress(caseId, entry) {
+  if (progressPersistTimers.has(caseId)) return; // one scheduled write is enough
+  progressPersistTimers.set(caseId, setTimeout(() => {
+    progressPersistTimers.delete(caseId);
+    pool.query(
+      `UPDATE parser_results
+          SET output_data = $1,
+              updated_at = NOW()
+        WHERE case_id = $2 AND parser_name = 'UnifiedTimeline'
+          AND output_data->>'status' = 'parsing'`,
+      [JSON.stringify({
+        status: 'parsing',
+        progress: {
+          globalPct: entry.globalPct,
+          parsers: entry.parsers,
+          updatedAt: entry.updatedAt || Date.now(),
+        },
+      }), caseId]
+    ).catch((err) => logger.warn('[parse-progress] persist error:', err.message));
+  }, 2000));
+}
+
 function updateParseProgress(caseId, validTypes, data) {
   if (!caseId) return;
   let e = PARSE_PROGRESS.get(caseId);
@@ -312,20 +378,50 @@ function updateParseProgress(caseId, validTypes, data) {
     };
     PARSE_PROGRESS.set(caseId, e);
   }
+  // Heartbeat: a long-running phase (a multi-30-min EVTX/MFT/USN tool run, a
+  // slow stream insert) produces no artifact_start/artifact_done events, which
+  // used to let the wedged-parse detector in /parse-progress declare a LIVE
+  // parse dead after 30 min. Refreshing updatedAt (and the durable snapshot)
+  // on a timer keeps the cockpit honest without touching parser state.
+  if (data.type === 'heartbeat') {
+    e.updatedAt = Date.now();
+    persistParseProgress(caseId, e);
+    return;
+  }
   if (data.type === 'artifact_start' && data.artifact) {
     if (!e.parsers[data.artifact]) e.parsers[data.artifact] = { status: 'queued', records: 0, name: data.name || data.artifact };
     e.parsers[data.artifact].status = 'parsing';
   }
   if (data.type === 'artifact_done' && data.artifact) {
-    const st = data.status === 'success' ? 'done' : data.status === 'skipped' ? 'skipped' : 'error';
+    const st = DONE_STATUSES.has(data.status) ? 'done' : data.status === 'skipped' ? 'skipped' : 'error';
     e.parsers[data.artifact] = { ...(e.parsers[data.artifact] || { name: data.name || data.artifact }), status: st, records: data.records ?? 0 };
+  }
+  // Live streaming progress: emitted per batch from streamNormalizeToDB so the
+  // cockpit records/throughput advance during the long CSV phase, not only at
+  // artifact_done (which is what made a healthy parse look frozen at a multiple
+  // of 5000 records). `fraction` = bytes consumed / file size for this artifact.
+  // Falls through to the globalPct recompute below so the % moves too.
+  if (data.type === 'artifact_progress' && data.artifact) {
+    const st = e.parsers[data.artifact];
+    if (st && st.status === 'parsing') {
+      if (typeof data.records === 'number') st.records = data.records;
+      if (typeof data.fraction === 'number') st.fraction = data.fraction;
+    }
+    e.updatedAt = Date.now();
   }
   // Global % from the COUNT of finished parsers — robust to parallel start order.
   // (The event `current` is a start index, not a completion count, so it can't drive %.)
+  // In-progress artifacts contribute their bytes-fraction so the % moves during
+  // long streams instead of staying pinned until the artifact fully completes.
   const states = Object.values(e.parsers);
-  const finished = states.filter(p => p.status === 'done' || p.status === 'skipped' || p.status === 'error').length;
-  e.globalPct = states.length ? Math.round((finished / states.length) * 100) : 0;
+  let weighted = 0;
+  for (const p of states) {
+    if (p.status === 'done' || p.status === 'skipped' || p.status === 'error') weighted += 1;
+    else if (p.status === 'parsing' && typeof p.fraction === 'number') weighted += Math.min(1, Math.max(0, p.fraction));
+  }
+  e.globalPct = states.length ? Math.round((weighted / states.length) * 100) : 0;
   e.updatedAt = Date.now();
+  persistParseProgress(caseId, e);
 }
 
 async function runConcurrent(items, fn, concurrency) {
@@ -338,8 +434,18 @@ async function runConcurrent(items, fn, concurrency) {
   }
   await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, worker));
 }
-async function streamNormalizeToDB(csvPath, caseId, resultId, artifactType, config, evidenceId = null, sourceDevice = null) {
-  try { fs.statSync(csvPath); } catch { return { rawCount: 0, normalized: 0, columns: [] }; }
+function tsInWindow(iso, timeWindow) {
+  if (!timeWindow || (!timeWindow.since && !timeWindow.until)) return true;
+  const t = Date.parse(iso);
+  if (Number.isNaN(t)) return true;
+  if (timeWindow.since && t < timeWindow.since.getTime()) return false;
+  if (timeWindow.until && t > timeWindow.until.getTime()) return false;
+  return true;
+}
+
+async function streamNormalizeToDB(csvPath, caseId, resultId, artifactType, config, evidenceId = null, sourceDevice = null, timeWindow = null, onProgress = null) {
+  let csvSize = 0;
+  try { csvSize = fs.statSync(csvPath).size; } catch { return { rawCount: 0, normalized: 0, columns: [] }; }
 
   let batch = [];
   let rawCount = 0;
@@ -347,9 +453,40 @@ async function streamNormalizeToDB(csvPath, caseId, resultId, artifactType, conf
   let columns = [];
   const benchStart = Date.now();
   let pgMs = 0;
+  let insertFailedRows = 0;
+  let firstInsertError = null;
+  // Live progress: the artifact_done event only fires once the whole CSV is
+  // streamed, which froze the cockpit (records, %, throughput) for the 30+ min
+  // a big EVTX/MFT/USN CSV takes. Report running records + bytes-fraction on a
+  // throttle so the UI advances continuously instead of "stuck at 15 000".
+  let bytesRead = 0;
+  let lastProgressAt = 0;
+  let lastAliveLogAt = 0;
+  const maybeProgress = (final = false) => {
+    const now = Date.now();
+    if (!onProgress) return;
+    if (!final && now - lastProgressAt < 2000) return;
+    lastProgressAt = now;
+    try {
+      onProgress({
+        records: normalized,
+        rawCount,
+        fraction: csvSize > 0 ? Math.min(1, bytesRead / csvSize) : 0,
+      });
+    } catch (_e) {}
+  };
+  const maybeAliveLog = () => {
+    const now = Date.now();
+    if (now - lastAliveLogAt < 60000) return;
+    lastAliveLogAt = now;
+    const s = Math.round((now - benchStart) / 1000);
+    logger.info(`[stream] ${artifactType} ${path.basename(csvPath)}: ${normalized} rows inserted in ${s}s (${bytesRead}/${csvSize} bytes) — still running`);
+  };
+  // Rows with no parseable timestamp are kept (searchable) and anchored here.
+  const fallbackTs = new Date().toISOString();
 
-  const insertBatch = (rows) => {
-    if (rows.length === 0) return Promise.resolve();
+  const insertBatch = async (rows) => {
+    if (rows.length === 0) return;
     const caseIds = [], resultIds = [], evidenceIds = [], timestamps = [], artTypes = [];
     const artNames = [], descriptions = [], sources = [], raws = [];
     const hostNames = [], userNames = [], processNames = [];
@@ -398,15 +535,25 @@ async function streamNormalizeToDB(csvPath, caseId, resultId, artifactType, conf
     }
 
     const t0 = Date.now();
-    return pool.query(
-      `INSERT INTO collection_timeline
+    // Plain single-statement insert (autocommit). The write pool deliberately
+    // has no server-side statement_timeout, and a 5000-row UNNEST against 15
+    // indexes can legitimately take a while on a small DB — a merely slow batch
+    // must be allowed to finish. BUT a batch that waits on a lock forever (DB
+    // thrashing, autovacuum canceled, a stuck peer) used to freeze the whole
+    // CSV stream at that batch boundary (progress stuck at a multiple of 5000).
+    // A generous client-side query_timeout fires only on a genuinely wedged
+    // query; insertRowsResilient then splits-and-retries the batch, so healthy
+    // rows still land and the stream keeps moving.
+    const r = await pool.query(
+      {
+        text: `INSERT INTO collection_timeline
          (case_id, result_id, evidence_id, timestamp, artifact_type, artifact_name, description, source, raw,
           host_name, user_name, process_name, mitre_technique_id, mitre_technique_name, mitre_tactic, source_device,
           tool, timestamp_kind, details, "path", ext, event_id, file_size, src_ip, dst_ip, sha1, dedupe_hash, tags, detections)
        SELECT u.case_id, u.result_id, u.evidence_id, u.ts, u.art_type, u.art_name, u.descr, u.src, u.rw,
               u.hn, u.un, u.pn, u.mti, u.mtn, u.mt, u.sd,
               u.tl, u.tk, u.dt, u.pth, u.ex, u.eid, u.fs, u.sip, u.dip, u.s1, u.dh,
-              COALESCE(ARRAY(SELECT jsonb_array_elements_text(u.tg_json)), '{}')::text[],
+              COALESCE(ARRAY(SELECT jsonb_array_elements_text(u.tg)), '{}')::text[],
               u.det
          FROM UNNEST(
            $1::uuid[], $2::uuid[], $3::uuid[], $4::timestamptz[], $5::text[], $6::text[], $7::text[], $8::text[], $9::jsonb[],
@@ -415,18 +562,64 @@ async function streamNormalizeToDB(csvPath, caseId, resultId, artifactType, conf
            $28::jsonb[], $29::jsonb[]
          ) AS u(case_id, result_id, evidence_id, ts, art_type, art_name, descr, src, rw,
                 hn, un, pn, mti, mtn, mt, sd,
-                tl, tk, dt, pth, ex, eid, fs, sip, dip, s1, dh, tg_json, det)
+                tl, tk, dt, pth, ex, eid, fs, sip, dip, s1, dh, tg, det)
        ON CONFLICT DO NOTHING`,
+        query_timeout: BATCH_QUERY_TIMEOUT_MS,
+      },
       [caseIds, resultIds, evidenceIds, timestamps, artTypes, artNames, descriptions, sources, raws,
        hostNames, userNames, processNames, mitreTechIds, mitreTechNames, mitreTactics, sourceDevices,
        tools, tsKinds, detailsArr, paths, exts, eventIds, fileSizes, srcIps, dstIps, sha1s, dedupeHashes, tagsArr,
        detectionsArr],
-    ).then(r => { pgMs += Date.now() - t0; return r; });
+    );
+    pgMs += Date.now() - t0;
+    return r;
   };
+
+  // Split-and-retry insert. A single malformed row (bad ip/event_id/timestamp)
+  // or a transient DB error used to reject the whole 5k-row UNNEST batch; the
+  // .catch(done) then dropped the remainder of the CSV and froze the artifact
+  // count at the last clean batch (e.g. 5 000 / 10 000). Halve the batch until
+  // only the offending row(s) fail, so the healthy majority still lands.
+  async function insertRowsResilient(rows, attempt = 0) {
+    if (rows.length === 0) return { inserted: 0, error: null };
+    try {
+      await insertBatch(rows);
+      return { inserted: rows.length, error: null };
+    } catch (err) {
+      // Deadlock (40P01) / serialization (40001) are transient and not caused by
+      // a bad row — retry the same batch briefly. Every other error (data/type)
+      // halves below to isolate the offending row(s). The write pool sets no
+      // statement timeout and insertBatch holds no lock_timeout, so 57014/55P03
+      // cannot fire here.
+      const transient = ['40P01', '40001'].includes(err.code);
+      if (transient && attempt < 2) {
+        await new Promise(r => setTimeout(r, 300 * (2 ** attempt)));
+        return insertRowsResilient(rows, attempt + 1);
+      }
+      if (rows.length === 1) return { inserted: 0, error: err };
+      const mid = Math.ceil(rows.length / 2);
+      const left  = await insertRowsResilient(rows.slice(0, mid));
+      const right = await insertRowsResilient(rows.slice(mid));
+      return {
+        inserted: left.inserted + right.inserted,
+        error: left.error || right.error,
+      };
+    }
+  }
 
   return new Promise((resolve, reject) => {
     let settled = false;
-    const done = (err) => { if (!settled) { settled = true; err ? reject(err) : resolve({ rawCount, normalized, columns }); } };
+    const done = (err) => {
+      if (!settled) {
+        settled = true;
+        if (err) reject(err);
+        else {
+          // New timeline rows → cached detection results are stale.
+          if (normalized > 0) invalidateDetectionCache(caseId);
+          resolve({ rawCount, normalized, columns, insertFailedRows, firstInsertError });
+        }
+      }
+    };
 
     const csvParser = parseStream({
       columns: true,
@@ -435,6 +628,15 @@ async function streamNormalizeToDB(csvPath, caseId, resultId, artifactType, conf
       encoding: 'utf8',
     });
 
+    // Between flushes the stream processes up to CT_DB_BATCH rows back-to-back,
+    // each doing per-row enrichment (keyword gates, threat engine, JSON, hashing)
+    // synchronously in the event loop. On MFT/USN/EVTX that is millions of rows;
+    // without a periodic yield, HTTP (parse-progress polls, socket.io, auth) can
+    // stall for minutes. Every YIELD_EVERY_ROWS rows we defer resume() to the
+    // next loop tick so pending I/O gets served while the parse keeps going.
+    let rowsSinceYield = 0;
+    const YIELD_EVERY_ROWS = 250;
+
     csvParser.on('data', (rawRecord) => {
       csvParser.pause();
       rawCount++;
@@ -442,7 +644,11 @@ async function streamNormalizeToDB(csvPath, caseId, resultId, artifactType, conf
 
       const clean = stripNullBytes(rawRecord);
       const tsResult = extractTimestamp(clean, config.timestampColumns);
-      if (!tsResult) { csvParser.resume(); return; }
+      // Rows without a parseable timestamp were silently dropped; keep them
+      // searchable by anchoring them to ingest time with a null timestamp_kind.
+      const tsCol = tsResult ? tsResult.column : null;
+      const tsIso = tsResult ? tsResult.timestamp : fallbackTs;
+      if (tsResult && !tsInWindow(tsIso, timeWindow)) { csvParser.resume(); return; }
 
       const slimRaw = buildSlimRaw(clean, artifactType);
 
@@ -457,9 +663,9 @@ async function streamNormalizeToDB(csvPath, caseId, resultId, artifactType, conf
       if (artifactType === 'amcache' && !baseSource && clean['LnkName']) {
         baseSource = clean['LnkName'];
       }
-      const forensic = extractForensicFields(clean, artifactType, config, tsResult.column, baseDesc, baseSource);
+      const forensic = extractForensicFields(clean, artifactType, config, tsCol, tsIso, baseDesc, baseSource);
       batch.push({
-        timestamp:     tsResult.timestamp,
+        timestamp:     tsIso,
         artifact_type: artifactType,
         artifact_name: config.name,
         description:   baseDesc,
@@ -475,9 +681,9 @@ async function streamNormalizeToDB(csvPath, caseId, resultId, artifactType, conf
           const prevVal = clean[`PreviousRun${pi}`];
           if (!prevVal || !prevVal.trim()) continue;
           const prevTs = normalizeTimestamp(prevVal.trim());
-          if (!prevTs) continue;
+          if (!prevTs || !tsInWindow(prevTs, timeWindow)) continue;
           const prevDesc = `${execName} [previous run]`;
-          const prevForensic = extractForensicFields(clean, 'prefetch', config, `PreviousRun${pi}`, prevDesc, baseSource);
+          const prevForensic = extractForensicFields(clean, 'prefetch', config, `PreviousRun${pi}`, prevTs, prevDesc, baseSource);
           batch.push({
             timestamp:     prevTs,
             artifact_type: 'prefetch',
@@ -494,15 +700,27 @@ async function streamNormalizeToDB(csvPath, caseId, resultId, artifactType, conf
       if (batch.length >= CT_DB_BATCH) {
         const toFlush = batch;
         batch = [];
+        rowsSinceYield = 0;
 
-        insertBatch(toFlush)
-          .then(() => {
-            normalized += toFlush.length;
+        insertRowsResilient(toFlush)
+          .then(({ inserted, error }) => {
+            normalized += inserted;
+            if (error) {
+              insertFailedRows += toFlush.length - inserted;
+              firstInsertError = firstInsertError || error;
+              logger.warn(`[parse] ${artifactType} partial insert: ${inserted}/${toFlush.length} rows | first error: ${error.message || error}`);
+            }
             esService.bulkIndex(caseId, toFlush, resultId, evidenceId).catch(e =>
               logger.warn(`[ES] bulkIndex warn (${caseId}): ${String(e.message).substring(0, 100)}`));
+            maybeProgress();
+            maybeAliveLog();
             csvParser.resume();
           })
           .catch(done);
+      } else if (++rowsSinceYield >= YIELD_EVERY_ROWS) {
+        // Yield to the event loop so HTTP/socket traffic is served mid-stream.
+        rowsSinceYield = 0;
+        setImmediate(() => csvParser.resume());
       } else {
         csvParser.resume();
       }
@@ -511,11 +729,17 @@ async function streamNormalizeToDB(csvPath, caseId, resultId, artifactType, conf
     csvParser.on('end', () => {
       const toFlush = batch;
       batch = [];
-      insertBatch(toFlush)
-        .then(() => {
-          normalized += toFlush.length;
+      insertRowsResilient(toFlush)
+        .then(({ inserted, error }) => {
+          normalized += inserted;
+          if (error) {
+            insertFailedRows += toFlush.length - inserted;
+            firstInsertError = firstInsertError || error;
+            logger.warn(`[parse] ${artifactType} partial insert: ${inserted}/${toFlush.length} rows | first error: ${error.message || error}`);
+          }
           esService.bulkIndex(caseId, toFlush, resultId, evidenceId).catch(e =>
             logger.warn(`[ES] bulkIndex warn (${caseId}): ${String(e.message).substring(0, 100)}`));
+          maybeProgress(true);
           const totalMs = Date.now() - benchStart;
           const rowsPerSec = totalMs > 0 ? Math.round(normalized / (totalMs / 1000)) : 0;
           logger.info(`[BENCH] ${artifactType} ${path.basename(csvPath)}: ${rawCount} raw → ${normalized} rows | total ${totalMs}ms | pg ${pgMs}ms | ${rowsPerSec} rows/s`);
@@ -536,6 +760,7 @@ async function streamNormalizeToDB(csvPath, caseId, resultId, artifactType, conf
         bomChecked = true;
         if (chunk[0] === 0xEF && chunk[1] === 0xBB && chunk[2] === 0xBF) chunk = chunk.slice(3);
       }
+      bytesRead += chunk.length;
       if (!csvParser.write(chunk)) {
         src.pause();
         csvParser.once('drain', () => src.resume());
@@ -584,9 +809,19 @@ function spawnTool(args, options = {}) {
 
     let stdout = '';
     let stderr = '';
-
-    child.stdout.on('data', (d) => { stdout += d.toString(); });
-    child.stderr.on('data', (d) => { stderr += d.toString(); });
+    // Callers only ever read the LAST ~1500 chars of stdout (toolStdout) and the
+    // FIRST ~800 chars of stderr (error message). A chatty tool (MFTECmd prints
+    // per-entry progress) can otherwise accumulate unbounded strings — O(n²)
+    // concatenation and memory blowup that starves the event loop mid-parse.
+    // Keep a bounded rolling tail for stdout and a bounded head for stderr.
+    const TOOL_OUTPUT_CAP = 16 * 1024 * 1024; // 16 MB
+    child.stdout.on('data', (d) => {
+      stdout += d.toString();
+      if (stdout.length > TOOL_OUTPUT_CAP) stdout = stdout.slice(-TOOL_OUTPUT_CAP);
+    });
+    child.stderr.on('data', (d) => {
+      if (stderr.length < TOOL_OUTPUT_CAP) stderr += d.toString().slice(0, TOOL_OUTPUT_CAP - stderr.length);
+    });
 
     const timer = setTimeout(() => {
       child.kill('SIGKILL');
@@ -650,6 +885,10 @@ router.post('/:caseId/import', authenticate, upload.single('collection'), async 
   const socketId = req.body?.socketId || null;
   const io = req.app.locals.io;
   const collectionDir = path.join(COLLECTIONS_DIR, `case-${caseId}-${uuidv4()}`);
+  // Optional password for encrypted .zip / .7z archives (kept out of logs).
+  const archivePassword = (typeof req.body?.password === 'string' && req.body.password.trim())
+    ? req.body.password
+    : null;
 
   try {
 
@@ -694,16 +933,18 @@ router.post('/:caseId/import', authenticate, upload.single('collection'), async 
           const destPath = path.join(collectionDir, safeBasename(req.file.originalname));
           fs.copyFileSync(uploadedPath, destPath);
           logger.info(`[collection] raw artifact copied: ${req.file.originalname} → ${destPath}`);
-        } else if (ext === '.zip') {
-          try {
-            await spawnTool(['unzip', '-o', '-q', uploadedPath, '-d', collectionDir], { timeout: 3600000 });
-          } catch (unzipErr) {
-
-            logger.warn('[collection] unzip failed, retrying with 7z:', unzipErr.message);
-            await spawnTool(['7z', 'x', uploadedPath, `-o${collectionDir}`, '-y'], { timeout: 3600000 });
-          }
         } else {
-          await spawnTool(extractArgs(ext, uploadedPath, collectionDir), { timeout: 3600000 });
+          const extractArgsList = extractArgs(ext, uploadedPath, collectionDir, archivePassword);
+          try {
+            await spawnTool(extractArgsList, { timeout: 3600000 });
+          } catch (extractErr) {
+            // unzip chokes on some encryptions/compressions even with the right
+            // password — fall back to 7z (which also accepts -p<password>).
+            logger.warn(`[collection] extraction failed (${extractErr.message}), retrying with 7z`);
+            const sevenArgs = ['7z', 'x', uploadedPath, `-o${collectionDir}`, '-y'];
+            if (archivePassword) sevenArgs.push(`-p${archivePassword}`);
+            await spawnTool(sevenArgs, { timeout: 3600000 });
+          }
         }
 
         // Belt and braces: unzip and 7z have their own opinions about stored modes,
@@ -789,10 +1030,11 @@ router.post('/:caseId/import', authenticate, upload.single('collection'), async 
           }
         } catch (_e) {}
 
-        await pool.query(
+        const evidenceResult = await pool.query(
           `INSERT INTO evidence (case_id, name, original_filename, file_path, evidence_type, notes, added_by, metadata,
                                  hash_md5, hash_sha1, hash_sha256, file_size)
-           VALUES ($1, $2, $3, $4, 'collection', $5, $6, $7, $8, $9, $10, $11)`,
+           VALUES ($1, $2, $3, $4, 'collection', $5, $6, $7, $8, $9, $10, $11)
+           RETURNING id`,
           [caseId, 'Collecte: ' + originalFilename, originalFilename, collectionDir,
            'Import collecte forensique - ' + Object.keys(detectedArtifacts).length + ' types, ' + totalFiles + ' fichiers',
            userId, JSON.stringify({ detected: detectedArtifacts, total_files: totalFiles }),
@@ -813,6 +1055,7 @@ router.post('/:caseId/import', authenticate, upload.single('collection'), async 
         if (socketId && io) {
           io.to(socketId).emit('collection:import:done', {
             id: collectionResult.rows[0].id,
+            evidence_id: (evidenceResult && evidenceResult.rows[0] && evidenceResult.rows[0].id) || null,
             collection_dir: collectionDir,
             filename: originalFilename,
             detected_artifacts: detectedArtifacts,
@@ -842,20 +1085,86 @@ router.post('/:caseId/import', authenticate, upload.single('collection'), async 
   }
 });
 
-// Current parse progress for a case — lets the UI re-attach the monitor after navigation.
+// Current parse progress for a case — lets the UI re-attach the monitor after
+// navigation or a full page refresh. Served from the in-memory map when the
+// parse lives in this process, and from the durable DB snapshot otherwise, so
+// progress survives a backend restart as well.
 router.get('/:caseId/parse-progress', authenticate, async (req, res) => {
   const { caseId } = req.params;
   const e = PARSE_PROGRESS.get(caseId);
-  if (!e) return res.json({ active: false, live: false, globalPct: 0, parsers: {} });
-  const age = Date.now() - e.updatedAt;
-  // A finished parse (explicit done flag or 100%) or a long-idle orphan is no
-  // longer "active" — clear it so the cockpit doesn't linger as a frozen
-  // snapshot after the job ends, dies, or is interrupted by navigation.
-  if (e.done || e.globalPct >= 100 || age > 5 * 60 * 1000) {
-    PARSE_PROGRESS.delete(caseId);
-    return res.json({ active: false, live: false, globalPct: 0, parsers: {} });
+  if (e && !e.done && e.globalPct < 100) {
+    const age = Date.now() - e.updatedAt;
+    // A wedged parse (no progress event for 30 min) is terminal — report it as
+    // an error instead of serving a frozen 'active' cockpit forever.
+    if (age > 30 * 60 * 1000) {
+      return res.json({ active: false, done: true, outcome: 'error', globalPct: e.globalPct, parsers: e.parsers, error: 'Analyse bloquée (aucune progression depuis 30 min)', updatedAt: e.updatedAt });
+    }
+    return res.json({ active: true, live: age < 15000, globalPct: e.globalPct, parsers: e.parsers });
   }
-  res.json({ active: true, live: age < 15000, globalPct: e.globalPct, parsers: e.parsers });
+  if (e && e.done) {
+    // Terminal in this process: hand back the final snapshot + outcome so the
+    // UI renders 'done (N erreurs)' or the error instead of a blank void.
+    return res.json({ active: false, done: true, outcome: e.outcome || 'success', globalPct: e.globalPct, parsers: e.parsers, error: e.error || null, updatedAt: e.updatedAt });
+  }
+  // Durable fallback: progress is snapshotted into the UnifiedTimeline row.
+  // Unlike the old status='parsing'-only query, this also resolves terminal
+  // rows so a client that missed the socket events still gets the outcome.
+  try {
+    const { rows } = await pool.query(
+      `SELECT output_data FROM parser_results
+        WHERE case_id = $1 AND parser_name = 'UnifiedTimeline'
+        ORDER BY created_at DESC LIMIT 1`, [caseId]);
+    if (rows.length) {
+      const od = rows[0].output_data || {};
+      const p = od.progress || {};
+      const isParsing = od.status === 'parsing';
+      if (isParsing && p.updatedAt && Date.now() - p.updatedAt <= 30 * 60 * 1000) {
+        return res.json({ active: true, live: false, globalPct: p.globalPct || 0, parsers: p.parsers || {} });
+      }
+      if (!isParsing || (p.updatedAt && Date.now() - p.updatedAt > 30 * 60 * 1000)) {
+        const hasResults = !!od.parse_results;
+        return res.json({
+          active: false, done: true,
+          outcome: hasResults ? 'success' : 'error',
+          globalPct: p.globalPct || (hasResults ? 100 : 0),
+          parsers: p.parsers || {},
+          error: hasResults ? null : 'Analyse terminée en erreur (voir les logs)',
+          updatedAt: p.updatedAt || null,
+        });
+      }
+    }
+  } catch (err) {
+    logger.warn('[parse-progress] DB fallback error:', err.message);
+  }
+  res.json({ active: false, done: false, live: false, globalPct: 0, parsers: {} });
+});
+
+// Latest completed parse result for a case. Lets a client that missed the
+// collection:parse:done socket event (page refresh or reconnect mid-parse)
+// still retrieve the final per-artifact results and totals.
+router.get('/:caseId/parse-result', authenticate, async (req, res) => {
+  try {
+    const { caseId } = req.params;
+    const { rows } = await pool.query(
+      `SELECT output_data, record_count
+         FROM parser_results
+        WHERE case_id = $1 AND parser_name = 'UnifiedTimeline'
+        ORDER BY created_at DESC LIMIT 1`, [caseId]);
+    if (rows.length === 0) return res.status(404).json({ error: 'Aucun résultat de parse' });
+    const od = rows[0].output_data || {};
+    const results = od.parse_results || null;
+    res.json({
+      results,
+      artifact_types: od.artifact_types || [],
+      total_records: (od.total_records != null ? od.total_records : rows[0].record_count) || 0,
+      record_count: rows[0].record_count || 0,
+      // The error/crash path marks the row terminal but never writes parse_results.
+      failed: !results,
+    });
+  } catch (err) {
+    logger.error('Parse result error:', err);
+    res.status(500).json({ error: 'Erreur récupération du résultat de parse' });
+  }
 });
 
 // Event-density histogram of the case timeline — buckets for the live parsing sparkline.
@@ -864,11 +1173,14 @@ router.get('/:caseId/timeline-histogram', authenticate, async (req, res) => {
   const { caseId } = req.params;
   const N = Math.min(80, Math.max(12, parseInt(req.query.buckets, 10) || 48));
   // This sparkline aggregates the whole case timeline (can be millions of rows)
-  // and is polled live during parsing. A dedicated client with a hard
-  // statement_timeout guarantees a slow scan aborts instead of piling up into
-  // zombie queries that exhaust the pool and block schema migrations / deletes.
-  const client = await pool.connect();
+  // and is polled live every ~10s during parsing. It must NEVER take a write-pool
+  // connection (pool.connect() outside try/catch threw an unhandled rejection
+  // when the pool saturated under the parse's batch inserts — which killed the
+  // whole backend and the parse with it). Read pool + full try/catch so a slow
+  // or starved run just yields empty buckets.
+  let client = null;
   try {
+    client = await readPool.connect();
     await client.query("SET statement_timeout = '8000'");
     const r = await client.query(
       `WITH b AS (
@@ -891,10 +1203,12 @@ router.get('/:caseId/timeline-histogram', authenticate, async (req, res) => {
     logger.warn('[timeline-histogram]', err.message);
     res.json({ buckets: [], total: 0, lo: null, hi: null });
   } finally {
-    // Clear the timeout before returning the connection to the pool so it
-    // doesn't leak onto the next query that borrows this client.
-    await client.query('RESET statement_timeout').catch(() => {});
-    client.release();
+    if (client) {
+      // Clear the timeout before returning the connection to the pool so it
+      // doesn't leak onto the next query that borrows this client.
+      await client.query('RESET statement_timeout').catch(() => {});
+      client.release();
+    }
   }
 });
 
@@ -917,9 +1231,341 @@ router.get('/:caseId/rdp-cache/:name', authenticate, async (req, res) => {
   res.sendFile(fp);
 });
 
+// ── Parser configuration schema ──────────────────────────────────────────────
+// Exposes the knobs each parser supports so the import UI can render a
+// configuration panel instead of hardcoding a tool invocation per artifact.
+router.get('/:caseId/parser-options', authenticate, async (_req, res) => {
+  res.json({ options: PARSER_OPTIONS, defaults: defaultParserOptions() });
+});
+
+// ── Original collection files browser ────────────────────────────────────────
+// Lets an analyst navigate and read the extracted files that produced the
+// timeline, instead of only seeing the normalized rows. All paths are resolved
+// against the case's collection root with traversal (incl. symlink) guards.
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+async function resolveCollectionRoot(caseId, { evidence_id, collection_dir } = {}) {
+  const candidates = [];
+  if (collection_dir && typeof collection_dir === 'string') candidates.push(collection_dir);
+  if (evidence_id && typeof evidence_id === 'string') {
+    if (!UUID_RE.test(evidence_id)) return null;
+    try {
+      const row = await pool.query('SELECT file_path FROM evidence WHERE id = $1 AND case_id = $2', [evidence_id, caseId]);
+      if (row.rows.length && row.rows[0].file_path) candidates.push(row.rows[0].file_path);
+    } catch (_e) {}
+  }
+  try {
+    const latest = await pool.query(
+      `SELECT input_file FROM parser_results WHERE case_id = $1 AND parser_name = 'MagnetRESPONSE_Import' ORDER BY created_at DESC LIMIT 1`,
+      [caseId]);
+    if (latest.rows.length && latest.rows[0].input_file) candidates.push(latest.rows[0].input_file);
+  } catch (_e) {}
+
+  const base = path.resolve(COLLECTIONS_DIR) + path.sep;
+  for (const c of candidates) {
+    if (!c || !fs.existsSync(c)) continue;
+    let abs;
+    try { abs = path.resolve(c); } catch { continue; }
+    if (!(abs === path.resolve(COLLECTIONS_DIR) || abs.startsWith(base))) continue;
+    try { if (fs.statSync(abs).isDirectory()) return abs; } catch (_e) {}
+  }
+  return null;
+}
+
+// Resolve a relative path inside a root; refuse escapes (both lexical and via symlinks).
+function safeJoin(root, rel) {
+  const rootAbs = path.resolve(root);
+  const target = path.resolve(rootAbs, rel == null || rel === '' ? '.' : String(rel));
+  if (target !== rootAbs && !target.startsWith(rootAbs + path.sep)) return null;
+  return target;
+}
+
+function realpathContained(root, target) {
+  const rootAbs = path.resolve(root);
+  let real;
+  try { real = fs.realpathSync(target); } catch { return null; }
+  if (real !== rootAbs && !real.startsWith(rootAbs + path.sep)) return null;
+  return real;
+}
+
+function listDir(root, dirAbs) {
+  const entries = [];
+  const names = fs.readdirSync(dirAbs, { withFileTypes: true });
+  for (const d of names) {
+    const full = path.join(dirAbs, d.name);
+    let type = d.isDirectory() ? 'dir' : 'file';
+    let size = null;
+    let mtime = null;
+    try {
+      const st = fs.statSync(full);
+      if (st.isDirectory()) type = 'dir';
+      else if (!st.isFile()) continue; // sockets/devices etc.
+      size = st.size;
+      mtime = st.mtime ? st.mtime.toISOString() : null;
+    } catch (_e) {
+      // Broken symlink or unreadable entry — keep it as a non-expandable file.
+      try { const lst = fs.lstatSync(full); if (lst.isSymbolicLink()) type = 'file'; else continue; } catch { continue; }
+    }
+    entries.push({
+      name: d.name,
+      path: path.relative(root, full).split(path.sep).join('/'),
+      type,
+      size,
+      mtime,
+    });
+  }
+  // Directories first, then files, case-insensitive alphabetical.
+  entries.sort((a, b) => (a.type === b.type ? a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }) : a.type === 'dir' ? -1 : 1));
+  return entries;
+}
+
+router.get('/:caseId/files', authenticate, async (req, res) => {
+  const { caseId } = req.params;
+  const root = await resolveCollectionRoot(caseId, req.query);
+  if (!root) return res.status(404).json({ error: 'Répertoire de collecte introuvable' });
+
+  const dirAbs = safeJoin(root, req.query.path);
+  if (!dirAbs) return res.status(400).json({ error: 'Chemin invalide' });
+  const real = realpathContained(root, dirAbs);
+  if (!real) return res.status(403).json({ error: 'Chemin hors de la collecte' });
+  if (!fs.statSync(real).isDirectory()) return res.status(400).json({ error: 'Ce chemin n\'est pas un répertoire' });
+
+  const MAX_ENTRIES = 2000;
+  const all = listDir(root, real);
+  const truncated = all.length > MAX_ENTRIES;
+  res.json({
+    root: path.basename(root),
+    path: path.relative(root, real).split(path.sep).join('/'),
+    parent: real === root ? null : path.relative(root, path.dirname(real)).split(path.sep).join('/'),
+    truncated,
+    entries: truncated ? all.slice(0, MAX_ENTRIES) : all,
+  });
+});
+
+const TEXT_PREVIEW_MAX = 1024 * 1024;  // 1 MB of decoded text per request
+const HEX_PREVIEW_MAX = 4096;          // binary preview is a hex dump, keep it small
+
+function looksBinary(buf) {
+  const sample = buf.subarray(0, 8192);
+  if (sample.includes(0)) return true;
+  let nonPrintable = 0;
+  for (const b of sample) {
+    if (b < 0x09 || (b > 0x0d && b < 0x20) || b === 0x7f) nonPrintable++;
+  }
+  return sample.length > 0 && nonPrintable / sample.length > 0.3;
+}
+
+function toHexDump(buf) {
+  const hex = buf.toString('hex');
+  const ascii = buf.toString('ascii').replace(/[^\x20-\x7E]/g, '.');
+  return { hex, ascii };
+}
+
+router.get('/:caseId/file/content', authenticate, async (req, res) => {
+  const { caseId } = req.params;
+  const root = await resolveCollectionRoot(caseId, req.query);
+  if (!root) return res.status(404).json({ error: 'Répertoire de collecte introuvable' });
+
+  const target = safeJoin(root, req.query.path);
+  if (!target) return res.status(400).json({ error: 'Chemin invalide' });
+  const real = realpathContained(root, target);
+  if (!real) return res.status(403).json({ error: 'Chemin hors de la collecte' });
+  if (!fs.statSync(real).isFile()) return res.status(400).json({ error: 'Ce chemin n\'est pas un fichier' });
+
+  const size = fs.statSync(real).size;
+  const offset = Math.max(0, parseInt(req.query.offset, 10) || 0);
+
+  // Peek the first bytes to decide text vs binary before reading a (possibly
+  // huge) preview window.
+  const probeLen = Math.min(size, 8192);
+  const probeFd = fs.openSync(real, 'r');
+  const probe = Buffer.alloc(probeLen);
+  const probeRead = fs.readSync(probeFd, probe, 0, probeLen, 0);
+  fs.closeSync(probeFd);
+  const binary = looksBinary(probe.subarray(0, probeRead));
+
+  if (binary) {
+    const len = Math.min(HEX_PREVIEW_MAX, Math.max(0, size - offset));
+    const fd = fs.openSync(real, 'r');
+    const buf = Buffer.alloc(len);
+    const n = fs.readSync(fd, buf, 0, len, offset);
+    fs.closeSync(fd);
+    return res.json({ name: path.basename(real), path: path.relative(root, real).split(path.sep).join('/'), size, offset, length: n, truncated: offset + n < size, binary: true, ...toHexDump(buf.subarray(0, n)) });
+  }
+
+  const limit = Math.min(TEXT_PREVIEW_MAX, Math.max(1, parseInt(req.query.limit, 10) || 262144));
+  const len = Math.min(limit, Math.max(0, size - offset));
+  const fd = fs.openSync(real, 'r');
+  const buf = Buffer.alloc(len);
+  const n = fs.readSync(fd, buf, 0, len, offset);
+  fs.closeSync(fd);
+  const text = buf.subarray(0, n).toString('utf8');
+  res.json({ name: path.basename(real), path: path.relative(root, real).split(path.sep).join('/'), size, offset, length: n, truncated: offset + n < size, binary: false, text });
+});
+
+router.get('/:caseId/file/download', authenticate, async (req, res) => {
+  const { caseId } = req.params;
+  const root = await resolveCollectionRoot(caseId, req.query);
+  if (!root) return res.status(404).json({ error: 'Répertoire de collecte introuvable' });
+
+  const target = safeJoin(root, req.query.path);
+  if (!target) return res.status(400).json({ error: 'Chemin invalide' });
+  const real = realpathContained(root, target);
+  if (!real) return res.status(403).json({ error: 'Chemin hors de la collecte' });
+  if (!fs.statSync(real).isFile()) return res.status(400).json({ error: 'Ce chemin n\'est pas un fichier' });
+
+  res.setHeader('Content-Disposition', `attachment; filename="${path.basename(real).replace(/"/g, '')}"`);
+  res.sendFile(real);
+});
+
+// ── Export all recovered MFT resident files as a single ZIP ──────────────────
+// The parse step (--dr) copies carved resident files into <coll>/_mft_resident,
+// optionally under one subdir per $MFT source. This endpoint zips that tree and
+// streams it so the analyst can take the whole set away in one click.
+
+router.get('/:caseId/mft-resident/export', authenticate, async (req, res) => {
+  const { caseId } = req.params;
+  const root = await resolveCollectionRoot(caseId, req.query);
+  if (!root) return res.status(404).json({ error: 'Répertoire de collecte introuvable' });
+
+  const residentDir = path.join(root, '_mft_resident');
+  try {
+    if (!fs.existsSync(residentDir) || !fs.statSync(residentDir).isDirectory()) {
+      return res.status(404).json({ error: 'Aucun fichier resident récupéré. Activez « Récupérer les fichiers residents » puis re-parsez le $MFT.' });
+    }
+  } catch (_e) {
+    return res.status(404).json({ error: 'Aucun fichier resident récupéré. Activez « Récupérer les fichiers residents » puis re-parsez le $MFT.' });
+  }
+
+  const fileCount = countFilesRecursive(residentDir);
+  if (fileCount === 0) {
+    return res.status(404).json({ error: 'Aucun fichier resident à exporter.' });
+  }
+
+  const zipPath = path.join(TEMP_DIR, `mft_resident_${caseId}_${Date.now()}.zip`);
+  try {
+    // 7z (p7zip-full) with cwd=residentDir zips the contents with relative paths
+    // (per-source subdirs preserved, no `_mft_resident/` wrapper). 7za is the
+    // fallback in case only the standalone variant is on PATH.
+    try {
+      await spawnTool(['7z', 'a', '-tzip', '-y', '-bso0', '-bsp0', zipPath, '.'], { cwd: residentDir, timeout: 600000 });
+    } catch (e7z) {
+      await spawnTool(['7za', 'a', '-tzip', '-y', '-bso0', '-bsp0', zipPath, '.'], { cwd: residentDir, timeout: 600000 });
+    }
+  } catch (err) {
+    fs.rmSync(zipPath, { force: true });
+    logger.error('MFT resident export error:', err.message);
+    return res.status(500).json({ error: "Erreur lors de la création de l'archive ZIP" });
+  }
+
+  res.download(zipPath, `mft_resident_${fileCount}.zip`, (dlErr) => {
+    fs.rmSync(zipPath, { force: true });
+    if (dlErr && !res.headersSent) {
+      logger.error('MFT resident download error:', dlErr.message);
+    }
+  });
+});
+
+// ── Full-text search across the collection's files ───────────────────────────
+// Keyword (case-insensitive substring) or regex search over every text file
+// under the given directory (default: collection root). Bounded so a huge
+// collection can't starve the backend: max files walked, max bytes read per
+// file, max matches per file and per run. Binary files are detected from the
+// header and skipped.
+const FILE_SEARCH_MAX_FILE = 2 * 1024 * 1024;        // skip files larger than this
+const FILE_SEARCH_MAX_FILES = 2000;                  // stop walking after this many files
+const FILE_SEARCH_MAX_FILES_MATCHED = 200;           // stop collecting after this many hits
+const FILE_SEARCH_MAX_MATCHES_PER_FILE = 10;
+const FILE_SEARCH_LINE_MAX = 300;
+
+router.get('/:caseId/files/search', authenticate, async (req, res) => {
+  const { caseId } = req.params;
+  const rawQ = typeof req.query.q === 'string' ? req.query.q.slice(0, 200) : '';
+  if (!rawQ.trim()) return res.status(400).json({ error: 'Paramètre q manquant' });
+  const isRegex = req.query.regex === '1' || req.query.regex === 'true';
+
+  let re;
+  try {
+    re = isRegex
+      ? new RegExp(rawQ, 'gi')
+      : new RegExp(rawQ.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
+  } catch (_e) {
+    return res.status(400).json({ error: 'Expression régulière invalide' });
+  }
+
+  const root = await resolveCollectionRoot(caseId, req.query);
+  if (!root) return res.status(404).json({ error: 'Répertoire de collecte introuvable' });
+
+  const dirAbs = safeJoin(root, req.query.path);
+  if (!dirAbs) return res.status(400).json({ error: 'Chemin invalide' });
+  const real = realpathContained(root, dirAbs);
+  if (!real) return res.status(403).json({ error: 'Chemin hors de la collecte' });
+  if (!fs.statSync(real).isDirectory()) return res.status(400).json({ error: 'Ce chemin n\'est pas un répertoire' });
+
+  const hits = [];
+  let scanned = 0;
+  const queue = [real];
+  while (queue.length > 0 && hits.length < FILE_SEARCH_MAX_FILES_MATCHED) {
+    if (scanned >= FILE_SEARCH_MAX_FILES) break;
+    const current = queue.shift();
+    let names;
+    try { names = fs.readdirSync(current, { withFileTypes: true }); } catch { continue; }
+    for (const d of names) {
+      if (scanned >= FILE_SEARCH_MAX_FILES || hits.length >= FILE_SEARCH_MAX_FILES_MATCHED) break;
+      const full = path.join(current, d.name);
+      let st;
+      try { st = fs.statSync(full); } catch { continue; }
+      if (st.isDirectory()) { queue.push(full); continue; }
+      if (!st.isFile()) continue;
+      scanned++;
+      if (st.size > FILE_SEARCH_MAX_FILE) continue;
+
+      const probe = Buffer.alloc(Math.min(st.size, 8192));
+      let fd;
+      try { fd = fs.openSync(full, 'r'); } catch { continue; }
+      const n = fs.readSync(fd, probe, 0, probe.length, 0);
+      fs.closeSync(fd);
+      if (looksBinary(probe.subarray(0, n))) continue;
+
+      let text;
+      try { text = fs.readFileSync(full, 'utf8'); } catch { continue; }
+      const matches = [];
+      const lines = text.split('\n');
+      for (let i = 0; i < lines.length && matches.length < FILE_SEARCH_MAX_MATCHES_PER_FILE; i++) {
+        re.lastIndex = 0;
+        if (re.test(lines[i])) {
+          matches.push({ line: i + 1, text: lines[i].slice(0, FILE_SEARCH_LINE_MAX) });
+        }
+      }
+      if (matches.length > 0) {
+        hits.push({
+          path: path.relative(root, full).split(path.sep).join('/'),
+          name: d.name,
+          size: st.size,
+          matches,
+        });
+      }
+    }
+  }
+
+  res.json({
+    query: rawQ,
+    regex: isRegex,
+    scanned,
+    truncated: scanned >= FILE_SEARCH_MAX_FILES || hits.length >= FILE_SEARCH_MAX_FILES_MATCHED,
+    matched_files: hits.length,
+    files: hits,
+  });
+});
+
 router.post('/:caseId/parse', authenticate, async (req, res) => {
   const { caseId } = req.params;
   const { collection_dir, artifact_types, types, evidence_id: bodyEvidenceId } = req.body;
+
+  // Per-parser configuration (validated against the schema in parserOptions.js).
+  const parserOptions = sanitizeParserOptions(req.body?.parser_options);
+  const timeWindow = buildTimeWindow(parserOptions);
 
   const requestedTypes = artifact_types || types;
 
@@ -956,6 +1602,18 @@ router.post('/:caseId/parse', authenticate, async (req, res) => {
   if (!collDir || !fs.existsSync(collDir)) {
     return res.status(400).json({ error: 'Repertoire de collecte invalide. Importez une collecte d\'abord.' });
   }
+
+  // Guard against launching a second analysis on the same collection while one
+  // is still running. The lock is taken synchronously here (before any await);
+  // it is released in the job's finally below (and on the init-error path).
+  const lockKey = `${caseId}::${collDir}`;
+  if (ACTIVE_PARSE_LOCKS.has(lockKey)) {
+    return res.status(409).json({
+      error: 'Une analyse est déjà en cours pour cette collecte',
+      details: 'Attendez la fin de l\'analyse en cours avant d\'en lancer une autre sur la même collecte.',
+    });
+  }
+  ACTIVE_PARSE_LOCKS.add(lockKey);
 
   const typesToParse = requestedTypes === 'all'
     ? Object.keys(ARTIFACT_PATTERNS)
@@ -1011,8 +1669,9 @@ router.post('/:caseId/parse', authenticate, async (req, res) => {
   let oldResultIds = [];
   let resultId;
   {
-    const dbClient = await pool.connect();
+    let dbClient;
     try {
+      dbClient = await pool.connect();
       await dbClient.query('BEGIN');
       const oldPrRows = await dbClient.query(
         `SELECT id FROM parser_results
@@ -1039,11 +1698,14 @@ router.post('/:caseId/parse', authenticate, async (req, res) => {
       resultId = prRow.rows[0].id;
       await dbClient.query('COMMIT');
     } catch (initErr) {
-      await dbClient.query('ROLLBACK').catch(() => {});
-      dbClient.release();
+      if (dbClient) {
+        await dbClient.query('ROLLBACK').catch(() => {});
+        dbClient.release();
+      }
+      ACTIVE_PARSE_LOCKS.delete(lockKey);
       return res.status(500).json({ error: 'Erreur initialisation DB', details: initErr.message });
     }
-    dbClient.release();
+    if (dbClient) dbClient.release();
   }
 
   // ES cleanup outside the transaction — best-effort, non-blocking for the DB
@@ -1060,7 +1722,18 @@ router.post('/:caseId/parse', authenticate, async (req, res) => {
     res.json({ id: resultId, status: 'parsing' });
 
     (async () => {
+      let parseJobOutcome = 'success';
+      let parseJobError = null;
       try {
+
+  // Liveness heartbeat: the heavy artifacts (EVTX over 100+ files, MFT, USN)
+  // spend 30+ min in the tool phase with no artifact_start/artifact_done
+  // events. Without a periodic updatedAt refresh the wedged-parse detector in
+  // /parse-progress would declare a live parse "Analyse bloquée" at the 30-min
+  // mark. One cheap map write + one throttled DB snapshot every 15s.
+  const progressHeartbeat = setInterval(() => {
+    try { updateParseProgress(caseId, validTypes, { type: 'heartbeat' }); } catch (_e) {}
+  }, 15000);
 
   await runConcurrent(typesToParse, async (artifactType) => {
     const config = ARTIFACT_PATTERNS[artifactType];
@@ -1121,15 +1794,23 @@ router.post('/:caseId/parse', authenticate, async (req, res) => {
 
         const pfDir = files.length > 0 ? (fs.statSync(files[0]).isDirectory() ? files[0] : path.dirname(files[0])) : collDir;
         const pecmdDll = path.join(ZIMMERMAN_DIR, 'PECmd.dll');
+        const engine = parserOptions?.prefetch?.engine || 'auto';
+        const pyAvail = _pythonModuleAvailable('libscca') || _pythonModuleAvailable('pyscca');
+        const dotnetAvail = fs.existsSync(pecmdDll);
+        const usePython = engine === 'python'
+          || (engine === 'auto' && (pyAvail || !dotnetAvail))
+          || (engine === 'dotnet' && !dotnetAvail);
 
-        if (_pythonModuleAvailable('libscca') || _pythonModuleAvailable('pyscca')) {
+        if (usePython) {
+          if (engine === 'dotnet' && !dotnetAvail) {
+            logger.warn('[parse] prefetch: engine=dotnet demandé mais PECmd.dll absent — fallback Python');
+          } else if (engine === 'python') {
+            logger.info('[parse] prefetch: moteur Python forcé (parse_prefetch.py)');
+          }
           toolArgs = ['python3', '/app/parsers/parse_prefetch.py', '-d', pfDir, '--csv', outputDir, '--csvf', 'prefetch_results.csv'];
-        } else if (fs.existsSync(pecmdDll)) {
-          logger.warn('[parse] prefetch: libscca not available — falling back to dotnet PECmd.dll (Win10 LZXPRESS files may be skipped)');
-          toolArgs = ['dotnet', pecmdDll, '-d', pfDir, '--csv', outputDir, '--csvf', 'prefetch_results.csv', '-q'];
         } else {
-
-          toolArgs = ['python3', '/app/parsers/parse_prefetch.py', '-d', pfDir, '--csv', outputDir, '--csvf', 'prefetch_results.csv'];
+          if (engine === 'dotnet') logger.info('[parse] prefetch: moteur .NET forcé (PECmd.dll)');
+          toolArgs = ['dotnet', pecmdDll, '-d', pfDir, '--csv', outputDir, '--csvf', 'prefetch_results.csv', '-q'];
         }
       } else if (artifactType === 'srum') {
 
@@ -1163,22 +1844,46 @@ router.post('/:caseId/parse', authenticate, async (req, res) => {
         // PCAP feeds network_connections (the network map), not the timeline.
         let inserted = 0;
         try {
-          const pr = spawnSync('python3', ['/app/parsers/parse_pcap.py', '-d', collDir, '--csv', outputDir, '--csvf', 'pcap_results.csv'],
-            { encoding: 'utf8', maxBuffer: 1 << 28, timeout: 1800000 });
-          toolStdout = (pr.stdout || pr.stderr || '').slice(0, 1500);
+          const pcapArgs = ['/app/parsers/parse_pcap.py', '-d', collDir, '--csv', outputDir, '--csvf', 'pcap_results.csv'];
+          const displayFilter = (parserOptions?.pcap?.display_filter || '').trim();
+          if (displayFilter) { pcapArgs.push('--filter', displayFilter); logger.info(`[parse] pcap display filter: ${displayFilter}`); }
+          // Async spawn (not spawnSync): a big PCAP can run 30 min — a sync call
+          // would freeze the event loop and stall every other parser's DB writes.
+          try {
+            const out = await spawnTool(['python3', ...pcapArgs], { timeout: 1800000 });
+            toolStdout = out.slice(0, 1500);
+          } catch (spawnErr) {
+            toolStdout = String(spawnErr.stdout || spawnErr.stderr || spawnErr.message || '').slice(0, 1500);
+          }
           const csvPath = path.join(outputDir, 'pcap_results.csv');
           if (fs.existsSync(csvPath)) {
             const rows = fs.readFileSync(csvPath, 'utf8').split('\n').filter(Boolean);
             rows.shift(); // header
+            const toInt = v => { const n = parseInt(v, 10); return Number.isFinite(n) ? n : 0; };
+            // Batch the per-row inserts into UNNEST-sized chunks instead of one
+            // round-trip per packet (thousands of packets = thousands of queries).
+            const vals = [];
             for (const line of rows) {
               const c = line.split(',');
               if (c.length < 10 || !c[0] || !c[2]) continue;
-              const toInt = v => { const n = parseInt(v, 10); return Number.isFinite(n) ? n : 0; };
+              vals.push([c[0], c[1] || null, c[2], c[3] || null, c[4] || null, toInt(c[5]), toInt(c[6]), toInt(c[7]), c[8] || null, c[9] || null]);
+            }
+            const PCAP_INSERT_BATCH = 1000;
+            for (let i = 0; i < vals.length; i += PCAP_INSERT_BATCH) {
+              const chunk = vals.slice(i, i + PCAP_INSERT_BATCH);
+              const params = [];
+              const placeholders = chunk.map((v, ri) => {
+                const base = ri * 10;
+                params.push(...v);
+                return `($${base + 1},$${base + 2},$${base + 3},$${base + 4},$${base + 5},$${base + 6},$${base + 7},$${base + 8},$${base + 9},$${base + 10})`;
+              }).join(',');
+              if (!placeholders) continue;
               await pool.query(
                 `INSERT INTO network_connections (case_id, src_ip, src_port, dst_ip, dst_port, protocol, bytes_sent, bytes_received, packet_count, first_seen, last_seen)
-                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
-                [caseId, c[0], c[1] || null, c[2], c[3] || null, c[4] || null, toInt(c[5]), toInt(c[6]), toInt(c[7]), c[8] || null, c[9] || null]);
-              inserted++;
+                 VALUES ${placeholders}`,
+                [caseId, ...params]
+              );
+              inserted += chunk.length;
             }
           }
         } catch (e) { logger.warn('[pcap] insert error:', e.message); }
@@ -1192,9 +1897,14 @@ router.post('/:caseId/parse', authenticate, async (req, res) => {
         try {
           fs.mkdirSync(RDP_BASE, { recursive: true });
           const cacheDir = files.length ? path.dirname(files[0]) : collDir;
-          const pr = spawnSync('python3', ['/app/tools/bmc-tools.py', '-s', cacheDir, '-d', RDP_BASE, '-b'],
-            { encoding: 'utf8', timeout: 600000 });
-          toolStdout = (pr.stdout || pr.stderr || '').slice(0, 1500);
+          // Async spawn — bmc-tools can run 10 min; spawnSync would block all
+          // other parsers' DB writes for the whole duration.
+          try {
+            const out = await spawnTool(['python3', '/app/tools/bmc-tools.py', '-s', cacheDir, '-d', RDP_BASE, '-b'], { timeout: 600000 });
+            toolStdout = out.slice(0, 1500);
+          } catch (spawnErr) {
+            toolStdout = String(spawnErr.stdout || spawnErr.stderr || spawnErr.message || '').slice(0, 1500);
+          }
           count = fs.existsSync(RDP_BASE) ? fs.readdirSync(RDP_BASE).filter(f => /\.(bmp|png)$/i.test(f)).length : 0;
         } catch (e) { logger.warn('[rdpcache]', e.message); }
         results[artifactType] = { status: count > 0 ? 'ok' : 'empty', name: config?.name || 'RDP Bitmap Cache', records: count };
@@ -1242,7 +1952,11 @@ router.post('/:caseId/parse', authenticate, async (req, res) => {
           toolArgs = evtxDirArgs;
           toolEnv = { ...process.env, DOTNET_SYSTEM_THREADING_THREADPOOL_MINTHREADS: '4', DOTNET_SYSTEM_THREADING_THREADPOOL_MINCOMPLETIONPORTTHREADS: '4' };
         } else {
-          toolArgs = config.argsBuilder(dirInput, outputDir);
+          // Generic Zimmerman-style invocation — append any schema-declared CLI
+          // flags the operator enabled for this artifact type (e.g. MFTECmd
+          // --dr/--ir/--rs). appendCliFlags only emits flags owned by
+          // `artifactType` and vetted against the tool's real help.
+          toolArgs = [...config.argsBuilder(dirInput, outputDir), ...appendCliFlags(artifactType, parserOptions)];
           if (config.toolEnv) toolEnv = { ...process.env, ...config.toolEnv };
         }
       } else {
@@ -1296,8 +2010,37 @@ router.post('/:caseId/parse', authenticate, async (req, res) => {
           if (mapsDir) evtxFileArgs.push('--maps', mapsDir);
           toolArgs = evtxFileArgs;
           toolEnv = { ...process.env, DOTNET_SYSTEM_THREADING_THREADPOOL_MINTHREADS: '4', DOTNET_SYSTEM_THREADING_THREADPOOL_MINCOMPLETIONPORTTHREADS: '4' };
+        } else if (artifactType === 'mft') {
+          // A collection can hold one $MFT per volume / VSS snapshot. Carve and
+          // parse every copy — pickBestFile used to silently drop the others,
+          // losing the resident files (and CSV rows) of those volumes. Each $MFT
+          // writes to its own subdir so the CSVs and the Resident dump never
+          // overwrite one another.
+          if (config.toolEnv) toolEnv = { ...process.env, ...config.toolEnv };
+          const mftLines = [];
+          for (let mi = 0; mi < files.length; mi++) {
+            const mftFile = files[mi];
+            const subOut = path.join(outputDir, `mft_${mi}`);
+            fs.mkdirSync(subOut, { recursive: true });
+            const mftArgs = [
+              'dotnet', path.join(ZIMMERMAN_DIR, 'MFTECmd.dll'),
+              '-f', mftFile, '--csv', subOut, '--csvf', `mft_${mi}_results.csv`,
+              ...appendCliFlags(artifactType, parserOptions),
+            ];
+            const label = path.basename(mftFile);
+            try {
+              const mo = await spawnTool(mftArgs, { timeout: 3600000, maxBuffer: 1024 * 1024 * 512, cwd: outputDir, env: toolEnv || undefined });
+              mftLines.push(`${label}: ${(mo || '').trim().split('\n').slice(-1)[0]?.substring(0, 120) || 'ok'}`);
+            } catch (me) {
+              const mmsg = ((me.stderr || '') + (me.stdout || '') + (me.message || '')).toString().substring(0, 150);
+              mftLines.push(`${label}: ERR ${mmsg}`);
+            }
+          }
+          toolArgs = null;
+          toolStdout = mftLines.join(' | ').slice(0, 1500);
         } else {
-          toolArgs = config.argsBuilder(bestFile, outputDir);
+          // See directory-mode branch: schema-declared CLI flags (mft --dr etc.).
+          toolArgs = [...config.argsBuilder(bestFile, outputDir), ...appendCliFlags(artifactType, parserOptions)];
           if (config.toolEnv) toolEnv = { ...process.env, ...config.toolEnv };
         }
       }
@@ -1371,16 +2114,30 @@ router.post('/:caseId/parse', authenticate, async (req, res) => {
       }
 
       const csvFiles = findCsvFilesRecursive(outputDir);
-      let csvRawCount = 0, csvNormCount = 0, firstCols = [];
+      let csvRawCount = 0, csvNormCount = 0, csvFailedRows = 0, firstCols = [];
 
       const csvT0 = Date.now();
+      // Per-artifact CSV file concurrency. Kept LOW deliberately: each stream
+      // holds a full CT_DB_BATCH (5000) in-flight in memory and the global
+      // dbWriteSem bounds TOTAL concurrent inserts. MFT+USN+EVTX already run in
+      // parallel with every other parser, so per-artifact parallelism above 3
+      // only multiplies memory + pg contention for no throughput gain (the
+      // writes were already overlapping across parsers).
       await runConcurrent(csvFiles, async (csvFilePath) => {
         // Global DB-write semaphore: bounds total concurrent inserts across all parsers.
         await dbWriteSem.acquire();
         try {
-          const r = await streamNormalizeToDB(csvFilePath, caseId, resultId, artifactType, config, evidenceId, sourceDevice);
+          const r = await streamNormalizeToDB(
+            csvFilePath, caseId, resultId, artifactType, config, evidenceId, sourceDevice, timeWindow,
+            // Live per-batch progress → socket + durable store. Kept cheap (2s
+            // throttle inside streamNormalizeToDB) so the cockpit moves while
+            // a 30+ min EVTX/MFT/USN CSV streams instead of freezing at the
+            // last batch boundary.
+            (p) => emitProgress({ type: 'artifact_progress', artifact: artifactType, name: config.name, records: p.records, fraction: p.fraction })
+          );
           csvRawCount  += r.rawCount;
           csvNormCount += r.normalized;
+          csvFailedRows += (r.insertFailedRows || 0);
           if (firstCols.length === 0) firstCols = r.columns;
         } catch (streamErr) {
           // Full error inline so winston actually surfaces it (pg errors carry code/detail/where).
@@ -1398,7 +2155,7 @@ router.post('/:caseId/parse', authenticate, async (req, res) => {
 
       const artifactStatus = (toolError && csvNormCount === 0)
         ? 'error'
-        : (csvNormCount === 0 && !toolError)
+        : ((csvNormCount === 0 && !toolError) || csvFailedRows > 0)
           ? 'degraded'
           : 'success';
       results[artifactType] = {
@@ -1409,13 +2166,45 @@ router.post('/:caseId/parse', authenticate, async (req, res) => {
         normalized_records: csvNormCount,
         columns: firstCols,
         ...(toolError && csvNormCount === 0 ? { error: toolError } : {}),
-        ...(artifactStatus === 'degraded' ? { warning: '0 événements parsés (fichier vide ou format non reconnu)' } : {}),
+        ...(artifactStatus === 'degraded' && csvNormCount === 0 ? { warning: '0 événements parsés (fichier vide ou format non reconnu)' } : {}),
+        ...(csvFailedRows > 0 ? { warning: `${csvFailedRows} ligne(s) non insérée(s) — erreur DB, voir les logs` } : {}),
         ...(csvNormCount === 0 && toolStdout ? { tool_output: toolStdout.trim().split('\n').slice(-6).join(' | ').substring(0, 500) } : {}),
       };
       logger.info(`[parse] ${artifactType}: files=${files.length} csv_raw=${csvRawCount} normalized=${csvNormCount}`);
       emitProgress({ type: 'artifact_done', artifact: artifactType, name: config.name, status: results[artifactType].status, records: csvNormCount, current: myProgress, total: totalTypes });
 
       totalRecords += csvNormCount;
+
+      // MFTECmd --dr carves resident files into each <mft subdir>/Resident.
+      // Merge them into the collection (before the temp outputDir is wiped) so
+      // the analyst can browse the recovered files. Multiple $MFT sources are
+      // kept under per-source subdirs so EntryNumber collisions across volumes
+      // / VSS snapshots never silently overwrite each other.
+      if (artifactType === 'mft' && parserOptions?.mft?.resident_files === true) {
+        const residentDst = path.join(collDir, '_mft_resident');
+        const sources = [];
+        for (let mi = 0; mi < files.length; mi++) {
+          const r = path.join(outputDir, `mft_${mi}`, 'Resident');
+          if (fs.existsSync(r)) sources.push({ src: r, sub: files.length > 1 ? `mft_${mi}` : '' });
+        }
+        if (sources.length === 0) {
+          const legacy = path.join(outputDir, 'Resident');
+          if (fs.existsSync(legacy)) sources.push({ src: legacy, sub: '' });
+        }
+        if (sources.length > 0) {
+          try {
+            fs.rmSync(residentDst, { recursive: true, force: true });
+            let carved = 0;
+            for (const { src, sub } of sources) {
+              const dst = sub ? path.join(residentDst, sub) : residentDst;
+              fs.cpSync(src, dst, { recursive: true, force: true });
+              carved += countFilesRecursive(dst);
+            }
+            if (results[artifactType]) results[artifactType].resident_files = carved;
+            logger.info(`[parse] mft: ${carved} resident file(s) recovered from ${sources.length} $MFT source(s) → ${residentDst}`);
+          } catch (e) { logger.warn('[parse] mft resident copy failed:', e.message); }
+        }
+      }
 
       fs.rmSync(outputDir, { recursive: true, force: true });
     } catch (err) {
@@ -1438,7 +2227,8 @@ router.post('/:caseId/parse', authenticate, async (req, res) => {
       // Opt-in exhaustive filesystem timeline: 4.4M rows instead of 332k on a real
       // host. Off unless the caller asks, and reversible via DELETE
       // /api/collection/:caseId/fs-timeline.
-      const exhaustiveFsTimeline = req.body?.exhaustive_fs_timeline === true
+      const exhaustiveFsTimeline = (parserOptions?.catscale?.exhaustive_fs_timeline === true)
+        || req.body?.exhaustive_fs_timeline === true
         || req.body?.exhaustive_fs_timeline === 'true';
       const csResult = await parseCatScale(catscaleRoot, caseId, pool, collectionTime, (p) => {
         if (socketId && io) io.to(socketId).emit('collection:progress', { ...p, artifact: 'catscale' });
@@ -1488,6 +2278,10 @@ router.post('/:caseId/parse', authenticate, async (req, res) => {
       status: 'error', name: 'CatScale Linux IR', records: 0,
       error: `CatScale parsing failed: ${e.message}`,
     };
+    // Emit the terminal progress event even on a hard error — otherwise the
+    // artifact_start above leaves 'catscale' stuck in 'parsing' and the global
+    // % freezes at N/(N+1) (e.g. 94%) forever.
+    emitProgress({ type: 'artifact_done', artifact: 'catscale', name: 'CatScale Linux IR', status: 'error', records: 0, current: totalTypes + 1, total: totalTypes + 1 });
   }
 
   // CSVs are claimed by no ARTIFACT_PATTERNS entry, so without this step they
@@ -1519,7 +2313,7 @@ router.post('/:caseId/parse', authenticate, async (req, res) => {
              updated_at    = NOW()
        WHERE id = $3`,
       [
-        JSON.stringify({ parse_results: results, artifact_types: typesToParse, total_records: totalRecords }),
+        JSON.stringify({ parse_results: results, artifact_types: typesToParse, total_records: totalRecords, parser_options: parserOptions }),
         totalRecords,
         resultId,
       ]
@@ -1629,6 +2423,9 @@ router.post('/:caseId/parse', authenticate, async (req, res) => {
       };
       if (socketId) io.to(socketId).emit('collection:parse:done', donePayload);
       else logger.warn('[collection] parse done but no socketId — client will not be notified');
+      // Broadcast to every client viewing this case (not just the initiating
+      // socket) so all open tabs refresh their results when the parse ends.
+      io.to(caseId).emit('collection:parse:done', donePayload);
 
       io.to(`user:${req.user.id}`).emit('notification:job_done', {
         type: 'parse',
@@ -1639,9 +2436,15 @@ router.post('/:caseId/parse', authenticate, async (req, res) => {
       });
     }
   } catch (dbErr) {
+    parseJobOutcome = 'error';
+    parseJobError = dbErr;
     logger.error('[collection] parse DB error:', dbErr.message);
     if (io) {
       if (socketId) io.to(socketId).emit('collection:parse:error', {
+        error: 'Erreur stockage résultats',
+        details: dbErr.message,
+      });
+      io.to(caseId).emit('collection:parse:error', {
         error: 'Erreur stockage résultats',
         details: dbErr.message,
       });
@@ -1655,9 +2458,15 @@ router.post('/:caseId/parse', authenticate, async (req, res) => {
   }
 
       } catch (parseErr) {
+        parseJobOutcome = 'error';
+        parseJobError = parseErr;
         logger.error('[collection] async parse error:', parseErr.message);
         if (io) {
           if (socketId) io.to(socketId).emit('collection:parse:error', {
+            error: 'Erreur parsing',
+            details: parseErr.message,
+          });
+          io.to(caseId).emit('collection:parse:error', {
             error: 'Erreur parsing',
             details: parseErr.message,
           });
@@ -1669,11 +2478,31 @@ router.post('/:caseId/parse', authenticate, async (req, res) => {
           });
         }
       } finally {
+        // Stop the liveness heartbeat — the parse has settled.
+        clearInterval(progressHeartbeat);
         // The job has settled (done / DB-error / crash) — mark the progress
-        // entry terminal so the live cockpit clears instead of lingering as a
-        // frozen snapshot. The next /parse-progress poll returns active:false.
+        // entry terminal with its outcome so /parse-progress hands the UI a
+        // real terminal state (success / error + message) instead of a blank
+        // 'nothing active' void.
         const e = PARSE_PROGRESS.get(caseId);
-        if (e) { e.done = true; e.updatedAt = Date.now(); }
+        if (e) {
+          e.done = true;
+          e.outcome = parseJobOutcome;
+          e.updatedAt = Date.now();
+          if (parseJobOutcome === 'error') e.error = (parseJobError && parseJobError.message) || 'Erreur de parsing';
+        }
+        // Free the per-collection lock so the same collection can be re-parsed.
+        ACTIVE_PARSE_LOCKS.delete(lockKey);
+        // Also mark the durable DB record terminal so a backend-restart fallback
+        // never resurrects a finished/crashed parse as "still running".
+        pool.query(
+          `UPDATE parser_results
+              SET output_data = jsonb_set(COALESCE(output_data, '{}'::jsonb), '{status}', '"done"', true),
+                  updated_at = NOW()
+            WHERE case_id = $1 AND parser_name = 'UnifiedTimeline'
+              AND output_data->>'status' = 'parsing'`,
+          [caseId]
+        ).catch(() => {});
       }
     })();
 });
@@ -1780,6 +2609,419 @@ function shiftHuntPredicate(where, nextParamIndex) {
   return where.replace(/\$(\d+)/g, (_m, n) => `$${parseInt(n, 10) + nextParamIndex - 1}`);
 }
 
+// ── Artifact browser ──────────────────────────────────────────────────────
+// Per-artifact-type data browser (registry hives, $MFT, EVTX, prefetch…)
+// separate from the merged timeline. Rows carry the full `raw` CSV columns so
+// each type is inspected with its own native fields rather than only the
+// normalized timeline projection.
+
+const ARTIFACT_TYPE_RE = /^[a-z][a-z0-9_]{0,31}$/;
+const UUID_RE_G = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// Raw-column filters for the artifact browser. `filters` arrives as a JSON
+// array of { col, op, value } applied against `raw->>'col'`:
+//   eq        exact match
+//   neq       exact non-match
+//   contains  case-insensitive substring
+//   in        comma-separated value list (e.g. EventId "4624,4625")
+// Column names are whitelisted (identifier charset) before interpolation so
+// the filter can never inject SQL. Values are always parameterized.
+const ARTIFACT_FILTER_COL_RE = /^[A-Za-z][A-Za-z0-9_]{0,63}$/;
+const ARTIFACT_FILTER_OPS = new Set(['eq', 'neq', 'contains', 'in']);
+
+function parseArtifactFilters(rawFilters) {
+  if (!rawFilters || typeof rawFilters !== 'string') return null;
+  let arr;
+  try { arr = JSON.parse(rawFilters); } catch { return null; }
+  if (!Array.isArray(arr)) return null;
+  const out = [];
+  for (const f of arr.slice(0, 12)) {
+    if (!f || typeof f !== 'object') continue;
+    const col = String(f.col || '');
+    const op = String(f.op || '');
+    if (!ARTIFACT_FILTER_COL_RE.test(col)) continue;
+    if (!ARTIFACT_FILTER_OPS.has(op)) continue;
+    if (op === 'in') {
+      const vals = String(f.value == null ? '' : f.value).split(',').map(s => s.trim()).filter(Boolean).slice(0, 100);
+      if (vals.length === 0) continue;
+      out.push({ col, op: 'in', value: vals });
+    } else {
+      const value = String(f.value == null ? '' : f.value).slice(0, 200);
+      if (value === '') continue;
+      out.push({ col, op, value });
+    }
+  }
+  return out;
+}
+
+// Filterable columns per artifact type, exposed as facets (distinct values +
+// counts) so the UI can render dropdowns. Empty for types with no facets.
+const ARTIFACT_FACET_COLUMNS = {
+  evtx: ['EventId', 'Channel', 'Level', 'Computer', 'Provider'],
+};
+
+router.get('/:caseId/artifacts', authenticate, async (req, res) => {
+  try {
+    const { caseId } = req.params;
+    const { evidence_id } = req.query;
+    const params = [caseId];
+    let evidenceFilter = '';
+    if (evidence_id) {
+      if (!UUID_RE_G.test(evidence_id)) {
+        return res.status(400).json({ error: 'Paramètre evidence_id invalide' });
+      }
+      evidenceFilter = 'AND evidence_id = $2';
+      params.push(evidence_id);
+    }
+    const { rows } = await pool.query(
+      `SELECT artifact_type, MAX(artifact_name) AS artifact_name, COUNT(*)::int AS cnt
+         FROM collection_timeline
+        WHERE case_id = $1 ${evidenceFilter}
+        GROUP BY artifact_type
+        ORDER BY cnt DESC, artifact_type`, params);
+    res.json({ artifacts: rows });
+  } catch (err) {
+    logger.error('Artifact summary error:', err);
+    res.status(500).json({ error: "Erreur récupération des types d'artefacts" });
+  }
+});
+
+// Multi-artifact search: one keyword/regex across every artifact type in the
+// collection, returning per-type counts plus a bounded sample of matching rows.
+// Registered before /artifacts/:type so "search" is never captured as a type.
+router.get('/:caseId/artifacts/search', authenticate, async (req, res) => {
+  try {
+    const { caseId } = req.params;
+    const { evidence_id, q = '', regex = '0', start_time, end_time } = req.query;
+    const query = String(q).trim().slice(0, 500);
+    if (!query) return res.status(400).json({ error: 'Paramètre q manquant' });
+    const isRegex = regex === '1' || regex === 'true';
+
+    if (isRegex) {
+      try { new RegExp(query); } catch (_e) { return res.status(400).json({ error: 'Expression régulière invalide' }); }
+    }
+
+    const conditions = ['case_id = $1'];
+    const params = [caseId];
+    let pi = 2;
+    if (evidence_id) {
+      if (!UUID_RE_G.test(evidence_id)) return res.status(400).json({ error: 'Paramètre evidence_id invalide' });
+      conditions.push(`evidence_id = $${pi++}`);
+      params.push(evidence_id);
+    }
+    if (start_time) { conditions.push(`timestamp >= $${pi++}`); params.push(start_time); }
+    if (end_time)   { conditions.push(`timestamp <= $${pi++}`); params.push(end_time); }
+    if (isRegex) {
+      conditions.push(`(description ~* $${pi} OR source ~* $${pi} OR raw::text ~* $${pi} OR artifact_type ~* $${pi})`);
+      params.push(query);
+    } else {
+      conditions.push(`(description ILIKE $${pi} OR source ILIKE $${pi} OR raw::text ILIKE $${pi})`);
+      params.push(`%${query}%`);
+    }
+    pi++;
+    const where = conditions.join(' AND ');
+
+    const countsRes = await pool.query(
+      `SELECT artifact_type, COUNT(*)::int AS cnt
+         FROM collection_timeline WHERE ${where}
+        GROUP BY artifact_type ORDER BY cnt DESC, artifact_type`, params);
+
+    const rowsRes = await pool.query(
+      `SELECT id, timestamp, artifact_type, description, details, source, host_name, raw
+         FROM collection_timeline WHERE ${where}
+        ORDER BY timestamp DESC, id DESC LIMIT 200`, params);
+
+    const total = countsRes.rows.reduce((s, r) => s + r.cnt, 0);
+
+    res.json({
+      query,
+      regex: isRegex,
+      total,
+      truncated: total > rowsRes.rows.length,
+      types: countsRes.rows,
+      records: rowsRes.rows,
+    });
+  } catch (err) {
+    if (err && (err.code === '2201B' || /invalid regular expression/i.test(err.message || ''))) {
+      return res.status(400).json({ error: 'Expression régulière invalide' });
+    }
+    logger.error('Artifact search error:', err);
+    res.status(500).json({ error: "Erreur de recherche d'artefacts" });
+  }
+});
+
+router.get('/:caseId/artifacts/:type', authenticate, async (req, res) => {
+  try {
+    const { caseId, type } = req.params;
+    if (!ARTIFACT_TYPE_RE.test(type || '')) {
+      return res.status(400).json({ error: "Type d'artefact invalide" });
+    }
+    const { evidence_id, search = '', search_op = 'contains', sort_dir = 'asc', start_time, end_time } = req.query;
+    const pg = Math.max(1, parseInt(req.query.page) || 1);
+    const lim = Math.min(500, Math.max(1, parseInt(req.query.limit) || 100));
+    const offset = (pg - 1) * lim;
+    const direction = sort_dir === 'desc' ? 'DESC' : 'ASC';
+
+    const conditions = ['case_id = $1', 'artifact_type = $2'];
+    const params = [caseId, type];
+    let pi = 3;
+    if (evidence_id) {
+      if (!UUID_RE_G.test(evidence_id)) {
+        return res.status(400).json({ error: 'Paramètre evidence_id invalide' });
+      }
+      conditions.push(`evidence_id = $${pi++}`);
+      params.push(evidence_id);
+    }
+    if (start_time) { conditions.push(`timestamp >= $${pi++}`); params.push(start_time); }
+    if (end_time)   { conditions.push(`timestamp <= $${pi++}`); params.push(end_time); }
+    if (search) {
+      const isRegex = search_op === 'regex';
+      if (isRegex) {
+        try { new RegExp(String(search)); } catch (_e) { return res.status(400).json({ error: 'Expression régulière invalide' }); }
+        conditions.push(`(description ~* $${pi} OR source ~* $${pi} OR raw::text ~* $${pi})`);
+        params.push(String(search).slice(0, 500));
+      } else {
+        conditions.push(`(description ILIKE $${pi} OR source ILIKE $${pi} OR raw::text ILIKE $${pi})`);
+        params.push(`%${String(search).slice(0, 200)}%`);
+      }
+      pi++;
+    }
+    const filters = parseArtifactFilters(req.query.filters);
+    if (filters) {
+      for (const f of filters) {
+        if (f.op === 'eq') {
+          conditions.push(`raw->>'${f.col}' = $${pi++}`);
+          params.push(f.value);
+        } else if (f.op === 'neq') {
+          conditions.push(`raw->>'${f.col}' <> $${pi++}`);
+          params.push(f.value);
+        } else if (f.op === 'contains') {
+          conditions.push(`raw->>'${f.col}' ILIKE $${pi++}`);
+          params.push(`%${f.value}%`);
+        } else if (f.op === 'in') {
+          conditions.push(`raw->>'${f.col}' = ANY($${pi++}::text[])`);
+          params.push(f.value);
+        }
+      }
+    }
+    const where = conditions.join(' AND ');
+
+    const totalRes = await pool.query(
+      `SELECT COUNT(*)::int AS total FROM collection_timeline WHERE ${where}`, params);
+    const total = totalRes.rows[0].total;
+
+    const rowsRes = await pool.query(
+      `SELECT id, timestamp, artifact_type, artifact_name, description, details, source,
+              host_name, user_name, process_name, "path", ext, event_id, file_size,
+              src_ip::text AS src_ip, dst_ip::text AS dst_ip, sha1, raw
+         FROM collection_timeline
+        WHERE ${where}
+        ORDER BY timestamp ${direction}, id ${direction}
+        LIMIT $${pi} OFFSET $${pi + 1}`, [...params, lim, offset]);
+
+    const colSet = new Set();
+    for (const r of rowsRes.rows) {
+      if (r.raw && typeof r.raw === 'object') {
+        for (const k of Object.keys(r.raw)) colSet.add(k);
+      }
+    }
+
+    res.json({
+      records: rowsRes.rows,
+      total,
+      page: pg,
+      limit: lim,
+      total_pages: Math.ceil(total / lim),
+      columns: [...colSet],
+    });
+  } catch (err) {
+    if (err && (err.code === '2201B' || /invalid regular expression/i.test(err.message || ''))) {
+      return res.status(400).json({ error: 'Expression régulière invalide' });
+    }
+    logger.error('Artifact rows error:', err);
+    res.status(500).json({ error: "Erreur récupération des données d'artefact" });
+  }
+});
+
+// Distinct values (with counts) for the filterable columns of a type — feeds
+// the EVTX filter dropdowns in the artifact browser.
+
+router.get('/:caseId/artifacts/:type/facets', authenticate, async (req, res) => {
+  try {
+    const { caseId, type } = req.params;
+    if (!ARTIFACT_TYPE_RE.test(type || '')) {
+      return res.status(400).json({ error: "Type d'artefact invalide" });
+    }
+    const cols = ARTIFACT_FACET_COLUMNS[type] || [];
+    if (cols.length === 0) return res.json({ facets: {} });
+
+    const { evidence_id } = req.query;
+    const params = [caseId, type];
+    let ev = '';
+    if (evidence_id) {
+      if (!UUID_RE_G.test(evidence_id)) return res.status(400).json({ error: 'Paramètre evidence_id invalide' });
+      ev = 'AND evidence_id = $3';
+      params.push(evidence_id);
+    }
+
+    const facets = {};
+    for (const col of cols) {
+      if (!ARTIFACT_FILTER_COL_RE.test(col)) continue;
+      const { rows } = await pool.query(
+        `SELECT raw->>'${col}' AS value, COUNT(*)::int AS cnt
+           FROM collection_timeline
+          WHERE case_id = $1 AND artifact_type = $2 ${ev}
+            AND raw->>'${col}' IS NOT NULL AND raw->>'${col}' <> ''
+          GROUP BY 1 ORDER BY cnt DESC, value LIMIT 60`, params);
+      facets[col] = rows;
+    }
+    res.json({ facets });
+  } catch (err) {
+    logger.error('Artifact facets error:', err);
+    res.status(500).json({ error: 'Erreur récupération des facettes' });
+  }
+});
+
+// Hierarchical artifact types that get a tree view in the artifact browser.
+// `pathExpr` is the raw column holding the tree path (split on '\'), `select`
+// the per-row leaf fields, `valueRow` their projection to a leaf entry.
+// `groupExpr` is the raw column used to split a type into separate trees
+// (one hive for registry, one explorer hive per user for shellbags); when
+// null the whole type is a single tree (e.g. $MFT).
+const TREE_TYPES = {
+  registry: {
+    needsGroup: true,
+    groupExpr: "COALESCE(raw->>'HivePath','?')",
+    groupLabel: 'hive',
+    pathExpr: "raw->>'KeyPath'",
+    orderBy: "raw->>'KeyPath'",
+    select: "raw->>'KeyPath' AS keypath, raw->>'ValueName' AS vname, raw->>'ValueData' AS vdata, raw->>'ValueType' AS vtype, timestamp",
+    valueRow: (r) => ({ name: r.vname, data: r.vdata, type: r.vtype, last_write: r.timestamp }),
+  },
+  shellbags: {
+    needsGroup: true,
+    groupExpr: "COALESCE(raw->>'HivePath','?')",
+    groupLabel: 'user',
+    pathExpr: "raw->>'AbsolutePath'",
+    orderBy: "raw->>'AbsolutePath'",
+    select: "raw->>'AbsolutePath' AS keypath, description, source, timestamp",
+    // Each shellbag row is one folder entry; its leaf name is the path basename.
+    valueRow: (r) => {
+      const segs = (r.keypath || '').split('\\').filter(Boolean);
+      return { name: segs.length ? segs[segs.length - 1] : r.keypath, description: r.description, last_write: r.timestamp };
+    },
+  },
+  mft: {
+    needsGroup: false,
+    groupExpr: null,
+    groupLabel: null,
+    pathExpr: "raw->>'ParentPath'",
+    orderBy: "raw->>'ParentPath'",
+    select: "raw->>'ParentPath' AS keypath, COALESCE(raw->>'FileName', description) AS vname, description, file_size, timestamp",
+    valueRow: (r) => ({ name: r.vname, description: r.description, size: r.file_size, last_write: r.timestamp }),
+  },
+};
+
+// Group list (hives / users / …) for tree-capable artifact types.
+// Each group is one independent tree rendered by the artifact browser.
+
+router.get('/:caseId/artifacts/:type/groups', authenticate, async (req, res) => {
+  try {
+    const { caseId, type } = req.params;
+    const cfg = TREE_TYPES[type];
+    if (!cfg) return res.status(400).json({ error: "Type non pris en charge pour l'arborescence" });
+    if (!cfg.needsGroup) return res.json({ needs_group: false, groups: [] });
+    const { evidence_id } = req.query;
+    const params = [caseId, type];
+    let ev = '';
+    if (evidence_id) {
+      if (!UUID_RE_G.test(evidence_id)) return res.status(400).json({ error: 'Paramètre evidence_id invalide' });
+      ev = 'AND evidence_id = $3';
+      params.push(evidence_id);
+    }
+    const { rows } = await pool.query(
+      `SELECT ${cfg.groupExpr} AS grp,
+              COUNT(*)::int AS value_count,
+              COUNT(DISTINCT ${cfg.pathExpr})::int AS key_count
+         FROM collection_timeline
+        WHERE case_id = $1 AND artifact_type = $2 ${ev}
+        GROUP BY 1 ORDER BY value_count DESC, grp`, params);
+    res.json({ needs_group: true, groups: rows.map(r => ({ group: r.grp, value_count: r.value_count, key_count: r.key_count })) });
+  } catch (err) {
+    logger.error('Artifact groups error:', err);
+    res.status(500).json({ error: 'Erreur récupération des groupes' });
+  }
+});
+
+router.get('/:caseId/artifacts/:type/tree', authenticate, async (req, res) => {
+  try {
+    const { caseId, type } = req.params;
+    const cfg = TREE_TYPES[type];
+    if (!cfg) return res.status(400).json({ error: "Type non pris en charge pour l'arborescence" });
+    const { evidence_id, group, search = '' } = req.query;
+    const params = [caseId, type];
+    let pi = 3;
+    let extra = '';
+    if (evidence_id) {
+      if (!UUID_RE_G.test(evidence_id)) return res.status(400).json({ error: 'Paramètre evidence_id invalide' });
+      extra += ` AND evidence_id = $${pi++}`;
+      params.push(evidence_id);
+    }
+    if (cfg.needsGroup) {
+      if (!group) return res.status(400).json({ error: 'Paramètre group manquant' });
+      extra += ` AND ${cfg.groupExpr} = $${pi++}`;
+      params.push(String(group).slice(0, 255));
+    }
+    const q = String(search).trim().slice(0, 200);
+    if (q) {
+      extra += ` AND (${cfg.pathExpr} ILIKE $${pi} OR raw::text ILIKE $${pi})`;
+      params.push('%' + q + '%');
+      pi++;
+    }
+    const { rows } = await pool.query(
+      `SELECT ${cfg.select}
+         FROM collection_timeline
+        WHERE case_id = $1 AND artifact_type = $2${extra}
+        ORDER BY ${cfg.orderBy}
+        LIMIT 50000`, params);
+
+    const makeNode = (name) => ({ name, values: [], children: new Map() });
+    const roots = new Map();
+    const rootValues = [];
+    for (const r of rows) {
+      const segs = (r.keypath || '').split('\\').filter(Boolean);
+      if (segs.length === 0) {
+        rootValues.push(cfg.valueRow(r));
+        continue;
+      }
+      let level = roots;
+      for (let i = 0; i < segs.length; i++) {
+        const seg = segs[i];
+        if (!level.has(seg)) level.set(seg, makeNode(seg));
+        const n = level.get(seg);
+        if (i === segs.length - 1) n.values.push(cfg.valueRow(r));
+        level = n.children;
+      }
+    }
+    const toArr = (map) => [...map.values()].map(n => ({
+      name: n.name, values: n.values, children: toArr(n.children),
+    }));
+    const rootNodes = toArr(roots);
+    if (rootValues.length > 0) rootNodes.unshift({ name: '(racine)', values: rootValues, children: [] });
+    res.json({
+      type,
+      group: group || '',
+      truncated: rows.length >= 50000,
+      value_count: rows.length,
+      roots: rootNodes,
+    });
+  } catch (err) {
+    logger.error('Artifact tree error:', err);
+    res.status(500).json({ error: 'Erreur construction arborescence' });
+  }
+});
+
+
 router.get('/:caseId/timeline', authenticate, async (req, res) => {
   try {
     const { caseId } = req.params;
@@ -1865,27 +3107,8 @@ router.get('/:caseId/timeline', authenticate, async (req, res) => {
       huntPredicate = { where: resolvedHunt.where, params: resolvedHunt.params };
     }
 
-    if (!host_name && !user_name && !hasAdvancedFilters) {
-      try {
-        const hasIndex = await esService.indexExists(caseId);
-        if (hasIndex) {
-          const esResult = await esService.searchTimeline(caseId, {
-            page: pg, limit: lim, sort_dir, sort_col: safeCol,
-            ...(safeSortMulti ? { sort_multi: safeSortMulti } : {}),
-            artifact_types, search, start_time, end_time, result_id, evidence_id,
-            evidence_ids: validatedEvidenceIds,
-          });
-          if (esResult.total > 0) {
-            logger.info(`[timeline] ES hit: ${esResult.total} records (caseId=${caseId})`);
-            if (Array.isArray(esResult.records)) esResult.records.forEach(hydrateTimelineRow);
-            return res.json(esResult);
-          }
-        }
-      } catch (esErr) {
-        logger.warn(`[timeline] ES error, falling back to PG: ${String(esErr.message).substring(0, 100)}`);
-      }
-    }
-
+    // Build the PG filter set first — the ES fast-path below needs the same
+    // WHERE/params to verify ES is at least as complete as PG before serving it.
     const conditions = ['case_id = $1'];
     const params     = [caseId];
     let   pi         = 2;
@@ -1925,9 +3148,6 @@ router.get('/:caseId/timeline', authenticate, async (req, res) => {
     }
     if (detection_severity && /^(greyware|low|medium|high|critical)(,(greyware|low|medium|high|critical))*$/.test(String(detection_severity))) {
       const sevList = String(detection_severity).split(',');
-      conditions.push(`detections @? ('$[*] ? (@.severity == "' || ANY($${pi}::text[]) || '")')::jsonpath IS NOT NULL`);
-      // Simpler + safer form using containment:
-      conditions.pop();
       const orParts = sevList.map((_, i) => `detections @> $${pi + i}::jsonb`);
       conditions.push('(' + orParts.join(' OR ') + ')');
       for (const s of sevList) params.push(JSON.stringify([{ severity: s }]));
@@ -1947,6 +3167,45 @@ router.get('/:caseId/timeline', authenticate, async (req, res) => {
     }
 
     const where = conditions.join(' AND ');
+
+    // The ES fast path is served only for filter browsing (no free-text search).
+    // PG's search now covers event_id/host/user/tool/path (ES does not), and ES
+    // multi_match cannot evaluate search_op (empty/not_empty/regex), so a total
+    // comparison can never guarantee equal result sets once a search is active.
+    const esSearchEligible = !search && !(search_op === 'empty' || search_op === 'not_empty' || search_op === 'regex');
+    if (!host_name && !user_name && !hasAdvancedFilters && esSearchEligible) {
+      try {
+        const hasIndex = await esService.indexExists(caseId);
+        if (hasIndex) {
+          const esResult = await esService.searchTimeline(caseId, {
+            page: pg, limit: lim, sort_dir, sort_col: safeCol,
+            ...(safeSortMulti ? { sort_multi: safeSortMulti } : {}),
+            artifact_types, search, start_time, end_time, result_id, evidence_id,
+            evidence_ids: validatedEvidenceIds,
+          });
+          if (esResult.total > 0) {
+            // ES is indexed fire-and-forget during parsing and can silently lag
+            // behind PG (or a bulk batch can fail). A partial ES index must never
+            // shadow the complete PG data — that's how EVTX events "disappear"
+            // from the SuperTimeline. Only serve ES when it is at least as
+            // complete as PG for the same filters; otherwise fall through to PG.
+            const pgCount = (await pool.query(
+              `SELECT COUNT(*)::int AS total FROM collection_timeline WHERE ${where}`,
+              params
+            ).catch(() => ({ rows: [{ total: null }] }))).rows[0]?.total;
+            if (pgCount !== null && esResult.total < pgCount) {
+              logger.warn(`[timeline] ES incomplete (${esResult.total}/${pgCount}) — serving PG (caseId=${caseId})`);
+            } else {
+              logger.info(`[timeline] ES hit: ${esResult.total} records (caseId=${caseId})`);
+              if (Array.isArray(esResult.records)) esResult.records.forEach(hydrateTimelineRow);
+              return res.json(esResult);
+            }
+          }
+        }
+      } catch (esErr) {
+        logger.warn(`[timeline] ES error, falling back to PG: ${String(esErr.message).substring(0, 100)}`);
+      }
+    }
 
     const aggCacheKey = `timeline:aggs:${caseId}:${evidence_id || ''}:${(validatedEvidenceIds || []).join(',')}:${hunt_id || ''}`;
     let cachedAggs = null;
@@ -2513,18 +3772,116 @@ router.post('/:caseId/timeline/tags/bulk', authenticate, async (req, res) => {
       tagsArr.push((u.tags || []).map(t => String(t).trim()).filter(Boolean).slice(0, 32));
     }
     if (ids.length === 0) return res.json({ updated: 0 });
+    const map = {};
+    for (let i = 0; i < ids.length; i++) map[String(ids[i])] = tagsArr[i];
     const r = await pool.query(
       `UPDATE collection_timeline ct
-          SET tags = u.new_tags
-         FROM UNNEST($1::bigint[], $2::jsonb[]) AS u(id, tags_json),
-              LATERAL (SELECT COALESCE(ARRAY(SELECT jsonb_array_elements_text(u.tags_json)), '{}')::text[] AS new_tags) x
-        WHERE ct.id = u.id AND ct.case_id = $3`,
-      [ids, tagsArr.map(a => JSON.stringify(a)), caseId]
+          SET tags = ARRAY(SELECT jsonb_array_elements_text(v.tags_json))::text[]
+         FROM jsonb_each($2::jsonb) AS v(id, tags_json)
+        WHERE ct.id = v.id::bigint AND ct.case_id = $1`,
+      [caseId, JSON.stringify(map)]
     );
     res.json({ updated: r.rowCount });
   } catch (e) {
     logger.error('[tags] bulk error:', e.message);
-    res.status(500).json({ error: 'bulk tag error' });
+    res.status(500).json({ error: 'bulk tag error', detail: e.message });
+  }
+});
+
+// ── Tagger (Timesketch-style auto-tagging) ──────────────────────────────────
+// The keyword rules in config/timeline_keywords.yaml normally run at ingest.
+// These endpoints expose the rules + current tag distribution, and let the
+// analyst re-run the tagger over already-ingested rows (rules may have been
+// edited since the collection was parsed). Tag matching reuses matchTags() so
+// the behaviour is identical to ingest-time tagging.
+
+router.get('/:caseId/timeline/tagger', authenticate, async (req, res) => {
+  try {
+    const { caseId } = req.params;
+    const { evidence_id } = req.query;
+    const rules = require('../services/timelineKeywords').load();
+    const ruleList = rules.map(r => ({ name: r.name, pattern: r.pattern, fields: r.fields, tags: r.tags }));
+
+    const params = [caseId];
+    let ev = '';
+    if (evidence_id) {
+      if (!UUID_RE_G.test(evidence_id)) return res.status(400).json({ error: 'Paramètre evidence_id invalide' });
+      ev = 'AND evidence_id = $2';
+      params.push(evidence_id);
+    }
+    const { rows } = await pool.query(
+      `SELECT tag, COUNT(*)::int AS cnt
+         FROM collection_timeline ct, LATERAL unnest(ct.tags) AS tag
+        WHERE case_id = $1 ${ev}
+        GROUP BY tag ORDER BY cnt DESC, tag`, params);
+    res.json({ rules: ruleList, tag_counts: rows });
+  } catch (e) {
+    logger.error('[tagger] error:', e.message);
+    res.status(500).json({ error: 'Erreur récupération du tagger' });
+  }
+});
+
+// Re-run the keyword tagger over existing rows (optionally one evidence),
+// merging new tags with the ones already present. Bounded so a huge
+// collection can't starve the backend: max rows scanned per run.
+router.post('/:caseId/timeline/tagger/run', authenticate, async (req, res) => {
+  try {
+    const { caseId } = req.params;
+    const { evidence_id } = req.body || {};
+    const MAX_ROWS = 50000;
+    const BATCH = 2000;
+    const params = [caseId];
+    let ev = '';
+    if (evidence_id) {
+      if (!UUID_RE_G.test(evidence_id)) return res.status(400).json({ error: 'Paramètre evidence_id invalide' });
+      ev = 'AND evidence_id = $2';
+      params.push(evidence_id);
+    }
+
+    const matchTags = require('../services/timelineKeywords').matchTags;
+    let scanned = 0, tagged = 0, updated = 0, offset = 0;
+    while (scanned < MAX_ROWS) {
+      const batchRes = await pool.query(
+        `SELECT id, artifact_type, description, source, raw, tags
+           FROM collection_timeline
+          WHERE case_id = $1 ${ev}
+          ORDER BY id
+          LIMIT ${BATCH} OFFSET ${offset}`, params);
+      const batch = batchRes.rows;
+      if (batch.length === 0) break;
+      offset += batch.length;
+      scanned += batch.length;
+
+      const upserts = [];
+      for (const row of batch) {
+        const record = { ...(row.raw || {}), artifact_type: row.artifact_type, description: row.description, source: row.source };
+        let newTags = [];
+        try { newTags = matchTags(record, row.description || ''); } catch (_e) {}
+        if (newTags.length === 0) continue;
+        const merged = Array.from(new Set([...(row.tags || []), ...newTags])).slice(0, 32);
+        const added = merged.filter(t => !(row.tags || []).includes(t));
+        if (added.length === 0) continue;
+        upserts.push({ id: row.id, tags: merged });
+        tagged += added.length;
+      }
+      if (upserts.length > 0) {
+        // Single jsonb map id -> tags[]; avoids the brittle
+        // UNNEST(bigint[], jsonb[]) array-cast that fails on some pg drivers.
+        const map = {};
+        for (const u of upserts) map[String(u.id)] = u.tags;
+        const up = await pool.query(
+          `UPDATE collection_timeline ct
+              SET tags = ARRAY(SELECT jsonb_array_elements_text(v.tags_json))::text[]
+             FROM jsonb_each($2::jsonb) AS v(id, tags_json)
+            WHERE ct.id = v.id::bigint AND ct.case_id = $1`,
+          [caseId, JSON.stringify(map)]);
+        updated += up.rowCount;
+      }
+    }
+    res.json({ scanned, rows_tagged: updated, tags_added: tagged });
+  } catch (e) {
+    logger.error('[tagger/run] error:', e.message);
+    res.status(500).json({ error: 'Erreur exécution du tagger', detail: e.message });
   }
 });
 
@@ -2626,8 +3983,22 @@ router.post('/:caseId/import-csv', authenticate, csvUpload.array('files', 20), a
 });
 
 router.post('/:caseId/hayabusa', authenticate, async (req, res) => {
+  const { caseId } = req.params;
+  // Per-case in-flight guard: the parse pipeline auto-triggers Hayabusa
+  // (startRunAll) AND the frontend POSTs after parse:done. Without this lock the
+  // two would race and initHayabusaRecord (which DELETEs existing hayabusa rows
+  // first) would wipe the other's partial stream-insert. The lock is released in
+  // the finally below — deliberately NOT on res 'finish'/'close', because a
+  // client disconnect (499) must not release it while the binary is still
+  // stream-inserting server-side.
+  if (ACTIVE_HAYABUSA_LOCKS.has(caseId)) {
+    return res.status(409).json({
+      error: 'Une analyse Hayabusa est déjà en cours pour ce cas',
+      details: 'Attendez la fin de l\'analyse en cours avant de la relancer.',
+    });
+  }
+  ACTIVE_HAYABUSA_LOCKS.add(caseId);
   try {
-    const { caseId } = req.params;
     const HAYABUSA_BIN = process.env.HAYABUSA_BIN || '/app/hayabusa/hayabusa';
 
     // Resolve collection directory — try MagnetRESPONSE_Import first, then fall back to
@@ -2778,12 +4149,27 @@ router.post('/:caseId/hayabusa', authenticate, async (req, res) => {
       ];
       if (rulesPresent) hayArgs.push('-r', HAYABUSA_RULES_DIR);
 
+      // Hayabusa writes ./logs/errorlog-<ts>.log relative to its CWD at the end of
+      // every run. The backend's own CWD is /app (root-owned), so under the
+      // unprivileged `node` user `File::create(...).unwrap()` in
+      // src/detections/message.rs panics (PermissionDenied) AFTER the JSONL output
+      // is fully written — the non-zero exit then made the backend discard a
+      // complete run and fall back to the Sigma regex engine. Point its CWD at the
+      // writable temp dir so ./logs lands somewhere the node user owns.
+      let exitNonZero = false;
       try {
-        await spawnTool(hayArgs, { timeout: 3600000 });
+        await spawnTool(hayArgs, { timeout: 3600000, cwd: TEMP_DIR });
       } catch (e) {
         // Capture stderr snippet for diagnostic even on failure
         hayStderrSnip = (e.stderr || e.message || '').substring(0, 400);
-        throw e;
+        // A trailing crash (error-log panic, teardown OOM, …) can still leave a
+        // complete, valid output file. Process it instead of discarding detections.
+        if (fs.existsSync(outputFile) && fs.statSync(outputFile).size > 0) {
+          exitNonZero = true;
+          logger.warn('[hayabusa] exited non-zero but produced output — processing results:', hayStderrSnip.substring(0, 150));
+        } else {
+          throw e;
+        }
       }
 
       // Guard: skip reading if output file is suspiciously large (> 500 MB → OOM risk)
@@ -2847,16 +4233,24 @@ router.post('/:caseId/hayabusa', authenticate, async (req, res) => {
             const extM = /\.([A-Za-z0-9]{1,10})(?=[\s"'\\\/)]|$)/.exec(desc);
             const patM = /([A-Z]:\\[^\s"']+|\/[^\s"']+)/.exec(desc);
 
+            // Flatten AllFieldInfo into the stored raw: Hayabusa is invoked with
+            // `-p all-field-info`, which nests the real event fields (LogonType,
+            // IpAddress, TicketEncryptionType, CommandLine, Image, …) under
+            // AllFieldInfo instead of as top-level columns. Detection rules query
+            // raw->>'FieldName', so without this flattening every such condition is
+            // NULL and the rule can never fire on Hayabusa rows. Top-level Hayabusa
+            // keys (Timestamp, Computer, Channel, EventID, Level, RuleTitle, …)
+            // win on collision — they are the values Hayabusa already normalized.
             const afi = p.AllFieldInfo || p.all_field_info;
             let hayDetails = null;
             if (afi && typeof afi === 'object') {
               hayDetails = Object.entries(afi)
                 .filter(([, v]) => v !== null && v !== '' && v !== undefined)
-                .map(([k, v]) => `${k}: ${String(v).slice(0, 200)}`)
+                .map(([k, v]) => `${k}: ${String(v).slice(0, 20000)}`)
                 .join(' | ')
-                .slice(0, 500) || null;
+                .slice(0, 200000) || null;
             } else if (typeof afi === 'string' && afi.trim()) {
-              hayDetails = afi.slice(0, 500);
+              hayDetails = afi.slice(0, 200000);
             }
 
             const userName    = p.UserName || p.SubjectUserName || p.TargetUserName || p.user_name || null;
@@ -2867,7 +4261,9 @@ router.post('/:caseId/hayabusa', authenticate, async (req, res) => {
             evidenceIds.push(hayEvidenceId); timestamps.push(p.Timestamp || p.timestamp || null);
             artTypes.push('hayabusa');        artNames.push(p.RuleTitle || p.rule_title || 'Hayabusa');
             descs.push(desc);                sources.push(src);
-            raws.push(JSON.stringify(p));
+            raws.push(JSON.stringify(
+              (afi && typeof afi === 'object' && !Array.isArray(afi)) ? { ...p, ...afi } : p
+            ));
             hostNames.push(p.Computer || p.computer || null);
             userNames.push(userName);        processNames.push(processName);
             mitreIds.push(mId);              mitreTactics.push(mTactic);
@@ -2906,6 +4302,7 @@ router.post('/:caseId/hayabusa', authenticate, async (req, res) => {
           );
           streamTotal += items.length;
           if (streamTotal % 10000 === 0) logger.info(`[hayabusa] streamed ${streamTotal} records…`);
+          invalidateDetectionCache(caseId).catch(() => {});
         }
 
         // Pause/resume readline — 2000-item batches, yield every 2000 lines regardless
@@ -2954,7 +4351,7 @@ router.post('/:caseId/hayabusa', authenticate, async (req, res) => {
         const finalDiag = {
           engine_used: 'hayabusa_binary', rules_count: rulesCount, rules_present: rulesPresent,
           evtx_files: evtxFiles.length, binary_path: HAYABUSA_BIN,
-          truncated: false, stderr_snippet: hayStderrSnip || null,
+          truncated: false, exit_nonzero: exitNonZero, stderr_snippet: hayStderrSnip || null,
         };
         await pool.query(
           `UPDATE parser_results SET record_count = $1, output_data = $2::jsonb WHERE id = $3`,
@@ -3165,7 +4562,7 @@ router.post('/:caseId/hayabusa', authenticate, async (req, res) => {
           const hayExt   = hayExtM ? ('.' + hayExtM[1].toLowerCase()).slice(0, 16) : null;
           const hayPathM = /([A-Z]:\\[^\s"']+|\/[^\s"']+)/.exec(r.description || '');
           const hayPath  = hayPathM ? hayPathM[1].slice(0, 500) : null;
-          const hayDetails = r.description ? r.description.slice(0, 500) : null;
+          const hayDetails = r.description ? r.description.slice(0, 200000) : null;
           // Hayabusa per-EventID MITRE override when rule didn't set one
           let hMitreId = mitreId, hMitreName = mitreName, hMitreTactic = mitreTactic;
           if (!hMitreId && hayEvId !== null && EVTX_MITRE_BY_EID[hayEvId]) {
@@ -3259,6 +4656,10 @@ router.post('/:caseId/hayabusa', authenticate, async (req, res) => {
   } catch (err) {
     logger.error('Hayabusa error:', err);
     res.status(500).json({ error: 'Erreur exécution Hayabusa' });
+  } finally {
+    // Release the per-case guard on every exit path (success, error, client
+    // disconnect mid-run) once the binary + stream-insert actually finished.
+    ACTIVE_HAYABUSA_LOCKS.delete(caseId);
   }
 });
 
@@ -3484,9 +4885,7 @@ router.get('/:caseId/export/csv', authenticate, async (req, res) => {
       params.push(artifact_types.split(','));
     }
     if (search) {
-      conditions.push(`(description ILIKE $${pi} OR source ILIKE $${pi} OR artifact_type ILIKE $${pi})`);
-      params.push('%' + search.replace(/[%_]/g, '\\$&') + '%');
-      pi++;
+      pi = pushSearchFilter(search || '', 'contains', pi, conditions, params);
     }
     if (start_time)  { conditions.push(`timestamp >= $${pi++}`);          params.push(start_time); }
     if (end_time)    { conditions.push(`timestamp <= $${pi++}`);          params.push(end_time);   }
@@ -3841,6 +5240,7 @@ router.post('/:caseId/pcap', authenticate, (req, res) => {
         });
         inserted = allRows.length;
         await client.query('COMMIT');
+        invalidateDetectionCache(caseId).catch(() => {});
       } catch (insertErr) {
         await client.query('ROLLBACK');
         throw insertErr;

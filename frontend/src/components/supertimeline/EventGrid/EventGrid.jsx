@@ -7,7 +7,7 @@ import ColorRulesManager from '../../../components/timeline/ColorRulesManager';
 import { EventRow } from './EventRow';
 import { GroupRow } from './GroupRow';
 import { ColumnHeader } from './ColumnHeader';
-import { buildDynamicCols, computeRef } from '../utils/timelineUtils';
+import { buildDynamicCols, computeRef, pickPayload } from '../utils/timelineUtils';
 import { artifactColor } from '../../../constants/artifactColors';
 import GroupPanel from './GroupPanel';
 import ColumnManager from './ColumnManager';
@@ -21,8 +21,10 @@ const LEDGER_COLS = [
   { key: 'timestamp',      label: 'DateTime',    size: 110 },
   { key: 'timestamp_kind', label: 'TS Type',     size: 76  },
   { key: 'artifact_type',  label: 'Artifact',    size: 86  },
+  { key: 'event_id',       label: 'Event ID',    size: 64  },
   { key: 'tool',           label: 'Tool',        size: 88  },
   { key: 'description',    label: 'Description', size: null, meta: { flex: true } },
+  { key: 'payload',        label: 'Payload',     size: null, meta: { flex: true } },
   { key: '_source',        label: 'DataPath',    size: 170 },
   { key: 'user_name',      label: 'User',        size: 88  },
   { key: 'host_name',      label: 'Computer',    size: 96  },
@@ -38,6 +40,7 @@ export default function EventGrid() {
     groupByFields, caseId, page, totalPages, pageSize, dynamicColsRev,
     setSelectedRow, setSort, loadMore,
     artifactTypes, huntMessage,
+    bookmarks, toggleBookmark,
   } = useTimelineStore();
 
   const scrollRef     = useRef(null);
@@ -87,6 +90,9 @@ export default function EventGrid() {
       );
     }
   }, [setSort]);
+
+  // Bookmark refs (computeRef hash) — drives the per-row ★ indicator
+  const bookmarkRefs = useMemo(() => new Set(bookmarks.map(b => b.ref)), [bookmarks]);
 
   const displayRecords = useMemo(() => {
     if (!clientSort) return records;
@@ -246,6 +252,8 @@ export default function EventGrid() {
             val = rec.source ?? '';
           } else if (col.key === '_verdict') {
             val = '';
+          } else if (col.key === 'payload') {
+            val = pickPayload(rec)?.value ?? '';
           } else {
             val = rec[col.key] ?? '';
           }
@@ -532,10 +540,12 @@ export default function EventGrid() {
                   visibleCols={visibleCols}
                   isSelected={selectedRowId === r.id}
                   hasNote={notedRefs.has(computeRef(r))}
+                  isBookmarked={bookmarkRefs.has(computeRef(r))}
                   tagEntry={tagData.get(r.id)}
                   colorRules={colorRules}
                   searchTerm={search}
                   onClick={() => handleRowClick(r)}
+                  onToggleBookmark={toggleBookmark}
                   onCellContextMenu={(e, col, row) => setCtxMenu({ x: e.clientX, y: e.clientY, col, row })}
                   pinnedCols={pinnedCols}
                   pinnedOffsets={pinnedOffsets}

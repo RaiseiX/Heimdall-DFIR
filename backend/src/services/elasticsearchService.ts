@@ -35,6 +35,10 @@ const FORENSIC_MAPPING = {
         keyword: { type: 'keyword', ignore_above: 512 },
       },
     },
+    details: {
+      type:     'text',
+      analyzer: 'standard',
+    },
     source: {
       type:         'keyword',
       ignore_above: 256,
@@ -231,6 +235,7 @@ export async function bulkIndex(
       artifact_type: rec.artifact_type,
       artifact_name: rec.artifact_name,
       description:   rec.description,
+      details:       rec.details ?? null,
       source:        rec.source,
       raw:           rec.raw,
       mitre_technique_id:   rec.mitre_technique_id   ?? null,
@@ -398,7 +403,7 @@ export async function searchTimeline(
         },
       },
     },
-    _source: ['timestamp', 'artifact_type', 'artifact_name', 'description', 'source', 'raw',
+    _source: ['timestamp', 'artifact_type', 'artifact_name', 'description', 'details', 'source', 'raw',
                'mitre_technique_id', 'mitre_technique_name', 'mitre_tactic',
                'host_name', 'user_name', 'process_name'],
   } as any);
@@ -502,7 +507,7 @@ export async function searchTimelineWithPIT(
       artifact_types: { terms: { field: 'artifact_type', size: 30 } },
     },
     _source: [
-      'timestamp', 'artifact_type', 'artifact_name', 'description', 'source', 'raw',
+      'timestamp', 'artifact_type', 'artifact_name', 'description', 'details', 'source', 'raw',
       'mitre_technique_id', 'mitre_technique_name', 'mitre_tactic',
       'host_name', 'user_name', 'process_name',
     ],

@@ -90,3 +90,9 @@ db/migrations/20260807010000_collection_platform.sql
 # only — backend/scripts/backfillSigmaMetadata.js re-parses the existing
 # rows' stored content afterwards (idempotent, run separately).
 db/migrations/20260810000000_sigma_rule_metadata.sql
+# --- GIN index on collection_timeline.raw → top-level keys only ---
+# Replaces the full jsonb_ops GIN (every key + nested value) with a GIN over
+# jsonb_top_keys(raw): the write cost that stalled 5000-row UNNEST batches,
+# while still serving the key-existence predicates the network map and the
+# Amcache/LOLDrivers scan rely on.
+db/migrations/20260819000000_ct_raw_keys_gin.sql

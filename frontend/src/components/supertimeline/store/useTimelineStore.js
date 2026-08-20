@@ -1,7 +1,7 @@
 // frontend/src/components/supertimeline/store/useTimelineStore.js
 import { create } from 'zustand';
 import { collectionAPI, artifactsAPI, bookmarksAPI, savedSearchesAPI } from '../../../utils/api';
-import { computeRef } from '../utils/timelineUtils';
+import { computeRef, parseFlexibleTimestamp } from '../utils/timelineUtils';
 
 const DEBOUNCE_MS = 150;
 let _debounceTimer = null;
@@ -54,14 +54,27 @@ function decodeTagsAndLevel(rawTags) {
   return { tags, level };
 }
 
+// Convert a user-supplied timestamp to a UTC ISO string. Naive timestamps
+// ("2025-12-26 00:57:43.723") are treated as UTC — consistent with how the
+// timeline displays timestamps — never shifted by the browser's local TZ.
+function toUtcIso(v) {
+  if (!v) return '';
+  const d = parseFlexibleTimestamp(v);
+  if (d) return d.toISOString();
+  try {
+    const d2 = new Date(v);
+    return Number.isNaN(d2.getTime()) ? '' : d2.toISOString();
+  } catch { return ''; }
+}
+
 function buildQueryParams(s) {
   const p = { page: s.page, limit: s.pageSize, sort_dir: s.sortDir, sort_col: s.sortCol };
   if (s.multiSort.length > 1) p.sort_multi = s.multiSort.map(x => `${x.col}:${x.dir}`).join(',');
   if (s.search || s.searchOp === 'empty' || s.searchOp === 'not_empty')
     { p.search = s.search; p.search_op = s.searchOp; }
   if (s.artifactTypes.length)  p.artifact_types = s.artifactTypes.join(',');
-  if (s.startTime)             p.start_time = new Date(s.startTime).toISOString();
-  if (s.endTime)               p.end_time   = new Date(s.endTime).toISOString();
+  if (s.startTime)             p.start_time = toUtcIso(s.startTime);
+  if (s.endTime)               p.end_time   = toUtcIso(s.endTime);
   if (s.hostFilter || s.hostFilterOp === 'empty' || s.hostFilterOp === 'not_empty')
     { p.host_name = s.hostFilter; p.host_name_op = s.hostFilterOp; }
   if (s.userFilter || s.userFilterOp === 'empty' || s.userFilterOp === 'not_empty')
@@ -157,6 +170,19 @@ export const useTimelineStore = create((set, get) => ({
   applyFiltersDebounced() {
     clearTimeout(_debounceTimer);
     _debounceTimer = setTimeout(() => get().applyFilters(), DEBOUNCE_MS);
+  },
+
+  // Jump to a precise timestamp and show events in a symmetric window around it
+  // (e.g. ±15 min). Sets startTime/endTime, resets to page 1 and reloads. Returns
+  // false when the timestamp is invalid.
+  jumpToTime(tsIso, windowMinutes = 15) {
+    const t = new Date(tsIso).getTime();
+    if (Number.isNaN(t)) return false;
+    const start = new Date(t - windowMinutes * 60000).toISOString();
+    const end   = new Date(t + windowMinutes * 60000).toISOString();
+    set({ startTime: start, endTime: end, page: 1 });
+    get().loadTimeline();
+    return true;
   },
 
   clearFilters() {
@@ -344,6 +370,35 @@ export const useTimelineStore = create((set, get) => ({
       });
     }
     get().loadBookmarks();
+  },
+
+  async removeBookmark(bm) {
+    const { caseId } = get();
+    if (!caseId || !bm?.id) return;
+    try {
+      await bookmarksAPI.remove(caseId, bm.id);
+    } catch { /* ignore */ }
+    get().loadBookmarks();
+  },
+
+  // Jump to a bookmarked event: set after: to the exact bookmarked timestamp
+  // (milliseconds preserved) and show the next 15 minutes, then select the
+  // event when it is present in the loaded page.
+  async jumpToBookmark(bm) {
+    const rawTs = bm?.event_timestamp || bm?.timestamp;
+    if (!rawTs) return;
+    const t = new Date(rawTs).getTime();
+    if (Number.isNaN(t)) return;
+    set({
+      startTime: new Date(t).toISOString(),
+      endTime:   new Date(t + 15 * 60000).toISOString(),
+      page: 1, selectedRowId: null, detailOpen: false,
+    });
+    await get().loadTimeline();
+    const ref = bm.artifact_ref ?? bm.ref;
+    if (!ref) return;
+    const target = get().records.find(r => computeRef(r) === ref);
+    if (target) set({ selectedRowId: target.id, detailOpen: true });
   },
 
   setDetailTab(tab) { set({ detailTab: tab }); },

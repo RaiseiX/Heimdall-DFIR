@@ -270,17 +270,7 @@ export default function ArtifactsTab() {
           {bookmarks.map(b => (
             <div
               key={b.id}
-              onClick={() => {
-                const s = useTimelineStore.getState();
-                const rawTs = b.event_timestamp || b.timestamp;
-                if (rawTs) {
-                  const ts  = new Date(rawTs);
-                  const fmt = d => d.toISOString().slice(0, 16);
-                  s.setFilter('startTime', fmt(new Date(ts.getTime() - 30000)));
-                  s.setFilter('endTime',   fmt(new Date(ts.getTime() + 30000)));
-                  s.applyFilters();
-                }
-              }}
+              onClick={() => { useTimelineStore.getState().jumpToBookmark(b); }}
               style={{ padding: '4px 10px 4px 18px', cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: 1 }}
               onMouseEnter={e => { e.currentTarget.style.background = 'var(--fl-panel)'; }}
               onMouseLeave={e => { e.currentTarget.style.background = 'none'; }}
@@ -291,7 +281,7 @@ export default function ArtifactsTab() {
               </span>
               {(b.event_timestamp || b.timestamp) && (
                 <span style={{ fontSize: 8, color: 'var(--fl-muted)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}>
-                  {new Date(b.event_timestamp || b.timestamp).toISOString().slice(0, 19).replace('T', ' ')}
+                  {new Date(b.event_timestamp || b.timestamp).toISOString().replace('T', ' ').slice(0, 23)}
                 </span>
               )}
             </div>

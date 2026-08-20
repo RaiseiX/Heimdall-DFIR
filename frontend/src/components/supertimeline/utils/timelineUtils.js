@@ -78,6 +78,49 @@ export function computeRef(r) {
 }
 
 /**
+ * Parse a flexible user-typed timestamp into a Date.
+ * Accepts ISO 8601 (with 'T' or ' ' separator, optional timezone), date-only
+ * YYYY-MM-DD, and French DD/MM/YYYY [HH:MM[:SS]] (also with '-' or '.' separators).
+ * Returns null when the input can't be understood.
+ */
+export function parseFlexibleTimestamp(input) {
+  if (!input) return null;
+  const s = String(input).trim();
+  if (!s) return null;
+
+  // ISO with space separator → normalise to 'T' so Date parses it everywhere.
+  const iso = s.match(/^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}(?::\d{2})?(?:\.\d+)?)\s*(Z|[+-]\d{2}:?\d{2})?$/i);
+  if (iso) {
+    const d = new Date(`${iso[1]}T${iso[2]}${iso[3] || 'Z'}`);
+    if (!Number.isNaN(d.getTime())) return d;
+  }
+
+  // Date-only YYYY-MM-DD → local midnight.
+  const dateOnly = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  if (dateOnly) {
+    const d = new Date(parseInt(dateOnly[1], 10), parseInt(dateOnly[2], 10) - 1, parseInt(dateOnly[3], 10));
+    if (!Number.isNaN(d.getTime())) return d;
+  }
+
+  // Generic Date parse — covers full ISO 8601 and common en-US forms.
+  let d = new Date(s);
+  if (!Number.isNaN(d.getTime()) && /[T ]\d{2}:\d{2}/.test(s)) return d;
+
+  // French DD/MM/YYYY [HH:MM[:SS]] (also '-' / '.' separators).
+  const fr = s.match(/^(\d{1,2})[/\-.]?(\d{1,2})[/\-.](\d{4})(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}))?)?$/);
+  if (fr) {
+    const day = parseInt(fr[1], 10), month = parseInt(fr[2], 10), year = parseInt(fr[3], 10);
+    if (day >= 1 && day <= 31 && month >= 1 && month <= 12) {
+      d = new Date(year, month - 1, day,
+        parseInt(fr[4] || '0', 10), parseInt(fr[5] || '0', 10), parseInt(fr[6] || '0', 10));
+      if (!Number.isNaN(d.getTime())) return d;
+    }
+  }
+
+  return null;
+}
+
+/**
  * Format description per artifact type
  */
 export function fmtDesc(r) {
@@ -396,6 +439,119 @@ const NORMALIZED_KEYS = new Set([
   'timestamp_kind','details','path','ext','event_id','file_size','src_ip','dst_ip',
   'sha1','host_name','user_name','process_name','mitre_technique_id',
 ]);
+
+// PAYLOAD_FIELDS — per-artifact-type ordered list of raw JSONB fields that carry
+// the interesting payload. The grid's "Payload" column shows the first non-empty,
+// non-noisy value found, so every event type displays its own useful detail even
+// though the field names differ. Fields already visible in other columns
+// (EventId, Channel, Computer, UserName, Source*, parent paths…) are excluded.
+export const PAYLOAD_FIELDS = {
+  evtx:       ['SubjectUserName', 'TargetUserName', 'IpAddress', 'TargetIpAddress', 'LogonType', 'WorkstationName', 'ProcessName', 'ProcessId', 'TargetFileName', 'NewProcessName', 'CommandLine', 'ObjectName', 'ServiceName', 'ProviderName'],
+  hayabusa:   ['Details', 'ExtraFieldInfo', 'MitreTags', 'RuleFile', 'Title'],
+  prefetch:   ['FullPath', 'RunCount', 'VolumeSerial'],
+  mft:        ['FileSize', 'Extension', 'InUse', 'Created0x10', 'LastModified0x10', 'LastAccess0x10'],
+  usn:        ['FileSize', 'OldName'],
+  registry:   ['ValueType', 'ValueName', 'ValueData'],
+  amcache:    ['FileDescription', 'FileSize', 'SHA1', 'PublisherName', 'ProductName', 'LanguageCode'],
+  lnk:        ['TargetPath', 'TargetMFTEntryNumber', 'DriveType', 'VolumeLabel', 'MachineName', 'FileSize'],
+  shellbags:  ['ShellType', 'SlotModifiedDate'],
+  jumplist:   ['EntryName', 'TargetPath', 'TargetMFTEntryNumber'],
+  srum:       ['UserId', 'BytesSent', 'BytesReceived', 'NetworkInterface'],
+  recycle:    ['FileSize', 'DeletedTimestamp'],
+  bits:       ['JobName', 'FileUrl', 'TargetDirectory'],
+  sqle:       ['VisitCount'],
+  wxtcmd:     ['LaunchUri'],
+  appcompat:  ['FileSize', 'SHA1', 'LastModifiedTime'],
+  wmi:        ['Namespace', 'Query', 'Consumer', 'ScriptText', 'ExecutablePath'],
+  indx:       ['FileSize', 'FileReference'],
+  userassist: ['RunCount', 'ExecutedCount'],
+  netprofile: ['DnsSuffix', 'GatewayMac', 'DefaultGateway'],
+  usb:        ['DeviceInstanceId', 'DeviceDescription', 'SerialNumber', 'VendorId', 'ProductId'],
+  schtasks:   ['Command', 'Arguments', 'RunAsUser'],
+  pwsh:       ['Command', 'ScriptBlockText'],
+  dns:        ['Entry', 'Type', 'Class', 'Answer'],
+  webcache:   ['Url', 'ContainerType', 'HitCount'],
+  unified_log: ['Message', 'ProcessName', 'Subsystem'],
+  syslog:     ['Message', 'Program', 'Facility'],
+  auditd:     ['Exe', 'AuditType', 'Auid', 'Ses'],
+  bash_history: ['Command'],
+};
+
+// Raw fields whose value is already shown in another grid column (Event ID,
+// DataPath, User, Computer) or is purely structural — never offered as payload.
+const _PAYLOAD_SKIP_FIELDS = new Set([
+  'EventId', 'EventID', 'Channel', 'Computer', 'ComputerName', 'UserName', 'User',
+  'SourceFile', 'SourceFilename', 'SourceName', 'HivePath', 'ParentPath', 'FolderPath',
+  'KeyPath', 'LocalPath', 'Name', 'FileName', 'Description', 'MapDescription',
+  'Timestamp', 'TimeCreated', 'RecordNumber', 'EventRecordId', 'Id', 'ID',
+]);
+
+function _payloadValue(raw, field) {
+  const v = raw[field];
+  if (v == null) return null;
+  let s;
+  if (typeof v === 'object') {
+    try { s = JSON.stringify(v); } catch { return null; }
+  } else {
+    s = String(v).trim();
+  }
+  if (!s || s === 'null' || s === 'undefined' || s === '—' || s === '-' || s === '0') return null;
+  // ISO timestamps are already visible in the DateTime column.
+  if (/^\d{4}-\d{2}-\d{2}[T ]/.test(s)) return null;
+  // Long pure-hex values are GUIDs/hashes — low signal unless the field says hash.
+  if (/^[0-9a-fA-F]{16,}$/.test(s) && !/sha|hash|guid/i.test(field)) return null;
+  return s;
+}
+
+/**
+ * pickPayload — return { field, value } with the most interesting payload for a
+ * record. Priority order:
+ *   1. the curated `details` column (parsers put the juicy content there),
+ *   2. EvtxECmd name/value pairs (PayloadData1=name, PayloadData2=value, …),
+ *   3. per-artifact-type priority list over raw fields,
+ *   4. any remaining interesting raw key.
+ * Returns null when nothing useful is found.
+ */
+export function pickPayload(r) {
+  const raw = r?.raw;
+  if (!r || (r.details == null && (typeof raw !== 'object' || !raw))) return null;
+
+  // 1) Curated details column.
+  if (r.details != null) {
+    const d = String(r.details).trim();
+    if (d && d !== String(r.description || '').trim()) {
+      return { field: 'details', value: d };
+    }
+  }
+
+  if (typeof raw !== 'object' || !raw) return null;
+
+  // 2) EvtxECmd exposes event data as name/value pairs.
+  if (r.artifact_type === 'evtx') {
+    for (let i = 1; i <= 6; i += 2) {
+      const name = raw[`PayloadData${i}`];
+      const val  = raw[`PayloadData${i + 1}`];
+      if (name == null || val == null) continue;
+      const n = String(name).trim();
+      const v = String(val).trim();
+      if (n && v && !/^\d+$/.test(v)) return { field: n, value: v };
+    }
+  }
+
+  // 3) Per-type priority list, then any interesting raw key.
+  const prio = PAYLOAD_FIELDS[r.artifact_type] || [];
+  for (const f of prio) {
+    if (_PAYLOAD_SKIP_FIELDS.has(f)) continue;
+    const s = _payloadValue(raw, f);
+    if (s) return { field: f, value: s };
+  }
+  for (const f of Object.keys(raw)) {
+    if (_PAYLOAD_SKIP_FIELDS.has(f)) continue;
+    const s = _payloadValue(raw, f);
+    if (s) return { field: f, value: s };
+  }
+  return null;
+}
 
 /**
  * buildDynamicCols — generate dynamic column definitions from raw JSONB keys
