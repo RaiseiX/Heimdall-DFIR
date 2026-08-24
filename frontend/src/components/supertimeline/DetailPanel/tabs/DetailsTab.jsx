@@ -1,7 +1,51 @@
 import { useState } from 'react';
-import { Copy, Check } from 'lucide-react';
+import { Copy, Check, Shield } from 'lucide-react';
 import { fmtTs } from '../../../../utils/formatters';
 import { fmtDesc, fmtSrc } from '../../utils/timelineUtils';
+import { useTimelineStore } from '../../store/useTimelineStore';
+import { iocsAPI } from '../../../../utils/api';
+import { detectIocType } from '../../../../utils/iocType';
+
+function IocButton({ value, field, caseId, ts }) {
+  const [added, setAdded] = useState(false);
+  const [err, setErr]     = useState('');
+  if (!caseId || value == null) return null;
+  const s = String(value).trim();
+  if (!s || s === '—' || s.length < 2) return null;
+  const match = detectIocType(s);
+
+  const handleAdd = async () => {
+    setErr('');
+    try {
+      await iocsAPI.create(caseId, {
+        ioc_type: match.type,
+        value: s.slice(0, 500),
+        description: `${field} from timeline event`,
+        severity: 5,
+        source: 'timeline_field',
+        first_seen: ts || null,
+      });
+      setAdded(true);
+      setTimeout(() => setAdded(false), 1500);
+    } catch (e) {
+      setErr('Failed');
+    }
+  };
+
+  return (
+    <button
+      onClick={handleAdd}
+      title={err || `Add ${match.label} IOC: ${s.slice(0, 200)}`}
+      style={{ marginLeft: 4, fontSize: 8, padding: '1px 5px', borderRadius: 3, cursor: 'pointer',
+        background: added ? 'color-mix(in srgb, var(--fl-ok) 14%, transparent)' : 'var(--fl-card)',
+        border: `1px solid ${added ? 'color-mix(in srgb, var(--fl-ok) 30%, transparent)' : 'color-mix(in srgb, var(--fl-danger) 25%, transparent)'}`,
+        color: added ? 'var(--fl-ok)' : 'var(--fl-danger)',
+        fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', whiteSpace: 'nowrap',
+        display: 'inline-flex', alignItems: 'center', gap: 2, flexShrink: 0 }}>
+      {added ? '✓' : <><Shield size={8} />IOC</>}
+    </button>
+  );
+}
 
 function cleanHost(v) {
   if (!v) return null;
@@ -42,7 +86,8 @@ function sortRawByPriority(entries) {
 }
 
 // wrap=true for multi-line fields (description, notes); false by default = single truncated line
-function FieldBlock({ label, value, highlight, wrap = false }) {
+function FieldBlock({ label, value, highlight, wrap = false, field, ts }) {
+  const { caseId } = useTimelineStore();
   if (value == null || value === '') return null;
   const str = String(value);
   return (
@@ -51,7 +96,12 @@ function FieldBlock({ label, value, highlight, wrap = false }) {
         fontSize: 8, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase',
         color: 'var(--fl-muted)', padding: '3px 8px', background: 'var(--fl-bg)' }}>
         <span>{label}</span>
-        {str.length > 0 && <CopyBtn value={str} />}
+        {str.length > 0 && (
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+            <IocButton value={str} field={field || label} caseId={caseId} ts={ts} />
+            <CopyBtn value={str} />
+          </span>
+        )}
       </div>
       <div title={str.length > 2000 ? undefined : str} style={{
         fontSize: 10, color: highlight ? 'var(--fl-danger)' : 'var(--fl-dim)', padding: '5px 8px',
@@ -80,6 +130,7 @@ function CopyBtn({ value }) {
 }
 
 export default function DetailsTab({ record: r }) {
+  const { caseId } = useTimelineStore();
   if (!r) return null;
   const raw = r.raw || {};
   // Flatten AllFieldInfo / ExtraFieldInfo nested objects into top-level entries
@@ -101,20 +152,20 @@ export default function DetailsTab({ record: r }) {
 
   return (
     <div style={{ flex: 1, overflowY: 'auto', padding: '10px 12px' }}>
-      <FieldBlock label="Description" value={fmtDesc(r)} highlight={!!r.detections?.length} wrap />
-      {r.details && <FieldBlock label="Payload" value={r.details} wrap />}
-      <FieldBlock label="Timestamp UTC" value={fmtTs(r.timestamp)} />
-      <FieldBlock label="Artifact Type" value={r.artifact_type} />
-      <FieldBlock label="Source"        value={fmtSrc(r)} />
-      {cleanHost(r.host_name)    && <FieldBlock label="Host"      value={cleanHost(r.host_name)} />}
-      {r.user_name               && <FieldBlock label="User"      value={r.user_name} />}
-      {cleanProcess(r.process_name) && <FieldBlock label="Process" value={cleanProcess(r.process_name)} />}
-      {r.event_id                && <FieldBlock label="Event ID"  value={r.event_id} />}
-      {r.ext                     && <FieldBlock label="Extension" value={r.ext} />}
-      {r.sha1                    && <FieldBlock label="SHA1"      value={r.sha1} />}
-      {r.src_ip                  && <FieldBlock label="Src IP"    value={r.src_ip} />}
-      {r.dst_ip                  && <FieldBlock label="Dst IP"    value={r.dst_ip} />}
-      {r.tool                    && <FieldBlock label="Tool"      value={r.tool} />}
+      <FieldBlock label="Description" value={fmtDesc(r)} highlight={!!r.detections?.length} wrap ts={r.timestamp} />
+      {r.details && <FieldBlock label="Payload" value={r.details} wrap ts={r.timestamp} />}
+      <FieldBlock label="Timestamp UTC" value={fmtTs(r.timestamp)} ts={r.timestamp} />
+      <FieldBlock label="Artifact Type" value={r.artifact_type} ts={r.timestamp} />
+      <FieldBlock label="Source"        value={fmtSrc(r)} ts={r.timestamp} />
+      {cleanHost(r.host_name)    && <FieldBlock label="Host"      value={cleanHost(r.host_name)} ts={r.timestamp} />}
+      {r.user_name               && <FieldBlock label="User"      value={r.user_name} ts={r.timestamp} />}
+      {cleanProcess(r.process_name) && <FieldBlock label="Process" value={cleanProcess(r.process_name)} ts={r.timestamp} />}
+      {r.event_id                && <FieldBlock label="Event ID"  value={r.event_id} ts={r.timestamp} />}
+      {r.ext                     && <FieldBlock label="Extension" value={r.ext} ts={r.timestamp} />}
+      {r.sha1                    && <FieldBlock label="SHA1"      value={r.sha1} ts={r.timestamp} />}
+      {r.src_ip                  && <FieldBlock label="Src IP"    value={r.src_ip} ts={r.timestamp} />}
+      {r.dst_ip                  && <FieldBlock label="Dst IP"    value={r.dst_ip} ts={r.timestamp} />}
+      {r.tool                    && <FieldBlock label="Tool"      value={r.tool} ts={r.timestamp} />}
 
       {/* CSV original data — all raw fields from the source file */}
       {rawEntries.length > 0 && (
@@ -147,7 +198,12 @@ export default function DetailsTab({ record: r }) {
                   }}>
                     {isEmpty ? '—' : (str.length > 600 ? str.slice(0, 600) + '…' : str)}
                   </span>
-                  {!isEmpty && <CopyBtn value={str} />}
+                  {!isEmpty && (
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 0, paddingRight: 4, flexShrink: 0 }}>
+                      <IocButton value={str} field={k} caseId={caseId} ts={r.timestamp} />
+                      <CopyBtn value={str} />
+                    </span>
+                  )}
                 </div>
               );
             })}

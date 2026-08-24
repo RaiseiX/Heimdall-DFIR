@@ -1,7 +1,8 @@
 // frontend/src/components/supertimeline/CommandBar/CommandBar.jsx
 import { useRef, useState, useEffect, useCallback } from 'react';
-import { Search, X, ChevronDown, Save, Share2, Trash2, Pencil, Clock, Star } from 'lucide-react';
+import { Search, X, ChevronDown, Save, Share2, Trash2, Pencil, Clock, Star, Tag } from 'lucide-react';
 import { useTimelineStore } from '../store/useTimelineStore';
+import { collectionAPI } from '../../../utils/api';
 import { tabColor, parseFlexibleTimestamp } from '../utils/timelineUtils';
 import { currentUser } from '../../../utils/auth';
 
@@ -52,6 +53,7 @@ export default function CommandBar() {
   const {
     search, artifactTypes, hostFilter, userFilter, startTime, endTime,
     detSeverity, tagFilter, toolFilter, eventIdFilter, extFilter,
+    caseId,
     hitsOnly, dedupe, availTypes, typeCounts,
     setFilter, applyFilters, clearFilters, toggleArtifactType, soloArtifactType,
     savedSearches, applySavedSearch, saveCurrentSearch,
@@ -65,6 +67,9 @@ export default function CommandBar() {
   const advancedRef = useRef(null);
   const [showSearches, setShowSearches] = useState(false);
   const searchesRef = useRef(null);
+  const [showTags, setShowTags] = useState(false);
+  const tagsRef = useRef(null);
+  const [tagCounts, setTagCounts] = useState([]);
   const [showBookmarks, setShowBookmarks] = useState(false);
   const bookmarksRef = useRef(null);
   const [showJump, setShowJump] = useState(false);
@@ -97,6 +102,12 @@ export default function CommandBar() {
 
   useEffect(() => {
     const h = e => { if (searchesRef.current && !searchesRef.current.contains(e.target)) setShowSearches(false); };
+    document.addEventListener('mousedown', h);
+    return () => document.removeEventListener('mousedown', h);
+  }, []);
+
+  useEffect(() => {
+    const h = e => { if (tagsRef.current && !tagsRef.current.contains(e.target)) setShowTags(false); };
     document.addEventListener('mousedown', h);
     return () => document.removeEventListener('mousedown', h);
   }, []);
@@ -165,6 +176,27 @@ export default function CommandBar() {
   // Keep milliseconds so after:/before: chips show the exact bookmark time.
   const fmtTs = iso => (iso ? iso.replace('T', ' ').replace('Z', '').slice(0, 23) : '');
 
+  // ── Tag filter (tags text[] overlap) ──────────────────────────────────────
+  // tagFilter holds a comma-joined list (OR semantics — the backend matches
+  // `tags && ARRAY[...]`). The dropdown lists the case's tag distribution and
+  // toggles tags in/out; the chips render one per active tag so each can be
+  // removed individually. The free-text search also matches tags (backend
+  // SEARCH_COLS includes tags::text), so typing a tag name works too.
+  const activeTags = (tagFilter || '').split(',').map(t => t.trim()).filter(Boolean);
+  const loadTags = () => {
+    if (!caseId) return;
+    collectionAPI.tagger(caseId, {}).then(r => setTagCounts(r.data?.tag_counts || [])).catch(() => {});
+  };
+  const toggleTag = (tag) => {
+    const cur = activeTags.includes(tag) ? activeTags.filter(t => t !== tag) : [...activeTags, tag];
+    setFilter('tagFilter', cur.join(','));
+    applyFilters();
+  };
+  const removeTag = (tag) => {
+    setFilter('tagFilter', activeTags.filter(t => t !== tag).join(','));
+    applyFilters();
+  };
+
   const chips = [
     ...(search ? [{ kind: 'search', label: search, remove: () => { setFilter('search', ''); applyFilters(); } }] : []),
     // artifactTypes are shown via the pills row below — no chips here to avoid overflow
@@ -173,7 +205,7 @@ export default function CommandBar() {
     ...(startTime   ? [{ kind: 'after',   label: `after:${fmtTs(startTime)}`,  remove: () => { setFilter('startTime', '');  applyFilters(); } }] : []),
     ...(endTime     ? [{ kind: 'before',  label: `before:${fmtTs(endTime)}`,   remove: () => { setFilter('endTime', '');    applyFilters(); } }] : []),
     ...(detSeverity ? [{ kind: 'sev',     label: `sev:${detSeverity}`,  remove: () => { setFilter('detSeverity', ''); applyFilters(); } }] : []),
-    ...(tagFilter   ? [{ kind: 'tag',     label: `tag:${tagFilter}`,    remove: () => { setFilter('tagFilter', '');   applyFilters(); } }] : []),
+    ...(activeTags.map(tag => ({ kind: 'tag', label: `tag:${tag}`, remove: () => removeTag(tag) }))),
     ...(toolFilter  ? [{ kind: 'tool',    label: `tool:${toolFilter}`,  remove: () => { setFilter('toolFilter', '');  applyFilters(); } }] : []),
     ...(eventIdFilter ? [{ kind: 'eventId', label: `eid:${eventIdFilter}`, remove: () => { setFilter('eventIdFilter', ''); applyFilters(); } }] : []),
     ...(extFilter   ? [{ kind: 'ext',     label: `ext:${extFilter}`,    remove: () => { setFilter('extFilter', '');   applyFilters(); } }] : []),
@@ -207,7 +239,7 @@ export default function CommandBar() {
           <input ref={inputRef} value={inputVal}
             onChange={e => setInputVal(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder={chips.length === 0 ? 'Search… or type:evtx · host:DC01 · sev:critical · after:2024-01-15' : ''}
+            placeholder={chips.length === 0 ? 'Search… or type:evtx · host:DC01 · sev:critical · tag:LateralMovement · after:2024-01-15' : ''}
             style={{ flex: 1, background: 'none', border: 'none', outline: 'none',
               fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11, color: 'var(--fl-dim)', minWidth: 100 }} />
         </div>
@@ -306,6 +338,48 @@ export default function CommandBar() {
                   ))}
                 </div>
               )}
+            </div>
+          )}
+        </div>
+        <div ref={tagsRef} style={{ position: 'relative' }}>
+          <button onClick={() => { const next = !showTags; setShowTags(next); if (next) loadTags(); }} style={{
+            padding: '4px 10px', borderRadius: 4, fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
+            background: showTags ? 'var(--fl-card)' : 'transparent',
+            border: `1px solid ${showTags ? 'color-mix(in srgb, var(--fl-purple) 38%, transparent)' : 'var(--fl-raised)'}`,
+            color: showTags ? 'var(--fl-purple)' : 'var(--fl-muted)', cursor: 'pointer',
+            display: 'inline-flex', alignItems: 'center', gap: 4,
+          }}>
+            <Tag size={9} style={{ verticalAlign: 'middle' }} />
+            {activeTags.length > 0 ? `Tags (${activeTags.length})` : 'Tags'}
+            <ChevronDown size={9} style={{ verticalAlign: 'middle' }} />
+          </button>
+          {showTags && (
+            <div style={{ position: 'absolute', top: '100%', right: 0, zIndex: 500, marginTop: 4,
+              background: 'var(--fl-bg)', border: '1px solid var(--fl-raised)', borderRadius: 8,
+              padding: 8, width: 300, maxHeight: 380, overflowY: 'auto', boxShadow: '0 8px 28px rgba(0,0,0,0.7)',
+              fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11, color: 'var(--fl-on-dark)',
+              display: 'flex', flexDirection: 'column', gap: 2 }}>
+              <span style={{ fontSize: 9, color: 'var(--fl-dim)', textTransform: 'uppercase', letterSpacing: '0.06em', padding: '4px 6px 6px' }}>
+                Filtrer par tag — cliquer pour (dés)activer
+              </span>
+              {tagCounts.length === 0 && <span style={{ fontSize: 10, color: 'var(--fl-muted)', padding: '4px 6px' }}>Aucun tag sur cette timeline</span>}
+              {tagCounts.map(({ tag, cnt }) => {
+                const on = activeTags.includes(tag);
+                return (
+                  <button key={tag} onClick={() => toggleTag(tag)} title={`${cnt} événement(s)`}
+                    style={{ display: 'flex', alignItems: 'center', gap: 8, textAlign: 'left', background: 'transparent', border: 'none',
+                      color: 'var(--fl-on-dark)', cursor: 'pointer', padding: '5px 6px', borderRadius: 5, fontSize: 11,
+                      fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}
+                    onMouseEnter={e => { e.currentTarget.style.background = 'var(--fl-card)'; }}
+                    onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}>
+                    <span style={{ width: 12, display: 'inline-flex', justifyContent: 'center', color: on ? 'var(--fl-purple)' : 'var(--fl-muted)' }}>
+                      {on ? '✓' : ''}
+                    </span>
+                    <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: on ? 'var(--fl-purple)' : 'var(--fl-on-dark)' }}>{tag}</span>
+                    <span style={{ fontSize: 9.5, color: 'var(--fl-dim)' }}>{cnt}</span>
+                  </button>
+                );
+              })}
             </div>
           )}
         </div>

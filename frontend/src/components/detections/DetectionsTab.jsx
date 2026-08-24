@@ -1,24 +1,16 @@
 import { useState, useCallback, useEffect, useRef, createContext, useContext } from 'react';
 import {
-  Clock, FileWarning, Radio, Shield, Activity, HardDrive,
+  Clock, FileWarning, Radio, Shield, Activity, HardDrive, FolderOpen,
   ChevronDown, ChevronRight, RefreshCw, CheckCircle2, Copy, Play, FlagOff, X, Search,
 } from 'lucide-react';
 import { detectionsAPI, iocsAPI, threatHuntingAPI } from '../../utils/api';
+import { detectIocType } from '../../utils/iocType';
 import { Crosshair, Rocket, Loader } from 'lucide-react';
 import { Button, EmptyState } from '../ui';
 import { useDateFormat } from '../../hooks/useDateFormat';
 import { useTranslation } from 'react-i18next';
 
-function guessIocType(v) {
-  const s = String(v || '');
-  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(s)) return 'ip';
-  if (/^[a-f0-9]{64}$/i.test(s)) return 'sha256';
-  if (/^[a-f0-9]{40}$/i.test(s)) return 'sha1';
-  if (/^[a-f0-9]{32}$/i.test(s)) return 'md5';
-  if (/^https?:\/\//i.test(s)) return 'url';
-  if (/^[\w.-]+\.[a-z]{2,}$/i.test(s) && !/[\\/]/.test(s)) return 'domain';
-  return 'other';
-}
+
 
 // Pick the most identifying string of a detection result to suppress on.
 function fpValue(it) {
@@ -63,7 +55,7 @@ function IocBtn({ caseId, item }) {
     e.stopPropagation();
     if (state === 'done') return;
     try {
-      await iocsAPI.create(caseId, { ioc_type: guessIocType(value), value: String(value).slice(0, 500), is_malicious: true, severity: 7, description: 'Promoted from detection' });
+      await iocsAPI.create(caseId, { ioc_type: detectIocType(value).type, value: String(value).slice(0, 500), is_malicious: true, severity: 7, description: 'Promoted from detection', first_seen: item.timestamp || null });
       setState('done');
     } catch { /* ignore */ }
   };
@@ -134,7 +126,7 @@ const TD = { padding: '5px 8px', borderBottom: '1px solid var(--fl-border2)', ve
 // (case, section, params) so navigating back to the tab doesn't re-run every
 // engine. The explicit Analyze/Scan/Detect buttons pass force=true to refresh.
 const resultsCache = new Map();
-const cacheKey = (caseId, section, extra = '') => `${caseId}::${section}::${extra}`;
+const cacheKey = (caseId, section, extra = '', evidenceId = '') => `${caseId}::${section}::${extra}::${evidenceId}`;
 
 function topSeverity(items) {
   for (const sev of SEV_ORDER) {
@@ -575,7 +567,7 @@ function DetTable({ headers, children }) {
   );
 }
 
-function TimestompingSection({ caseId, runSignal, force, hiddenSevs, search, onComplete, onCounts }) {
+function TimestompingSection({ caseId, runSignal, force, hiddenSevs, search, onComplete, onCounts, evidenceId }) {
   const { t } = useTranslation();
   const { fmtDateTime } = useDateFormat();
   const [data, setData]       = useState(null);
@@ -584,7 +576,7 @@ function TimestompingSection({ caseId, runSignal, force, hiddenSevs, search, onC
   const cbRef = useRef({ onComplete, onCounts });
   useEffect(() => { cbRef.current = { onComplete, onCounts }; });
 
-  const key = cacheKey(caseId, 'timestomping', threshold);
+  const key = cacheKey(caseId, 'timestomping', threshold, evidenceId);
   const run = useCallback(async (forceRun = false) => {
     if (!forceRun) {
       const hit = resultsCache.get(key);
@@ -592,7 +584,7 @@ function TimestompingSection({ caseId, runSignal, force, hiddenSevs, search, onC
     }
     setLoading(true);
     try {
-      const r = await detectionsAPI.timestomping(caseId, { threshold_days: threshold }, forceRun);
+      const r = await detectionsAPI.timestomping(caseId, { threshold_days: threshold }, forceRun, evidenceId);
       setData(r.data);
       resultsCache.set(key, r.data);
     } catch {
@@ -603,7 +595,7 @@ function TimestompingSection({ caseId, runSignal, force, hiddenSevs, search, onC
     }
   }, [caseId, threshold, key]);
 
-  useEffect(() => { if (runSignal > 0) run(force); }, [runSignal]);
+  useEffect(() => { if (runSignal > 0) run(force); }, [runSignal, evidenceId]);
 
   const items = data?.items ?? [];
   useEffect(() => { if (data) cbRef.current.onCounts?.(countsBySev(items)); }, [data]);
@@ -655,7 +647,7 @@ function TimestompingSection({ caseId, runSignal, force, hiddenSevs, search, onC
   );
 }
 
-function DoubleExtSection({ caseId, runSignal, force, hiddenSevs, search, onComplete, onCounts }) {
+function DoubleExtSection({ caseId, runSignal, force, hiddenSevs, search, onComplete, onCounts, evidenceId }) {
   const { t } = useTranslation();
   const { fmtDateTime } = useDateFormat();
   const [data, setData]       = useState(null);
@@ -663,7 +655,7 @@ function DoubleExtSection({ caseId, runSignal, force, hiddenSevs, search, onComp
   const cbRef = useRef({ onComplete, onCounts });
   useEffect(() => { cbRef.current = { onComplete, onCounts }; });
 
-  const key = cacheKey(caseId, 'doubleext');
+  const key = cacheKey(caseId, 'doubleext', '', evidenceId);
   const run = useCallback(async (forceRun = false) => {
     if (!forceRun) {
       const hit = resultsCache.get(key);
@@ -671,7 +663,7 @@ function DoubleExtSection({ caseId, runSignal, force, hiddenSevs, search, onComp
     }
     setLoading(true);
     try {
-      const r = await detectionsAPI.doubleExt(caseId, forceRun);
+      const r = await detectionsAPI.doubleExt(caseId, forceRun, evidenceId);
       setData(r.data);
       resultsCache.set(key, r.data);
     } catch {
@@ -682,7 +674,7 @@ function DoubleExtSection({ caseId, runSignal, force, hiddenSevs, search, onComp
     }
   }, [caseId, key]);
 
-  useEffect(() => { if (runSignal > 0) run(force); }, [runSignal]);
+  useEffect(() => { if (runSignal > 0) run(force); }, [runSignal, evidenceId]);
 
   const items = data?.items ?? [];
   useEffect(() => { if (data) cbRef.current.onCounts?.(countsBySev(items)); }, [data]);
@@ -726,7 +718,7 @@ function DoubleExtSection({ caseId, runSignal, force, hiddenSevs, search, onComp
   );
 }
 
-function BeaconingSection({ caseId, runSignal, force, hiddenSevs, search, onComplete, onCounts }) {
+function BeaconingSection({ caseId, runSignal, force, hiddenSevs, search, onComplete, onCounts, evidenceId }) {
   const { t } = useTranslation();
   const [data, setData]       = useState(null);
   const [loading, setLoading] = useState(false);
@@ -734,7 +726,7 @@ function BeaconingSection({ caseId, runSignal, force, hiddenSevs, search, onComp
   const cbRef = useRef({ onComplete, onCounts });
   useEffect(() => { cbRef.current = { onComplete, onCounts }; });
 
-  const key = cacheKey(caseId, 'beaconing', minScore);
+  const key = cacheKey(caseId, 'beaconing', minScore, evidenceId);
   const run = useCallback(async (forceRun = false) => {
     if (!forceRun) {
       const hit = resultsCache.get(key);
@@ -742,7 +734,7 @@ function BeaconingSection({ caseId, runSignal, force, hiddenSevs, search, onComp
     }
     setLoading(true);
     try {
-      const r = await detectionsAPI.beaconing(caseId, { min_score: minScore }, forceRun);
+      const r = await detectionsAPI.beaconing(caseId, { min_score: minScore }, forceRun, evidenceId);
       setData(r.data);
       resultsCache.set(key, r.data);
     } catch {
@@ -753,7 +745,7 @@ function BeaconingSection({ caseId, runSignal, force, hiddenSevs, search, onComp
     }
   }, [caseId, minScore, key]);
 
-  useEffect(() => { if (runSignal > 0) run(force); }, [runSignal]);
+  useEffect(() => { if (runSignal > 0) run(force); }, [runSignal, evidenceId]);
 
   const items = data?.candidates ?? [];
   useEffect(() => { if (data) cbRef.current.onCounts?.(countsBySev(items)); }, [data]);
@@ -820,7 +812,7 @@ function BeaconingSection({ caseId, runSignal, force, hiddenSevs, search, onComp
   );
 }
 
-function PersistenceSection({ caseId, runSignal, force, hiddenSevs, search, onComplete, onCounts }) {
+function PersistenceSection({ caseId, runSignal, force, hiddenSevs, search, onComplete, onCounts, evidenceId }) {
   const { t } = useTranslation();
   const { fmtDateTime } = useDateFormat();
   const [data, setData]       = useState(null);
@@ -828,7 +820,7 @@ function PersistenceSection({ caseId, runSignal, force, hiddenSevs, search, onCo
   const cbRef = useRef({ onComplete, onCounts });
   useEffect(() => { cbRef.current = { onComplete, onCounts }; });
 
-  const key = cacheKey(caseId, 'persistence');
+  const key = cacheKey(caseId, 'persistence', '', evidenceId);
   const run = useCallback(async (forceRun = false) => {
     if (!forceRun) {
       const hit = resultsCache.get(key);
@@ -836,7 +828,7 @@ function PersistenceSection({ caseId, runSignal, force, hiddenSevs, search, onCo
     }
     setLoading(true);
     try {
-      const r = await detectionsAPI.persistence(caseId, forceRun);
+      const r = await detectionsAPI.persistence(caseId, forceRun, evidenceId);
       setData(r.data);
       resultsCache.set(key, r.data);
     } catch {
@@ -847,7 +839,7 @@ function PersistenceSection({ caseId, runSignal, force, hiddenSevs, search, onCo
     }
   }, [caseId, key]);
 
-  useEffect(() => { if (runSignal > 0) run(force); }, [runSignal]);
+  useEffect(() => { if (runSignal > 0) run(force); }, [runSignal, evidenceId]);
 
   const vectors = [...(data?.vectors ?? [])].sort((a, b) => (CONF_ORDER[a.confidence] ?? 1) - (CONF_ORDER[b.confidence] ?? 1));
   const allItems = vectors.flatMap(v => v.items ?? []);
@@ -946,7 +938,7 @@ function PersistenceSection({ caseId, runSignal, force, hiddenSevs, search, onCo
   );
 }
 
-function SysmonBehaviorSection({ caseId, runSignal, force, hiddenSevs, search, onComplete, onCounts }) {
+function SysmonBehaviorSection({ caseId, runSignal, force, hiddenSevs, search, onComplete, onCounts, evidenceId }) {
   const { t } = useTranslation();
   const { fmtDateTime } = useDateFormat();
   const [data, setData]       = useState(null);
@@ -954,7 +946,7 @@ function SysmonBehaviorSection({ caseId, runSignal, force, hiddenSevs, search, o
   const cbRef = useRef({ onComplete, onCounts });
   useEffect(() => { cbRef.current = { onComplete, onCounts }; });
 
-  const key = cacheKey(caseId, 'sysmon');
+  const key = cacheKey(caseId, 'sysmon', '', evidenceId);
   const run = useCallback(async (forceRun = false) => {
     if (!forceRun) {
       const hit = resultsCache.get(key);
@@ -962,7 +954,7 @@ function SysmonBehaviorSection({ caseId, runSignal, force, hiddenSevs, search, o
     }
     setLoading(true);
     try {
-      const r = await detectionsAPI.sysmonBehavior(caseId, forceRun);
+      const r = await detectionsAPI.sysmonBehavior(caseId, forceRun, evidenceId);
       setData(r.data);
       resultsCache.set(key, r.data);
     } catch {
@@ -973,7 +965,7 @@ function SysmonBehaviorSection({ caseId, runSignal, force, hiddenSevs, search, o
     }
   }, [caseId, key]);
 
-  useEffect(() => { if (runSignal > 0) run(force); }, [runSignal]);
+  useEffect(() => { if (runSignal > 0) run(force); }, [runSignal, evidenceId]);
 
   const vectors = [...(data?.vectors ?? [])].sort((a, b) => (CONF_ORDER[a.confidence] ?? 1) - (CONF_ORDER[b.confidence] ?? 1));
   const allItems = vectors.flatMap(v => v.items ?? []);
@@ -1067,7 +1059,7 @@ function SysmonBehaviorSection({ caseId, runSignal, force, hiddenSevs, search, o
 }
 
 // Generic grouped detection section (reused for anti-forensic & execution-anomaly).
-function GroupedSection({ caseId, runSignal, force, hiddenSevs, search, onComplete, onCounts, apiFn, detectionType, title, icon, intro }) {
+function GroupedSection({ caseId, runSignal, force, hiddenSevs, search, onComplete, onCounts, apiFn, detectionType, title, icon, intro, evidenceId }) {
   const { t } = useTranslation();
   const { fmtDateTime } = useDateFormat();
   const [data, setData]       = useState(null);
@@ -1075,18 +1067,18 @@ function GroupedSection({ caseId, runSignal, force, hiddenSevs, search, onComple
   const cbRef = useRef({ onComplete, onCounts });
   useEffect(() => { cbRef.current = { onComplete, onCounts }; });
 
-  const key = cacheKey(caseId, detectionType);
+  const key = cacheKey(caseId, detectionType, '', evidenceId);
   const run = useCallback(async (forceRun = false) => {
     if (!forceRun) {
       const hit = resultsCache.get(key);
       if (hit) { setData(hit); cbRef.current.onComplete?.(); return; }
     }
     setLoading(true);
-    try { const r = await apiFn(caseId, forceRun); setData(r.data); resultsCache.set(key, r.data); }
+    try { const r = await apiFn(caseId, forceRun, evidenceId); setData(r.data); resultsCache.set(key, r.data); }
     catch { setData({ vectors: [], total: 0 }); }
     finally { setLoading(false); cbRef.current.onComplete?.(); }
   }, [caseId, apiFn, key]);
-  useEffect(() => { if (runSignal > 0) run(force); }, [runSignal]);
+  useEffect(() => { if (runSignal > 0) run(force); }, [runSignal, evidenceId]);
 
   const vectors = [...(data?.vectors ?? [])].sort((a, b) => (CONF_ORDER[a.confidence] ?? 1) - (CONF_ORDER[b.confidence] ?? 1));
   const allItems = vectors.flatMap(v => v.items ?? []);
@@ -1197,7 +1189,7 @@ function GroupedSection({ caseId, runSignal, force, hiddenSevs, search, onComple
 
 const SECTION_COUNT = 9;
 
-export default function DetectionsTab({ caseId }) {
+export default function DetectionsTab({ caseId, evidenceId, evidenceName }) {
   const { t } = useTranslation();
   const [runSignal, setRunSignal]         = useState(0);
   const [completedCount, setCompleted]    = useState(0);
@@ -1273,6 +1265,7 @@ export default function DetectionsTab({ caseId }) {
 
   const sectionProps = (id) => ({
     caseId,
+    evidenceId,
     runSignal,
     force: forceRun,
     hiddenSevs,
@@ -1280,6 +1273,28 @@ export default function DetectionsTab({ caseId }) {
     onComplete: () => handleComplete(id),
     onCounts: (c) => handleCounts(id, c),
   });
+
+  // Evidence-scoped detections: a scan always targets the timeline rows of ONE
+  // evidence. Without a selected evidence there is nothing to scan — prompt the
+  // analyst to pick one instead of silently scanning the whole case.
+  if (!evidenceId) {
+    return (
+      <div style={{ padding: '0 4px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+          <p style={{ flex: 1, color: 'var(--fl-subtle)', fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', margin: 0 }}>
+            {t('detections.header.intro')}
+          </p>
+        </div>
+        <div style={{ maxWidth: 460, margin: '48px auto 0' }}>
+          <EmptyState
+            icon={FolderOpen}
+            title="Sélectionnez une évidence"
+            subtitle="Les détections s'appliquent au périmètre d'une seule évidence. Ouvrez une évidence depuis l'onglet Preuves (ou le fil d'Ariane en haut), puis relancez l'analyse."
+          />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <DetailContext.Provider value={setDetail}>
@@ -1289,6 +1304,11 @@ export default function DetectionsTab({ caseId }) {
         <p style={{ flex: 1, color: 'var(--fl-subtle)', fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', margin: 0 }}>
           {t('detections.header.intro')}
         </p>
+        {evidenceId && evidenceName && (
+          <span title={evidenceName} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '3px 9px', borderRadius: 5, background: 'color-mix(in srgb, var(--fl-accent) 10%, transparent)', color: 'var(--fl-accent)', border: '1px solid color-mix(in srgb, var(--fl-accent) 22%, transparent)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10.5, maxWidth: 280, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flexShrink: 0 }}>
+            <FolderOpen size={10} /> {evidenceName}
+          </span>
+        )}
         {exceptions.length > 0 && (
           <div style={{ position: 'relative' }}>
             <button onClick={() => { setShowExc(v => !v); loadExceptions(); }}

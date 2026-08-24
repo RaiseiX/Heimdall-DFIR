@@ -66,6 +66,11 @@ function computeDedupeHash(artifactType, { tsColumn, tsValue, source, descriptio
       ? `|${record['EventRecordId'] || record['RecordNumber'] || record['RecordId'] || ''}|${record['Computer'] || ''}`
       : artifactType === 'mft'
       ? `|${record['EntryNumber'] || ''}|${record['SequenceNumber'] || ''}`
+      : artifactType === 'usn'
+      // Keep in sync with timelineForensicFields.js — USN must carry its unique
+      // UpdateSequenceNumber, otherwise name+reason+same-ms records collide and
+      // only the first survives the unique (case_id, dedupe_hash) index.
+      ? `|${record['UpdateSequenceNumber'] || ''}|${record['EntryNumber'] || ''}|${record['SequenceNumber'] || ''}`
       : '';
   return crypto
     .createHash('md5')

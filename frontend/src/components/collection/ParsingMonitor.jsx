@@ -82,12 +82,6 @@ function ParserCard({ parser, state, justDone, t }) {
   );
 }
 
-function fmtEta(sec) {
-  if (!Number.isFinite(sec) || sec <= 0) return '';
-  if (sec < 60) return `~${Math.ceil(sec)}s restantes`;
-  return `~${Math.ceil(sec / 60)} min restantes`;
-}
-
 export default function ParsingMonitor({ fileName, parsers, states, globalPct, live, caseId }) {
   const { t } = useTranslation();
 
@@ -117,25 +111,22 @@ export default function ParsingMonitor({ fileName, parsers, states, globalPct, l
   const totalRecords = useMemo(
     () => Object.values(states || {}).reduce((s, v) => s + (Number(v?.records) || 0), 0), [states]);
 
-  // Live throughput + ETA from successive polls (15 s window).
+  // Live throughput from successive polls (15 s window). No ETA here: the % is
+  // driven by bytes-fraction which races ahead of the real insert pace, so any
+  // remaining-time estimate was systematically wrong. Records/s is honest.
   const samplesRef = useRef([]);
   const [rate, setRate] = useState(0);
-  const [eta, setEta] = useState(0);
   useEffect(() => {
     const now = Date.now();
-    samplesRef.current.push({ t: now, records: totalRecords, pct: globalPct || 0 });
+    samplesRef.current.push({ t: now, records: totalRecords });
     samplesRef.current = samplesRef.current.filter(s => now - s.t < 15000);
     const s = samplesRef.current;
     if (s.length >= 2) {
       const a = s[0], b = s[s.length - 1];
       const dt = (b.t - a.t) / 1000;
-      if (dt > 0.5) {
-        setRate(Math.max(0, (b.records - a.records) / dt));
-        const pctRate = (b.pct - a.pct) / dt;
-        setEta(pctRate > 0.01 ? (100 - b.pct) / pctRate : 0);
-      }
+      if (dt > 0.5) setRate(Math.max(0, (b.records - a.records) / dt));
     }
-  }, [totalRecords, globalPct]);
+  }, [totalRecords]);
 
   // Track which tiles just transitioned to "done" → brief pulse.
   const prevStatus = useRef({});
@@ -159,7 +150,7 @@ export default function ParsingMonitor({ fileName, parsers, states, globalPct, l
 
   return (
     <div style={{ border: '1px solid var(--fl-border)', borderRadius: 8, background: 'var(--fl-panel)', padding: 14, marginBottom: 12 }}>
-      {/* Cockpit header: radial + title + throughput/ETA */}
+      {/* Cockpit header: radial + title + throughput */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 14 }}>
         <Radial pct={globalPct || 0} />
         <div style={{ flex: 1, minWidth: 0 }}>
@@ -175,7 +166,6 @@ export default function ParsingMonitor({ fileName, parsers, states, globalPct, l
           <div style={{ display: 'flex', gap: 14, marginTop: 6, fontFamily: MONO, fontSize: 11, fontFeatureSettings: '"tnum"' }}>
             <span style={{ color: 'var(--fl-dim)' }}><span style={{ color: 'var(--fl-text)', fontWeight: 700 }}>{totalRecords.toLocaleString('fr-FR')}</span> enreg.</span>
             {rate > 0 && <span style={{ color: 'var(--fl-accent)' }}>{Math.round(rate).toLocaleString('fr-FR')} l/s</span>}
-            {eta > 0 && <span style={{ color: 'var(--fl-muted)' }}>{fmtEta(eta)}</span>}
           </div>
         </div>
       </div>

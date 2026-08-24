@@ -130,24 +130,53 @@ router.get('/results/:caseId', async (req: AuthRequest, res: Response, next: Nex
 router.get('/result/:resultId/types', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const pool = getPool(res);
-    const result = await pool.query(
-      `SELECT elem->>'artifact_type' AS artifact_type,
-              COUNT(*)::int           AS count
-       FROM parser_results,
-            jsonb_array_elements(
-              CASE
-                WHEN output_data ? 'unified_timeline' THEN output_data->'unified_timeline'
-                WHEN jsonb_typeof(output_data) = 'array' THEN output_data
-                ELSE '[]'::jsonb
-              END
-            ) AS elem
-       WHERE id = $1
-         AND elem->>'artifact_type' IS NOT NULL
-       GROUP BY 1
-       ORDER BY 2 DESC`,
+    const raw = await pool.query(
+      `SELECT output_data FROM parser_results WHERE id = $1`,
       [req.params.resultId]
     );
-    res.json({ types: result.rows });
+    if (raw.rows.length === 0) return res.json({ types: [] });
+    const od = raw.rows[0].output_data || {};
+    // The finalization writes per-artifact outcomes in output_data.parse_results
+    // ({ evtx: {status, normalized_records, …}, mft: {…}, … }). The old
+    // unified_timeline array shape is never produced anymore — keep a fallback
+    // for legacy rows so this endpoint never returns an empty breakdown.
+    const byType = new Map();
+    const pr = od.parse_results;
+    if (pr && typeof pr === 'object' && !Array.isArray(pr)) {
+      for (const [key, v] of Object.entries(pr)) {
+        if (!v || typeof v !== 'object') continue;
+        if (key === '__csv' || key === 'rdpcache' || key === 'catscale_error') continue;
+        const count = Number(v.normalized_records ?? v.records ?? 0) || 0;
+        byType.set(key, { artifact_type: key, status: v.status || null, count });
+      }
+    }
+    if (byType.size === 0 && Array.isArray(od.unified_timeline)) {
+      for (const r of od.unified_timeline) {
+        if (!r || !r.artifact_type) continue;
+        const prev = byType.get(r.artifact_type);
+        byType.set(r.artifact_type, { artifact_type: r.artifact_type, count: (prev?.count || 0) + 1 });
+      }
+    }
+    // Live fallback: when the snapshot is missing (mid-parse, or a run that
+    // crashed before finalization wrote parse_results), count the actual
+    // timeline rows of this result so the breakdown is never a blank "0".
+    let total = 0;
+    if (byType.size === 0) {
+      try {
+        const live = await pool.query(
+          `SELECT artifact_type, COUNT(*)::int AS cnt
+             FROM collection_timeline
+            WHERE result_id = $1
+            GROUP BY artifact_type`, [req.params.resultId]
+        );
+        for (const r of live.rows) {
+          byType.set(r.artifact_type, { artifact_type: r.artifact_type, count: r.cnt });
+        }
+      } catch (_e) {}
+    }
+    const types = [...byType.values()].sort((a, b) => b.count - a.count);
+    total = types.reduce((s, t) => s + (t.count || 0), 0);
+    res.json({ types, total });
   } catch (err) {
     next(err);
   }

@@ -56,6 +56,21 @@ function extractForensicFields(record, artifactType, config, tsColumn, tsValue, 
   } else if (artifactType === 'mft') {
     const ads = record['HasAds'] === 'True' ? 'ADS' : null;
     details = [ads, record['ZoneIdContents']].filter(Boolean).join(' | ') || null;
+  } else if (artifactType === 'usn') {
+    // USN: surface every record field the journal carries — most of them (file
+    // identity, attributes, sequence numbers) are otherwise only visible in the
+    // raw JSON, so the rename case (RenameOldName/RenameNewName) has nothing to
+    // tell apart without opening the raw row.
+    const bits = [
+      record['FileAttributes'] ? `attrs=${record['FileAttributes']}` : null,
+      record['Extension'] ? `ext=${record['Extension']}` : null,
+      record['EntryNumber'] ? `entry=${record['EntryNumber']}` : null,
+      record['ParentEntryNumber'] ? `parentEntry=${record['ParentEntryNumber']}` : null,
+      record['SequenceNumber'] ? `seq=${record['SequenceNumber']}` : null,
+      record['ParentSequenceNumber'] ? `parentSeq=${record['ParentSequenceNumber']}` : null,
+      record['UpdateSequenceNumber'] ? `usn=${record['UpdateSequenceNumber']}` : null,
+    ].filter(Boolean).join(' | ');
+    details = bits || null;
   }
   // Keep full payloads (PowerShell scripts, command lines…) — details is a TEXT
   // column, only guard against pathological rows.
@@ -69,6 +84,13 @@ function extractForensicFields(record, artifactType, config, tsColumn, tsValue, 
       ? `|${record['EventRecordId'] || record['RecordNumber'] || record['RecordId'] || ''}|${record['Computer'] || ''}`
       : artifactType === 'mft'
       ? `|${record['EntryNumber'] || ''}|${record['SequenceNumber'] || ''}`
+      : artifactType === 'usn'
+      // USN has no event id and source (ParentPath) is empty without -m $MFT, so
+      // name + reason + same-ms timestamps previously collapsed distinct journal
+      // records into one (ON CONFLICT DO NOTHING on the unique dedupe_hash).
+      // UpdateSequenceNumber is unique per journal record; Entry/SequenceNumber
+      // identify the file, mirroring the MFT identity.
+      ? `|${record['UpdateSequenceNumber'] || ''}|${record['EntryNumber'] || ''}|${record['SequenceNumber'] || ''}`
       : '';
 
   // The timestamp VALUE is part of the hash — without it, high-frequency events

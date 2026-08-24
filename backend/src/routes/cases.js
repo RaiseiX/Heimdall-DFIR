@@ -14,6 +14,25 @@ const { SYSMON_BEHAVIOR_VECTORS, TIMESTOMP_QUERY, EXEC_ANOMALY_VECTORS, WMI_PERS
 const router = express.Router();
 
 const { caseAccessParam, caseListFilter, canAccessCase, ELEVATED } = require('../middleware/caseAccess');
+
+// ── Evidence-scoped detections ──────────────────────────────────────────────
+// Detection scans are case-wide by default. When the client passes
+// ?evidence_id=<uuid>, every vector is restricted to that evidence's timeline
+// rows, and the result cache is keyed per evidence so per-evidence results
+// never collide with case-wide ones.
+function evidenceScope(req) {
+  const v = req.query.evidence_id || '';
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v) ? v : null;
+}
+function scopeToEvidence(sql, params, evidenceId) {
+  if (!evidenceId) return [sql, params];
+  const idx = params.length + 1;
+  return [sql.replace(/WHERE\s+case_id\s*=\s*\$1/i, `WHERE case_id = $1 AND evidence_id = $${idx}`), [...params, evidenceId]];
+}
+function evSection(section, evidenceId) {
+  return evidenceId ? `${section}:e${evidenceId}` : section;
+}
+
 // Enforce case-level access on every route carrying :id (the case id). The cases
 // list (no :id) and global routes (e.g. /detections/exceptions/:exId) are unaffected.
 // NB: param callbacks run before route-level middleware, so authenticate must be
@@ -735,16 +754,15 @@ router.get('/:id/detections/timestomping', authenticate, async (req, res) => {
   try {
     const { id } = req.params;
     const threshold = parseInt(req.query.threshold_days || '0', 10);
+    const evId = evidenceScope(req);
 
     if (!(req.query.refresh === '1' || req.query.refresh === 'true')) {
-      const hit = await pool.query(`SELECT payload FROM detection_cache WHERE case_id=$1 AND section='timestomping'`, [id]);
+      const hit = await pool.query(`SELECT payload FROM detection_cache WHERE case_id=$1 AND section='${evSection('timestomping', evId)}'`, [id]);
       if (hit.rows.length) return res.json({ ...hit.rows[0].payload, cached: true });
     }
 
-    const result = await pool.query(
-      TIMESTOMP_QUERY,
-      [id]
-    );
+    const [sql, params] = scopeToEvidence(TIMESTOMP_QUERY, [id], evId);
+    const result = await pool.query(sql, params);
 
     const items = result.rows
       .map(r => {
@@ -775,7 +793,7 @@ router.get('/:id/detections/timestomping', authenticate, async (req, res) => {
     await pool.query(
       `INSERT INTO detection_cache (case_id, section, payload, updated_at) VALUES ($1, $2, $3, NOW())
        ON CONFLICT (case_id, section) DO UPDATE SET payload = EXCLUDED.payload, updated_at = NOW()`,
-      [id, 'timestomping', JSON.stringify(body)]);
+      [id, evSection('timestomping', evId), JSON.stringify(body)]);
     res.json({ ...body, cached: false });
   } catch (err) {
     logger.error('[timestomping]', err);
@@ -786,9 +804,10 @@ router.get('/:id/detections/timestomping', authenticate, async (req, res) => {
 router.get('/:id/detections/double-ext', authenticate, async (req, res) => {
   try {
     const { id } = req.params;
+    const evId = evidenceScope(req);
 
     if (!(req.query.refresh === '1' || req.query.refresh === 'true')) {
-      const hit = await pool.query(`SELECT payload FROM detection_cache WHERE case_id=$1 AND section='double-ext'`, [id]);
+      const hit = await pool.query(`SELECT payload FROM detection_cache WHERE case_id=$1 AND section='${evSection('double-ext', evId)}'`, [id]);
       if (hit.rows.length) return res.json({ ...hit.rows[0].payload, cached: true });
     }
 
@@ -796,7 +815,7 @@ router.get('/:id/detections/double-ext', authenticate, async (req, res) => {
 
     const DECOY_EXT = ['pdf','doc','docx','xls','xlsx','ppt','pptx','txt','jpg','jpeg','png','gif','bmp','mp3','mp4','avi','zip','rar'];
 
-    const result = await pool.query(
+    const [sql, params] = scopeToEvidence(
       `SELECT
          id,
          timestamp,
@@ -809,8 +828,8 @@ router.get('/:id/detections/double-ext', authenticate, async (req, res) => {
        WHERE case_id = $1
          AND artifact_type IN ('mft','lnk','prefetch','amcache','appcompat','recycle','shellbags','jumplist')
        ORDER BY timestamp ASC`,
-      [id]
-    );
+      [id], evId);
+    const result = await pool.query(sql, params);
 
     const doubleExtPattern = new RegExp(
       `\\.(${DECOY_EXT.join('|')})\\.(?:${DANGEROUS_EXT.join('|')})$`,
@@ -864,7 +883,7 @@ router.get('/:id/detections/double-ext', authenticate, async (req, res) => {
     await pool.query(
       `INSERT INTO detection_cache (case_id, section, payload, updated_at) VALUES ($1, $2, $3, NOW())
        ON CONFLICT (case_id, section) DO UPDATE SET payload = EXCLUDED.payload, updated_at = NOW()`,
-      [id, 'double-ext', JSON.stringify(body)]);
+      [id, evSection('double-ext', evId), JSON.stringify(body)]);
     res.json({ ...body, cached: false });
   } catch (err) {
     logger.error('[double-ext]', err);
@@ -876,13 +895,14 @@ router.get('/:id/detections/beaconing', authenticate, async (req, res) => {
   try {
     const { id } = req.params;
     const minConnections = parseInt(req.query.min_connections || '5', 10);
+    const evId = evidenceScope(req);
 
     if (!(req.query.refresh === '1' || req.query.refresh === 'true')) {
-      const hit = await pool.query(`SELECT payload FROM detection_cache WHERE case_id=$1 AND section='beaconing'`, [id]);
+      const hit = await pool.query(`SELECT payload FROM detection_cache WHERE case_id=$1 AND section='${evSection('beaconing', evId)}'`, [id]);
       if (hit.rows.length) return res.json({ ...hit.rows[0].payload, cached: true });
     }
 
-    const result = await pool.query(
+    const [sql, params] = scopeToEvidence(
       `SELECT
          timestamp,
          COALESCE(
@@ -902,8 +922,8 @@ router.get('/:id/detections/beaconing', authenticate, async (req, res) => {
          )
          AND timestamp IS NOT NULL
        ORDER BY timestamp ASC`,
-      [id]
-    );
+      [id], evId);
+    const result = await pool.query(sql, params);
 
     const ipGroups = {};
     for (const row of result.rows) {
@@ -963,7 +983,7 @@ router.get('/:id/detections/beaconing', authenticate, async (req, res) => {
     await pool.query(
       `INSERT INTO detection_cache (case_id, section, payload, updated_at) VALUES ($1, $2, $3, NOW())
        ON CONFLICT (case_id, section) DO UPDATE SET payload = EXCLUDED.payload, updated_at = NOW()`,
-      [id, 'beaconing', JSON.stringify(body)]);
+      [id, evSection('beaconing', evId), JSON.stringify(body)]);
     res.json({ ...body, cached: false });
   } catch (err) {
     logger.error('[beaconing]', err);
@@ -1340,6 +1360,8 @@ router.get('/:id/detections/sysmon-behavior', authenticate, async (req, res) => 
 async function runGroupedDetection(req, res, type, VECTORS, label) {
   try {
     const { id } = req.params;
+    const evId = evidenceScope(req);
+    const section = evSection(type, evId);
     const refresh = req.query.refresh === '1' || req.query.refresh === 'true';
     // Attach each vector's SQL definition (rule logic) to the response so the UI
     // can render it. Derived from the in-memory VECTORS at serve time — never
@@ -1352,7 +1374,7 @@ async function runGroupedDetection(req, res, type, VECTORS, label) {
     const sqlHash = crypto.createHash('md5').update(VECTORS.map(v => v.query).join('\n')).digest('hex').slice(0, 12);
     if (!refresh) {
       const hit = await pool.query(
-        `SELECT payload FROM detection_cache WHERE case_id = $1 AND section = $2`, [id, type]);
+        `SELECT payload FROM detection_cache WHERE case_id = $1 AND section = $2`, [id, section]);
       if (hit.rows.length) {
         const { vectors: pre, rawTotal, sqlHash: cachedHash } = hit.rows[0].payload;
         if (cachedHash === sqlHash) {
@@ -1362,20 +1384,27 @@ async function runGroupedDetection(req, res, type, VECTORS, label) {
         }
       }
     }
-    const populated = [];
-    for (const v of VECTORS) {
+    // Run every vector in parallel — attack-techniques alone has ~20 vectors and
+    // each is an index-bounded scan (ORDER BY timestamp LIMIT 200); executing them
+    // sequentially made the endpoint take the SUM of their runtimes. The write
+    // pool (max ~30) absorbs the concurrent queries, and Promise.all preserves
+    // vector order in `populated`. A failing vector degrades to null (logged),
+    // exactly like the sequential loop did.
+    const settled = await Promise.all(VECTORS.map(async (v) => {
       try {
-        const r = await pool.query(v.query, [id]);
-        populated.push({ id: v.id, label: v.label, mitre: v.mitre, severity: v.severity, confidence: vecConf(v), count: r.rows.length, items: r.rows });
-      } catch (e) { logger.warn(`[${type}:${v.id}]`, e.message); }
-    }
+        const [sql, params] = scopeToEvidence(v.query, [id], evId);
+        const r = await pool.query(sql, params);
+        return { id: v.id, label: v.label, mitre: v.mitre, severity: v.severity, confidence: vecConf(v), count: r.rows.length, items: r.rows };
+      } catch (e) { logger.warn(`[${type}:${v.id}]`, e.message); return null; }
+    }));
+    const populated = settled.filter(Boolean);
     const total = populated.reduce((s, v) => s + v.count, 0);
     const _exc = await getExceptions(id);
     const _g = applyExceptionsGrouped(populated, _exc, type);
     await pool.query(
       `INSERT INTO detection_cache (case_id, section, payload, updated_at) VALUES ($1, $2, $3, NOW())
        ON CONFLICT (case_id, section) DO UPDATE SET payload = EXCLUDED.payload, updated_at = NOW()`,
-      [id, type, JSON.stringify({ vectors: populated, rawTotal: total, sqlHash })]);
+      [id, section, JSON.stringify({ vectors: populated, rawTotal: total, sqlHash })]);
     res.json({ vectors: withLogic(_g.vectors), total: _g.total, suppressed: total - _g.total, cached: false });
   } catch (err) {
     logger.error(`[${type}]`, err);
@@ -1811,9 +1840,10 @@ router.get('/:id/detections/attack-techniques', authenticate, async (req, res) =
 // in JS against cached threat-intel datasets (too large for SQL IN/ILIKE).
 router.get('/:id/detections/vuln-drivers', authenticate, async (req, res) => {
   const { id } = req.params;
+  const evId = evidenceScope(req);
   try {
     if (!(req.query.refresh === '1' || req.query.refresh === 'true')) {
-      const hit = await pool.query(`SELECT payload FROM detection_cache WHERE case_id=$1 AND section='vuln-drivers'`, [id]);
+      const hit = await pool.query(`SELECT payload FROM detection_cache WHERE case_id=$1 AND section='${evSection('vuln-drivers', evId)}'`, [id]);
       if (hit.rows.length) return res.json({ ...hit.rows[0].payload, cached: true });
     }
     const populated = [];
@@ -1821,9 +1851,10 @@ router.get('/:id/detections/vuln-drivers', authenticate, async (req, res) => {
 
     // LOLDrivers: Amcache driver inventory carries SHA1 (DriverId) + DriverName.
     try {
-      const drvRows = (await pool.query(
+      const [drvSql, drvParams] = scopeToEvidence(
         `SELECT timestamp, artifact_type, description, source, host_name, raw FROM collection_timeline
-         WHERE case_id=$1 AND artifact_type='amcache' AND jsonb_top_keys(raw) && ARRAY['DriverName', 'DriverId'] LIMIT 20000`, [id])).rows;
+         WHERE case_id=$1 AND artifact_type='amcache' AND jsonb_top_keys(raw) && ARRAY['DriverName', 'DriverId'] LIMIT 20000`, [id], evId);
+      const drvRows = (await pool.query(drvSql, drvParams)).rows;
       const idx = await getDriverIndex();
       const items = matchDrivers(drvRows, idx);
       if (items.length) populated.push({ id: 'loldrivers', label: 'Driver vulnérable / malveillant (LOLDrivers)', mitre: 'T1068', severity: 'CRITIQUE', confidence: 'high', count: items.length, items });
@@ -1832,9 +1863,10 @@ router.get('/:id/detections/vuln-drivers', authenticate, async (req, res) => {
     // LOLDrivers runtime: Sysmon EID 6 (Driver Loaded) carries ImageLoaded + Hashes,
     // matched the same way as the Amcache inventory (H6 — BYOVD, T1068).
     try {
-      const evtRows = (await pool.query(
+      const [evtSql, evtParams] = scopeToEvidence(
         `SELECT timestamp, artifact_type, description, source, host_name, raw FROM collection_timeline
-         WHERE case_id=$1 AND artifact_type IN ('evtx','sysmon') AND COALESCE(raw->>'EventId', raw->>'EventID')='6' LIMIT 20000`, [id])).rows;
+         WHERE case_id=$1 AND artifact_type IN ('evtx','sysmon') AND COALESCE(raw->>'EventId', raw->>'EventID')='6' LIMIT 20000`, [id], evId);
+      const evtRows = (await pool.query(evtSql, evtParams)).rows;
       const idx = await getDriverIndex();
       const items = matchDrivers(evtRows, idx);
       if (items.length) populated.push({ id: 'loldrivers_runtime', label: 'Driver vulnérable chargé (LOLDrivers, EID 6)', mitre: 'T1068', severity: 'CRITIQUE', confidence: 'high', count: items.length, items });
@@ -1842,9 +1874,10 @@ router.get('/:id/detections/vuln-drivers', authenticate, async (req, res) => {
 
     // HijackLibs: known-hijackable DLL name found outside its expected location.
     try {
-      const dllRows = (await pool.query(
+      const [dllSql, dllParams] = scopeToEvidence(
         `SELECT timestamp, artifact_type, description, source, host_name, raw FROM collection_timeline
-         WHERE case_id=$1 AND (raw->>'path' ILIKE '%.dll' OR raw->>'FullPath' ILIKE '%.dll' OR description ILIKE '%.dll') LIMIT 20000`, [id])).rows;
+         WHERE case_id=$1 AND (raw->>'path' ILIKE '%.dll' OR raw->>'FullPath' ILIKE '%.dll' OR description ILIKE '%.dll') LIMIT 20000`, [id], evId);
+      const dllRows = (await pool.query(dllSql, dllParams)).rows;
       const hidx = await getHijackIndex();
       const items = matchHijack(dllRows, hidx);
       if (items.length) populated.push({ id: 'hijacklibs', label: 'DLL hijacking (HijackLibs)', mitre: 'T1574.001', severity: 'ÉLEVÉ', confidence: 'medium', count: items.length, items });
@@ -1857,7 +1890,7 @@ router.get('/:id/detections/vuln-drivers', authenticate, async (req, res) => {
     await pool.query(
       `INSERT INTO detection_cache (case_id, section, payload, updated_at) VALUES ($1, $2, $3, NOW())
        ON CONFLICT (case_id, section) DO UPDATE SET payload = EXCLUDED.payload, updated_at = NOW()`,
-      [id, 'vuln-drivers', JSON.stringify(body)]);
+      [id, evSection('vuln-drivers', evId), JSON.stringify(body)]);
     res.json({ ...body, cached: false });
   } catch (err) {
     logger.error('[vuln-drivers]', err);

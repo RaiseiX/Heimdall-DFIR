@@ -31,6 +31,11 @@ export const ARTIFACT_COLORS: Record<string, string> = {
   catscale_history:     '#d97c20',
   catscale_persistence: '#c89d1d',
   catscale_fstimeline:  '#06b6d4',
+  catscale_dmesg:       '#f97316',
+  catscale_ssh:         '#10b981',
+  catscale_package:     '#ef4444',
+  catscale_proc_exe:    '#e11d48',
+  catscale_state:       '#94a3b8',
 };
 
 export function artifactColor(type: string): string {

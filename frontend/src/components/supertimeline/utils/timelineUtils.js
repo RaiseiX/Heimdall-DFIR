@@ -20,6 +20,9 @@ export const ARTIFACT_TAB_HEX = {
   appcompat: '#8B5CF6', // Fuchsia
   bits: '#0369A1',      // Sky
   hayabusa: '#991B1B',  // Dark Red
+  catscale_fstimeline: '#06b6d4',  // Cyan (FS Timeline)
+  catscale_dmesg: '#f97316',       // Orange (Kernel log)
+  catscale_ssh: '#10b981',         // Emerald (SSH keys)
 };
 
 /**
@@ -69,7 +72,14 @@ export function topDetectionSeverity(dets) {
  * Returns 8-character hex string of hash(timestamp|artifact_type|source)
  */
 export function computeRef(r) {
-  const input = `${r.timestamp || ''}|${r.artifact_type || ''}|${r.source || ''}`;
+  // Use the unique DB-level dedupe_hash when available, falling back to the
+  // row id. Both are globally unique: a single bookmark no longer matches
+  // multiple rows that happen to share timestamp + artifact_type + source.
+  if (r.dedupe_hash) return r.dedupe_hash;
+  if (r.id != null) return String(r.id);
+  // Legacy fallback for records that lack both (ingestion in-flight, old
+  // pre-dedupe rows). Still collisions are rare at this point.
+  const input = `${r.timestamp || ''}|${r.artifact_type || ''}|${r.source || ''}|${r.description || ''}`;
   let hash = 5381;
   for (let i = 0; i < input.length; i++) {
     hash = ((hash << 5) + hash) ^ input.charCodeAt(i);
@@ -277,6 +287,23 @@ export function fmtDesc(r) {
       if (ruleTitle) return `${prefix}${ruleTitle}`;
       return r.description || '';
     }
+    case 'catscale_fstimeline': {
+      // description already built by the CatScale service ("perms [user] path — MTIME")
+      return r.description || '';
+    }
+    case 'catscale_persistence': {
+      const raw = r.raw || {};
+      const cat  = raw.Category || '';
+      const val  = raw.ValueData || raw.ValueName || raw.cron_entry || '';
+      const unit = raw.unit || '';
+      const key  = raw.KeyPath || '';
+      const execs = Array.isArray(raw.exec_start) ? raw.exec_start : (raw.exec_start ? [raw.exec_start] : []);
+      if (unit) return `Service: ${unit}`;
+      if (execs.length) return `${raw.description ? raw.description.substring(0, 60) + ' · ' : ''}ExecStart: ${execs[0].substring(0, 140)}`;
+      if (cat && val) return `[${cat}] ${val}`;
+      if (cat && key) return `[${cat}] ${key}`;
+      return cat || val || key || r.description || '';
+    }
     default:
       return r.description || '';
   }
@@ -341,6 +368,10 @@ export function fmtSrc(r) {
       return raw.SourceFile ? cleanSrcPath(raw.SourceFile) : src;
     case 'wxtcmd':
       return raw.SourceFile ? cleanSrcPath(raw.SourceFile) : (raw.AppId || src);
+    case 'catscale_fstimeline':
+      return r.source || 'full-timeline.csv';
+    case 'catscale_persistence':
+      return (r.raw?.unit || r.raw?.exec_start ? 'systemd' : (r.raw?.cron_entry ? 'crontab' : (r.raw?.HiveFile || r.raw?.DetectionType || r.source || 'persistence')));
     default:
       return src || r.source || '';
   }
@@ -429,6 +460,8 @@ export const ARTIFACT_FIELD_PRIORITY = {
   recycle:   ['FileName','FileSize','DeletedTimestamp','SourceName'],
   sum:       ['Address','UserName','LastAccess','TotalSessions'],
   appcompat: ['Path','LastModifiedTime','FileSize','SHA1'],
+  catscale_fstimeline: ['path','timestamp_kind','ext','atime','ctime','crtime','user','inode','size','md5'],
+  catscale_persistence: ['unit','state','cron_entry','Category','ValueData','KeyPath','MITRE'],
 };
 
 // KEEP IN SYNC with COLUMNS_BASE keys above. If you add a new first-class column
@@ -475,6 +508,8 @@ export const PAYLOAD_FIELDS = {
   syslog:     ['Message', 'Program', 'Facility'],
   auditd:     ['Exe', 'AuditType', 'Auid', 'Ses'],
   bash_history: ['Command'],
+  catscale_fstimeline: ['path', 'timestamp_kind', 'ext', 'atime', 'ctime', 'crtime'],
+  catscale_persistence: ['unit', 'state', 'cron_entry', 'Category', 'ValueData'],
 };
 
 // Raw fields whose value is already shown in another grid column (Event ID,

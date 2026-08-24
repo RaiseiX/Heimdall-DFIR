@@ -8,6 +8,7 @@ import {
 import { iocsAPI, casesAPI, networkAPI } from '../utils/api';
 import { Button, Modal, Badge, EmptyState, Spinner } from '../components/ui';
 import { downloadCSV } from '../utils/csvExport';
+import IocTimelineView from './IocTimelineView';
 
 const TYPE_ICON = {
   ip: Globe, domain: Globe, url: Server,
@@ -324,6 +325,16 @@ export default function IOCsPage() {
   }
 
   const [dgaCaseId, setDgaCaseId] = useState('');
+  const [view, setView] = useState('table');
+  const [backfilling, setBackfilling] = useState(false);
+  const backfillDates = async () => {
+    setBackfilling(true);
+    try {
+      await iocsAPI.backfillFirstSeen({});
+      await loadData();
+    } catch { /* ignore */ }
+    setBackfilling(false);
+  };
 
   const malCount = iocs.filter(i => i.is_malicious).length;
   const enrichedCount = iocs.filter(i => i.enriched_at).length;
@@ -388,6 +399,16 @@ export default function IOCsPage() {
           >
             {t('iocs.enrich_all_btn')}
           </Button>
+          <Button
+            variant="secondary"
+            icon={RefreshCw}
+            loading={backfilling}
+            disabled={backfilling || iocs.length === 0}
+            onClick={backfillDates}
+            title={t('iocs.backfill_title')}
+          >
+            {t('iocs.backfill')}
+          </Button>
           <Button variant="primary" icon={Plus} onClick={() => setShowAdd(true)}>
             {t('iocs.add_ioc_btn')}
           </Button>
@@ -438,6 +459,19 @@ export default function IOCsPage() {
             </button>
           );
         })}
+        <div style={{ marginLeft: 'auto', display: 'flex', gap: 2, background: 'var(--fl-panel)', border: '1px solid var(--fl-border)', borderRadius: 6, padding: 2 }}>
+          {(['table', 'timeline']).map(v => (
+            <button key={v} onClick={() => setView(v)}
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 12px', borderRadius: 4, cursor: 'pointer',
+                fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11.5, fontWeight: 600,
+                border: 'none', background: view === v ? 'color-mix(in srgb, var(--fl-accent) 14%, transparent)' : 'transparent',
+                color: view === v ? 'var(--fl-accent)' : 'var(--fl-muted)',
+              }}>
+              {v === 'table' ? '☰ ' + t('iocs.view_table') : '⏱ ' + t('iocs.view_timeline')}
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className="mb-4" style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-muted)' }}>
@@ -460,6 +494,8 @@ export default function IOCsPage() {
             </Button>
           }
         />
+      ) : view === 'timeline' ? (
+        <IocTimelineView iocs={visibleIocs} />
       ) : (
         <div className="fl-card" style={{ overflow: 'hidden' }}>
           <table className="fl-table">

@@ -549,6 +549,91 @@ async function runMigrations() {
   }
 }
 
+// Free-text search speed, built in the BACKGROUND so boot never blocks on them:
+// every search filter (timeline, artifacts browser) builds `col ILIKE '%term%'`
+// with a LEADING wildcard, which a btree index cannot serve — Postgres falls
+// back to a full sequential scan of the whole timeline per query (hundreds of
+// thousands of rows × an OR of ~12 columns). pg_trgm GIN indexes turn those
+// ILIKE patterns into index scans. They are created CONCURRENTLY (never blocks
+// reads/writes) after the API is already listening, so a long build on a big
+// table delays search speed, never startup. Best-effort: failures are logged.
+//
+// Correctness note: an OR is only index-served when EVERY branch is indexed —
+// otherwise the bitmap scan misses rows matching the unindexed branches. So
+// every column the search filters touch is indexed here, expression casts
+// included (event_id::text, tags::text, raw::text).
+async function buildSearchIndexes() {
+  try {
+    await runGuardedMigrations(pool, {
+      name: 'collection_timeline pg_trgm search indexes',
+      statementTimeoutMs: 3600000,
+      statements: [
+        `CREATE EXTENSION IF NOT EXISTS pg_trgm`,
+        { sql: `CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_ct_trgm_description ON collection_timeline USING gin (description gin_trgm_ops)`, indexName: 'idx_ct_trgm_description' },
+        { sql: `CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_ct_trgm_source     ON collection_timeline USING gin (source     gin_trgm_ops)`, indexName: 'idx_ct_trgm_source' },
+        { sql: `CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_ct_trgm_details    ON collection_timeline USING gin (details    gin_trgm_ops)`, indexName: 'idx_ct_trgm_details' },
+        { sql: `CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_ct_trgm_path       ON collection_timeline USING gin ("path"     gin_trgm_ops)`, indexName: 'idx_ct_trgm_path' },
+        { sql: `CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_ct_trgm_host       ON collection_timeline USING gin (host_name  gin_trgm_ops)`, indexName: 'idx_ct_trgm_host' },
+        { sql: `CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_ct_trgm_user       ON collection_timeline USING gin (user_name  gin_trgm_ops)`, indexName: 'idx_ct_trgm_user' },
+        { sql: `CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_ct_trgm_proc       ON collection_timeline USING gin (process_name gin_trgm_ops)`, indexName: 'idx_ct_trgm_proc' },
+        { sql: `CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_ct_trgm_tool       ON collection_timeline USING gin (tool       gin_trgm_ops)`, indexName: 'idx_ct_trgm_tool' },
+        { sql: `CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_ct_trgm_ext        ON collection_timeline USING gin (ext        gin_trgm_ops)`, indexName: 'idx_ct_trgm_ext' },
+        { sql: `CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_ct_trgm_artype     ON collection_timeline USING gin (artifact_type gin_trgm_ops)`, indexName: 'idx_ct_trgm_artype' },
+        { sql: `CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_ct_trgm_eventid    ON collection_timeline USING gin ((event_id::text) gin_trgm_ops)`, indexName: 'idx_ct_trgm_eventid' },
+        // text[]::text is rejected in index expressions ("functions in index
+        // expression must be marked IMMUTABLE"); array_to_string is the
+        // immutable way to make the tags array searchable as text.
+        { sql: `CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_ct_trgm_tags       ON collection_timeline USING gin ((array_to_string(tags, ',')) gin_trgm_ops)`, indexName: 'idx_ct_trgm_tags' },
+        { sql: `CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_ct_trgm_raw        ON collection_timeline USING gin ((raw::text)      gin_trgm_ops)`, indexName: 'idx_ct_trgm_raw' },
+      ],
+    });
+  } catch (e) {
+    logger.warn('[migration] collection_timeline pg_trgm (best-effort): ' + e.message);
+  }
+}
+
+// One-time reconciliation of timeline rows with NULL evidence_id. The per-
+// evidence menu counts rows bound to an evidence, while the SuperTimeline
+// counts EVERYTHING — so orphaned rows (older parses, parses launched without
+// evidence context) make the two totals drift apart (e.g. 935 k vs 1 422 k).
+// Precisely inherit from parser_results first, then attach the case's
+// most-populated evidence to the rest. Idempotent, best-effort, background:
+// a large UPDATE must never delay startup.
+async function reconcileEvidenceLinks() {
+  try {
+    const client = await pool.connect();
+    try {
+      await client.query(`SET statement_timeout = 1800000`); // 30 min, one-time
+      const r1 = await client.query(
+        `UPDATE collection_timeline ct
+            SET evidence_id = pr.evidence_id
+           FROM parser_results pr
+          WHERE ct.evidence_id IS NULL
+            AND ct.result_id = pr.id
+            AND pr.evidence_id IS NOT NULL`);
+      const r2 = await client.query(
+        `WITH top AS (
+           SELECT case_id, evidence_id AS id,
+                  ROW_NUMBER() OVER (PARTITION BY case_id ORDER BY COUNT(*) DESC) AS rn
+             FROM collection_timeline
+            WHERE evidence_id IS NOT NULL
+            GROUP BY case_id, evidence_id
+         )
+         UPDATE collection_timeline ct
+            SET evidence_id = top.id
+           FROM top
+          WHERE top.rn = 1
+            AND ct.case_id = top.case_id
+            AND ct.evidence_id IS NULL`);
+      logger.info(`[boot] evidence reconciliation: ${r1.rowCount ?? 0} rows from parser_results, ${r2.rowCount ?? 0} from dominant evidence`);
+    } finally {
+      client.release();
+    }
+  } catch (e) {
+    logger.warn('[boot] evidence reconciliation failed (best-effort): ' + String(e.message).substring(0, 200));
+  }
+}
+
 async function start() {
   try {
     await testConnection();
@@ -591,6 +676,21 @@ async function start() {
         mode: 'Streaming + Chunked Upload',
       });
     });
+
+    // Search indexes build in the background, AFTER the API is up — a long build
+    // on a large timeline must never delay startup again.
+    buildSearchIndexes().catch(e =>
+      logger.warn('[boot] buildSearchIndexes failed: ' + String(e.message).substring(0, 200)));
+
+    // Bind orphaned timeline rows to an evidence so the per-evidence menu and
+    // the SuperTimeline totals agree (background, one-time, best-effort).
+    reconcileEvidenceLinks();
+
+    // ES ↔ PG consistency sweep: rebuild case indexes whose document count
+    // diverges from PG (stale duplicates from the pre-dedupe indexing path
+    // made the SuperTimeline count drift above the per-evidence menu).
+    const { reconcileAllCases } = require('./services/esRebuild');
+    reconcileAllCases();
 
     // Daily retention purge tick (no-op unless explicitly enabled in Settings).
     // Runs every 6h; the service itself re-checks the policy on each tick.

@@ -5,6 +5,7 @@ import {
   FolderOpen, FileText, FileCode2, CornerLeftUp, ChevronRight,
   Download, Loader2, RefreshCw, AlertTriangle, HardDrive,
   Search, FileSearch, Regex, X, ArrowUp, ArrowDown, CornerDownRight, Archive,
+  Copy, Check, KeyRound,
 } from 'lucide-react';
 import { collectionAPI } from '../utils/api';
 
@@ -21,6 +22,17 @@ function fmtSize(b) {
 
 function isTextLike(name) {
   return /\.(txt|log|csv|json|xml|yml|yaml|html?|js|ts|jsx|tsx|py|sh|bat|ps1|ini|conf|cfg|md|sql|evt|kape|properties|map)$/i.test(name);
+}
+
+// Registry hive files that the browser can open (Windows registry hives are
+// binary but structured; RECmd's batch only extracts a curated subset of keys,
+// so browsing the raw hive exposes the rest). Also accept transaction-log
+// companions (SYSTEM.LOG1/2, NTUSER.DAT.LOG1/2) — dissect.regf reads them.
+function isHiveFile(name) {
+  const base = (name || '').toLowerCase();
+  const stem = base.replace(/(\.(log[12]?|alt|txr))?$/, '');
+  return /^(ntuser|usrclass)(\.dat)?$/.test(stem)
+    || /^(system|software|sam|security|default|components|drivers|bcd|schema)$/.test(stem);
 }
 
 function formatHexDump(hex, ascii) {
@@ -57,6 +69,204 @@ const MARK_STYLE = {
   padding: '0 1px',
 };
 
+// Regedit-style hive browser: breadcrumb navigation, jump-to-path, recursive
+// search and a two-pane layout (subkeys | values). Clicking a subkey navigates
+// INTO it (instead of a deep, hard-to-scan tree), so analysts walk a hive the
+// same way they browse folders.
+function HiveBrowser({
+  t, entry, node, loading, error,
+  search, onSearch, searching, searchRes, searchErr, onOpenResult,
+  pathDraft, onPathDraft, onJump,
+  onNavigate, onCopy, copied,
+}) {
+  const path = node?.path || '';
+  const crumbs = ['', ...(path ? path.split('\\') : [])];
+  const activeSearch = Boolean(search.trim());
+
+  const rowStyle = {
+    display: 'flex', alignItems: 'center', gap: 6, width: '100%', textAlign: 'left',
+    padding: '3px 10px', background: 'transparent', border: 'none', cursor: 'pointer',
+    fontFamily: MONO, fontSize: 11.5, color: 'var(--fl-text)', borderRadius: 0,
+  };
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
+      {/* Toolbar: breadcrumb + copy path + jump + search */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderBottom: '1px solid var(--fl-border)', flexShrink: 0, flexWrap: 'wrap' }}>
+        <HardDrive size={13} style={{ color: 'var(--fl-gold)', flexShrink: 0 }} />
+
+        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', minWidth: 0 }}>
+          {crumbs.map((seg, i) => {
+            const isLast = i === crumbs.length - 1;
+            const segPath = i === 0 ? '' : crumbs.slice(1, i + 1).join('\\');
+            const label = i === 0 ? (entry?.name || 'hive') : seg;
+            return (
+              <span key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                {i > 0 && <span style={{ color: 'var(--fl-muted)', fontSize: 11 }}>\</span>}
+                <button
+                  onClick={() => !isLast && onNavigate(segPath)}
+                  disabled={isLast}
+                  title={segPath || (entry?.name || 'hive')}
+                  style={{
+                    background: 'none', border: 'none', cursor: isLast ? 'default' : 'pointer',
+                    color: isLast ? 'var(--fl-accent)' : 'var(--fl-text)', fontFamily: MONO,
+                    fontSize: 11, padding: '2px 4px', borderRadius: 4, maxWidth: 220,
+                    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                  }}
+                  onMouseEnter={e => { if (!isLast) e.currentTarget.style.background = 'var(--fl-card)'; }}
+                  onMouseLeave={e => { e.currentTarget.style.background = 'none'; }}
+                >
+                  {label}
+                </button>
+              </span>
+            );
+          })}
+        </div>
+
+        <button
+          onClick={() => onCopy(path, 'path')}
+          title={t('collectionFiles.copyPath', 'Copier le chemin')}
+          style={{ display: 'inline-flex', alignItems: 'center', padding: '3px 7px', borderRadius: 5, cursor: 'pointer', background: 'transparent', color: 'var(--fl-muted)', border: '1px solid var(--fl-border)', flexShrink: 0 }}
+        >
+          {copied === 'path' ? <Check size={12} style={{ color: 'var(--fl-success)' }} /> : <Copy size={12} />}
+        </button>
+
+        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginLeft: 'auto', flexWrap: 'wrap' }}>
+          <form onSubmit={e => { e.preventDefault(); onJump(); }} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+            <input
+              value={pathDraft}
+              onChange={e => onPathDraft(e.target.value)}
+              placeholder={t('collectionFiles.hiveJump', 'Chemin…')}
+              style={{ width: 190, background: 'var(--fl-bg)', border: '1px solid var(--fl-border)', borderRadius: 5, color: 'var(--fl-text)', fontFamily: MONO, fontSize: 11, padding: '4px 8px' }}
+            />
+            <button type="submit" style={{ padding: '4px 9px', borderRadius: 5, cursor: 'pointer', background: 'var(--fl-accent)', color: 'var(--fl-bg)', border: 'none', fontFamily: MONO, fontSize: 11, fontWeight: 600 }}>
+              {t('collectionFiles.go', 'Go')}
+            </button>
+          </form>
+
+          <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }}>
+            <Search size={12} style={{ position: 'absolute', left: 7, color: 'var(--fl-muted)', pointerEvents: 'none' }} />
+            <input
+              value={search}
+              onChange={e => onSearch(e.target.value)}
+              placeholder={t('collectionFiles.hiveSearch', 'Rechercher clé / valeur…')}
+              style={{ width: 200, background: 'var(--fl-bg)', border: '1px solid var(--fl-border)', borderRadius: 5, color: 'var(--fl-text)', fontFamily: MONO, fontSize: 11, padding: '4px 24px' }}
+            />
+            {searching ? (
+              <Loader2 size={12} style={{ position: 'absolute', right: 7, color: 'var(--fl-muted)', animation: 'spin 1s linear infinite' }} />
+            ) : search ? (
+              <button onClick={() => onSearch('')} style={{ position: 'absolute', right: 5, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--fl-muted)', display: 'inline-flex', padding: 0 }}>
+                <X size={12} />
+              </button>
+            ) : null}
+          </div>
+        </div>
+      </div>
+
+      {/* Body: search results or two panes */}
+      <div style={{ flex: 1, minHeight: 0, display: 'flex', overflow: 'hidden' }}>
+        {activeSearch ? (
+          <HiveSearchResults t={t} searching={searching} searchRes={searchRes} searchErr={searchErr} onOpenResult={onOpenResult} />
+        ) : loading ? (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, padding: 40, color: 'var(--fl-dim)', fontSize: 12, width: '100%' }}>
+            <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> {t('common.loading')}
+          </div>
+        ) : error ? (
+          <div style={{ padding: 20, color: 'var(--fl-danger)', width: '100%' }}>{error}</div>
+        ) : node ? (
+          <>
+            {/* Subkeys pane */}
+            <div style={{ width: '42%', minWidth: 220, borderRight: '1px solid var(--fl-border)', overflowY: 'auto', overflowX: 'hidden' }}>
+              <div style={{ padding: '6px 10px', fontSize: 9.5, color: 'var(--fl-muted)', textTransform: 'uppercase', letterSpacing: '0.07em', borderBottom: '1px solid var(--fl-border2)', position: 'sticky', top: 0, background: 'var(--fl-bg)', zIndex: 1 }}>
+                {t('collectionFiles.subkeys', 'Sous-clés')} ({node.subkeys?.length ?? 0}{node.subkeysTruncated ? '+' : ''})
+              </div>
+              {(node.subkeys || []).length === 0 ? (
+                <div style={{ padding: '10px 12px', color: 'var(--fl-muted)', fontSize: 11 }}>{t('collectionFiles.noSubkeys', 'Aucune sous-clé')}</div>
+              ) : node.subkeys.map(sk => (
+                <button
+                  key={sk.path}
+                  onClick={() => onNavigate(sk.path)}
+                  style={rowStyle}
+                  title={sk.lastWrite || undefined}
+                  onMouseEnter={e => { e.currentTarget.style.background = 'var(--fl-card)'; }}
+                  onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
+                >
+                  <FolderOpen size={12} style={{ color: 'var(--fl-accent)', flexShrink: 0 }} />
+                  <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{sk.name}</span>
+                  {sk.subkeyCount > 0 && <span style={{ color: 'var(--fl-subtle)', fontSize: 9.5, flexShrink: 0 }}>{sk.subkeyCount}</span>}
+                </button>
+              ))}
+            </div>
+
+            {/* Values pane */}
+            <div style={{ flex: 1, minWidth: 0, overflowY: 'auto', overflowX: 'hidden' }}>
+              <div style={{ padding: '6px 10px', fontSize: 9.5, color: 'var(--fl-muted)', textTransform: 'uppercase', letterSpacing: '0.07em', borderBottom: '1px solid var(--fl-border2)', position: 'sticky', top: 0, background: 'var(--fl-bg)', zIndex: 1 }}>
+                {t('collectionFiles.values', 'Valeurs')} ({node.values?.length ?? 0}{node.valuesTruncated ? '+' : ''})
+              </div>
+              {(node.values || []).length === 0 ? (
+                <div style={{ padding: '10px 12px', color: 'var(--fl-muted)', fontSize: 11 }}>{t('collectionFiles.noValues', 'Aucune valeur')}</div>
+              ) : node.values.map((v, i) => (
+                <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: '4px 10px', borderBottom: '1px solid var(--fl-border2)' }}>
+                  <span style={{ color: 'var(--fl-text)', fontFamily: MONO, fontSize: 11, minWidth: 90, maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flexShrink: 0 }} title={v.name}>{v.name || '(Default)'}</span>
+                  <span style={{ color: 'var(--fl-accent)', fontFamily: MONO, fontSize: 9.5, minWidth: 64, flexShrink: 0, paddingTop: 1 }}>{v.type}</span>
+                  <span style={{ color: v.binary ? 'var(--fl-subtle)' : 'var(--fl-text)', fontFamily: MONO, fontSize: 11, flex: 1, wordBreak: 'break-all', whiteSpace: 'pre-wrap' }}>
+                    {v.data ?? ''}{v.truncated ? ' …' : ''}
+                  </span>
+                  <button
+                    onClick={() => onCopy(v.data ?? '', `v-${i}`)}
+                    title={t('collectionFiles.copyValue', 'Copier la valeur')}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--fl-muted)', display: 'inline-flex', padding: 2, flexShrink: 0 }}
+                  >
+                    {copied === `v-${i}` ? <Check size={12} style={{ color: 'var(--fl-success)' }} /> : <Copy size={12} />}
+                  </button>
+                </div>
+              ))}
+            </div>
+          </>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function HiveSearchResults({ t, searching, searchRes, searchErr, onOpenResult }) {
+  const matches = searchRes?.matches || [];
+  if (searching && matches.length === 0 && !searchErr) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, padding: 40, color: 'var(--fl-dim)', fontSize: 12, width: '100%' }}>
+        <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> {t('common.loading')}
+      </div>
+    );
+  }
+  if (searchErr) {
+    return <div style={{ padding: 20, color: 'var(--fl-danger)', width: '100%' }}>{searchErr}</div>;
+  }
+  if (!searching && matches.length === 0) {
+    return <div style={{ padding: 20, color: 'var(--fl-muted)', width: '100%', fontSize: 11.5 }}>{t('collectionFiles.noHiveResults', 'Aucun résultat')}</div>;
+  }
+  return (
+    <div style={{ flex: 1, minWidth: 0, overflowY: 'auto' }}>
+      <div style={{ padding: '6px 10px', fontSize: 9.5, color: 'var(--fl-muted)', textTransform: 'uppercase', letterSpacing: '0.07em', borderBottom: '1px solid var(--fl-border2)', position: 'sticky', top: 0, background: 'var(--fl-bg)', zIndex: 1 }}>
+        {t('collectionFiles.hiveResults', 'Résultats')} ({matches.length}{searchRes?.truncated ? '+' : ''})
+      </div>
+      {matches.map((m, i) => (
+        <button
+          key={i}
+          onClick={() => onOpenResult(m)}
+          style={{ display: 'flex', alignItems: 'baseline', gap: 8, width: '100%', textAlign: 'left', padding: '4px 10px', background: 'transparent', border: 'none', cursor: 'pointer', fontFamily: MONO, fontSize: 11.5, color: 'var(--fl-text)', borderBottom: '1px solid var(--fl-border2)' }}
+          onMouseEnter={e => { e.currentTarget.style.background = 'var(--fl-card)'; }}
+          onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
+        >
+          {m.kind === 'key' ? <FolderOpen size={12} style={{ color: 'var(--fl-accent)', flexShrink: 0 }} /> : <KeyRound size={12} style={{ color: 'var(--fl-gold)', flexShrink: 0 }} />}
+          <span style={{ color: 'var(--fl-accent)', flexShrink: 0 }}>{m.name}</span>
+          <span style={{ color: 'var(--fl-subtle)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.path}</span>
+          {m.snippet ? <span style={{ color: 'var(--fl-muted)', fontSize: 10, maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.snippet}</span> : null}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export default function CollectionFilesPage() {
   const { t } = useTranslation();
   const ctx = useOutletContext() || {};
@@ -73,6 +283,18 @@ export default function CollectionFilesPage() {
   const [selected, setSelected] = useState(null);   // entry object { path, type, name, size }
   const [content, setContent] = useState(null);     // backend /file/content payload
   const [contentLoading, setContentLoading] = useState(false);
+
+  // Registry hive browser state (open a hive from the Files view and walk keys).
+  const [hiveView, setHiveView] = useState(false);      // true → show hive browser instead of hex preview
+  const [hiveNode, setHiveNode] = useState(null);       // current key { path, name, lastWrite, values, subkeys, … }
+  const [hiveLoading, setHiveLoading] = useState(false);
+  const [hiveErr, setHiveErr] = useState('');
+  const [hiveCopied, setHiveCopied] = useState('');     // id of the just-copied value/path (check feedback)
+  const [hiveSearch, setHiveSearch] = useState('');     // recursive search term (backend)
+  const [hiveSearching, setHiveSearching] = useState(false);
+  const [hiveSearchRes, setHiveSearchRes] = useState(null); // { matches, truncated }
+  const [hiveSearchErr, setHiveSearchErr] = useState('');
+  const [hivePathDraft, setHivePathDraft] = useState('');   // jump-to-path input
 
   // Search state: scope 'file' = highlight within the open text file (client-side),
   // scope 'all' = keyword/regex across every text file in the collection (backend).
@@ -111,8 +333,8 @@ export default function CollectionFilesPage() {
   useEffect(() => { load(''); }, [load]);
 
   const openEntry = (entry) => {
-    if (entry.type === 'dir') { setSelected(null); setContent(null); load(entry.path); }
-    else { setSelected(entry); setContent(null); loadContent(entry); }
+    if (entry.type === 'dir') { setSelected(null); setContent(null); setHiveView(false); load(entry.path); }
+    else { setSelected(entry); setContent(null); setHiveView(false); setHiveNode(null); setHiveSearch(''); setHiveSearchRes(null); loadContent(entry); }
   };
 
   const loadContent = async (entry) => {
@@ -126,6 +348,88 @@ export default function CollectionFilesPage() {
       setContentLoading(false);
     }
   };
+
+  const loadHive = async (entry, keyPath) => {
+    setHiveLoading(true);
+    setHiveErr('');
+    try {
+      const res = await collectionAPI.fileHive(caseId, { evidence_id: collectionId, path: entry.path, key: keyPath || '' });
+      setHiveNode(res.data);
+    } catch (e) {
+      setHiveErr(e.response?.data?.error || e.message || 'Failed to browse hive');
+    } finally {
+      setHiveLoading(false);
+    }
+  };
+
+  const navigateHive = (keyPath) => {
+    setHiveSearch('');
+    setHiveSearchRes(null);
+    setHiveSearchErr('');
+    setHivePathDraft('');
+    if (selected) loadHive(selected, keyPath);
+  };
+
+  const jumpHive = () => {
+    const raw = hivePathDraft.trim();
+    if (!raw) return;
+    navigateHive(raw.replace(/\\+/g, '\\').replace(/^\\+|\\+$/g, ''));
+  };
+
+  const copyHiveText = async (text, id) => {
+    try {
+      await navigator.clipboard.writeText(String(text ?? ''));
+      setHiveCopied(id);
+      setTimeout(() => setHiveCopied(c => (c === id ? '' : c)), 1400);
+    } catch (_e) { /* clipboard unavailable */ }
+  };
+
+  const openHiveResult = (m) => {
+    if (!m?.path && m?.path !== '') return;
+    navigateHive(m.path);
+  };
+
+  const openHive = (entry) => {
+    setHiveView(true);
+    setHiveNode(null);
+    setHiveErr('');
+    setHiveSearch('');
+    setHiveSearchRes(null);
+    setHiveSearchErr('');
+    setHivePathDraft('');
+    loadHive(entry, '');
+  };
+
+  const closeHive = () => {
+    setHiveView(false);
+    setHiveNode(null);
+    setHiveErr('');
+    setHiveSearch('');
+    setHiveSearchRes(null);
+    setHiveSearchErr('');
+    setHivePathDraft('');
+  };
+
+  // Debounced recursive hive search (backend walks the hive and returns matches).
+  useEffect(() => {
+    if (!hiveView || !selected) return;
+    const term = hiveSearch.trim();
+    if (!term) { setHiveSearchRes(null); setHiveSearchErr(''); setHiveSearching(false); return; }
+    let cancelled = false;
+    setHiveSearching(true);
+    setHiveSearchErr('');
+    const h = setTimeout(async () => {
+      try {
+        const res = await collectionAPI.fileHive(caseId, { evidence_id: collectionId, path: selected.path, search: term });
+        if (!cancelled) setHiveSearchRes(res.data);
+      } catch (e) {
+        if (!cancelled) setHiveSearchErr(e.response?.data?.error || e.message || 'Search failed');
+      } finally {
+        if (!cancelled) setHiveSearching(false);
+      }
+    }, 350);
+    return () => { cancelled = true; clearTimeout(h); };
+  }, [hiveSearch, hiveView, selected, caseId, collectionId]);
 
   const download = async (entry) => {
     try {
@@ -610,6 +914,24 @@ export default function CollectionFilesPage() {
                   </span>
                 )}
 
+                {isHiveFile(selected.name) && !hiveView && (
+                  <button
+                    onClick={() => openHive(selected)}
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 10px', borderRadius: 6, cursor: 'pointer', background: 'color-mix(in srgb, var(--fl-gold) 10%, transparent)', color: 'var(--fl-gold)', border: '1px solid color-mix(in srgb, var(--fl-gold) 24%, transparent)', fontFamily: MONO, fontSize: 11, flexShrink: 0 }}
+                    onMouseEnter={e => { e.currentTarget.style.background = 'color-mix(in srgb, var(--fl-gold) 18%, transparent)'; }}
+                    onMouseLeave={e => { e.currentTarget.style.background = 'color-mix(in srgb, var(--fl-gold) 10%, transparent)'; }}
+                  >
+                    <HardDrive size={12} /> {t('collectionFiles.openHive', 'Ouvrir le hive')}
+                  </button>
+                )}
+                {hiveView && (
+                  <button
+                    onClick={closeHive}
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 10px', borderRadius: 6, cursor: 'pointer', background: 'transparent', color: 'var(--fl-muted)', border: '1px solid var(--fl-border)', fontFamily: MONO, fontSize: 11, flexShrink: 0 }}
+                  >
+                    <FileCode2 size={12} /> {t('collectionFiles.closeHive', 'Vue hexadécimale')}
+                  </button>
+                )}
                 <button
                   onClick={() => download(selected)}
                   style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 10px', borderRadius: 6, cursor: 'pointer', background: 'color-mix(in srgb, var(--fl-accent) 10%, transparent)', color: 'var(--fl-accent)', border: '1px solid color-mix(in srgb, var(--fl-accent) 22%, transparent)', fontFamily: MONO, fontSize: 11, flexShrink: 0 }}
@@ -621,7 +943,27 @@ export default function CollectionFilesPage() {
               </div>
 
               <div style={{ flex: 1, overflow: 'auto', background: 'var(--fl-bg)', fontFamily: MONO, fontSize: 11.5, lineHeight: 1.55 }}>
-                {contentLoading ? (
+                {hiveView ? (
+                  <HiveBrowser
+                    t={t}
+                    entry={selected}
+                    node={hiveNode}
+                    loading={hiveLoading}
+                    error={hiveErr}
+                    search={hiveSearch}
+                    onSearch={setHiveSearch}
+                    searching={hiveSearching}
+                    searchRes={hiveSearchRes}
+                    searchErr={hiveSearchErr}
+                    onOpenResult={openHiveResult}
+                    pathDraft={hivePathDraft}
+                    onPathDraft={setHivePathDraft}
+                    onJump={jumpHive}
+                    onNavigate={navigateHive}
+                    onCopy={copyHiveText}
+                    copied={hiveCopied}
+                  />
+                ) : contentLoading ? (
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, padding: 40, color: 'var(--fl-dim)', fontSize: 12 }}>
                     <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> {t('common.loading')}
                   </div>

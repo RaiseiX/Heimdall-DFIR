@@ -1,11 +1,59 @@
 import { useState, useEffect } from 'react';
 import { useTheme } from '../utils/theme';
-import { casesAPI, parsersAPI } from '../utils/api';
+import { casesAPI, parsersAPI, iocsAPI } from '../utils/api';
 import {
   Table2, FolderOpen, ChevronDown, Loader2, FileText,
-  Calendar, Hash, User, Info,
+  Calendar, Hash, User, Info, Shield,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { detectIocType } from '../utils/iocType';
+
+// ── IOC quick-add on any cell that looks like an indicator ───────────────────
+// Type auto-detection is shared via utils/iocType.js.
+
+function IocCellButton({ value, field, caseId, ts }) {
+  const [added, setAdded] = useState(false);
+  const [err, setErr] = useState('');
+  const s = value == null ? '' : (typeof value === 'object' ? JSON.stringify(value) : String(value));
+  if (!s || s === '—' || s.length < 2 || !caseId) return null;
+  const match = detectIocType(s);
+
+  const handleAdd = async (e) => {
+    e.stopPropagation();
+    setErr('');
+    try {
+      await iocsAPI.create(caseId, {
+        ioc_type: match.type,
+        value: s.slice(0, 500),
+        description: `${field} from parsed artifact`,
+        severity: 5,
+        source: 'parsed_data',
+        first_seen: ts || null,
+      });
+      setAdded(true);
+      setTimeout(() => setAdded(false), 1500);
+    } catch (err2) {
+      setErr('err');
+    }
+  };
+
+  return (
+    <button
+      onClick={handleAdd}
+      title={err ? 'Failed' : `Add ${match.label} IOC: ${s}`}
+      style={{
+        marginLeft: 6, fontSize: 8, padding: '1px 5px', borderRadius: 3, cursor: 'pointer',
+        background: added ? 'color-mix(in srgb, var(--fl-ok) 14%, transparent)' : 'var(--fl-card)',
+        border: `1px solid ${added ? 'color-mix(in srgb, var(--fl-ok) 30%, transparent)' : 'color-mix(in srgb, var(--fl-danger) 25%, transparent)'}`,
+        color: added ? 'var(--fl-ok)' : 'var(--fl-danger)',
+        fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', whiteSpace: 'nowrap',
+        display: 'inline-flex', alignItems: 'center', gap: 2, verticalAlign: 'middle',
+      }}
+    >
+      {added ? '✓' : <><Shield size={8} />IOC</>}
+    </button>
+  );
+}
 
 const PARSER_COLORS = {
   mft:      'var(--fl-purple)',
@@ -77,7 +125,7 @@ function ResultItem({ result, selected, onSelect, T, t, locale }) {
   );
 }
 
-function DataTable({ records, T, t }) {
+function DataTable({ records, T, t, caseId }) {
   if (!records || records.length === 0) {
     return (
       <div className="text-center py-10 text-sm" style={{ color: T.dim }}>
@@ -132,6 +180,7 @@ function DataTable({ records, T, t }) {
                     title={display}
                   >
                     {display}
+                    <IocCellButton value={val} field={col} caseId={caseId} ts={row.timestamp} />
                   </td>
                 );
               })}
@@ -396,7 +445,7 @@ export default function ParsedDataPage() {
                     {dataError}
                   </div>
                 ) : (
-                  <DataTable records={records} T={T} t={t} />
+                  <DataTable records={records} T={T} t={t} caseId={caseId} />
                 )}
               </>
             )}

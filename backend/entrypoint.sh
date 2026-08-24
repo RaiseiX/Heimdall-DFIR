@@ -86,10 +86,10 @@ else
 fi
 
 # Vérifier BatchExamples pour RECmd
-if [ ! -f "$ZIMMERMAN_DIR/BatchExamples/RECmd_Batch_MC.reb" ]; then
-  echo "  ⚠ RECmd_Batch_MC.reb manquant (RECmd fonctionnera en mode basique)"
-else
+if [ -f "$ZIMMERMAN_DIR/BatchExamples/DFIRBatch.reb" ] || [ -f "/app/parsers/recmd-batch/DFIRBatch.reb" ]; then
   echo "  ✓ RECmd BatchExamples"
+else
+  echo "  ⚠ Batch RECmd manquant (RECmd fonctionnera en mode basique)"
 fi
 
 echo ""

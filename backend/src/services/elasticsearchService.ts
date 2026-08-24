@@ -136,6 +136,18 @@ export async function ensureIndex(caseId: string): Promise<void> {
   }
 }
 
+export async function countDocuments(caseId: string): Promise<number> {
+  const client = getClient();
+  const index  = indexFor(caseId);
+  try {
+    const res = await client.count({ index });
+    return typeof res.count === 'number' ? res.count : 0;
+  } catch (e: any) {
+    logger.warn(`[ES] countDocuments warning (${caseId}): ${String(e.message).substring(0, 100)}`);
+    return 0;
+  }
+}
+
 export async function clearCaseIndex(caseId: string): Promise<void> {
   const client = getClient();
   const index  = indexFor(caseId);
@@ -193,6 +205,37 @@ export async function deleteByResultId(caseId: string, resultId: string): Promis
   }
 }
 
+// Targeted cleanup for a partial re-parse: remove only the documents of the
+// artifact types being re-run on one evidence, leaving other types untouched.
+// deleteByResultId is too coarse here — it would drop every type tied to the
+// result row, and the untouched types must stay searchable in ES.
+export async function deleteByEvidenceAndTypes(caseId: string, evidenceId: string, artifactTypes: string[]): Promise<void> {
+  if (!artifactTypes || artifactTypes.length === 0) return;
+  try {
+    const client = getClient();
+    const index  = indexFor(caseId);
+    const exists = await client.indices.exists({ index });
+    if (!exists) return;
+    await client.deleteByQuery({
+      index,
+      body: {
+        query: {
+          bool: {
+            must: [
+              { term: { evidence_id: evidenceId } },
+              { terms: { artifact_type: artifactTypes } },
+            ],
+          },
+        },
+      },
+      refresh: true,
+    });
+    logger.info(`[ES] deleteByEvidenceAndTypes: cleared ${artifactTypes.join(',')} for evidence ${evidenceId}`);
+  } catch (e: any) {
+    logger.warn(`[ES] deleteByEvidenceAndTypes warning (${caseId}/${evidenceId}): ${String(e.message).substring(0, 100)}`);
+  }
+}
+
 export interface TimelineRecord {
   timestamp:     string;
   artifact_type: string;
@@ -200,6 +243,8 @@ export interface TimelineRecord {
   description:   string;
   source:        string;
   raw:           Record<string, unknown>;
+
+  result_id?:    string | null;
 
   mitre_technique_id?:   string | null;
   mitre_technique_name?: string | null;
@@ -209,6 +254,7 @@ export interface TimelineRecord {
   process_name?:         string | null;
 
   evidence_id?:          string | null;
+  dedupe_hash?:          string | null;
 }
 
 export async function bulkIndex(
@@ -226,10 +272,14 @@ export async function bulkIndex(
 
   const operations: unknown[] = [];
   for (const rec of records) {
-    operations.push({ index: { _index: index } });
+    // Use the stable dedupe_hash as the document _id so ES mirrors the PG
+    // unique (case_id, dedupe_hash) index: a duplicate row (same hive from a
+    // VSS copy, re-index of an already-present event) overwrites instead of
+    // adding a second document, keeping search counts identical to the DB.
+    operations.push({ index: { _index: index, ...(rec.dedupe_hash ? { _id: rec.dedupe_hash } : {}) } });
     operations.push({
       case_id:       caseId,
-      result_id:     resultId   ?? null,
+      result_id:     resultId   ?? rec.result_id ?? null,
       evidence_id:   evidenceId ?? rec.evidence_id ?? null,
       timestamp:     rec.timestamp,
       artifact_type: rec.artifact_type,

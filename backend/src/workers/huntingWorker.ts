@@ -4,10 +4,10 @@ import { createRedisConnection, HuntJobData } from '../config/queue';
 import { reconcileStaleHunts } from '../services/huntRuns';
 const { runAllEngines } = require('../services/runAllService');
 
-export type HuntDeps = { runAllEngines: (pool: Pool, caseId: string, userId: string, huntRunId: string) => Promise<void>; pool: Pool };
+export type HuntDeps = { runAllEngines: (pool: Pool, caseId: string, userId: string, huntRunId: string, evidenceId?: string) => Promise<void>; pool: Pool };
 
 export async function processHunt(data: HuntJobData, deps: HuntDeps): Promise<void> {
-  await deps.runAllEngines(deps.pool, data.caseId, data.userId, data.huntRunId);
+  await deps.runAllEngines(deps.pool, data.caseId, data.userId, data.huntRunId, data.evidenceId);
 }
 
 // Wiring (not under unit test): construct the real Worker with real deps.

@@ -114,6 +114,7 @@ export default function CollectionPage() {
           }
           setStep('parsing');
           setProgress(Math.round((d.globalPct || 0) * 0.8));
+          if (!pollIv) pollIv = setInterval(poll, 3000);
         } else if (d?.done && !handledDoneRef.current) {
           handledDoneRef.current = true;
           reattachedRef.current = false;
@@ -135,14 +136,19 @@ export default function CollectionPage() {
           }
           setProgress(100);
           setStep('idle');
-        } else if (reattachedRef.current && !d?.done) {
-          reattachedRef.current = false;
+          stopPolling();
+        } else {
+          // Idle: nothing to track, stop polling until the next step change.
+          if (reattachedRef.current) reattachedRef.current = false;
+          stopPolling();
         }
       })
       .catch(() => {});
+    // Poll once to (re-)attach, then keep polling ONLY while a parse is live.
+    let pollIv = null;
+    const stopPolling = () => { if (pollIv) { clearInterval(pollIv); pollIv = null; } };
     poll();
-    const timer = setInterval(poll, 3000);
-    return () => { alive = false; clearInterval(timer); };
+    return () => { alive = false; stopPolling(); };
   }, [selectedCase, step]);
 
   const handleFile = async (file) => {

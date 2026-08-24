@@ -5,11 +5,12 @@ import {
   Boxes, Search, Loader2, ChevronLeft, ChevronRight, ChevronDown,
   ChevronRight as ChevronRightSm, FileText, Database, X, ArrowUpDown,
   Folder, FolderOpen, ListTree, Table2, AlertTriangle, Filter,
-  Regex, FileSearch, Clock,
+  Regex, FileSearch, Clock, Copy, Check, Info, Shield,
 } from 'lucide-react';
-import { collectionAPI } from '../utils/api';
+import { collectionAPI, iocsAPI } from '../utils/api';
 import { artifactColor } from '../constants/artifactColors';
 import { parseFlexibleTimestamp } from '../components/supertimeline/utils/timelineUtils';
+import { detectIocType } from '../utils/iocType';
 
 const MONO = 'var(--f-mono, "JetBrains Mono", monospace)';
 const PAGE_SIZE = 100;
@@ -45,6 +46,13 @@ const PRIMARY_COLUMNS = {
   syslog:    ['Program', 'Message'],
   bash_history: ['Command', 'UserName'],
   unified_log: ['ProcessName', 'Message'],
+  catscale_auth:        ['category', 'username', 'source_ip'],
+  catscale_logon:       ['user', 'tty', 'from', 'still_logged'],
+  catscale_process:     ['pid', 'user', 'command'],
+  catscale_network:     ['proto', 'state', 'local', 'dst_ip'],
+  catscale_history:     ['command', 'username'],
+  catscale_persistence: ['unit', 'state', 'cron_entry', 'user'],
+  catscale_fstimeline:  ['path', 'timestamp_kind', 'ext', 'user', 'size'],
 };
 
 function fmtTs(iso) {
@@ -685,7 +693,7 @@ export default function CollectionArtifactsPage() {
                             {open && (
                               <tr>
                                 <td colSpan={BASE_COLS.length + tableColumns.length + 1} style={{ background: 'var(--fl-card)', borderBottom: '1px solid var(--fl-border)' }}>
-                                  <RowDetail r={r} extraHidden={extraCount} />
+                                  <RowDetail r={r} extraHidden={extraCount} caseId={caseId} />
                                 </td>
                               </tr>
                             )}
@@ -715,7 +723,52 @@ const td = {
   padding: '5px 8px', color: 'var(--fl-text)', verticalAlign: 'top', whiteSpace: 'nowrap',
 };
 
-function RowDetail({ r, extraHidden = 0 }) {
+// ── IOC quick-add next to any raw value that looks like an indicator ─────────
+// Type auto-detection is shared via utils/iocType.js.
+
+function IocButton({ value, field, caseId, ts }) {
+  const [added, setAdded] = useState(false);
+  const [err, setErr] = useState('');
+  const s = value == null ? '' : (typeof value === 'object' ? JSON.stringify(value) : String(value));
+  if (!s || s === '—' || s.length < 2 || !caseId) return null;
+  const match = detectIocType(s);
+
+  const handleAdd = async () => {
+    setErr('');
+    try {
+      await iocsAPI.create(caseId, {
+        ioc_type: match.type,
+        value: s.slice(0, 500),
+        description: `${field} from collection artifact`,
+        severity: 5,
+        source: 'collection_artifact',
+        first_seen: ts || null,
+      });
+      setAdded(true);
+      setTimeout(() => setAdded(false), 1500);
+    } catch (e) {
+      setErr('Failed');
+    }
+  };
+
+  return (
+    <button
+      onClick={handleAdd}
+      title={err || `Add ${match.label} IOC: ${s}`}
+      style={{
+        marginLeft: 6, fontSize: 8, padding: '1px 5px', borderRadius: 3, cursor: 'pointer',
+        background: added ? 'color-mix(in srgb, var(--fl-ok) 14%, transparent)' : 'var(--fl-card)',
+        border: `1px solid ${added ? 'color-mix(in srgb, var(--fl-ok) 30%, transparent)' : 'color-mix(in srgb, var(--fl-danger) 25%, transparent)'}`,
+        color: added ? 'var(--fl-ok)' : 'var(--fl-danger)',
+        fontFamily: MONO, whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 2,
+      }}
+    >
+      {added ? '✓' : <><Shield size={8} />IOC</>}
+    </button>
+  );
+}
+
+function RowDetail({ r, extraHidden = 0, caseId }) {
   const { t } = useTranslation();
   const meta = [
     ['artifact_type', r.artifact_type],
@@ -749,9 +802,10 @@ function RowDetail({ r, extraHidden = 0 }) {
       {meta.length > 0 && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '4px 18px', marginBottom: 10 }}>
           {meta.map(([k, v]) => (
-            <div key={k} style={{ display: 'flex', gap: 8, fontFamily: MONO, fontSize: 11 }}>
+            <div key={k} style={{ display: 'flex', gap: 8, fontFamily: MONO, fontSize: 11, alignItems: 'flex-start' }}>
               <span style={{ color: 'var(--fl-muted)', flexShrink: 0 }}>{k}</span>
               <span style={{ color: 'var(--fl-text)', wordBreak: 'break-all' }}>{cell(v)}</span>
+              <IocButton value={v} field={k} caseId={caseId} ts={r.timestamp} />
             </div>
           ))}
         </div>
@@ -768,6 +822,7 @@ function RowDetail({ r, extraHidden = 0 }) {
             <div key={k} style={{ display: 'flex', gap: 8, fontFamily: MONO, fontSize: 11, alignItems: 'flex-start' }}>
               <span style={{ color: 'var(--fl-accent)', flexShrink: 0 }}>{k}</span>
               <span style={{ color: 'var(--fl-text)', wordBreak: 'break-all', whiteSpace: 'pre-wrap' }}>{cell(v)}</span>
+              <IocButton value={v} field={k} caseId={caseId} ts={r.timestamp} />
             </div>
           ))}
         </div>
@@ -884,6 +939,13 @@ function ArtifactTree({ caseId, collectionId, type }) {
   const [expanded, setExpanded] = useState(() => new Set());
   const [search, setSearch] = useState('');
   const [debounced, setDebounced] = useState('');
+  const [copied, setCopied] = useState(''); // path currently shown as copied
+  const copyPath = useCallback((p) => {
+    if (!p) return;
+    navigator.clipboard?.writeText(p).catch(() => {});
+    setCopied(p);
+    setTimeout(() => setCopied(c => (c === p ? '' : c)), 1400);
+  }, []);
 
   useEffect(() => {
     const h = setTimeout(() => setDebounced(search), 250);
@@ -1011,7 +1073,8 @@ function ArtifactTree({ caseId, collectionId, type }) {
           </div>
         ) : (
           tree.roots.map(r => (
-            <TreeNode key={r.name} node={r} path={r.name} depth={0} expanded={expanded} onToggle={toggle} type={type} />
+            <TreeNode key={r.name} node={r} path={r.name} depth={0} expanded={expanded} onToggle={toggle} type={type}
+              copied={copied} onCopy={copyPath} />
           ))
         )}
       </div>
@@ -1019,11 +1082,12 @@ function ArtifactTree({ caseId, collectionId, type }) {
   );
 }
 
-function TreeNode({ node, path, depth, expanded, onToggle, type }) {
+function TreeNode({ node, path, depth, expanded, onToggle, type, copied, onCopy }) {
   const hasKids = node.children && node.children.length > 0;
   const hasValues = node.values && node.values.length > 0;
   const expandable = hasKids || hasValues;
   const open = expanded.has(path);
+  const [hov, setHov] = useState(false);
   return (
     <div>
       <div
@@ -1032,8 +1096,8 @@ function TreeNode({ node, path, depth, expanded, onToggle, type }) {
           display: 'flex', alignItems: 'center', gap: 6, padding: '3px 10px',
           paddingLeft: 10 + depth * 16, cursor: expandable ? 'pointer' : 'default', borderRadius: 5,
         }}
-        onMouseEnter={e => { if (expandable) e.currentTarget.style.background = 'var(--fl-card)'; }}
-        onMouseLeave={e => { if (expandable) e.currentTarget.style.background = 'transparent'; }}
+        onMouseEnter={e => { setHov(true); if (expandable) e.currentTarget.style.background = 'var(--fl-card)'; }}
+        onMouseLeave={e => { setHov(false); if (expandable) e.currentTarget.style.background = 'transparent'; }}
       >
         {expandable
           ? (open ? <ChevronDown size={12} style={{ color: 'var(--fl-muted)', flexShrink: 0 }} /> : <ChevronRightSm size={12} style={{ color: 'var(--fl-muted)', flexShrink: 0 }} />)
@@ -1042,12 +1106,19 @@ function TreeNode({ node, path, depth, expanded, onToggle, type }) {
         <span style={{ fontFamily: MONO, fontSize: 11.5, color: 'var(--fl-text)' }}>{node.name}</span>
         {hasKids && <span style={{ fontFamily: MONO, fontSize: 9, color: 'var(--fl-subtle)', fontFeatureSettings: '"tnum"' }}>{node.children.length}</span>}
         {hasValues && <span style={{ fontFamily: MONO, fontSize: 9, color: 'var(--fl-gold)', fontFeatureSettings: '"tnum"' }}>{node.values.length} {type === 'registry' ? 'valeur(s)' : 'entrée(s)'}</span>}
+        <button
+          onClick={e => { e.stopPropagation(); onCopy(path); }}
+          title="Copier le chemin"
+          style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: copied === path ? 'var(--fl-ok)' : 'var(--fl-muted)', display: 'inline-flex', alignItems: 'center', padding: 2, flexShrink: 0, opacity: hov || copied === path ? 1 : 0, transition: 'opacity 0.12s' }}
+        >
+          {copied === path ? <Check size={11} /> : <Copy size={11} />}
+        </button>
       </div>
       {open && (
         <div>
-          {node.values.map((v, i) => <TreeValue key={i} v={v} depth={depth + 1} type={type} />)}
+          {node.values.map((v, i) => <TreeValue key={i} v={v} depth={depth + 1} type={type} path={path} copied={copied} onCopy={onCopy} />)}
           {node.children.map(c => (
-            <TreeNode key={c.name} node={c} path={`${path}\\${c.name}`} depth={depth + 1} expanded={expanded} onToggle={onToggle} type={type} />
+            <TreeNode key={c.name} node={c} path={`${path}\\${c.name}`} depth={depth + 1} expanded={expanded} onToggle={onToggle} type={type} copied={copied} onCopy={onCopy} />
           ))}
         </div>
       )}
@@ -1055,15 +1126,66 @@ function TreeNode({ node, path, depth, expanded, onToggle, type }) {
   );
 }
 
-function TreeValue({ v, depth, type }) {
+function TreeValue({ v, depth, type, path, copied, onCopy }) {
+  const [showD, setShowD] = useState(false);
+  const fullPath = path ? `${path}\\${v.name}` : (v.name || '');
+  const rows = [
+    ['Chemin', fullPath],
+    ['Nom', v.name],
+    ['Taille', v.size != null ? fmtSize(v.size) : null],
+    ...(v.details ? [
+      ['Extension', v.details.extension],
+      ['Dossier', v.details.is_directory != null ? (v.details.is_directory === '1' ? 'Oui' : v.details.is_directory === '0' ? 'Non' : v.details.is_directory) : null],
+      ['En usage', v.details.in_use != null ? (v.details.in_use === '1' ? 'Oui' : v.details.in_use === '0' ? 'Non' : v.details.in_use) : null],
+      ['Créé (SIA)', v.details.created],
+      ['Créé (FN)', v.details.created_fn],
+      ['Modifié (SIA)', v.details.modified],
+      ['Modifié (FN)', v.details.modified_fn],
+      ['Dernier accès', v.details.last_access],
+      ['ObjectID', v.details.object_id],
+    ] : []),
+    ['Indexé le', v.last_write ? fmtTs(v.last_write) : null],
+  ].filter(([, val]) => val !== null && val !== undefined && val !== '');
   return (
-    <div style={{ display: 'flex', gap: 10, padding: '2px 10px', paddingLeft: 10 + (depth + 1) * 16, fontFamily: MONO, fontSize: 11, alignItems: 'baseline' }}>
-      <span style={{ color: 'var(--fl-gold)', minWidth: 140, maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flexShrink: 0 }} title={cell(v.name)}>
-        {cell(v.name) || (type === 'registry' ? '(défaut)' : '(—)')}
-      </span>
-      {v.type && <span style={{ color: 'var(--fl-subtle)', width: 78, flexShrink: 0, fontSize: 9.5 }}>{cell(v.type)}</span>}
-      {v.size != null && <span style={{ color: 'var(--fl-subtle)', width: 70, flexShrink: 0, fontSize: 9.5 }}>{fmtSize(v.size)}</span>}
-      <span style={{ color: 'var(--fl-text)', wordBreak: 'break-all', whiteSpace: 'pre-wrap', flex: 1 }}>{cell(v.data ?? v.description)}</span>
+    <div>
+      <div style={{ display: 'flex', gap: 10, padding: '2px 10px', paddingLeft: 10 + (depth + 1) * 16, fontFamily: MONO, fontSize: 11, alignItems: 'baseline' }}>
+        <span style={{ color: 'var(--fl-gold)', minWidth: 140, maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flexShrink: 0 }} title={cell(v.name)}>
+          {cell(v.name) || (type === 'registry' ? '(défaut)' : '(—)')}
+        </span>
+        {v.type && <span style={{ color: 'var(--fl-subtle)', width: 78, flexShrink: 0, fontSize: 9.5 }}>{cell(v.type)}</span>}
+        {v.size != null && <span style={{ color: 'var(--fl-subtle)', width: 70, flexShrink: 0, fontSize: 9.5 }}>{fmtSize(v.size)}</span>}
+        <span style={{ color: 'var(--fl-text)', wordBreak: 'break-all', whiteSpace: 'pre-wrap', flex: 1 }}>{cell(v.data ?? v.description)}</span>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+          <button
+            onClick={() => onCopy(fullPath)}
+            title="Copier le chemin complet"
+            style={{ background: 'none', border: 'none', cursor: 'pointer', color: copied === fullPath ? 'var(--fl-ok)' : 'var(--fl-muted)', display: 'inline-flex', padding: 2 }}
+          >
+            {copied === fullPath ? <Check size={11} /> : <Copy size={11} />}
+          </button>
+          {v.details && (
+            <button
+              onClick={() => setShowD(d => !d)}
+              title={showD ? 'Masquer les détails' : 'Détails du fichier'}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', color: showD ? 'var(--fl-accent)' : 'var(--fl-muted)', display: 'inline-flex', padding: 2 }}
+            >
+              <Info size={11} />
+            </button>
+          )}
+        </span>
+      </div>
+      {showD && v.details && (
+        <div style={{ margin: '2px 0 6px', marginLeft: 10 + (depth + 2) * 16, padding: '8px 10px', maxWidth: 640, background: 'var(--fl-card)', border: '1px solid var(--fl-border2)', borderRadius: 6, fontFamily: MONO, fontSize: 10.5 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '3px 14px', alignItems: 'baseline' }}>
+            {rows.map(([l, val]) => (
+              <Fragment key={l}>
+                <span style={{ color: 'var(--fl-muted)', textTransform: 'uppercase', fontSize: 8.5, letterSpacing: '0.05em', whiteSpace: 'nowrap' }}>{l}</span>
+                <span style={{ color: 'var(--fl-text)', wordBreak: 'break-all', minWidth: 0 }}>{cell(val)}</span>
+              </Fragment>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

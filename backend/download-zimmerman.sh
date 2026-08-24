@@ -87,12 +87,25 @@ else
 fi
 
 # ─── BatchExamples pour RECmd ─────────────────────────────────
+# The official batch files are NOT in the RECmd tool zip — they live in the
+# RECmd GitHub repo (BatchExamples/). Download them from the source; the app
+# also bundles a copy in backend/parsers/recmd-batch/ so parsing never
+# silently degrades to RECmd's basic mode when the network is unavailable.
 echo "  Downloading RECmd BatchExamples..."
-if curl -fsSL --connect-timeout 30 -o "$TEMP/RECmdBatch.zip" \
-    "https://download.ericzimmermanstools.com/net9/RECmd.zip" 2>/dev/null; then
-  mkdir -p "$DEST/BatchExamples"
-  unzip -o -q "$TEMP/RECmdBatch.zip" -d "$DEST/BatchExamples/" 2>/dev/null || true
-  echo "  ✓ RECmd BatchExamples installés"
+RECMD_BATCH_BASE="https://raw.githubusercontent.com/EricZimmerman/RECmd/master/BatchExamples"
+mkdir -p "$DEST/BatchExamples"
+BATCH_DL=0
+for batch in DFIRBatch.reb Kroll_Batch.reb; do
+  if curl -fsSL --connect-timeout 30 -o "$DEST/BatchExamples/$batch" \
+      "$RECMD_BATCH_BASE/$batch" 2>/dev/null; then
+    echo "  ✓ $batch"
+    BATCH_DL=$((BATCH_DL + 1))
+  else
+    echo "  ✗ $batch inaccessible (bundle embarqué utilisé en secours)"
+  fi
+done
+if [ "$BATCH_DL" -gt 0 ]; then
+  echo "  ✓ RECmd BatchExamples installés ($BATCH_DL/2)"
 else
   echo "  ✗ RECmd BatchExamples inaccessibles"
 fi

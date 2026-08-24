@@ -9,10 +9,15 @@ import type { StateRow } from './catscaleStateStore';
 import {
   parseHashList, parsePathList, parseHeaderTable,
   parseKeyValueBlocks, parsePathDescription, parseHeadMarkers,
+  parseNulHeadMarkers, parseFdLinks, parseMapFilesLinks, parseServiceStatus,
+  parseMountTable, parseDpkgList, parseKeyValueLines, parseLsusb, parseProcModules,
+  parseSudoInfo,
 } from './catscaleShapeParsers';
 
 export type Shape =
-  | 'hash_list' | 'path_list' | 'header_table' | 'kv_blocks' | 'path_desc' | 'head_markers';
+  | 'hash_list' | 'path_list' | 'header_table' | 'kv_blocks' | 'path_desc' | 'head_markers'
+  | 'nul_head' | 'fd_links' | 'map_links' | 'service_status' | 'mount_table'
+  | 'dpkg_list' | 'kv_lines' | 'lsusb' | 'proc_modules' | 'sudo_info';
 
 export interface SpecFinding {
   kind: string;
@@ -101,6 +106,54 @@ export const ARTIFACT_REGISTRY: ArtifactSpec[] = [
     dir: 'System_Info', pattern: 'modinfo', kind: 'module_info', shape: 'kv_blocks', blockKey: 'Module',
     labelOf: r => r.label ?? '',
   },
+  {
+    dir: 'System_Info', pattern: 'procmod', kind: 'proc_module', shape: 'proc_modules',
+    labelOf: r => r.module ?? '',
+  },
+  {
+    dir: 'System_Info', pattern: 'meminfo', kind: 'memory_info', shape: 'kv_lines',
+    labelOf: r => r.key ?? '',
+  },
+  {
+    dir: 'System_Info', pattern: 'cpuinfo', kind: 'cpu_core', shape: 'kv_blocks', blockKey: 'processor',
+    labelOf: r => r.label ?? '',
+  },
+  {
+    dir: 'System_Info', pattern: 'lsusb', kind: 'usb_device', shape: 'lsusb',
+    labelOf: r => r.id ?? '',
+  },
+  {
+    dir: 'System_Info', pattern: 'sudo', kind: 'sudo_version', shape: 'sudo_info',
+    labelOf: r => r.version ?? '',
+  },
+  {
+    dir: 'System_Info', pattern: 'df', kind: 'disk_usage', shape: 'header_table',
+    labelOf: r => r.filesystem ?? '',
+  },
+  {
+    dir: 'System_Info', pattern: 'mount', kind: 'mount_point', shape: 'mount_table',
+    labelOf: r => r.mountpoint ?? '',
+    findingOf: r => (r.fstype === 'cifs' || r.fstype === 'nfs' || /\/\d{1,3}(\.\d{1,3}){3}/.test(String(r.device))
+      ? { kind: 'remote_mount', path: r.mountpoint, description: `Remote filesystem mounted: ${r.device} on ${r.mountpoint} (${r.fstype})` }
+      : null),
+  },
+  {
+    dir: 'System_Info', pattern: 'deb-packages', kind: 'installed_package', shape: 'dpkg_list',
+    labelOf: r => r.name ?? '',
+  },
+  {
+    dir: 'System_Info', pattern: 'etc-key-files-list', kind: 'etc_key_file', shape: 'path_list',
+    labelOf: r => r.path,
+  },
+  {
+    dir: 'System_Info', pattern: 'etc-modified-files-list', kind: 'etc_modified_file', shape: 'path_list',
+    labelOf: r => r.path,
+    // A freshly added unit under /etc/systemd/system is the standard persistence
+    // spot; flag it so it surfaces without opening the file browser.
+    findingOf: r => (/^\/etc\/systemd\/system\/[^\/]+\.service$/.test(String(r.path))
+      ? { kind: 'systemd_unit_modified', path: String(r.path), description: `Systemd unit in /etc/systemd/system: ${r.path}` }
+      : null),
+  },
 
   // ── Logs ────────────────────────────────────────────────────────────────
   {
@@ -115,6 +168,26 @@ export const ARTIFACT_REGISTRY: ArtifactSpec[] = [
     dir: 'Logs', pattern: 'lastlog', kind: 'last_login', shape: 'header_table',
     labelOf: r => Object.values(r)[0] as string ?? '',
   },
+  {
+    dir: 'Logs', pattern: 'var-log-list', kind: 'var_log_file', shape: 'path_list',
+    labelOf: r => r.path,
+  },
+  {
+    dir: 'Logs', pattern: 'var-crash-list', kind: 'crash_file', shape: 'path_list',
+    labelOf: r => r.path,
+  },
+  {
+    dir: 'Logs', pattern: 'hidden-user-home-dir-list', kind: 'user_home_file', shape: 'path_list',
+    labelOf: r => r.path,
+  },
+  {
+    dir: 'Persistence', pattern: 'service_status', kind: 'service_status', shape: 'service_status',
+    labelOf: r => r.service ?? '',
+  },
+  {
+    dir: 'Persistence', pattern: 'cron-folder-list', kind: 'cron_spool_file', shape: 'path_list',
+    labelOf: r => r.path,
+  },
 
   // ── Process_and_Network ─────────────────────────────────────────────────
   {
@@ -127,8 +200,49 @@ export const ARTIFACT_REGISTRY: ArtifactSpec[] = [
     labelOf: r => r.path,
   },
   {
+    dir: 'Process_and_Network', pattern: 'process-cmdline', kind: 'process_cmdline', shape: 'nul_head',
+    // The command line is the content worth searching; the path only names the PID.
+    labelOf: r => r.text?.substring(0, 200) ?? r.path,
+  },
+  {
+    dir: 'Process_and_Network', pattern: 'process-environment', kind: 'process_environment', shape: 'nul_head',
+    labelOf: r => r.text?.substring(0, 200) ?? r.path,
+  },
+  {
+    dir: 'Process_and_Network', pattern: 'process-fd-links', kind: 'process_fd', shape: 'fd_links',
+    labelOf: r => r.target,
+    // A descriptor still open on a deleted file is an implant signature: the
+    // process ran from (or wrote to) something that has since been removed.
+    findingOf: r => (r.deleted
+      ? { kind: 'open_deleted_file', path: r.target, description: `Process ${r.pid} holds a deleted file open: ${r.target}` }
+      : null),
+  },
+  {
+    dir: 'Process_and_Network', pattern: 'process-map_files-links', kind: 'process_mapped_file', shape: 'map_links',
+    labelOf: r => r.target,
+    // A mapped executable that is not on disk anymore = an unlinked binary that
+    // is still running. Same signal as fd-links but for the executable itself.
+    findingOf: r => (r.deleted
+      ? { kind: 'unlinked_running_binary', path: r.target, description: `Process ${r.pid} maps a deleted binary: ${r.target}` }
+      : null),
+  },
+  {
+    dir: 'Process_and_Network', pattern: 'process-map_files-link-hashes', kind: 'process_mapped_hash', shape: 'hash_list',
+    labelOf: r => r.path,
+  },
+  {
     dir: 'Process_and_Network', pattern: 'ssh-folders-list', kind: 'ssh_folder', shape: 'path_list',
     labelOf: r => r.path,
+  },
+  {
+    dir: 'Process_and_Network', pattern: 'process-details', kind: 'process_detail', shape: 'kv_blocks', blockKey: 'Name',
+    labelOf: r => r.label,
+  },
+
+  // ── Collection itself ────────────────────────────────────────────────────
+  {
+    dir: '.', pattern: 'console-error-log', kind: 'console_error', shape: 'kv_lines',
+    labelOf: r => r.key ?? '',
   },
 
   // ── Podman — the CLI is Docker-compatible, so the shapes are the same ────
@@ -144,14 +258,24 @@ export const ARTIFACT_REGISTRY: ArtifactSpec[] = [
 
 function shapeRows(spec: ArtifactSpec, content: string): any[] {
   switch (spec.shape) {
-    case 'hash_list':    return parseHashList(content);
-    case 'path_list':    return parsePathList(content).map(path => ({ path }));
-    case 'header_table': return parseHeaderTable(content, spec.columns);
-    case 'kv_blocks':    return parseKeyValueBlocks(content, spec.blockKey ?? 'Module')
+    case 'hash_list':      return parseHashList(content);
+    case 'path_list':      return parsePathList(content).map(path => ({ path }));
+    case 'header_table':   return parseHeaderTable(content, spec.columns);
+    case 'kv_blocks':      return parseKeyValueBlocks(content, spec.blockKey ?? 'Module')
       .map(b => ({ label: b.label, ...b.fields }));
-    case 'path_desc':    return parsePathDescription(content);
-    case 'head_markers': return parseHeadMarkers(content);
-    default:             return [];
+    case 'path_desc':      return parsePathDescription(content);
+    case 'head_markers':   return parseHeadMarkers(content);
+    case 'nul_head':       return parseNulHeadMarkers(content, ' ');
+    case 'fd_links':       return parseFdLinks(content);
+    case 'map_links':      return parseMapFilesLinks(content);
+    case 'service_status': return parseServiceStatus(content);
+    case 'mount_table':    return parseMountTable(content);
+    case 'dpkg_list':      return parseDpkgList(content);
+    case 'kv_lines':       return parseKeyValueLines(content);
+    case 'lsusb':          return parseLsusb(content);
+    case 'proc_modules':   return parseProcModules(content);
+    case 'sudo_info':      return parseSudoInfo(content);
+    default:               return [];
   }
 }
 

@@ -24,7 +24,7 @@ const { safeBasename } = require('../services/uploadService');
 const { detectMapping, loadMappings } = require('../services/timelineMappings');
 const { buildSlimRaw } = require('../services/timelineFieldExtract');
 const { buildHayabusaDescription } = require('../services/hayabusaDescription');
-const { pushTextFilter, pushSearchFilter } = require('../utils/textFilter');
+const { pushTextFilter, pushSearchFilter, splitSearchTerms } = require('../utils/textFilter');
 const { fetchContext, AnchorNotFound } = require('../services/timelineContext');
 const { diffTimelines } = require('../services/timelineDiff');
 const { stripNullBytes, normalizeTimestamp, extractTimestamp, extractDescription } = require('../services/timelineNormalizeCore');
@@ -38,6 +38,11 @@ const { purgeFsTimeline, purgeCatScaleState } = require('../services/fsTimelineP
 const { parseRule, buildQuery } = require('../services/sigmaService');
 
 const router = express.Router();
+
+// Escape LIKE metacharacters in user input: `%`/`_` are wildcards and `\` is
+// PostgreSQL's DEFAULT LIKE escape character. Without this a Windows path like
+// `C:\Users\…` only matches when the user doubles every backslash.
+const escapeLike = (s) => String(s ?? '').replace(/[%_\\]/g, '\\$&');
 
 const { caseAccessParam } = require('../middleware/caseAccess');
 router.use(authenticate);
@@ -55,7 +60,9 @@ const WINDOWS_ONLY_PARSERS = new Set([]);
 
 const PYTHON_FALLBACK_PARSERS = new Set(['prefetch', 'srum', 'sqle', 'wxtcmd',
   // Custom Python parsers in /app/parsers (not Zimmerman) — bypass the ZIMMERMAN_DIR tool check.
-  'userassist', 'netprofile', 'usb', 'schtasks', 'pwsh', 'dns', 'webcache', 'pcap', 'wmi', 'rdpcache',
+  // registry is now parsed with parse_registry_full.py (dissect.regf full-hive dump),
+  // not RECmd — the RECmd.dll tool check must not skip it.
+  'userassist', 'netprofile', 'usb', 'schtasks', 'pwsh', 'dns', 'webcache', 'pcap', 'wmi', 'rdpcache', 'registry',
   'auditd', 'syslog', 'bash_history', 'unified_log']);
 
 const LARGE_CSV_THRESHOLD = 5 * 1024 * 1024;
@@ -413,11 +420,16 @@ function updateParseProgress(caseId, validTypes, data) {
   // (The event `current` is a start index, not a completion count, so it can't drive %.)
   // In-progress artifacts contribute their bytes-fraction so the % moves during
   // long streams instead of staying pinned until the artifact fully completes.
+  // An in-progress fraction is capped below 1.0: bytesRead counts bytes FED to
+  // the CSV parser, which races ahead of the actual row inserts — a fraction of
+  // 1.0 with status still 'parsing' used to light the cockpit at 100% while the
+  // last batches were still landing. 100% is only ever reached when every
+  // artifact has actually finished (done/skipped/error).
   const states = Object.values(e.parsers);
   let weighted = 0;
   for (const p of states) {
     if (p.status === 'done' || p.status === 'skipped' || p.status === 'error') weighted += 1;
-    else if (p.status === 'parsing' && typeof p.fraction === 'number') weighted += Math.min(1, Math.max(0, p.fraction));
+    else if (p.status === 'parsing' && typeof p.fraction === 'number') weighted += Math.min(0.99, Math.max(0, p.fraction));
   }
   e.globalPct = states.length ? Math.round((weighted / states.length) * 100) : 0;
   e.updatedAt = Date.now();
@@ -472,6 +484,8 @@ async function streamNormalizeToDB(csvPath, caseId, resultId, artifactType, conf
         records: normalized,
         rawCount,
         fraction: csvSize > 0 ? Math.min(1, bytesRead / csvSize) : 0,
+        bytesRead,
+        size: csvSize,
       });
     } catch (_e) {}
   };
@@ -484,6 +498,13 @@ async function streamNormalizeToDB(csvPath, caseId, resultId, artifactType, conf
   };
   // Rows with no parseable timestamp are kept (searchable) and anchored here.
   const fallbackTs = new Date().toISOString();
+
+  // USN rename pairing: the journal writes RenameOldName + RenameNewName as two
+  // back-to-back records for the same file identity (EntryNumber|SequenceNumber).
+  // Keep a bounded map of the latest record per identity so the second record of
+  // the pair can carry the previous name: "new.txt (renamed from: old.txt)".
+  const usnRenameMap = new Map();
+  const USN_RENAME_MAP_MAX = 20000;
 
   const insertBatch = async (rows) => {
     if (rows.length === 0) return;
@@ -583,8 +604,13 @@ async function streamNormalizeToDB(csvPath, caseId, resultId, artifactType, conf
   async function insertRowsResilient(rows, attempt = 0) {
     if (rows.length === 0) return { inserted: 0, error: null };
     try {
-      await insertBatch(rows);
-      return { inserted: rows.length, error: null };
+      const res = await insertBatch(rows);
+      // rowCount = rows ACTUALLY inserted. ON CONFLICT DO NOTHING silently
+      // skips rows whose (case_id, dedupe_hash) already exists — e.g. the same
+      // hive collected live AND from a VSS shadow copy yields identical rows
+      // with the same hash. Counting rows.length here (as before) made the
+      // parse cockpit report ~2x the real timeline rows (1 M instead of 512 k).
+      return { inserted: res && Number.isFinite(res.rowCount) ? res.rowCount : rows.length, error: null };
     } catch (err) {
       // Deadlock (40P01) / serialization (40001) are transient and not caused by
       // a bad row — retry the same batch briefly. Every other error (data/type)
@@ -657,6 +683,37 @@ async function streamNormalizeToDB(csvPath, caseId, resultId, artifactType, conf
       // AmcacheParser KeyName format: "ProgramName|hexhash" — strip the hash suffix
       if (artifactType === 'amcache' && baseDesc && /\|[0-9a-f]{8,}$/i.test(baseDesc)) {
         baseDesc = baseDesc.replace(/\|[0-9a-f]{8,}$/i, '').trim();
+      }
+      // USN: extractDescription returns only the FIRST of ['Name','UpdateReasons']
+      // (usually just the file name), hiding why the journal entry happened. Keep
+      // both: "file.txt | FileCreate|DataOverwrite|…". For rename records, pair
+      // the RenameOldName/RenameNewName records of the same file identity so the
+      // new-name record shows the old one: "Backup.7z (renamed from: Old.7z)".
+      if (artifactType === 'usn') {
+        const usnName   = (clean['Name'] || '').toString().trim();
+        const usnReason = (clean['UpdateReasons'] || '').toString().trim();
+        const usnEntry  = String(clean['EntryNumber'] || '').trim();
+        const usnSeq    = String(clean['SequenceNumber'] || '').trim();
+        const usnId     = (usnEntry && usnSeq) ? `${usnEntry}|${usnSeq}` : null;
+        let renameNote  = '';
+        if (usnId) {
+          const prev = usnRenameMap.get(usnId);
+          if (/RenameNewName/i.test(usnReason) && prev
+              && /RenameOldName/i.test(prev.reasons) && prev.name && prev.name !== usnName) {
+            renameNote = ` (renamed from: ${prev.name})`;
+          }
+          // Track the latest record per identity so the pair is captured in either
+          // journal order, and keep the map bounded.
+          if (/RenameOldName|RenameNewName/i.test(usnReason)) {
+            usnRenameMap.set(usnId, { name: usnName, reasons: usnReason });
+            if (usnRenameMap.size > USN_RENAME_MAP_MAX) {
+              const firstKey = usnRenameMap.keys().next().value;
+              if (firstKey !== undefined) usnRenameMap.delete(firstKey);
+            }
+          }
+        }
+        if (usnName && usnReason) baseDesc = `${usnName}${renameNote} | ${usnReason}`;
+        else if (usnReason)       baseDesc = usnReason;
       }
       let baseSource = clean[config.sourceColumn] || '';
       // amcache ShortCuts CSV has no ProgramName — fall back to LnkName path
@@ -1169,9 +1226,22 @@ router.get('/:caseId/parse-result', authenticate, async (req, res) => {
 
 // Event-density histogram of the case timeline — buckets for the live parsing sparkline.
 // Bounds are clamped to a sane window so forensic junk timestamps (year 2069…) don't skew it.
+// The histogram aggregates the WHOLE case timeline (millions of rows) and is
+// polled every ~10s during parsing. Caching it with a short TTL keeps the
+// sparkline live (rows land continuously anyway) while cutting the aggregate
+// load on Postgres from every-poll to once per TTL — searches and parses share
+// the same DB, so this directly relieves the pressure the user sees.
+const histogramCache = new Map(); // caseId -> { at, buckets, total, lo, hi }
+const HISTOGRAM_TTL_MS = 8000;
+
 router.get('/:caseId/timeline-histogram', authenticate, async (req, res) => {
   const { caseId } = req.params;
   const N = Math.min(80, Math.max(12, parseInt(req.query.buckets, 10) || 48));
+  const now = Date.now();
+  const cached = histogramCache.get(caseId);
+  if (cached && cached.n === N && now - cached.at < HISTOGRAM_TTL_MS) {
+    return res.json({ buckets: cached.buckets, total: cached.total, lo: cached.lo, hi: cached.hi });
+  }
   // This sparkline aggregates the whole case timeline (can be millions of rows)
   // and is polled live every ~10s during parsing. It must NEVER take a write-pool
   // connection (pool.connect() outside try/catch threw an unhandled rejection
@@ -1198,7 +1268,12 @@ router.get('/:caseId/timeline-histogram', authenticate, async (req, res) => {
         WHERE case_id = $1 AND timestamp BETWEEN '1990-01-01' AND '2100-01-01'`, [caseId]);
     const buckets = new Array(N).fill(0);
     for (const row of r.rows) { const i = (row.bkt || 1) - 1; if (i >= 0 && i < N) buckets[i] = row.n; }
-    res.json({ buckets, total: bnd.rows[0]?.total || 0, lo: bnd.rows[0]?.lo || null, hi: bnd.rows[0]?.hi || null });
+    const payload = { buckets, total: bnd.rows[0]?.total || 0, lo: bnd.rows[0]?.lo || null, hi: bnd.rows[0]?.hi || null };
+    histogramCache.set(caseId, { at: Date.now(), n: N, ...payload });
+    if (histogramCache.size > 200) {
+      for (const [k, v] of histogramCache) if (Date.now() - v.at > HISTOGRAM_TTL_MS * 4) histogramCache.delete(k);
+    }
+    res.json(payload);
   } catch (err) {
     logger.warn('[timeline-histogram]', err.message);
     res.json({ buckets: [], total: 0, lo: null, hi: null });
@@ -1419,6 +1494,67 @@ router.get('/:caseId/file/download', authenticate, async (req, res) => {
   res.sendFile(real);
 });
 
+// ── Registry hive browser ────────────────────────────────────────────────────
+// Browse one hive file (NTUSER.DAT, SYSTEM, SOFTWARE, SAM, UsrClass.dat, …) key
+// by key in the Files view. RECmd's batch files only extract a curated subset of
+// keys, so the analyst needs a way to walk the whole hive (e.g. WinSCP sessions
+// that live outside the batch's key list). Uses dissect.regf via a small Python
+// helper — pure Python, already installed, no Windows DLLs.
+router.get('/:caseId/file/hive', authenticate, async (req, res) => {
+  const { caseId } = req.params;
+  const root = await resolveCollectionRoot(caseId, req.query);
+  if (!root) return res.status(404).json({ error: 'Répertoire de collecte introuvable' });
+
+  const target = safeJoin(root, req.query.path);
+  if (!target) return res.status(400).json({ error: 'Chemin invalide' });
+  const real = realpathContained(root, target);
+  if (!real) return res.status(403).json({ error: 'Chemin hors de la collecte' });
+  try {
+    if (!fs.statSync(real).isFile()) return res.status(400).json({ error: 'Ce chemin n\'est pas un fichier' });
+  } catch (_e) {
+    return res.status(404).json({ error: 'Fichier introuvable' });
+  }
+
+  const keyPath = String(req.query.key || '').slice(0, 2048);
+  const search = String(req.query.search || '').trim().slice(0, 256);
+  // Python parsers live in /app/parsers (bundled in the image), not under src/.
+  const script = '/app/parsers/parse_hive_browse.py';
+  try {
+    // spawnSync (not spawnTool): dissect.regf logs hive-integrity warnings to
+    // stderr (dirty hive, open transaction), and mixing stderr into the JSON
+    // payload would break JSON.parse. Parse stdout only; the exit status and
+    // stderr still surface in the error path.
+    const run = spawnSync(
+      'python3',
+      [script, '-f', real,
+        ...(search ? ['--search', search] : []),
+        ...(!search && keyPath ? ['-p', keyPath] : []),
+        '--limit', '500'],
+      { encoding: 'utf8', timeout: 60000, maxBuffer: 64 * 1024 * 1024 }
+    );
+    if (run.error) throw run.error;
+    if (run.status !== 0) {
+      const stderr = String(run.stderr || '').trim().slice(0, 500);
+      logger.warn(`[hive-browse] script exit ${run.status}: ${stderr}`);
+      return res.status(500).json({ error: 'Impossible de lire ce hive (fichier corrompu ou non registre ?)' });
+    }
+    const data = JSON.parse(String(run.stdout || '').trim() || '{}');
+    if (data.error) return res.status(400).json({ error: data.error });
+    // A readable hive always returns values/subkeys (browse) or matches (search).
+    // An empty {} means the helper produced no output at all — surface it as a
+    // real error instead of silently rendering a blank panel.
+    if (!Array.isArray(data.values) && !Array.isArray(data.subkeys) && !Array.isArray(data.matches)) {
+      const stderr = String(run.stderr || '').trim().slice(0, 300);
+      logger.warn(`[hive-browse] empty output for ${path.basename(real)} (exit ${run.status}): ${stderr || 'no stderr'}`);
+      return res.status(500).json({ error: 'Impossible de lire ce hive (sortie vide du parseur)' });
+    }
+    res.json(data);
+  } catch (e) {
+    logger.warn(`[hive-browse] ${path.basename(real)}: ${String(e.message).substring(0, 200)}`);
+    return res.status(500).json({ error: 'Impossible de lire ce hive (fichier corrompu ou non registre ?)' });
+  }
+});
+
 // ── Export all recovered MFT resident files as a single ZIP ──────────────────
 // The parse step (--dr) copies carved resident files into <coll>/_mft_resident,
 // optionally under one subdir per $MFT source. This endpoint zips that tree and
@@ -1619,6 +1755,18 @@ router.post('/:caseId/parse', authenticate, async (req, res) => {
     ? Object.keys(ARTIFACT_PATTERNS)
     : (Array.isArray(requestedTypes) ? requestedTypes : [requestedTypes]);
 
+  // A partial re-parse re-runs only a SUBSET of the artifact types of a
+  // collection. In that case the other types' timeline rows and their
+  // parse_results must survive: deleting the whole result row (the legacy
+  // full-reparse path) would cascade-delete EVTX/MFT/… that were not selected.
+  // When no explicit subset is given the legacy "replace everything" semantics
+  // are preserved so the existing Re-parser button keeps its behaviour.
+  const allTypeKeys = Object.keys(ARTIFACT_PATTERNS);
+  const isPartialReparse = Array.isArray(requestedTypes)
+    && requestedTypes.length > 0
+    && requestedTypes.some(t => ARTIFACT_PATTERNS[t])
+    && requestedTypes.length < allTypeKeys.length;
+
   const io       = req.app.locals.io;
   const socketId = req.body.socketId || null;
   const validTypes = typesToParse.filter(t => ARTIFACT_PATTERNS[t]);
@@ -1646,6 +1794,23 @@ router.post('/:caseId/parse', authenticate, async (req, res) => {
       if (evRow.rows.length > 0) evidenceId = evRow.rows[0].id;
     } catch (_e) {}
   }
+  // Last-resort linkage: when no evidence is bound by body or exact file_path
+  // (e.g. a re-parse from a view that does not carry evidence_id), attach the
+  // case's most-populated evidence so inserted rows are NEVER orphaned — rows
+  // with NULL evidence_id show up in the SuperTimeline but are invisible in the
+  // per-evidence menu, which is how the two totals drift apart.
+  if (!evidenceId) {
+    try {
+      const topEv = await pool.query(
+        `SELECT evidence_id AS id
+           FROM collection_timeline
+          WHERE case_id = $1 AND evidence_id IS NOT NULL
+          GROUP BY evidence_id
+          ORDER BY COUNT(*) DESC
+          LIMIT 1`, [caseId]);
+      if (topEv.rows.length > 0) evidenceId = topEv.rows[0].id;
+    } catch (_e) {}
+  }
 
   let sourceDevice = null;
   try {
@@ -1666,7 +1831,19 @@ router.post('/:caseId/parse', authenticate, async (req, res) => {
 
   // Atomic: lock previous results → delete stale data → insert new result record.
   // FOR UPDATE prevents two concurrent re-parsings from both deleting and double-inserting.
+  //
+  // Two modes:
+  //  - FULL re-parse (no subset, or the whole catalog): the legacy behaviour —
+  //    drop the previous result row (cascading its timeline rows) and start a
+  //    fresh UnifiedTimeline row.
+  //  - PARTIAL re-parse (explicit subset of types): keep the previous result
+  //    row and only delete the timeline rows of the re-run types. The new
+  //    parse_results are merged back into that same row so the per-evidence
+  //    counts and the parser-log view stay consistent.
   let oldResultIds = [];
+  let oldParsedResults = null;
+  let oldRecordCount = 0;
+  let reusedResultRow = null;
   let resultId;
   {
     let dbClient;
@@ -1674,28 +1851,76 @@ router.post('/:caseId/parse', authenticate, async (req, res) => {
       dbClient = await pool.connect();
       await dbClient.query('BEGIN');
       const oldPrRows = await dbClient.query(
-        `SELECT id FROM parser_results
+        `SELECT id, parser_name, output_data, record_count
+         FROM parser_results
          WHERE case_id = $1 AND input_file = $2 AND parser_name != 'MagnetRESPONSE_Import'
          FOR UPDATE`,
         [caseId, collDir]
       );
       oldResultIds = oldPrRows.rows.map(r => r.id);
-      if (oldResultIds.length > 0) {
-        await dbClient.query(
-          `DELETE FROM collection_timeline WHERE result_id = ANY($1::uuid[])`,
-          [oldResultIds]
-        );
-        await dbClient.query(
-          `DELETE FROM parser_results WHERE id = ANY($1::uuid[])`,
-          [oldResultIds]
-        );
+
+      if (isPartialReparse && oldPrRows.rows.length > 0) {
+        // Reuse the existing UnifiedTimeline result row so the untouched types
+        // keep their parse_results; delete only the rows of the types being
+        // re-run. (Other parser rows — Hayabusa, … — are left untouched.)
+        const unifiedRow = oldPrRows.rows.find(r => r.parser_name === 'UnifiedTimeline');
+        if (unifiedRow) {
+          reusedResultRow = unifiedRow;
+          oldParsedResults = (unifiedRow.output_data && unifiedRow.output_data.parse_results) || null;
+          oldRecordCount = unifiedRow.record_count || 0;
+          resultId = unifiedRow.id;
+          await dbClient.query(
+            `DELETE FROM collection_timeline
+              WHERE result_id = $1 AND artifact_type = ANY($2::text[])`,
+            [resultId, validTypes]
+          );
+          // Reset the reused row to the 'parsing' state. Without this the old
+          // output_data (status 'done' + stale parse_results) survives into the
+          // new run: the /parse-progress durable fallback would then report a
+          // terminal 'terminé' state right away (and the persisted progress
+          // snapshot would never write), so the cockpit never appears until a
+          // manual refresh. The old parse_results are already captured above
+          // (oldParsedResults) and are merged back at finalization.
+          await dbClient.query(
+            `UPDATE parser_results
+                SET output_data = '{"status":"parsing"}'::jsonb
+              WHERE id = $1`,
+            [resultId]
+          );
+        }
       }
-      const prRow = await dbClient.query(
-        `INSERT INTO parser_results (case_id, evidence_id, parser_name, parser_version, input_file, output_data, record_count, created_by)
-         VALUES ($1, $2, 'UnifiedTimeline', '2.0', $3, '{"status":"parsing"}'::jsonb, 0, $4) RETURNING id`,
-        [caseId, evidenceId || null, collDir, req.user.id]
-      );
-      resultId = prRow.rows[0].id;
+
+      if (!reusedResultRow) {
+        if (isPartialReparse) {
+          // Partial re-parse with no prior UnifiedTimeline row: nothing to merge
+          // into, so just start a fresh row without touching other parsers
+          // (Hayabusa, …) that may share this collection.
+          const prRow = await dbClient.query(
+            `INSERT INTO parser_results (case_id, evidence_id, parser_name, parser_version, input_file, output_data, record_count, created_by)
+             VALUES ($1, $2, 'UnifiedTimeline', '2.0', $3, '{"status":"parsing"}'::jsonb, 0, $4) RETURNING id`,
+            [caseId, evidenceId || null, collDir, req.user.id]
+          );
+          resultId = prRow.rows[0].id;
+        } else {
+          // Full re-parse: replace the previous results entirely.
+          if (oldResultIds.length > 0) {
+            await dbClient.query(
+              `DELETE FROM collection_timeline WHERE result_id = ANY($1::uuid[])`,
+              [oldResultIds]
+            );
+            await dbClient.query(
+              `DELETE FROM parser_results WHERE id = ANY($1::uuid[])`,
+              [oldResultIds]
+            );
+          }
+          const prRow = await dbClient.query(
+            `INSERT INTO parser_results (case_id, evidence_id, parser_name, parser_version, input_file, output_data, record_count, created_by)
+             VALUES ($1, $2, 'UnifiedTimeline', '2.0', $3, '{"status":"parsing"}'::jsonb, 0, $4) RETURNING id`,
+            [caseId, evidenceId || null, collDir, req.user.id]
+          );
+          resultId = prRow.rows[0].id;
+        }
+      }
       await dbClient.query('COMMIT');
     } catch (initErr) {
       if (dbClient) {
@@ -1708,23 +1933,33 @@ router.post('/:caseId/parse', authenticate, async (req, res) => {
     if (dbClient) dbClient.release();
   }
 
-  // ES cleanup outside the transaction — best-effort, non-blocking for the DB
-  if (oldResultIds.length > 0) {
-    for (const rid of oldResultIds) {
-      await esService.deleteByResultId(caseId, rid).catch(e =>
-        logger.warn(`[ES] deleteByResultId warn (${caseId}/${rid}): ${String(e.message).substring(0, 100)}`));
-    }
-  } else {
-    await esService.ensureIndex(caseId).catch(e =>
-      logger.warn(`[ES] ensureIndex warn (${caseId}): ${String(e.message).substring(0, 100)}`));
-  }
-
     res.json({ id: resultId, status: 'parsing' });
 
     (async () => {
       let parseJobOutcome = 'success';
       let parseJobError = null;
       try {
+
+        // ES cleanup deferred OUT of the request path so /parse returns
+        // immediately (the re-parser button no longer waits on a slow
+        // deleteByQuery). It runs at the start of the job, before the parse
+        // loop, so it always completes before the end-of-parse re-index — safe
+        // for both full and partial re-parses. Best-effort: errors are logged.
+        if (isPartialReparse) {
+          // Remove only the re-run types' documents; untouched types stay in ES.
+          if (evidenceId) {
+            await esService.deleteByEvidenceAndTypes(caseId, evidenceId, validTypes).catch(e =>
+              logger.warn(`[ES] deleteByEvidenceAndTypes warn (${caseId}/${evidenceId}): ${String(e.message).substring(0, 100)}`));
+          }
+        } else if (oldResultIds.length > 0) {
+          for (const rid of oldResultIds) {
+            await esService.deleteByResultId(caseId, rid).catch(e =>
+              logger.warn(`[ES] deleteByResultId warn (${caseId}/${rid}): ${String(e.message).substring(0, 100)}`));
+          }
+        } else {
+          await esService.ensureIndex(caseId).catch(e =>
+            logger.warn(`[ES] ensureIndex warn (${caseId}): ${String(e.message).substring(0, 100)}`));
+        }
 
   // Liveness heartbeat: the heavy artifacts (EVTX over 100+ files, MFT, USN)
   // spend 30+ min in the tool phase with no artifact_start/artifact_done
@@ -1922,14 +2157,40 @@ router.post('/:caseId/parse', authenticate, async (req, res) => {
           dirInput = candidate;
         }
 
-        if (artifactType === 'lnk' && files.length > 1) {
-          const recentFiles = files.filter(f => {
-            const lower = f.toLowerCase();
-            return !lower.includes('recycle') && (lower.includes('/recent/') || lower.includes('/lnk_files/'));
-          });
-          if (recentFiles.length > 0) dirInput = path.dirname(recentFiles[0]);
-        }
-        if (artifactType === 'evtx') {
+        if (artifactType === 'lnk') {
+          // LNK shortcuts live scattered across many folders (Recent, Desktop,
+          // Startup, AppData…). Parsing only ONE directory (the old
+          // dirname(files[0]) / first "recent" dir) silently dropped every
+          // .lnk elsewhere. Run LECmd -d per unique parent directory, each into
+          // its own output subdir, so ALL found shortcuts are parsed.
+          // Recycle-bin LNKs stay excluded (junk + noise).
+          if (config.toolEnv) toolEnv = { ...process.env, ...config.toolEnv };
+          const allLnkDirs = [...new Set(files.map(f => path.dirname(f)))];
+          let lnkDirs = allLnkDirs.filter(d => !d.toLowerCase().includes('recycle'));
+          // Recycle-only collection (rare): keep the recycle dirs so we still
+          // parse something instead of zero.
+          if (lnkDirs.length === 0) lnkDirs = allLnkDirs;
+          // LECmd -d recurses: drop any dir nested inside another kept dir
+          // so we never parse the same subtree twice.
+          lnkDirs = lnkDirs.filter(d => !allLnkDirs.some(o => o !== d && d.startsWith(o + path.sep)));
+          const lnkLines = [];
+          for (let li = 0; li < lnkDirs.length; li++) {
+            emitProgress({ type: 'artifact_progress', artifact: artifactType, name: config.name, records: 0, fraction: lnkDirs.length > 1 ? li / lnkDirs.length : 0 });
+            const subOut = path.join(outputDir, `lnk_${li}`);
+            fs.mkdirSync(subOut, { recursive: true });
+            const lnkArgs = ['dotnet', path.join(ZIMMERMAN_DIR, 'LECmd.dll'), '-d', lnkDirs[li], '--csv', subOut, '--csvf', 'lnk_results.csv', ...appendCliFlags(artifactType, parserOptions)];
+            const label = path.basename(lnkDirs[li]) || lnkDirs[li];
+            try {
+              const lo = await spawnTool(lnkArgs, { timeout: 3600000, maxBuffer: 1024 * 1024 * 512, cwd: outputDir, env: toolEnv || undefined });
+              lnkLines.push(`${label}: ${(lo || '').trim().split('\n').slice(-1)[0]?.substring(0, 120) || 'ok'}`);
+            } catch (le) {
+              const lmsg = ((le.stderr || '') + (le.stdout || '') + (le.message || '')).toString().substring(0, 150);
+              lnkLines.push(`${label}: ERR ${lmsg}`);
+            }
+          }
+          toolArgs = null;
+          toolStdout = lnkLines.join(' | ').slice(0, 1500);
+        } else if (artifactType === 'evtx') {
 
           let mapsDir = null;
           const mapsBase = path.join(ZIMMERMAN_DIR, 'Maps');
@@ -1964,26 +2225,54 @@ router.post('/:caseId/parse', authenticate, async (req, res) => {
         const bestFile = pickBestFile(files);
         if (artifactType === 'registry') {
 
-          const batchCandidates = [
-            path.join(ZIMMERMAN_DIR, 'BatchExamples', 'RECmd', 'BatchExamples', 'Kroll_Batch.reb'),
-            path.join(ZIMMERMAN_DIR, 'BatchExamples', 'RECmd', 'BatchExamples', 'DFIRBatch.reb'),
-            path.join(ZIMMERMAN_DIR, 'BatchExamples', 'RECmd_Batch_MC.reb'),
-          ];
-          const batchFile = batchCandidates.find(p => fs.existsSync(p)) || null;
+          // Full-hive dump with dissect.regf (same coverage as the hive explorer):
+          // RECmd's curated batch files only extract a subset of keys, so keys
+          // outside the batch list (WinSCP sessions, …) never made it to the
+          // timeline even though the explorer shows them. The dissect-based
+          // parser emits one CSV row per value, reusing the RECmd column schema
+          // (HivePath/KeyPath/ValueName/…/LastWriteTimestamp) the pipeline below
+          // already consumes unchanged.
+          //
+          // The same hive is usually collected TWICE — the live file
+          // (…\Windows\System32\config\SOFTWARE) plus VSS shadow copies
+          // (@GMT-…\Windows\System32\config\SOFTWARE). Parsing both doubles
+          // the rows for zero new information, the identical values collide on
+          // the dedupe_hash (and are silently dropped by ON CONFLICT while the
+          // counter still counted them → the cockpit showed 1 M instead of
+          // 512 k). Content-hash dedupe keeps exactly one copy per distinct
+          // hive, so the dump, the timeline and the search index all agree.
+          const seenHiveHashes = new Set();
+          const uniqueFiles = [];
+          for (const hive of files) {
+            let h = null;
+            try {
+              h = crypto.createHash('md5').update(fs.readFileSync(hive)).digest('hex');
+            } catch (_e) { /* unreadable — keep it, the parser will surface the error */ }
+            if (h && seenHiveHashes.has(h)) {
+              logger.info(`[parse] registry: skip duplicate hive ${hive} (identical content)`);
+              continue;
+            }
+            if (h) seenHiveHashes.add(h);
+            uniqueFiles.push(hive);
+          }
           const regLines = [];
-          for (let ri = 0; ri < files.length; ri++) {
-            const hive = files[ri];
+          for (let ri = 0; ri < uniqueFiles.length; ri++) {
+            const hive = uniqueFiles[ri];
             const hname = path.basename(hive).replace(/[^a-zA-Z0-9._-]/g, '_');
             const csvf = `reg_${ri}_${hname}.csv`;
-            const rcmdArgs = ['dotnet', path.join(ZIMMERMAN_DIR, 'RECmd.dll'), '-f', hive, '--csv', outputDir, '--csvf', csvf, '--recover', 'false'];
-            if (batchFile) rcmdArgs.push('--bn', batchFile);
             try {
-              const ro = await spawnTool(rcmdArgs, { timeout: 120000, maxBuffer: 1024 * 1024 * 128, cwd: outputDir });
+              const ro = await spawnTool(['python3', '/app/parsers/parse_registry_full.py', '-f', hive, '--csv', path.join(outputDir, csvf)], { timeout: 900000, maxBuffer: 1024 * 1024 * 128, cwd: outputDir });
               regLines.push(`${hname}: ${(ro || '').trim().split('\n').slice(-1)[0]?.substring(0, 120) || 'ok'}`);
             } catch (re) {
               const rmsg = ((re.stderr || '') + (re.stdout || '') + (re.message || '')).toString().substring(0, 150);
               regLines.push(`${hname}: ERR ${rmsg}`);
             }
+            // records stays 0 during extraction: the count shown is rows actually
+            // inserted in the timeline (the stream phase below), NOT values
+            // written to the temp CSV — reporting the dump total here made the
+            // cockpit jump from ~175 000 (extracted) back to 5 000 (first insert
+            // batch). The per-hive fraction keeps the % moving instead.
+            emitProgress({ type: 'artifact_progress', artifact: artifactType, name: config.name, records: 0, fraction: uniqueFiles.length > 0 ? (ri + 1) / uniqueFiles.length : 0 });
           }
 
           toolArgs = null;
@@ -2038,6 +2327,46 @@ router.post('/:caseId/parse', authenticate, async (req, res) => {
           }
           toolArgs = null;
           toolStdout = mftLines.join(' | ').slice(0, 1500);
+        } else if (artifactType === 'usn') {
+          // One $J per volume / VSS snapshot: parse every copy into its own subdir
+          // (the old single-file path silently dropped all but the first, losing
+          // whole volumes of journal records). Parent-path resolution needs the
+          // sibling $MFT (-m): look for a $MFT near the $J, walking up a couple of
+          // levels (same volume dir).
+          if (config.toolEnv) toolEnv = { ...process.env, ...config.toolEnv };
+          const usnLines = [];
+          for (let ui = 0; ui < files.length; ui++) {
+            emitProgress({ type: 'artifact_progress', artifact: artifactType, name: config.name, records: 0, fraction: files.length > 1 ? ui / files.length : 0 });
+            const usnFile = files[ui];
+            const subOut  = path.join(outputDir, `usn_${ui}`);
+            fs.mkdirSync(subOut, { recursive: true });
+            const usnArgs = [
+              'dotnet', path.join(ZIMMERMAN_DIR, 'MFTECmd.dll'),
+              '-f', usnFile, '--csv', subOut, '--csvf', `usn_${ui}_results.csv`,
+              ...appendCliFlags(artifactType, parserOptions),
+            ];
+            let mftForUsn = null;
+            let probe = path.dirname(usnFile);
+            for (let up = 0; up < 3 && probe && probe !== path.dirname(probe); up++) {
+              const cand = path.join(probe, '$MFT');
+              if (fs.existsSync(cand)) { mftForUsn = cand; break; }
+              probe = path.dirname(probe);
+            }
+            if (mftForUsn) {
+              usnArgs.push('-m', mftForUsn);
+              logger.info(`[parse] usn: sibling MFT for parent paths: ${mftForUsn}`);
+            }
+            const label = path.basename(usnFile);
+            try {
+              const uo = await spawnTool(usnArgs, { timeout: 3600000, maxBuffer: 1024 * 1024 * 512, cwd: outputDir, env: toolEnv || undefined });
+              usnLines.push(`${label}: ${(uo || '').trim().split('\n').slice(-1)[0]?.substring(0, 120) || 'ok'}`);
+            } catch (ue) {
+              const umsg = ((ue.stderr || '') + (ue.stdout || '') + (ue.message || '')).toString().substring(0, 150);
+              usnLines.push(`${label}: ERR ${umsg}`);
+            }
+          }
+          toolArgs = null;
+          toolStdout = usnLines.join(' | ').slice(0, 1500);
         } else {
           // See directory-mode branch: schema-declared CLI flags (mft --dr etc.).
           toolArgs = [...config.argsBuilder(bestFile, outputDir), ...appendCliFlags(artifactType, parserOptions)];
@@ -2123,6 +2452,14 @@ router.post('/:caseId/parse', authenticate, async (req, res) => {
       // parallel with every other parser, so per-artifact parallelism above 3
       // only multiplies memory + pg contention for no throughput gain (the
       // writes were already overlapping across parsers).
+      //
+      // The CSV streams run in PARALLEL and each reports its OWN cumulative
+      // counter. Emitting them raw would overwrite the single per-artifact
+      // records slot, making the cockpit jump between the parallel files'
+      // values (175 000 → 5 000 → …). Aggregate per-file counters into the
+      // artifact's TRUE total (sum of inserted rows, sum of bytes) so the
+      // number only ever climbs to the final csvNormCount.
+      const csvProgressAgg = {}; // csvPath -> { records, bytesRead, size }
       await runConcurrent(csvFiles, async (csvFilePath) => {
         // Global DB-write semaphore: bounds total concurrent inserts across all parsers.
         await dbWriteSem.acquire();
@@ -2133,7 +2470,20 @@ router.post('/:caseId/parse', authenticate, async (req, res) => {
             // throttle inside streamNormalizeToDB) so the cockpit moves while
             // a 30+ min EVTX/MFT/USN CSV streams instead of freezing at the
             // last batch boundary.
-            (p) => emitProgress({ type: 'artifact_progress', artifact: artifactType, name: config.name, records: p.records, fraction: p.fraction })
+            (p) => {
+              csvProgressAgg[csvFilePath] = { records: p.records || 0, bytesRead: p.bytesRead || 0, size: p.size || 0 };
+              let aggRecords = 0, aggBytes = 0, aggSize = 0;
+              for (const v of Object.values(csvProgressAgg)) {
+                aggRecords += v.records;
+                aggBytes   += v.bytesRead;
+                aggSize    += v.size;
+              }
+              emitProgress({
+                type: 'artifact_progress', artifact: artifactType, name: config.name,
+                records: aggRecords,
+                fraction: aggSize > 0 ? Math.min(1, aggBytes / aggSize) : 0,
+              });
+            }
           );
           csvRawCount  += r.rawCount;
           csvNormCount += r.normalized;
@@ -2306,6 +2656,30 @@ router.post('/:caseId/parse', authenticate, async (req, res) => {
   emitProgress({ type: 'saving', message: 'Finalisation des métadonnées…' });
 
   try {
+    // Partial re-parse: merge the freshly re-run types into the previous
+    // parse_results (the untouched types' entries are preserved) and re-sum the
+    // record count so the per-evidence badge reflects ALL types, not just the
+    // subset that was re-run.
+    let finalParseResults = results;
+    let finalRecordCount = totalRecords;
+    let finalArtifactTypes = typesToParse;
+    if (isPartialReparse && reusedResultRow) {
+      finalParseResults = { ...(oldParsedResults || {}), ...results };
+      finalArtifactTypes = Array.from(new Set([
+        ...(reusedResultRow.output_data?.artifact_types || []),
+        ...typesToParse,
+      ])).filter(t => ARTIFACT_PATTERNS[t] || t === 'catscale');
+      try {
+        const totalRes = await pool.query(
+          `SELECT COUNT(*)::int AS total FROM collection_timeline WHERE evidence_id = $1`,
+          [evidenceId]
+        );
+        finalRecordCount = totalRes.rows[0]?.total ?? (oldRecordCount + totalRecords);
+      } catch (_e) {
+        finalRecordCount = oldRecordCount + totalRecords;
+      }
+    }
+
     await pool.query(
       `UPDATE parser_results
          SET output_data   = $1,
@@ -2313,8 +2687,8 @@ router.post('/:caseId/parse', authenticate, async (req, res) => {
              updated_at    = NOW()
        WHERE id = $3`,
       [
-        JSON.stringify({ parse_results: results, artifact_types: typesToParse, total_records: totalRecords, parser_options: parserOptions }),
-        totalRecords,
+        JSON.stringify({ parse_results: finalParseResults, artifact_types: finalArtifactTypes, total_records: finalRecordCount, parser_options: parserOptions }),
+        finalRecordCount,
         resultId,
       ]
     );
@@ -2434,6 +2808,18 @@ router.post('/:caseId/parse', authenticate, async (req, res) => {
         message: `Parsing terminé : ${totalRecords.toLocaleString('fr-FR')} événements indexés`,
         total_records: totalRecords,
       });
+    }
+
+    // ES is indexed fire-and-forget during the parse; if its document count
+    // drifted from PG (duplicates, a timed-out delete, an interrupted bulk),
+    // rebuild the case index from PG so the SuperTimeline and the per-evidence
+    // menu always show the same total.
+    try {
+      const { rebuildEsFromPg } = require('../services/esRebuild');
+      rebuildEsFromPg(caseId).catch(e =>
+        logger.warn(`[ES] rebuild after parse failed (${caseId}): ${String(e.message).substring(0, 150)}`));
+    } catch (e) {
+      logger.warn('[ES] rebuild require error:', e.message);
     }
   } catch (dbErr) {
     parseJobOutcome = 'error';
@@ -2686,6 +3072,28 @@ router.get('/:caseId/artifacts', authenticate, async (req, res) => {
   }
 });
 
+// Live per-evidence timeline row counts for the evidence cards' artifact
+// badge. Reads collection_timeline directly — never the parser_results
+// snapshot, which goes stale mid-parse (and stays stale if the job crashes
+// before finalization) — so the badge converges with the artifacts browser
+// and the timeline as rows stream in.
+router.get('/:caseId/evidence-counts', authenticate, async (req, res) => {
+  try {
+    const { caseId } = req.params;
+    const { rows } = await pool.query(
+      `SELECT evidence_id, COUNT(*)::int AS cnt
+         FROM collection_timeline
+        WHERE case_id = $1 AND evidence_id IS NOT NULL
+        GROUP BY evidence_id`, [caseId]);
+    const counts = {};
+    for (const r of rows) counts[r.evidence_id] = r.cnt;
+    res.json({ counts });
+  } catch (err) {
+    logger.error('Evidence counts error:', err);
+    res.status(500).json({ error: 'Erreur comptage evidences' });
+  }
+});
+
 // Multi-artifact search: one keyword/regex across every artifact type in the
 // collection, returning per-type counts plus a bounded sample of matching rows.
 // Registered before /artifacts/:type so "search" is never captured as a type.
@@ -2711,14 +3119,9 @@ router.get('/:caseId/artifacts/search', authenticate, async (req, res) => {
     }
     if (start_time) { conditions.push(`timestamp >= $${pi++}`); params.push(start_time); }
     if (end_time)   { conditions.push(`timestamp <= $${pi++}`); params.push(end_time); }
-    if (isRegex) {
-      conditions.push(`(description ~* $${pi} OR source ~* $${pi} OR raw::text ~* $${pi} OR artifact_type ~* $${pi})`);
-      params.push(query);
-    } else {
-      conditions.push(`(description ILIKE $${pi} OR source ILIKE $${pi} OR raw::text ILIKE $${pi})`);
-      params.push(`%${query}%`);
-    }
-    pi++;
+    // Multi-keyword 'contains' via the shared builder (space-separated terms,
+    // AND semantics, quoted phrases kept whole). Regex stays single-pattern.
+    pi = pushSearchFilter(query, isRegex ? 'regex' : 'contains', pi, conditions, params);
     const where = conditions.join(' AND ');
 
     const countsRes = await pool.query(
@@ -2778,13 +3181,10 @@ router.get('/:caseId/artifacts/:type', authenticate, async (req, res) => {
       const isRegex = search_op === 'regex';
       if (isRegex) {
         try { new RegExp(String(search)); } catch (_e) { return res.status(400).json({ error: 'Expression régulière invalide' }); }
-        conditions.push(`(description ~* $${pi} OR source ~* $${pi} OR raw::text ~* $${pi})`);
-        params.push(String(search).slice(0, 500));
+        pi = pushSearchFilter(String(search).slice(0, 500), 'regex', pi, conditions, params);
       } else {
-        conditions.push(`(description ILIKE $${pi} OR source ILIKE $${pi} OR raw::text ILIKE $${pi})`);
-        params.push(`%${String(search).slice(0, 200)}%`);
+        pi = pushSearchFilter(String(search).slice(0, 500), search_op, pi, conditions, params);
       }
-      pi++;
     }
     const filters = parseArtifactFilters(req.query.filters);
     if (filters) {
@@ -2797,7 +3197,7 @@ router.get('/:caseId/artifacts/:type', authenticate, async (req, res) => {
           params.push(f.value);
         } else if (f.op === 'contains') {
           conditions.push(`raw->>'${f.col}' ILIKE $${pi++}`);
-          params.push(`%${f.value}%`);
+          params.push(`%${escapeLike(f.value)}%`);
         } else if (f.op === 'in') {
           conditions.push(`raw->>'${f.col}' = ANY($${pi++}::text[])`);
           params.push(f.value);
@@ -2917,8 +3317,24 @@ const TREE_TYPES = {
     groupLabel: null,
     pathExpr: "raw->>'ParentPath'",
     orderBy: "raw->>'ParentPath'",
-    select: "raw->>'ParentPath' AS keypath, COALESCE(raw->>'FileName', description) AS vname, description, file_size, timestamp",
-    valueRow: (r) => ({ name: r.vname, description: r.description, size: r.file_size, last_write: r.timestamp }),
+    select: "raw->>'ParentPath' AS keypath, COALESCE(raw->>'FileName', description) AS vname, description, file_size, timestamp,"
+      + " raw->>'Extension' AS ext, raw->>'IsDirectory' AS is_dir, raw->>'InUse' AS in_use,"
+      + " raw->>'Created0x10' AS created0x10, raw->>'Created0x30' AS created0x30,"
+      + " raw->>'LastModified0x10' AS modified0x10, raw->>'LastModified0x30' AS modified0x30,"
+      + " raw->>'LastAccess0x20' AS access0x20, raw->>'ObjectID' AS object_id",
+    // Rich per-file facts feed the inline details panel of the tree browser
+    // (copy-path + file details) without a second round-trip per row. The
+    // extra fields are short scalars, so the payload stays lean even at the
+    // 50k-row cap.
+    valueRow: (r) => ({
+      name: r.vname, description: r.description, size: r.file_size, last_write: r.timestamp,
+      details: {
+        extension: r.ext, is_directory: r.is_dir, in_use: r.in_use,
+        created: r.created0x10, created_fn: r.created0x30,
+        modified: r.modified0x10, modified_fn: r.modified0x30,
+        last_access: r.access0x20, object_id: r.object_id,
+      },
+    }),
   },
 };
 
@@ -2974,9 +3390,13 @@ router.get('/:caseId/artifacts/:type/tree', authenticate, async (req, res) => {
     }
     const q = String(search).trim().slice(0, 200);
     if (q) {
-      extra += ` AND (${cfg.pathExpr} ILIKE $${pi} OR raw::text ILIKE $${pi})`;
-      params.push('%' + q + '%');
-      pi++;
+      // Multi-keyword tree search: every term must match the path or the raw
+      // JSON — `Windows System32` narrows to paths containing both.
+      for (const term of splitSearchTerms(q)) {
+        extra += ` AND (${cfg.pathExpr} ILIKE $${pi} OR raw::text ILIKE $${pi})`;
+        params.push('%' + escapeLike(term) + '%');
+        pi++;
+      }
     }
     const { rows } = await pool.query(
       `SELECT ${cfg.select}
@@ -3193,8 +3613,13 @@ router.get('/:caseId/timeline', authenticate, async (req, res) => {
               `SELECT COUNT(*)::int AS total FROM collection_timeline WHERE ${where}`,
               params
             ).catch(() => ({ rows: [{ total: null }] }))).rows[0]?.total;
-            if (pgCount !== null && esResult.total < pgCount) {
-              logger.warn(`[timeline] ES incomplete (${esResult.total}/${pgCount}) — serving PG (caseId=${caseId})`);
+            // Strict equality, BOTH directions: an ES index can also hold MORE
+            // documents than PG (the pre-dedupe indexing path bulk-indexed rows
+            // Postgres skipped via ON CONFLICT). `ES < PG` was caught before;
+            // `ES > PG` silently inflated the SuperTimeline count. Either way
+            // serve PG (correct) and let the esRebuild sweep fix the index.
+            if (pgCount !== null && esResult.total !== pgCount) {
+              logger.warn(`[timeline] ES count mismatch (${esResult.total}/${pgCount}) — serving PG (caseId=${caseId})`);
             } else {
               logger.info(`[timeline] ES hit: ${esResult.total} records (caseId=${caseId})`);
               if (Array.isArray(esResult.records)) esResult.records.forEach(hydrateTimelineRow);
@@ -3207,7 +3632,13 @@ router.get('/:caseId/timeline', authenticate, async (req, res) => {
       }
     }
 
-    const aggCacheKey = `timeline:aggs:${caseId}:${evidence_id || ''}:${(validatedEvidenceIds || []).join(',')}:${hunt_id || ''}`;
+    // The agg cache (artifact-type / host / user counts) must reflect the exact
+    // filtered result set — serving case-wide counts while a search or advanced
+    // filter is active makes the artifact pills lie about the current page.
+    // Hashing WHERE + params keys the cache per exact filter combination; the
+    // unfiltered browse view keeps its own stable entry (still a cache hit).
+    const aggFingerprint = crypto.createHash('md5').update(where + JSON.stringify(params)).digest('hex').slice(0, 16);
+    const aggCacheKey = `timeline:aggs:${caseId}:${evidence_id || ''}:${(validatedEvidenceIds || []).join(',')}:${hunt_id || ''}:${aggFingerprint}`;
     let cachedAggs = null;
     try {
       const redis = getRedis();
@@ -3229,7 +3660,8 @@ router.get('/:caseId/timeline', authenticate, async (req, res) => {
                 id, timestamp, artifact_type, artifact_name, description, source,
                 host_name, user_name, process_name, mitre_technique_id, mitre_technique_name, mitre_tactic,
                 tool, timestamp_kind, details, "path", ext, event_id, file_size,
-                src_ip::text AS src_ip, dst_ip::text AS dst_ip, sha1, tags, detections
+                src_ip::text AS src_ip, dst_ip::text AS dst_ip, sha1, tags, detections,
+                raw
            FROM collection_timeline
           WHERE ${where}
           ORDER BY COALESCE(dedupe_hash, id::text),
@@ -3240,7 +3672,8 @@ router.get('/:caseId/timeline', authenticate, async (req, res) => {
       : `SELECT id, timestamp, artifact_type, artifact_name, description, source,
                 host_name, user_name, process_name, mitre_technique_id, mitre_technique_name, mitre_tactic,
                 tool, timestamp_kind, details, "path", ext, event_id, file_size,
-                src_ip::text AS src_ip, dst_ip::text AS dst_ip, sha1, tags, detections
+                src_ip::text AS src_ip, dst_ip::text AS dst_ip, sha1, tags, detections,
+                raw
            FROM collection_timeline
           WHERE ${where}
           ORDER BY ${safeCol} ${direction}, id ${direction}
@@ -4046,6 +4479,48 @@ router.post('/:caseId/hayabusa', authenticate, async (req, res) => {
       } catch (_e) {}
     }
 
+    // Evidence-scoped run (body evidence_id — the per-evidence background
+    // auto-run sends it): restrict the scan to that evidence's own EVTX files
+    // instead of the whole case's collection. The evidence's file_path is the
+    // scan root: a collection dir → recursive search; a single .evtx → direct
+    // file. When the evidence has no usable file, the case-wide discovery above
+    // stays as the fallback.
+    const scopeEvidenceId = req.body && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(req.body.evidence_id || ''))
+      ? req.body.evidence_id : null;
+    if (scopeEvidenceId) {
+      hayEvidenceId = scopeEvidenceId;
+      try {
+        const evRow = await pool.query(
+          `SELECT file_path FROM evidence WHERE id = $1 AND case_id = $2`,
+          [scopeEvidenceId, caseId]);
+        const fp = evRow.rows[0] && evRow.rows[0].file_path;
+        if (fp && fs.existsSync(fp)) {
+          if (fs.statSync(fp).isDirectory()) {
+            const scoped = findFiles(fp, ['**/*.evtx', '**/winevt/Logs/*.evtx']);
+            if (scoped.length > 0) { evtxFiles = scoped; collectionDir = fp; }
+          } else if (/\.evtx$/i.test(fp)) {
+            evtxFiles = [fp]; collectionDir = path.dirname(fp);
+          }
+        }
+      } catch (_e) {}
+    }
+
+    // Last-resort evidence linkage (same rule as /parse): bind Hayabusa
+    // detections to the case's most-populated evidence so they never land with
+    // NULL evidence_id (invisible in the per-evidence menu).
+    if (!hayEvidenceId) {
+      try {
+        const topEv = await pool.query(
+          `SELECT evidence_id AS id
+             FROM collection_timeline
+            WHERE case_id = $1 AND evidence_id IS NOT NULL
+            GROUP BY evidence_id
+            ORDER BY COUNT(*) DESC
+            LIMIT 1`, [caseId]);
+        if (topEv.rows.length > 0) hayEvidenceId = topEv.rows[0].id;
+      } catch (_e) {}
+    }
+
     if (evtxFiles.length === 0) {
       return res.status(400).json({
         error: 'Aucun fichier .evtx trouvé pour ce cas. Importez une collecte Magnet RESPONSE ou des fichiers .evtx individuels.',
@@ -4075,21 +4550,24 @@ router.post('/:caseId/hayabusa', authenticate, async (req, res) => {
       try {
         await dbClient.query('BEGIN');
         const oldRows = await dbClient.query(
-          `SELECT id FROM parser_results WHERE case_id = $1 AND parser_name = 'Hayabusa' FOR UPDATE`,
-          [caseId]
+          `SELECT id FROM parser_results WHERE case_id = $1 AND parser_name = 'Hayabusa'
+             AND ($2::uuid IS NULL OR evidence_id = $2)
+           FOR UPDATE`,
+          [caseId, scopeEvidenceId]
         );
         const oldIds = oldRows.rows.map(r => r.id);
         await dbClient.query(
-          `DELETE FROM collection_timeline WHERE case_id = $1 AND artifact_type = 'hayabusa'`,
-          [caseId]
+          `DELETE FROM collection_timeline WHERE case_id = $1 AND artifact_type = 'hayabusa'
+             AND ($2::uuid IS NULL OR evidence_id = $2)`,
+          [caseId, scopeEvidenceId]
         );
         if (oldIds.length > 0) {
           await dbClient.query(`DELETE FROM parser_results WHERE id = ANY($1::uuid[])`, [oldIds]);
         }
         const newRow = await dbClient.query(
-          `INSERT INTO parser_results (case_id, parser_name, parser_version, input_file, output_data, record_count, created_by)
-           VALUES ($1, 'Hayabusa', '2.x', $2, $3::jsonb, $4, $5) RETURNING id`,
-          [caseId, evtxParentDir, outputDataJson, recordCount, req.user.id]
+          `INSERT INTO parser_results (case_id, evidence_id, parser_name, parser_version, input_file, output_data, record_count, created_by)
+           VALUES ($1, $2, 'Hayabusa', '2.x', $3, $4::jsonb, $5, $6) RETURNING id`,
+          [caseId, scopeEvidenceId, evtxParentDir, outputDataJson, recordCount, req.user.id]
         );
         await dbClient.query('COMMIT');
         return { newId: newRow.rows[0].id, oldIds };
@@ -4388,9 +4866,10 @@ router.post('/:caseId/hayabusa', authenticate, async (req, res) => {
           `SELECT timestamp, description, source, raw, host_name
            FROM collection_timeline
            WHERE case_id = $1 AND artifact_type = 'evtx'
+             AND ($2::uuid IS NULL OR evidence_id = $2)
            ORDER BY timestamp
            LIMIT 5000`,
-          [caseId]
+          [caseId, scopeEvidenceId]
         );
         evtxRecords = evtxResult.rows;
       } catch (e) {}
@@ -4668,8 +5147,9 @@ router.post('/:caseId/hayabusa', authenticate, async (req, res) => {
 router.get('/:caseId/hayabusa', authenticate, async (req, res) => {
   try {
     const { caseId } = req.params;
-    const limit  = Math.min(parseInt(req.query.limit) || 10000, 100000);
-    const cursor = req.query.cursor || null; // BIGINT id cursor
+    const limit         = Math.min(parseInt(req.query.limit) || 10000, 100000);
+    const cursor        = req.query.cursor || null; // BIGINT id cursor
+    const evidence_id   = req.query.evidence_id || null; // v2.27 per-evidence scoping
 
     const meta = await pool.query(
       `SELECT output_data, record_count, created_at, id FROM parser_results
@@ -4685,6 +5165,14 @@ router.get('/:caseId/hayabusa', authenticate, async (req, res) => {
     const metaRow  = meta.rows[0];
     const metaData = metaRow.output_data || {};
 
+    // Build base WHERE clause — evidence_id scoping avoids full case scan
+    const whereClauses = ['case_id = $1', "artifact_type = 'hayabusa'"];
+    const params = [caseId];
+    if (evidence_id && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(evidence_id)) {
+      params.push(evidence_id);
+      whereClauses.push(`evidence_id = $${params.length}`);
+    }
+
     // Read detections from collection_timeline — cursor-paginated by row id
     let ctQuery = `SELECT id, timestamp, artifact_name AS rule_title, description,
                           source, source AS channel,
@@ -4694,8 +5182,7 @@ router.get('/:caseId/hayabusa', authenticate, async (req, res) => {
                           COALESCE(raw->>'Level', raw->>'level') AS level,
                           COALESCE(raw->>'event_id', raw->>'EventID') AS event_id_raw
                    FROM collection_timeline
-                   WHERE case_id = $1 AND artifact_type = 'hayabusa'`;
-    const params = [caseId];
+                   WHERE ${whereClauses.join(' AND ')}`;
     if (cursor) {
       params.push(cursor);
       ctQuery += ` AND id > $${params.length}`;
@@ -4703,6 +5190,8 @@ router.get('/:caseId/hayabusa', authenticate, async (req, res) => {
     params.push(limit);
     ctQuery += ` ORDER BY id ASC LIMIT $${params.length}`;
 
+    // Build stats WHERE — same evidence scoping
+    const statsWhere = whereClauses.join(' AND ');
     // Compute live stats from collection_timeline — always consistent with the grid
     const [ctResult, liveStats] = await Promise.all([
       pool.query(ctQuery, params),
@@ -4715,8 +5204,8 @@ router.get('/:caseId/hayabusa', authenticate, async (req, res) => {
            COUNT(*) FILTER (WHERE LOWER(COALESCE(raw->>'Level', raw->>'level')) = 'low')                                      AS low,
            COUNT(*) FILTER (WHERE LOWER(COALESCE(raw->>'Level', raw->>'level')) IN ('informational', 'info'))                 AS informational
          FROM collection_timeline
-         WHERE case_id = $1 AND artifact_type = 'hayabusa'`,
-        [caseId]
+         WHERE ${statsWhere}`,
+        [caseId, ...(evidence_id ? [evidence_id] : [])]
       ),
     ]);
 
@@ -4889,8 +5378,8 @@ router.get('/:caseId/export/csv', authenticate, async (req, res) => {
     }
     if (start_time)  { conditions.push(`timestamp >= $${pi++}`);          params.push(start_time); }
     if (end_time)    { conditions.push(`timestamp <= $${pi++}`);          params.push(end_time);   }
-    if (host_name)   { conditions.push(`host_name ILIKE $${pi++}`);       params.push('%' + host_name + '%'); }
-    if (user_name)   { conditions.push(`user_name ILIKE $${pi++}`);       params.push('%' + user_name + '%'); }
+    if (host_name)   { conditions.push(`host_name ILIKE $${pi++}`);       params.push('%' + escapeLike(host_name) + '%'); }
+    if (user_name)   { conditions.push(`user_name ILIKE $${pi++}`);       params.push('%' + escapeLike(user_name) + '%'); }
     if (evidence_id) { conditions.push(`evidence_id = $${pi++}`);         params.push(evidence_id); }
 
     const requestedTypes = artifact_types ? artifact_types.split(',').filter(Boolean) : [];
@@ -5060,8 +5549,8 @@ router.get('/:caseId/export-csv-stream', authenticate, async (req, res) => {
       if (artifact_types) { conditions.push(`artifact_type = ANY($${pi++})`); params.push(artifact_types.split(',')); }
       if (start_time) { conditions.push(`timestamp >= $${pi++}`); params.push(start_time); }
       if (end_time)   { conditions.push(`timestamp <= $${pi++}`); params.push(end_time);   }
-      if (host_name)  { conditions.push(`host_name ILIKE $${pi++}`); params.push(host_name); }
-      if (user_name)  { conditions.push(`user_name ILIKE $${pi++}`); params.push(user_name); }
+      if (host_name)  { conditions.push(`host_name ILIKE $${pi++}`); params.push(escapeLike(host_name)); }
+      if (user_name)  { conditions.push(`user_name ILIKE $${pi++}`); params.push(escapeLike(user_name)); }
       if (result_id)  { conditions.push(`result_id = $${pi++}`); params.push(result_id); }
       if (evidence_id){ conditions.push(`evidence_id = $${pi++}`); params.push(evidence_id); }
 
