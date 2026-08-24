@@ -17,6 +17,30 @@ pool.query(`
   )
 `).catch(e => logger.error('detection_exceptions DDL:', e.message));
 
+// Detection result cache — detection engines are expensive SQL scans over the
+// whole timeline; results are stored per (case_id, section) so a page reload
+// serves the last run instead of re-scanning. ?refresh=1 forces a recompute and
+// ingest invalidates the cache (see invalidateDetectionCache).
+pool.query(`
+  CREATE TABLE IF NOT EXISTS detection_cache (
+    case_id    UUID NOT NULL REFERENCES cases(id) ON DELETE CASCADE,
+    section    TEXT NOT NULL,
+    payload    JSONB NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (case_id, section)
+  )
+`).catch(e => logger.error('detection_cache DDL:', e.message));
+
+// Drop cached detection results for a case — called whenever new timeline rows
+// are ingested, so results reflect freshly parsed data.
+async function invalidateDetectionCache(caseId) {
+  try {
+    await pool.query('DELETE FROM detection_cache WHERE case_id = $1', [caseId]);
+  } catch (e) {
+    logger.error('invalidateDetectionCache:', e.message);
+  }
+}
+
 // Active exceptions for a case = its own + global ones.
 async function getExceptions(caseId) {
   try {
@@ -47,12 +71,14 @@ function applyExceptions(items, exceptions, detectionType) {
 }
 
 // Filter grouped detections ({ vectors:[{items,count}], total }), recompute counts.
+// Zero-hit vectors are kept so the UI can render the full rule list (coverage),
+// not just the rules that fired.
 function applyExceptionsGrouped(vectors, exceptions, detectionType) {
   const out = (vectors || []).map(v => {
     const items = applyExceptions(v.items || [], exceptions, detectionType);
     return { ...v, items, count: items.length };
-  }).filter(v => v.count > 0);
+  });
   return { vectors: out, total: out.reduce((s, v) => s + v.count, 0) };
 }
 
-module.exports = { getExceptions, applyExceptions, applyExceptionsGrouped };
+module.exports = { getExceptions, applyExceptions, applyExceptionsGrouped, invalidateDetectionCache };

@@ -102,7 +102,7 @@ async function importCsvFile(pool, { caseId, resultId, evidenceId, filePath, fil
         const forensic = extractForensicFields(
           rec, mapped.artifact_type, { tool: mapping.tool },
           tsResolved ? tsResolved.column : (mapping.timestamp_columns[0] || null),
-          description, source,
+          ts, description, source,
         );
         // Override forensic fields with explicit mapping values when present
         const rowToInsert = {
@@ -123,7 +123,7 @@ async function importCsvFile(pool, { caseId, resultId, evidenceId, filePath, fil
           src_ip: mapped.src_ip || forensic.src_ip,
           dst_ip: mapped.dst_ip || forensic.dst_ip,
           sha1:   /^[a-f0-9]{40}$/i.test(String(mapped.sha1 || '').trim()) ? String(mapped.sha1).toLowerCase() : forensic.sha1,
-          details: mapped.details != null ? String(mapped.details).slice(0, 500) : forensic.details,
+          details: mapped.details != null ? String(mapped.details).slice(0, 200000) : forensic.details,
         };
         batch.push(rowToInsert);
         if (batch.length >= BATCH) { await flush(); }

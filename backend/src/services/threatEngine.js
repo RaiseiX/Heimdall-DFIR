@@ -13,7 +13,7 @@ const RULES_DIR = path.join(__dirname, '..', '..', 'config', 'threat_rules');
 
 const SEVERITY_RANK = { greyware: 1, low: 1, medium: 2, high: 3, critical: 4 };
 
-let _cache = { mtimeMs: 0, rules: [], byArtifact: new Map(), wildcardRules: [] };
+let _cache = { mtimeMs: 0, rules: [], byArtifact: new Map(), wildcardRules: [], fieldGates: new Map() };
 
 function compileLeaf(leaf) {
   const field = leaf.field;
@@ -56,12 +56,37 @@ function compileAst(node) {
   throw new Error('invalid AST node');
 }
 
+function escapeRegExp(s) {
+  return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+// Walks a rule's match AST collecting the regex leaves that can be combined
+// into a per-field gate. Returns true when the rule is "gateable" — i.e. its
+// match is built only from positive iregex/icontains leaves (no eq/in/neq/
+// gte/lte, no `none`, no case-sensitive regex/contains). Such a rule can be
+// skipped wholesale when none of its fields match the gate.
+function collectGateLeaves(node, out) {
+  if (!node || typeof node !== 'object') return true;
+  if (node.field && node.op) {
+    if (node.op === 'iregex') { out.push({ field: node.field, re: String(node.value) }); return true; }
+    if (node.op === 'icontains') { out.push({ field: node.field, re: escapeRegExp(node.value) }); return true; }
+    return false;
+  }
+  if (node.none) return false;
+  const children = node.all || node.any || [];
+  let ok = true;
+  for (const c of children) if (!collectGateLeaves(c, out)) ok = false;
+  return ok;
+}
+
 function compileRule(raw) {
   if (!raw || raw.enabled === false) return null;
   if (!raw.id || !raw.name || !raw.match || !Array.isArray(raw.tags)) return null;
   const targets = raw.target_artifact == null
     ? ['*']
     : Array.isArray(raw.target_artifact) ? raw.target_artifact : [raw.target_artifact];
+  const gateLeaves = [];
+  const gateable = collectGateLeaves(raw.match, gateLeaves);
   return {
     id: String(raw.id),
     name: String(raw.name),
@@ -72,6 +97,9 @@ function compileRule(raw) {
     references: Array.isArray(raw.references) ? raw.references : [],
     tags: raw.tags.map(String),
     _match: compileAst(raw.match),
+    _gateable: gateable,
+    _fields: new Set(gateLeaves.map(l => l.field)),
+    _gateLeaves: gateLeaves,
   };
 }
 
@@ -127,7 +155,29 @@ function load() {
       byArtifact.get(a).push(r);
     }
   }
-  _cache = { mtimeMs: latestMtime, rules: all, byArtifact, wildcardRules };
+  // Per-field combined gate over every gateable rule's regex leaf. Lets
+  // evaluate() skip a rule when none of the fields it touches can possibly
+  // match — the common case on high-volume artifacts (MFT/USN/EVTX) where most
+  // rules target description/source/process_name and can't fire on file metadata.
+  const fieldGates = new Map();
+  {
+    const byField = new Map();
+    for (const r of all) {
+      if (!r._gateable) continue;
+      for (const l of r._gateLeaves) {
+        if (!byField.has(l.field)) byField.set(l.field, []);
+        byField.get(l.field).push(l.re);
+      }
+    }
+    for (const [field, pats] of byField) {
+      try {
+        fieldGates.set(field, new RegExp(pats.map(p => `(?:${p})`).join('|'), 'i'));
+      } catch (e) {
+        logger.warn(`[threat-engine] field gate for "${field}" failed: ${e.message}`);
+      }
+    }
+  }
+  _cache = { mtimeMs: latestMtime, rules: all, byArtifact, wildcardRules, fieldGates };
   if (all.length) logger.info(`[threat-engine] loaded ${all.length} rules from ${files.length} file(s)`);
   return _cache;
 }
@@ -143,11 +193,36 @@ function evaluate(record) {
     : cache.wildcardRules;
   if (!pool || pool.length === 0) return null;
 
+  // Lazy per-field gate results. A gateable rule is skipped when none of the
+  // fields it references match their combined regex gate (superset-safe: it may
+  // over-match and fall through to the precise _match, but never skips a hit).
+  // Huge fields (EVTX payloads can exceed 100KB) would make the combined
+  // per-field gate — dozens of `.*`-heavy alternatives in one case-insensitive
+  // regex — catastrophically slow and stall the event loop for minutes. For
+  // them we skip the gate shortcut entirely and fall through to the precise
+  // per-rule matchers: same result, no false negatives, bounded cost.
+  const MAX_GATE_FIELD_LEN = 100000;
+  const gateHit = {};
+  const gateMatch = (field) => {
+    if (field in gateHit) return gateHit[field];
+    const re = cache.fieldGates.get(field);
+    const raw = String(record?.[field] ?? '');
+    gateHit[field] = re ? (raw.length <= MAX_GATE_FIELD_LEN ? re.test(raw) : true) : true;
+    return gateHit[field];
+  };
+
   const hits = [];
   const tags = new Set();
   let topSev = 0;
   let topSevLabel = null;
   for (const r of pool) {
+    if (r._gateable) {
+      let anyFieldHit = false;
+      for (const f of r._fields) {
+        if (gateMatch(f)) { anyFieldHit = true; break; }
+      }
+      if (!anyFieldHit) continue;
+    }
     let matched = false;
     try { matched = r._match(record); } catch (_e) { matched = false; }
     if (!matched) continue;

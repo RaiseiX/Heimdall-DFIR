@@ -33,6 +33,67 @@ router.get('/:caseId', authenticate, async (req, res) => {
   }
 });
 
+// Backfill first_seen/last_seen for IOCs that were created before those fields
+// were captured (or without event anchoring). For each IOC with an empty
+// first_seen, look up the matching events in its case timeline and anchor the
+// IOC on the earliest (and latest) event timestamp — so the IOC timeline shows
+// the originating event's date instead of the date the IOC was added.
+router.post('/backfill-first-seen', authenticate, async (req, res) => {
+  try {
+    const { caseId } = req.body || {};
+    const escLike = s => String(s).replace(/[%_\\]/g, '\\$&');
+
+    const params = [];
+    let where = 'first_seen IS NULL';
+    if (caseId) { params.push(caseId); where += ` AND case_id = $${params.length}`; }
+
+    const sel = await pool.query(
+      `SELECT id, case_id, ioc_type, value FROM iocs
+        WHERE ${where} AND value IS NOT NULL AND length(trim(value)) >= 3
+        ORDER BY created_at DESC
+        LIMIT 2000`,
+      params
+    );
+
+    let updated = 0, noMatch = 0;
+    const hits = [];
+    const SEARCH_COLS = [
+      'description', 'details', '"path"', 'process_name', 'source', 'tool',
+      'host_name', 'user_name', 'src_ip::text', 'dst_ip::text',
+    ];
+
+    for (const ioc of sel.rows) {
+      const pattern = '%' + escLike(ioc.value) + '%';
+      const cols = SEARCH_COLS.map(c => `${c} ILIKE $2`).join(' OR ');
+      let row = null;
+      try {
+        const r = await pool.query(
+          `SELECT MIN(timestamp) AS first_seen, MAX(timestamp) AS last_seen
+             FROM collection_timeline
+            WHERE case_id = $1 AND (${cols})`,
+          [ioc.case_id, pattern]
+        );
+        row = r.rows[0];
+      } catch {
+        row = null;
+      }
+
+      if (!row || !row.first_seen) { noMatch++; continue; }
+      await pool.query(
+        `UPDATE iocs SET first_seen = $1, last_seen = COALESCE($2, first_seen) WHERE id = $3`,
+        [row.first_seen, row.last_seen, ioc.id]
+      );
+      updated++;
+      hits.push({ id: ioc.id, value: ioc.value, first_seen: row.first_seen, last_seen: row.last_seen });
+    }
+
+    res.json({ checked: sel.rows.length, updated, noMatch, hits });
+  } catch (err) {
+    logger.error('[IOC] backfill-first-seen error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 router.post('/:caseId', authenticate, async (req, res) => {
   try {
     const { ioc_type, value, description, severity, is_malicious, source, first_seen, last_seen, tags } = req.body;
@@ -44,6 +105,29 @@ router.post('/:caseId', authenticate, async (req, res) => {
     await auditLog(req.user.id, 'create_ioc', 'ioc', result.rows[0].id, { ioc_type, value }, req.ip);
     res.status(201).json(result.rows[0]);
   } catch (err) {
+    res.status(500).json({ error: 'Erreur serveur' });
+  }
+});
+
+// Update mutable fields of an IOC (analyst notes, description, tags, severity)
+router.put('/:id', authenticate, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { notes, description, tags, severity } = req.body;
+    const result = await pool.query(
+      `UPDATE iocs SET
+         notes       = COALESCE($2, notes),
+         description = COALESCE($3, description),
+         tags        = COALESCE($4, tags),
+         severity    = COALESCE($5, severity),
+         updated_at  = NOW()
+       WHERE id = $1 RETURNING *`,
+      [id, notes ?? null, description ?? null, tags ?? null, severity ?? null]
+    );
+    if (!result.rowCount) return res.status(404).json({ error: 'IOC non trouvé' });
+    res.json(result.rows[0]);
+  } catch (err) {
+    logger.error('[IOC] update error:', err.message);
     res.status(500).json({ error: 'Erreur serveur' });
   }
 });

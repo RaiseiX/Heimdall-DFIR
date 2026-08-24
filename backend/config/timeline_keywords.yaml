@@ -1,4 +1,4 @@
-# Timeline keyword enrichment rules (v2.23, Heimdall DFIR).
+# Timeline keyword enrichment rules (v3.0, Heimdall DFIR).
 # Each rule attaches one or more tags when its regex matches either a specific
 # list of fields or (if `fields` is omitted) the concatenation of every value
 # in the record + description. Tags match the frontend WB_TAGS palette so the
@@ -64,7 +64,7 @@ rules:
     tags: [persist, t1547.001]
 
   - name: wmi_persistence
-    pattern: "(__EventFilter|CommandLineEventConsumer|ActiveScriptEventConsumer)"
+    pattern: "(__EventFilter|CommandLineEventConsumer|ActiveScriptEventConsumer|CmdConsumer|ScriptConsumer|CommandLineTemplate|ScriptText)"
     tags: [persist, t1546.003]
 
   # ─── Defense evasion ──────────────────────────────────────────────────────
@@ -138,3 +138,804 @@ rules:
   - name: double_extension
     pattern: "\\.(pdf|doc|docx|xls|xlsx|jpg|png)\\.(exe|scr|vbs|js|bat|cmd|lnk)\\b"
     tags: [suspicious, phishing]
+
+  # ─── Execution / LOLBins (suite) ──────────────────────────────────────────
+  - name: regsvr32_squiblydoo
+    pattern: "(regsvr32\\s+/s\\s+/n\\s+/u\\s+/i:https?://|regsvr32\\s+/i:https?://)"
+    tags: [exec, defense_evasion, t1218.010]
+
+  - name: mshta_remote
+    pattern: "(mshta\\s+https?://|mshta\\s+(vbscript|javascript):)"
+    tags: [exec, defense_evasion, t1218.005]
+
+  - name: cmstp_lolbin
+    pattern: "(cmstp\\s+/ni\\s+/s|cmstp\\s+.*\\.inf)"
+    tags: [exec, defense_evasion, t1218.003]
+
+  - name: pcalua_lolbin
+    pattern: "\\bpcalua\\.exe\\b"
+    tags: [exec, defense_evasion, t1218.011]
+
+  - name: rundll32_script
+    pattern: "rundll32\\s+(javascript|vbscript):"
+    tags: [exec, defense_evasion, t1218.011]
+
+  - name: msiexec_remote
+    pattern: "msiexec\\s+/(i|a)\\s+https?://"
+    tags: [exec, t1218.007]
+
+  - name: python_exec
+    pattern: "(python\\d*\\.exe\\s+-c\\s|pip\\s+install\\s+-r\\s)"
+    tags: [exec, t1059.006]
+
+  - name: java_jar
+    pattern: "\\bjava\\.exe\\s+-jar\\b"
+    tags: [exec, t1059.007]
+
+  - name: powershell_hidden
+    pattern: "(powershell[^\\n]*-(windowstyle|w)\\s+hidden|-nop\\s+-w\\s+hidden)"
+    tags: [exec, defense_evasion, t1059.001]
+
+  - name: amsi_bypass
+    pattern: "(AmsiInitFailed|amsi\\s*utils|Disable-Amsi|ByPass\\s+AMSI|amsi\\s+bypass)"
+    tags: [defense_evasion, t1562.001]
+
+  - name: certutil_download
+    pattern: "(certutil\\s+-urlcache\\s+-split\\s+-f|certutil\\s+-decode\\s+\\S+\\.(exe|dll|ps1))"
+    tags: [exec, defense_evasion, t1105]
+
+  # ─── Credential access (suite) ────────────────────────────────────────────
+  - name: lsass_dump
+    pattern: "(procdump\\s+.*lsass|comsvcs\\.dll.*(MiniDump|dump)|rundll32.*comsvcs|lsass\\.exe\\s+\\d+\\s+dump)"
+    tags: [credential, critical, t1003.001]
+
+  - name: sam_hive_dump
+    pattern: "(reg\\s+save\\s+\\S*\\\\(SAM|SYSTEM)\\b|secretsdump|sam\\.hive|ntds\\.dit.*(copy|download))"
+    tags: [credential, t1003.002]
+
+  - name: credential_manager
+    pattern: "(cmdkey\\s+/list|vaultcmd\\s+/listcreds|Windows\\s+Credential\\s+Manager)"
+    tags: [credential, t1003.005]
+
+  - name: dpapi_theft
+    pattern: "(\\bDPAPI\\b|CryptUnprotectData|master\\s+key\\s+file)"
+    tags: [credential, t1555.004]
+
+  - name: wifi_cred_theft
+    pattern: "(netsh\\s+wlan\\s+show\\s+profile\\s+\\S+\\s+key=clear|Get-WlanProfile)"
+    tags: [credential, t1555]
+
+  - name: password_cracking
+    pattern: "(\\bhashcat\\b|oclhashcat|john\\s+the\\s+ripper|\\bjohn\\.exe\\b)"
+    tags: [credential, t1110.002]
+
+  - name: keylogger
+    pattern: "(GetAsyncKeyState|SetWindowsHookEx.*WH_KEYBOARD|\\bkeylog\\b)"
+    tags: [credential, t1056.001]
+
+  - name: browser_cred_theft
+    pattern: "(\\bLogin\\s+Data\\b|Cookies\\.sqlite|Saved\\s+Passwords)"
+    tags: [credential, t1555.003]
+
+  - name: golden_silver_ticket
+    pattern: "(\\bkrbtgt\\b|golden\\s+ticket|silver\\s+ticket|ticketer\\.py|\\bkekeo\\b)"
+    tags: [credential, critical, t1558.001]
+
+  - name: ntlm_relay
+    pattern: "(ntlmrelayx|responder\\.py|multi\\s*relay)"
+    tags: [credential, lateral, t1557.001]
+
+  - name: impacket_suite
+    pattern: "(impacket|wmiexec\\.py|smbexec\\.py|atexec\\.py|dcomexec\\.py|secretsdump\\.py|crackmapexec|netexec)"
+    tags: [credential, lateral, t1021.006]
+
+  - name: lsassy
+    pattern: "\\blsassy\\b"
+    tags: [credential, t1003.001]
+
+  # ─── Persistence (suite) ──────────────────────────────────────────────────
+  - name: startup_folder
+    pattern: "(\\\\Startup\\\\|Start\\s+Menu\\\\Programs\\\\Startup)"
+    tags: [persist, t1547.001]
+
+  - name: ifeo_debugger
+    pattern: "(Image\\s+File\\s+Execution\\s+Options|\\\\IFEO\\\\|GlobalFlag.*Debugger)"
+    tags: [persist, defense_evasion, t1546.012]
+
+  - name: screensaver_persist
+    pattern: "SCRNSAVE\\.EXE\\s*="
+    tags: [persist, t1546.002]
+
+  - name: netsh_helper
+    pattern: "(netsh\\s+add\\s+helper|netsh\\s+add\\s+portproxy)"
+    tags: [persist, t1546.007]
+
+  - name: new_account
+    pattern: "(net\\s+user\\s+\\S+\\s+/add|New-LocalUser|Add-LocalGroupMember.*Administrators)"
+    tags: [persist, t1136.001]
+
+  - name: ssh_key_backdoor
+    pattern: "(authorized_keys|sshd_config.*PermitRootLogin)"
+    tags: [persist, t1098.004]
+
+  - name: office_addin
+    pattern: "(\\.wll\\b|\\.xll\\b|\\.vsto\\b|Office\\s+Add-?In)"
+    tags: [persist, t1137]
+
+  - name: boot_execute
+    pattern: "(BootExecute\\s*=|Session\\s+Manager.*BootExecute)"
+    tags: [persist, t1547.001]
+
+  # ─── Defense evasion (suite) ──────────────────────────────────────────────
+  - name: auditpol_disable
+    pattern: "(auditpol\\s+/set\\s+/(success|failure):disable|auditpol\\s+/clear)"
+    tags: [defense_evasion, t1562.002]
+
+  - name: firewall_disable
+    pattern: "(netsh\\s+advfirewall\\s+set\\s+allprofiles\\s+state\\s+off|Disable-NetFirewallRule|Set-NetFirewallProfile.*Disabled)"
+    tags: [defense_evasion, t1562.004]
+
+  - name: sysmon_disable
+    pattern: "(sysmon\\s+-u\\b|Remove-Sysmon|sysmon\\s+-c\\s+\\S+\\s+--)"
+    tags: [defense_evasion, t1562.006]
+
+  - name: etw_patch
+    pattern: "(EtwTi|PatchEtw|etw\\s+patch|etw\\s+bypass)"
+    tags: [defense_evasion, t1562.006]
+
+  - name: timestomping
+    pattern: "(Set-ItemProperty.*(LastWriteTime|CreationTime)|timestomp|BashTimestamp|touch\\s+-d\\s)"
+    tags: [defense_evasion, t1070.006]
+
+  - name: process_injection
+    pattern: "(CreateRemoteThread|VirtualAllocEx|NtMapViewOfSection|WriteProcessMemory|QueueUserAPC|NtCreateThreadEx)"
+    tags: [defense_evasion, exec, t1055]
+
+  - name: token_impersonation
+    pattern: "(SeDebugPrivilege|DuplicateTokenEx|impersonate\\s+token|Incognito.*token)"
+    tags: [privesc, t1134.001]
+
+  - name: uac_bypass
+    pattern: "(fodhelper|sdclt\\.exe|computerdefaults|eventvwr\\s+/v|bypassuac)"
+    tags: [privesc, defense_evasion, t1548.002]
+
+  - name: attrib_hiding
+    pattern: "(attrib\\s+\\+h\\s|Set-ItemProperty.*Hidden\\s+\\$true)"
+    tags: [defense_evasion, t1564.001]
+
+  - name: ads_stream
+    pattern: "(:\\$DATA|:Zone\\.Identifier|NTFS\\s+ADS)"
+    tags: [defense_evasion, t1564.004]
+
+  # ─── Discovery / recon (suite) ────────────────────────────────────────────
+  - name: domain_admin_enum
+    pattern: "(net\\s+group\\s+.*Domain\\s+Admins|dsquery\\s+group|Get-ADGroup.*Domain\\s+Admins)"
+    tags: [recon, discovery, t1087.002]
+
+  - name: ad_tooling
+    pattern: "(adfind|sharphound|bloodhound|LDAPSearch|Invoke-Kerberoast)"
+    tags: [recon, discovery, t1087.002]
+
+  - name: gpo_enum
+    pattern: "(gpresult\\s+/r|Get-GPO\\s+-All)"
+    tags: [recon, discovery, t1615]
+
+  - name: share_enum
+    pattern: "(net\\s+view\\s+\\\\|Get-SmbShare|\\bnet\\s+share\\b)"
+    tags: [recon, discovery, t1135]
+
+  - name: process_enum
+    pattern: "(tasklist\\s+/v|Get-Process\\s+-Name|qprocess)"
+    tags: [recon, discovery, t1057]
+
+  - name: file_dir_enum
+    pattern: "(dir\\s+[A-Z]:\\\\ /s|Get-ChildItem\\s+-Path\\s+[A-Z]:\\\\ -Recurse|tree\\s+[A-Z]:\\\\ /f)"
+    tags: [recon, discovery, t1083]
+
+  # ─── Lateral movement (suite) ─────────────────────────────────────────────
+  - name: wmic_remote_exec
+    pattern: "(wmic\\s+/node:|wmic\\s+process\\s+call\\s+create|Invoke-WmiMethod\\s+-ComputerName)"
+    tags: [lateral, exec, t1047]
+
+  - name: winrm_lateral
+    pattern: "(winrs\\s+-r:|evil-winrm|Enter-PSSession\\s+-ComputerName|Invoke-Command\\s+-ComputerName|New-PSSession\\s+-ComputerName|WinRM\\s+quickconfig)"
+    tags: [lateral, t1021.006]
+
+  - name: dcom_lateral
+    pattern: "(dcomexec|MMC20\\.Application|DcomLaunch|GetTypeFromProgID.*MMC20)"
+    tags: [lateral, exec, t1021.003]
+
+  - name: ssh_lateral
+    pattern: "(ssh\\.exe\\s+[\\w.-]+@|plink\\.exe\\s+-ssh|ssh\\s+-p\\s+\\d+\\s+[\\w.-]+@)"
+    tags: [lateral, t1021.004]
+
+  - name: vnc_remote
+    pattern: "(tightvnc|realvnc|vncserver|\\bvnc\\.exe\\b)"
+    tags: [lateral, t1021.005]
+
+  - name: rdp_logon
+    pattern: "(LogonType\\s*[:=]\\s*10\\b|TerminalServices.*logon)"
+    tags: [lateral, t1021.001]
+
+  # ─── Exfiltration / C2 (suite) ────────────────────────────────────────────
+  - name: tunneling_tools
+    pattern: "(chisel\\.exe|frpc?\\.exe|ligolo|nps\\.exe|rathole|n2n)"
+    tags: [c2, exfil, t1090.001]
+
+  - name: ssh_tunnel
+    pattern: "(ssh\\s+-[LRD]\\s|plink\\s+-[LRD]\\s|ssh\\.exe.*-L\\s+\\d+)"
+    tags: [c2, exfil, t1572]
+
+  - name: socat_ncat
+    pattern: "(\\bsocat\\b|\\bncat\\b|netcat|nc\\s+-l[vp])"
+    tags: [c2, t1105]
+
+  - name: webhook_c2
+    pattern: "(discord(app)?\\.com/api/webhooks|slack\\.com/api/|api\\.telegram\\.org/bot|ntfy\\.sh)"
+    tags: [c2, exfil, t1102]
+
+  - name: email_exfil
+    pattern: "(Send-MailMessage\\s+-To|mailto:\\S+@)"
+    tags: [exfil, t1048.003]
+
+  - name: ftp_exfil
+    pattern: "(ftp\\.exe\\s+-s:|curl\\s+-T\\s|Invoke-WebRequest.*-Method\\s+Put)"
+    tags: [exfil, t1048.002]
+
+  - name: tor_usage
+    pattern: "(\\btor\\.exe\\b|\\bproxychains\\b|\\btails\\b)"
+    tags: [c2, t1090.003]
+
+  # ─── Impact (suite) ───────────────────────────────────────────────────────
+  - name: disk_wipe
+    pattern: "(format\\s+[A-Z]:|diskpart\\s+/s.*clean|cipher\\s+/w|dd\\s+if=/dev/zero)"
+    tags: [impact, t1485]
+
+  - name: shutdown_abuse
+    pattern: "(shutdown\\s+-[rs]\\s+-t\\s+0|Stop-Computer\\s+-Force)"
+    tags: [impact, t1529]
+
+  - name: data_destruction
+    pattern: "(sdelete\\.exe|Remove-Item\\s+-Recurse\\s+-Force.*Recycle|cipher\\s+/w)"
+    tags: [impact, t1485]
+
+  - name: service_stop
+    pattern: "(net\\s+stop\\s+\\S+|sc\\s+stop\\s+|Stop-Service\\s+-Name)"
+    tags: [impact, t1489]
+
+  # ─── Collection (suite) ───────────────────────────────────────────────────
+  - name: clipboard_capture
+    pattern: "(Get-Clipboard|\\bClipboardViewer\\b)"
+    tags: [collection, credential, t1115]
+
+  - name: screen_capture
+    pattern: "(PrintWindow|CopyFromScreen|nircmd\\s+savescreenshot|\\bscreenshot\\b)"
+    tags: [collection, t1113]
+
+  - name: email_collection
+    pattern: "(\\.pst\\b|\\.ost\\b|Get-Mailbox\\s+-Export|Search-Mailbox)"
+    tags: [collection, t1114.002]
+
+  - name: sensitive_file_touch
+    pattern: "(id_rsa|id_ed25519|/etc/shadow|/etc/passwd|\\.ssh\\b)"
+    tags: [collection, credential, t1005]
+
+  # ─── Initial access / phishing (suite) ────────────────────────────────────
+  - name: office_macro
+    pattern: "(Auto_?Open|Workbook_Open|Document_Open|AutoExec)"
+    tags: [initial_access, phishing, t1204.002]
+
+  - name: html_smuggling
+    pattern: "(data:text/html[^\\n]{0,200}base64|HTML\\s+Smuggling)"
+    tags: [defense_evasion, phishing, t1027.006]
+
+  - name: iso_mount
+    pattern: "(Mount-DiskImage|imdisk\\.exe|\\b\\.vhd\\b.*Mount)"
+    tags: [initial_access, t1204.002]
+
+  - name: webshell
+    pattern: "(\\bwebshell\\b|cmd\\.aspx|shell\\.php|c99\\.php|r57\\.php|eval\\(\\$_POST)"
+    tags: [initial_access, t1505.003]
+
+  # ─── EVTX event IDs ───────────────────────────────────────────────────────
+  - name: failed_logon
+    pattern: "\\b4625\\b"
+    tags: [credential, recon, t1110]
+
+  - name: account_lockout
+    pattern: "\\b4740\\b"
+    tags: [recon, t1110]
+
+  - name: service_installed_event
+    pattern: "\\b7045\\b"
+    tags: [persist, t1543.003]
+
+  - name: ps_scriptblock_log
+    pattern: "\\b4104\\b"
+    tags: [exec, t1059.001]
+
+  - name: audit_log_cleared
+    pattern: "\\b1102\\b"
+    tags: [defense_evasion, t1070.001]
+
+  - name: privilege_use
+    pattern: "\\b4672\\b"
+    tags: [privesc]
+
+  # ─── Timesketch tagger (AllthingsTimesketch tags.yaml, J Marasinghe) ──────
+  # Ported queries: source_short:REG → types [registry]; source_short:EVTX →
+  # types [evtx, sysmon, hayabusa]. Event-identifier rules rely on the raw EventId
+  # being scanned; key_path/value rules match the raw KeyPath/ValueData text.
+  - name: ts_win_usrprofile
+    pattern: "ProfileList"
+    types: [registry]
+    tags: [win-user-profiles, Info]
+
+  - name: ts_powershell_mimikatz
+    pattern: "(System\\.Reflection\\.AssemblyName|System\\.Runtime\\.InteropServices\\.MarshalAsAttribute|SE_PRIVILEGE_ENABLED|TOKEN_PRIVILEGES)"
+    types: [evtx, sysmon, hayabusa]
+    tags: [win-mimikatz, T1003, Credential-Access, High]
+
+  - name: ts_defender_disabled_events
+    pattern: "\\b(5001|5010|5012)\\b"
+    types: [evtx, sysmon, hayabusa]
+    tags: [win-defender, T1562, Defense-Evasion, Medium]
+
+  - name: ts_firewall_rules
+    pattern: "(FirewallRules|\\b2005\\b)"
+    types: [registry, evtx, sysmon, hayabusa]
+    tags: [win-firewall, T1562, Defense-Evasion, Medium]
+
+  - name: ts_uac_disabled
+    pattern: "EnableLUA"
+    types: [registry]
+    tags: [win-uac, T1548, Defense-Evasion, High]
+
+  - name: ts_sticky_key
+    pattern: "(Image\\s+File\\s+Execution\\s+Options.*Debugger|IFEO.*Debugger)"
+    types: [registry]
+    tags: [win-sticky, T1183, Persistence, High]
+
+  - name: ts_bits_download
+    pattern: "(Start-BitsTransfer|bitsadmin\\s+/transfer)"
+    tags: [win-bitstransfer, T1197, Persistence, High]
+
+  - name: ts_logon_failures
+    pattern: "\\b(4625|4740|4776|4767)\\b"
+    types: [evtx, sysmon, hayabusa]
+    tags: [win-logonfailures, T1110, Credential-Access, Medium]
+
+  - name: ts_bloodhound
+    pattern: "(Invoke-BloodHound|Get-BloodHoundData|SharpHound|CollectionMethod\\s+All|\\bDCOnly\\b)"
+    tags: [win-bloodhound, T1482, Discovery, High]
+
+  - name: ts_postexploit_framework
+    pattern: "(Meterpreter|Metasploit|PowerSploit|MeteTool|MPreter|Swrort|Rozena|Backdoor\\.Cobalt)"
+    tags: [win-postexploit, T1219, Command-and-Control, High]
+
+  - name: ts_execution_indicators
+    pattern: "(MUICache|LastVisited.*MRU)"
+    types: [registry]
+    tags: [win-execution, T1204, Execution, User-Execution, Medium]
+
+  - name: ts_cred_dumper
+    pattern: "(PWDump|DumpCreds|PWCrack|PSWtool|PShlSpy|SecurityTool)"
+    tags: [win-credump, T1003, Credential-Access, High]
+
+  - name: ts_powershell_web
+    pattern: "(Invoke-WebRequest|Net\\.WebClient|Start-BitsTransfer|\\bwget\\b|\\bcurl\\b)"
+    tags: [win-powershell-webreq, T1059.001, Execution, High]
+
+  - name: ts_wireless_activity
+    pattern: "\\b(8001|8003|8005|8006|8008)\\b"
+    types: [evtx, sysmon, hayabusa]
+    tags: [win-wireless, T1200, Wireless, Medium]
+
+  - name: ts_bluekeep_scan
+    pattern: "AAAAAAA"
+    tags: [win-bluekeep, T1595, Bluekeep, Scan, High]
+
+  - name: ts_minint_seclog_disabled
+    pattern: "MiniNt"
+    types: [registry]
+    tags: [win-regseclogdis, T1562.002, Defense-Evasion, Security Log Disabled, High]
+
+  - name: ts_smbexec
+    pattern: "(BTOBTO|execute\\.bat)"
+    types: [evtx, sysmon, hayabusa]
+    tags: [win-smbexec, T1021.002, Impacket, Lateral-Movement, High]
+
+  - name: ts_macro_trustrecord
+    pattern: "Trusted\\s+Documents.*TrustRecord"
+    types: [registry]
+    tags: [win-macro, T1204.002, Execution, Macro-enabled, High]
+
+  - name: ts_base64_pe
+    pattern: "(TVqQAAMAAAAEAAAA|TVpQAAIAAAAEAA8A|TVqAAAEAAAAEABAA|TVqQAAMABAAAAAAA)"
+    tags: [win-base64pe, T1059.001, Base64, Execution, High]
+
+  - name: ts_base64_pe_double
+    pattern: "(VFZxUUFBTUFBQUFFQUFBQ|VFZwUUFBSUFBQUFFQUE4Q|VFZvQUFBQUFBQUFBQUFBQ)"
+    tags: [win-base64pe, T1059.001, Base64, Double-Encoded, Execution, High]
+
+  - name: ts_base64_pe_nullpad
+    pattern: "(VABWAHEAUQBBAEEATQBBAEEAQQBBAEUAQQBBAEEAQQ|VABWAHAAUQBBAEEASQBBAEEAQQBBAEUAQQBBADgAQQ)"
+    tags: [win-base64pe, T1059.001, Base64, Double-Encoded-Null-Padding, Execution, High]
+
+  - name: ts_base64_python
+    pattern: "(IyEvYmluL2Jhc2|IyEvYmluL3No|IyEvdXNyL2Jpbi9lbnYgcHl0aG9)"
+    tags: [win-base64python, T1059, Base64, Encoded-Python, Execution, High]
+
+  - name: ts_base64_gzip_pe
+    pattern: "(7b0HYBxJliUmL2|cG93ZXJzaGVsbC|UG93ZXJTaGVsbC)"
+    tags: [win-base64gzippe, T1059, Base64, Encoded-Gzip, Execution, High]
+
+  - name: ts_ssh_lateral
+    pattern: "(LogonType.{0,120}sshd|sshd.{0,120}LogonType)"
+    types: [evtx, sysmon, hayabusa]
+    tags: [win-ssh-lateral, Lateral-Movement, T1048.002, Exfiltration, T1021.004, High]
+
+  - name: ts_user_account_activity
+    pattern: "\\b(4722|4724|4728|4733)\\b"
+    types: [evtx, sysmon, hayabusa]
+    tags: [win-user-acc, Persistence, T1078, Defense-Evasion, Medium]
+
+  - name: ts_eventlog_svc_disabled
+    pattern: "\\b7040\\b"
+    types: [evtx, sysmon, hayabusa]
+    tags: [win-evt-log, Defense-Evasion, T1562.002, Event Log Disabled, High]
+
+  - name: ts_applocker_denied
+    pattern: "\\b(8003|8004|8006|8007)\\b"
+    types: [evtx, sysmon, hayabusa]
+    tags: [Execution, T1059.003, AppLocker-denied, High]
+
+  - name: ts_applocker_allowed
+    pattern: "\\b(8002|8005)\\b"
+    types: [evtx, sysmon, hayabusa]
+    tags: [Execution, T1059.003, AppLocker-allowed, Medium]
+
+  - name: ts_applocker_disabled
+    pattern: "\\b8008\\b"
+    types: [evtx, sysmon, hayabusa]
+    tags: [T1562, Defense-Evasion, AppLocker-Disabled, High]
+
+  - name: ts_defender_disabled_keys
+    pattern: "(DisableRealtimeMonitoring|DisableAntiSpyware|DisableAntiVirus|DisableBehaviorMonitoring|DisableIOAVProtection|DisableOnAccessProtection|DisableBlockAtFirstSeen)"
+    types: [registry]
+    tags: [win-defender, Defense-Evasion, T1562.001, High]
+
+  - name: ts_defender_reporting_disabled
+    pattern: "(SpyNetReporting|SubmitSamplesConsent|MpEnablePus)"
+    types: [registry]
+    tags: [win-defender, Defense-Evasion, T1562.001, High]
+
+  - name: ts_defender_log_disabled
+    pattern: "(DefenderApiLogger|DefenderAuditLogger)"
+    types: [registry]
+    tags: [win-defender, Defense-Evasion, T1562.001, High]
+
+  - name: ts_defender_services_disabled
+    pattern: "(WdBoot|WdFilter|WdNisDrv|WdNisSvc|WinDefend|SecurityHealthService)"
+    types: [registry]
+    tags: [win-defender, Defense-Evasion, T1562.001, High]
+
+  - name: ts_appcertdll
+    pattern: "AppCertDlls"
+    types: [registry]
+    tags: [appcertdlls, Persistence, T1546.009, High]
+
+  - name: ts_loadappinitdll
+    pattern: "LoadAppInit_DLLs"
+    types: [registry]
+    tags: [appinitdllloadset, Persistence, T1546.010, High]
+
+  - name: ts_appshimming
+    pattern: "(AppCompatFlags.*(InstalledSDB|Custom)|sdbinst)"
+    tags: [appshimming, Persistence, T1546.011, High]
+
+  - name: ts_sysinternals
+    pattern: "Sysinternals.*EulaAccepted"
+    types: [registry]
+    tags: [SysInternals, Software, High]
+
+  - name: ts_rid_hijack
+    pattern: "RID.{0,60}500"
+    types: [registry]
+    tags: [RID Hijack, Persistence, T1078.003, High]
+
+  - name: ts_powershell_config
+    pattern: "(EnableScriptBlockLogging|EnableModuleLogging|ExecutionPolicy)"
+    types: [registry]
+    tags: [PowerShell Config, T1059.001, Medium]
+
+  - name: ts_proxy_config
+    pattern: "(ProxyServer|ProxyEnable|ProxyOverride)"
+    types: [registry]
+    tags: [Proxy, T1090, Command-and-Control, Info]
+
+  - name: ts_timezone
+    pattern: "TimeZoneInformation"
+    types: [registry]
+    tags: [Timezone, Info]
+
+  - name: ts_rdp_tunnel
+    pattern: "(?=.*LogonType)(?=.*10\\b)(?=.*127\\.0\\.0\\.1)"
+    types: [evtx, sysmon, hayabusa]
+    tags: [RDP-Tunnel, T1021.001, Lateral-Movement, Defense-Evasion, T1572, High]
+
+  - name: ts_domain_trust_discovery
+    pattern: "(\\bnltest\\b|domainlist|trustdmp|\\bdcmodes\\b|\\badinfo\\b|domainncs|gpodmp)"
+    tags: [Domain-Trust, Discovery, T1482, T1018, High]
+
+  - name: ts_system_restore_disabled
+    pattern: "\\b8195\\b"
+    types: [evtx, sysmon, hayabusa]
+    tags: [System-Restore-Disabled, T1490, Impact, High]
+
+  - name: ts_sql_login_failure
+    pattern: "\\b18456\\b"
+    types: [evtx, sysmon, hayabusa]
+    tags: [SQL, login-fail, T1078, Initial-Access, Medium]
+
+  - name: ts_sql_login_success
+    pattern: "\\b(18453|18454)\\b"
+    types: [evtx, sysmon, hayabusa]
+    tags: [SQL, login-success, T1078, Initial-Access, Medium]
+
+  - name: ts_cobalt_make_token
+    pattern: "make_token"
+    tags: [authentication, cobaltstrike, T1134, Command-Control, High]
+
+  - name: ts_account_unlocked
+    pattern: "\\b4767\\b"
+    types: [evtx, sysmon, hayabusa]
+    tags: [win, acc, unlock, T1078, High]
+
+  - name: ts_sus_service
+    pattern: "(?=.*\\b7045\\b)(?=.*(COMSPEC|powershell))"
+    types: [evtx, sysmon, hayabusa]
+    tags: [win-service, Persistence, T1543.003, High]
+
+  - name: ts_zerologon
+    pattern: "\\b(5805|4742|5827|5828|5829|5830|5831)\\b"
+    types: [evtx, sysmon, hayabusa]
+    tags: [zerologon, Privilege-Escalation, T1068, High]
+
+  - name: ts_file_save_open
+    pattern: "(OpenSave.*MRU|LastVisited.*MRU)"
+    types: [registry]
+    tags: [win, Discovery, Collection, T1560, T1083, Medium]
+
+  - name: ts_defender_exclusions
+    pattern: "(Windows\\s+Defender.*Exclusions|Exclusions.*Threats)"
+    types: [registry]
+    tags: [win, Defense-Evasion, T1562.001, Defender, High]
+
+  - name: ts_msoffice_doc_activity
+    pattern: "(Trusted\\s+Documents.*TrustRecord|Reading\\s+Locations)"
+    types: [registry]
+    tags: [win, Initial-Access, Collection, T1566, T1005, MSOFFICE, High]
+
+  - name: ts_powershell_empire
+    pattern: "(?=.*-noP)(?=.*-sta)(?=.*-w\\s+1)(?=.*-enc)"
+    types: [evtx, sysmon, hayabusa]
+    tags: [win, Powershell, Command-and-Control, Execution, T1059.001, T1071.001, High]
+
+  - name: ts_pth_condrv
+    pattern: "(?=.*\\b4674\\b)(?=.*ConDrv)"
+    types: [evtx, sysmon, hayabusa]
+    tags: [win, Lateral Movement, Pass the Hash, T1550, T1550.002, Medium]
+
+  - name: ts_winrm_activity
+    pattern: "wsmprovhost"
+    tags: [win, Lateral Movement, PowerShell Remoting, T1021.006, High]
+
+  - name: ts_local_account_created
+    pattern: "\\b4720\\b"
+    types: [evtx, sysmon, hayabusa]
+    tags: [win, Persistence, T1136.001, High]
+
+  - name: ts_shimcache
+    pattern: "AppCompatCache"
+    types: [registry]
+    tags: [win-execution, T1204, Execution, Existence, Medium]
+
+  - name: ts_bam
+    pattern: "\\bBAM\\b"
+    types: [registry]
+    tags: [win-execution, T1204, Execution, User-Execution, BAM, Medium]
+
+  - name: ts_userassist
+    pattern: "UserAssist"
+    types: [registry]
+    tags: [win-execution, T1204, Execution, User-Execution, User Assist, Medium]
+
+  - name: ts_schtask_created
+    pattern: "\\b4698\\b"
+    types: [evtx, sysmon, hayabusa]
+    tags: [win, T1053.005, Execution, Persistence, Privilege-Escalation, T1053, Medium]
+
+  - name: ts_schtask_deleted
+    pattern: "\\b4699\\b"
+    types: [evtx, sysmon, hayabusa]
+    tags: [win, T1070, Defense-Evasion, High]
+
+  - name: ts_schtask_modified
+    pattern: "\\b4702\\b"
+    types: [evtx, sysmon, hayabusa]
+    tags: [win, T1070, Defense-Evasion, High]
+
+  - name: ts_winrs
+    pattern: "WinRsHost"
+    tags: [win, T1021.006, Lateral-Movement, WinRM, T1021, High]
+
+  - name: ts_compressed_files
+    pattern: "\\.(7z|rar|zip|tar|gz)\\b"
+    tags: [win, T1560.001, Collection, T1560, High]
+
+  - name: ts_lsass_dump_files
+    pattern: "(?=.*\\.dmp)(?=.*(lsass|Temp|tmp))"
+    tags: [win, T1003.001, Credential-Access, LSASS, T1003, High]
+
+  - name: ts_wmi_commandline_consumer
+    pattern: "wmiprvse"
+    tags: [win, T1546.003, Persistence, WMI, T1546, High]
+
+  - name: ts_wmi_activescript_consumer
+    pattern: "scrcons"
+    tags: [win, T1546.003, Persistence, WMI, T1546, High]
+
+  - name: ts_cs_beacon_service
+    pattern: "(?=.*7045)(?=.*admin\\$)(?=.*LocalSystem)"
+    types: [evtx, sysmon, hayabusa]
+    tags: [win, T1569.002, Execution, T1569, High]
+
+  - name: ts_named_pipe_privesc
+    pattern: "(?=.*(4697|7045))(?=.*COMSPEC)(?=.*echo)(?=.*pipe)"
+    types: [evtx, sysmon, hayabusa]
+    tags: [win, T1134.001, Privilege-Escalation, T1134, High]
+
+  - name: ts_gpo_created
+    pattern: "\\b5136\\b"
+    types: [evtx, sysmon, hayabusa]
+    tags: [win, T1484, Privilege-Escalation, Defense-Evasion, T1484, Medium]
+
+  - name: ts_firewall_disabled_reg
+    pattern: "EnableFirewall"
+    types: [registry]
+    tags: [win, T1562.004, Defense-Evasion, T1562, High]
+
+  - name: ts_invisishell
+    pattern: "InProcServer32.*cf0d821e-299b-5307-a3d8-b283c03916db"
+    types: [registry]
+    tags: [win, T1574.012, T1574, Defense Evasion, Persistence, High]
+
+  - name: ts_network_adapters
+    pattern: "Tcpip.*Interfaces"
+    types: [registry]
+    tags: [win, network, Info]
+
+  - name: ts_rdp_nonstandard_port
+    pattern: "RDP-Tcp.*PortNumber"
+    types: [registry]
+    tags: [win, Command-and-Control, T1571, High]
+
+  - name: ts_hidden_user
+    pattern: "SpecialAccounts.*UserList"
+    types: [registry]
+    tags: [win, Defense Evasion, T1564.002, T1564, High]
+
+  - name: ts_rdp_conn_attempt
+    pattern: "\\b1149\\b"
+    types: [evtx, sysmon, hayabusa]
+    tags: [win-rdp, T1021, Lateral-Movement, Medium]
+
+  - name: ts_ps_datacompress
+    pattern: "(?=.*\\b800\\b)(?=.*Join-Path)"
+    types: [evtx, sysmon, hayabusa]
+    tags: [win-powershell, T1560, Collection, High]
+
+  - name: ts_blank_pw_check
+    pattern: "\\b4797\\b"
+    types: [evtx, sysmon, hayabusa]
+    tags: [win, T1078.003, Initial-Access, T1078, Medium]
+
+  - name: ts_hostname
+    pattern: "ComputerName"
+    types: [registry]
+    tags: [win, Hostname, Info]
+
+  - name: ts_currentcontrolset
+    pattern: "\\\\Select"
+    types: [registry]
+    tags: [win, CurrentControlSet, Info]
+
+  - name: ts_network_shares
+    pattern: "Lanmanserver.*Shares"
+    types: [registry]
+    tags: [win, Network-Share, Shares, Info]
+
+  - name: ts_telnet_apppath
+    pattern: "App\\s+Paths.*telnet"
+    types: [registry]
+    tags: [win, T1218.011, T1218, Defense-Evasion, High]
+
+  - name: ts_smb_lateral_source
+    pattern: "(?=.*\\b4648\\b)(?=.*\\b445\\b)"
+    types: [evtx, sysmon, hayabusa]
+    tags: [win, T1021.002, T1021, Lateral-Movement, SMB, High]
+
+  - name: ts_schtask_cache
+    pattern: "TaskCache.*Tree"
+    types: [registry]
+    tags: [win, T1053.005, T1053, Persistence, Medium]
+
+  - name: ts_wsh_remote
+    pattern: "Windows\\s+Script\\s+Host.*Remote"
+    types: [registry]
+    tags: [win, T1021, Lateral Movement, source, High]
+
+  - name: ts_uac_bypass_reg
+    pattern: "(isolatedCommand|mscfile|ms-settings)"
+    types: [registry]
+    tags: [win, T1548, T1548.002, Privilege Escalation, Defense-Evasion, High]
+
+  - name: ts_zoneinfo_disabled
+    pattern: "SaveZoneInformation"
+    types: [registry]
+    tags: [win, T1564, Defense-Evasion, High]
+
+  - name: ts_av_scan_disabled
+    pattern: "ScanWithAntiVirus"
+    types: [registry]
+    tags: [win, T1562.001, T1562, Defense-Evasion, High]
+
+  - name: ts_rdp_client_history
+    pattern: "Terminal\\s+Server\\s+Client"
+    types: [registry]
+    tags: [win, T1021.001, T1021, Lateral-Movement, source, RDP, Info]
+
+  - name: ts_disable_pw_change
+    pattern: "DisablePasswordChange"
+    types: [registry]
+    tags: [win, T1098, Persistence, High]
+
+  - name: ts_portproxy
+    pattern: "portproxy"
+    types: [registry]
+    tags: [win, T1090, Command-and-Control, Proxy, High]
+
+  - name: ts_remote_uac_disabled
+    pattern: "LocalAccountTokenFilterPolicy"
+    types: [registry]
+    tags: [win, T1112, Defense-Evasion, High]
+
+  - name: ts_password_protected_zip
+    pattern: "(?=.*\\b5379\\b)(?=.*ZipFolder)"
+    types: [evtx, sysmon, hayabusa]
+    tags: [win, T1204, Execution, High]
+
+  - name: ts_ngrok_rdp
+    pattern: "(?=.*\\b21\\b)(?=.*16777216)"
+    types: [evtx, sysmon, hayabusa]
+    tags: [RDP-Tunnel, ngrok, T1572, Command and Control, High]
+
+  - name: ts_account_discovery
+    pattern: "\\b4799\\b"
+    types: [evtx, sysmon, hayabusa]
+    tags: [T1087, Discovery, High]
+
+  - name: ts_currentrun_startstop
+    pattern: "\\b(9707|9708)\\b"
+    types: [evtx, sysmon, hayabusa]
+    tags: [T1547.001, Persistence, Medium]
+
+  - name: ts_proxy_change
+    pattern: "\\b5600\\b"
+    types: [evtx, sysmon, hayabusa]
+    tags: [Proxy, T1090, Command-and-Control, High]
+
+  - name: ts_vhd_mount
+    pattern: "VHDMP"
+    tags: [T1553.005, Defense-Evasion, Medium]

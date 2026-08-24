@@ -3,13 +3,14 @@ import { useParams, NavLink, Outlet, useOutletContext, useNavigate } from 'react
 import {
   FolderOpen, Clock, Crosshair, AlertTriangle, Network,
   Shield, ScrollText, FileText, Activity, FlaskConical, ChevronLeft,
-  Brain, ExternalLink,
+  Brain, ExternalLink, Files, Boxes, KeyRound,
 } from 'lucide-react';
 import UiIcon from '../components/ui/Icon';
 import { evidenceAPI } from '../utils/api';
 import CaseIntelligencePage from './CaseIntelligencePage';
 import HayabusaPage from './HayabusaPage';
 import CyberChefPage from './CyberChefPage';
+import AuthGraphPage from './AuthGraphPage';
 import CollectionThreatHuntTab from '../components/collection/CollectionThreatHuntTab';
 import CollectionOverview from '../components/collection/CollectionOverview';
 import { resolveCollectionPane } from './collectionPane';
@@ -62,6 +63,7 @@ export default function CollectionLayout() {
     { id: 'evidence',   label: 'Evidence',    icon: FolderOpen },
     { id: 'iocs',       label: 'IOCs',        icon: Crosshair },
     { id: 'detections', label: 'Detections',   icon: AlertTriangle },
+    { id: 'auth',       label: 'Auth',        icon: KeyRound },
     { id: 'network',    label: 'Network',      icon: Network },
     { id: 'mitre',      label: 'MITRE',       icon: Shield },
     { id: 'audit',      label: 'Audit',       icon: ScrollText },
@@ -127,6 +129,24 @@ export default function CollectionLayout() {
           Logs
         </NavLink>
 
+        <NavLink
+          to={`${base}/files`}
+          style={({ isActive }) => tabSt(isActive)}
+          onMouseEnter={tabHoverIn} onMouseLeave={tabHoverOut}
+        >
+          <Files size={12} />
+          Files
+        </NavLink>
+
+        <NavLink
+          to={`${base}/artifacts`}
+          style={({ isActive }) => tabSt(isActive)}
+          onMouseEnter={tabHoverIn} onMouseLeave={tabHoverOut}
+        >
+          <Boxes size={12} />
+          Artifacts
+        </NavLink>
+
         <span style={{ width: 1, height: 16, background: 'var(--fl-border)', flexShrink: 0, margin: '0 4px' }} />
 
         <NavLink
@@ -175,6 +195,8 @@ export default function CollectionLayout() {
           <CollectionOverview caseId={id} collectionId={collectionId} collName={collName} />
         ) : pane === 'network' ? (
           <CaseIntelligencePage collectionId={collectionId} />
+        ) : pane === 'auth' ? (
+          <AuthGraphPage evidenceId={collectionId} />
         ) : pane === 'hayabusa' ? (
           <HayabusaPage />
         ) : pane === 'cyberchef' ? (

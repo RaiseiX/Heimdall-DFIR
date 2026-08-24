@@ -3,7 +3,7 @@ import * as Y from 'yjs';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '../utils/theme';
 import { useParams, useNavigate, useOutletContext } from 'react-router-dom';
-import { FolderOpen, Clock, Globe, FileDown, Star, Plus, AlertTriangle, Download, Loader2, Shield, Trash2, Cpu, Copy, RefreshCw, CalendarDays, Pencil, Wifi, Lock, Activity, FileJson, Sparkles, X, Info, BookOpen, Crosshair } from 'lucide-react';
+import { FolderOpen, Clock, Globe, FileDown, Star, Plus, AlertTriangle, Download, Loader2, Shield, Trash2, Cpu, Copy, RefreshCw, CalendarDays, Pencil, Wifi, Lock, Activity, FileJson, Sparkles, X, Info, BookOpen, Crosshair, XCircle, CheckCircle2 } from 'lucide-react';
 import api, { casesAPI, evidenceAPI, iocsAPI, collectionAPI, parsersAPI, pcapAPI, legalHoldAPI } from '../utils/api';
 import AiCopilotModal from '../components/ai/AiCopilotModal';
 import { Button, Modal, Spinner } from '../components/ui';
@@ -27,6 +27,8 @@ import ReportTemplateModal from '../components/reports/ReportTemplateModal';
 import ReportAiEditor from '../components/reports/ReportAiEditor';
 import { createReportCollabProvider } from '../components/reports/collab/reportCollabProvider';
 import GlobalNetworkMapPage from './GlobalNetworkMapPage';
+import IocTimelineView from './IocTimelineView';
+import IocNotesCell from '../components/iocs/IocNotesCell';
 import NotebookPanel from '../components/notebook/NotebookPanel';
 import InvestigationWorkspace from '../components/investigation/InvestigationWorkspace';
 
@@ -58,6 +60,10 @@ const ARTIFACT_COLORS = {
   registry: 'var(--fl-pink)', amcache: 'var(--fl-gold)', appcompat: 'var(--fl-warn)', shellbags: 'var(--fl-purple)',
   jumplist: 'var(--fl-accent)', srum: 'var(--fl-danger)', wxtcmd: '#14b8a6', recycle: 'var(--fl-ok)',
   sum: 'var(--fl-pink)', bits: '#fb923c', collection: 'var(--fl-dim)',
+  catscale_auth: '#f43f5e', catscale_logon: '#22c55e', catscale_process: '#8b72d6',
+  catscale_network: '#4d82c0', catscale_history: '#d97c20',
+  catscale_persistence: '#c89d1d', catscale_fstimeline: '#06b6d4',
+  catscale_dmesg: '#f97316', catscale_ssh: '#10b981', catscale_state: '#94a3b8',
 };
 
 function fmtSize(b) {
@@ -65,6 +71,23 @@ function fmtSize(b) {
   const k = 1024, s = ['B', 'KB', 'MB', 'GB', 'TB'];
   const i = Math.min(Math.floor(Math.log(b) / Math.log(k)), s.length - 1);
   return `${(b / Math.pow(k, i)).toFixed(1)} ${s[i]}`;
+}
+
+// Detected artifact types of a collection evidence, exposed by the import step
+// in evidence.metadata.detected = { evtx: { name, count }, mft: {…}, … }. Used
+// to let the analyst re-parse only a subset of types instead of the whole
+// collection. Returns [] for non-collection evidence (single-file uploads).
+function detectedArtifactTypes(ev) {
+  const detected = ev?.metadata?.detected;
+  if (!detected || typeof detected !== 'object') return [];
+  return Object.entries(detected)
+    .filter(([k]) => k !== 'catscale_error')
+    .map(([k, v]) => ({
+      key: k,
+      name: (v && (v.name || v.label)) || k,
+      count: (v && (v.count || v.n)) || 0,
+      color: ARTIFACT_COLORS[k] || 'var(--fl-muted)',
+    }));
 }
 
 function ColorBadge({ color, children }) {
@@ -201,10 +224,20 @@ export default function CaseDetailPage({ user }) {
   const [addingIoc, setAddingIoc]   = useState(false);
   const [newIoc, setNewIoc] = useState({ ioc_type: 'ip', value: '', severity: 5, is_malicious: false, description: '' });
   const [iocVerdictFilter, setIocVerdictFilter] = useState('all');
+  const [caseIocView, setCaseIocView] = useState('table');
   const [iocEnriching, setIocEnriching] = useState({});
+  const [backfillingIocs, setBackfillingIocs] = useState(false);
   const refetchIOCs = () => iocsAPI.list(id)
     .then(r => setCaseIOCs(Array.isArray(r.data) ? r.data : (r.data?.iocs || [])))
     .catch(() => {});
+  const backfillIocDates = async () => {
+    setBackfillingIocs(true);
+    try {
+      await iocsAPI.backfillFirstSeen({ caseId: id });
+      await refetchIOCs();
+    } catch { /* ignore */ }
+    setBackfillingIocs(false);
+  };
   const addIoc = async () => {
     if (!newIoc.value.trim() || addingIoc) return;
     setAddingIoc(true);
@@ -243,6 +276,14 @@ export default function CaseDetailPage({ user }) {
   const [aiError, setAiError] = useState('');
   const [showImportPanel, setShowImportPanel] = useState(false);
   const [evResultMap, setEvResultMap] = useState({});
+  // Bumped whenever a parse is launched from this page so the parse-progress
+  // poll (which otherwise stops once idle) re-attaches and shows the monitor.
+  const [parsePollNonce, setParsePollNonce] = useState(0);
+  // Timestamp of the last launch: after clicking Re-parser the backend takes a
+  // moment to register the job (the POST resolves before PARSE_PROGRESS exists),
+  // so an immediate idle poll must NOT stop the polling — keep it alive for a
+  // grace window until the first active snapshot arrives.
+  const lastLaunchAtRef = useRef(0);
   const { socket, socketId } = useSocket();
   const { toast } = useToast();
   const [evToDelete, setEvToDelete] = useState(null);
@@ -258,6 +299,28 @@ export default function CaseDetailPage({ user }) {
   const [hardDeleting, setHardDeleting] = useState(false);
   const [hardDeleteResult, setHardDeleteResult] = useState(null);
   const [pcapState, setPcapState] = useState({});
+  const [reparseOpenFor, setReparseOpenFor] = useState(null); // evidence id whose type-picker is open
+  const [reparseSel, setReparseSel] = useState({});       // { [evidenceId]: Set<artifactType> }
+  const [reparseCounts, setReparseCounts] = useState({}); // { [evidenceId]: { [artifactType]: real record count } }
+  const [liveEvCounts, setLiveEvCounts] = useState({}); // { [evidenceId]: live timeline row count }
+
+  // When the type-picker opens, fetch the REAL per-type record counts from the
+  // timeline (collection_timeline rows) — metadata.detected only carries the
+  // import-time file count, which misleads (registry shows "21 hives" while the
+  // timeline holds thousands of values).
+  useEffect(() => {
+    if (!reparseOpenFor || !id) return;
+    let alive = true;
+    collectionAPI.artifactsSummary(id, { evidence_id: reparseOpenFor })
+      .then(r => {
+        if (!alive) return;
+        const map = {};
+        (r.data?.artifacts || []).forEach(x => { if (x.artifact_type) map[x.artifact_type] = Number(x.cnt || 0); });
+        setReparseCounts(prev => ({ ...prev, [reparseOpenFor]: map }));
+      })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [reparseOpenFor, id]);
   const [triageData, setTriageData] = useState(null);
   const [triageRunning, setTriageRunning] = useState(false);
   const [showTriageModal, setShowTriageModal] = useState(false);
@@ -306,9 +369,22 @@ export default function CaseDetailPage({ user }) {
     };
   }, [socket, id]);
 
+  // Live per-evidence timeline counts (collection_timeline rows). Unlike the
+  // parser_results snapshot, this never goes stale: it climbs while a parse
+  // streams rows in and converges exactly with the artifacts browser.
+  const refreshLiveCounts = useCallback(async () => {
+    try {
+      const cntRes = await collectionAPI.evidenceCounts(id);
+      if (cntRes.data && cntRes.data.counts) setLiveEvCounts(cntRes.data.counts);
+    } catch {}
+  }, [id]);
+
   const refreshEvResultMap = useCallback(async () => {
     try {
-      const prRes = await parsersAPI.results(id);
+      const [prRes] = await Promise.all([
+        parsersAPI.results(id),
+        refreshLiveCounts(),
+      ]);
       if (!prRes.data) return;
       const list = Array.isArray(prRes.data) ? prRes.data : [];
       const map = {};
@@ -320,9 +396,15 @@ export default function CaseDetailPage({ user }) {
       });
       setEvResultMap(map);
     } catch {}
-  }, [id]);
+  }, [id, refreshLiveCounts]);
 
   useSocketEvent(socket, 'collection:parse:done', () => {
+    refreshEvResultMap();
+  });
+
+  // A parse that errors never emits collection:parse:done — refresh anyway so the
+  // evidence badges reflect the real (partial) state instead of staying 'not analyzed'.
+  useSocketEvent(socket, 'collection:parse:error', () => {
     refreshEvResultMap();
   });
 
@@ -438,17 +520,88 @@ export default function CaseDetailPage({ user }) {
   }, [evidence, id]);
 
   // Poll server-side parse progress so the monitor re-attaches after navigation
-  // (the parse itself runs detached server-side and survives leaving the page).
+  // (the parse itself runs detached server-side and survives leaving the page),
+  // and so a client that missed the socket events still receives the terminal
+  // outcome (done / error) instead of a blank void.
+  const terminalRefreshedRef = useRef(false);
+  const bannerDismissedRef = useRef(false);
+  const lastLiveCountsRef = useRef(0);
   useEffect(() => {
-    if (!id || tab !== 'evidence') { setParseProg(null); return; }
+    if (!id || tab !== 'evidence') { setParseProg(null); terminalRefreshedRef.current = false; bannerDismissedRef.current = false; return; }
     let alive = true;
+    let dismissTimer = null;
     const poll = () => collectionAPI.parseProgress(id)
-      .then(r => { if (alive) setParseProg(r.data?.active ? r.data : null); })
+      .then(r => {
+        if (!alive) return;
+        const d = r.data;
+        if (!d) { setParseProg(d); stopPolling(); return; }
+        if (d.active) {
+          // live parse: show the monitor, cancel any pending banner dismissal
+          lastLaunchAtRef.current = 0;
+          bannerDismissedRef.current = false;
+          if (dismissTimer) { clearTimeout(dismissTimer); dismissTimer = null; }
+          setParseProg(d);
+          // Keep the evidence badges live while rows stream in (throttled —
+          // the GROUP BY is indexed, but not per 2.5 s poll).
+          if (Date.now() - lastLiveCountsRef.current > 10000) {
+            lastLiveCountsRef.current = Date.now();
+            refreshLiveCounts();
+          }
+          if (!pollIv) pollIv = setInterval(poll, 2500);
+        } else if (d.done) {
+          // A launch races the backend registering the new job: for a couple of
+          // seconds /parse-progress can still serve the PREVIOUS parse's
+          // terminal snapshot (done) from the durable fallback. Keep polling
+          // during the grace window instead of stopping — otherwise the
+          // monitor never appears until a manual refresh.
+          const withinGrace = Date.now() - lastLaunchAtRef.current < 25000;
+          if (withinGrace) {
+            if (!pollIv) pollIv = setInterval(poll, 2000);
+            return;
+          }
+          // Refresh the per-evidence badges once per terminal outcome.
+          if (!terminalRefreshedRef.current) {
+            terminalRefreshedRef.current = true;
+            refreshEvResultMap();
+          }
+          // Show the "Analyse terminée" banner only when the parse JUST ended
+          // (updatedAt < 1 min). A stale terminal snapshot (reload, tab revisit
+          // after a parse that finished long ago) must not resurrect the
+          // banner — the per-evidence ✓ badges already convey the state.
+          const fresh = d.updatedAt && Date.now() - d.updatedAt < 60_000;
+          if (fresh) {
+            if (!bannerDismissedRef.current) {
+              bannerDismissedRef.current = true;
+              setParseProg(d);
+              if (dismissTimer) clearTimeout(dismissTimer);
+              dismissTimer = setTimeout(() => { if (alive) setParseProg(null); }, 10_000);
+            }
+          } else {
+            setParseProg(null);
+          }
+          stopPolling();
+        } else {
+          // Idle. Right after a launch the job may not be registered yet — keep
+          // polling during the grace window so the monitor appears as soon as
+          // the backend reports active; otherwise there is nothing to track.
+          const withinGrace = Date.now() - lastLaunchAtRef.current < 25000;
+          if (withinGrace) {
+            if (!pollIv) pollIv = setInterval(poll, 2000);
+          } else {
+            setParseProg(d);
+            stopPolling();
+          }
+        }
+      })
       .catch(() => {});
+    // Poll once to (re-)attach; keep polling ONLY while a parse is live or a
+    // launch is pending. When idle there is nothing to track, so stop the
+    // interval instead of hammering /parse-progress every 2.5s forever.
+    let pollIv = null;
+    const stopPolling = () => { if (pollIv) { clearInterval(pollIv); pollIv = null; } };
     poll();
-    const timer = setInterval(poll, 2500);
-    return () => { alive = false; clearInterval(timer); };
-  }, [id, tab]);
+    return () => { alive = false; stopPolling(); if (dismissTimer) clearTimeout(dismissTimer); };
+  }, [id, tab, refreshEvResultMap, refreshLiveCounts, parsePollNonce]);
 
   // Case audit log — fetched when the Audit tab is opened.
   useEffect(() => {
@@ -1010,7 +1163,7 @@ export default function CaseDetailPage({ user }) {
         </div>
       )}
 
-      {tab === 'detections' && <DetectionsTab caseId={id} />}
+      {tab === 'detections' && <DetectionsTab caseId={id} evidenceId={selEv?.id || null} evidenceName={selEv?.name || null} />}
 
       {tab === 'mitre' && <MitreAttackTab caseId={id} />}
 
@@ -1092,11 +1245,20 @@ export default function CaseDetailPage({ user }) {
                 <span style={{ fontSize: 11, fontFamily: 'var(--f-mono, monospace)', textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--fl-dim)', fontWeight: 700 }}>IOCs</span>
                 <span style={{ fontSize: 10.5, fontFamily: 'var(--f-mono, monospace)', padding: '1px 7px', borderRadius: 4, background: 'color-mix(in srgb, var(--fl-accent) 9%, transparent)', color: 'var(--fl-accent)', border: '1px solid color-mix(in srgb, var(--fl-accent) 19%, transparent)' }}>{caseIOCs.length}</span>
               </div>
-              <button onClick={() => setShowAddIoc(v => !v)}
-                style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 12px', borderRadius: 6, cursor: 'pointer', fontFamily: 'var(--f-mono, monospace)', fontSize: 11, fontWeight: 600,
-                  background: showAddIoc ? 'var(--fl-card)' : 'var(--fl-accent)', color: showAddIoc ? 'var(--fl-dim)' : '#fff', border: `1px solid ${showAddIoc ? 'var(--fl-border)' : 'var(--fl-accent)'}` }}>
-                {showAddIoc ? <><X size={12} /> {t('common.cancel')}</> : <><Plus size={12} /> {t('casedetail.add_ioc_long')}</>}
-              </button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <button onClick={backfillIocDates} disabled={backfillingIocs || caseIOCs.length === 0}
+                  title={t('iocs.backfill_title', { defaultValue: 'Anchore les IOCs sur le timestamp de leur event d\'origine' })}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 10px', borderRadius: 6, cursor: backfillingIocs ? 'wait' : 'pointer', fontFamily: 'var(--f-mono, monospace)', fontSize: 11, fontWeight: 600,
+                    background: 'var(--fl-panel)', color: 'var(--fl-muted)', border: '1px solid var(--fl-border)' }}>
+                  {backfillingIocs ? <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> : '↻'}
+                  {t('iocs.backfill', { defaultValue: 'Backfiller les dates' })}
+                </button>
+                <button onClick={() => setShowAddIoc(v => !v)}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 12px', borderRadius: 6, cursor: 'pointer', fontFamily: 'var(--f-mono, monospace)', fontSize: 11, fontWeight: 600,
+                    background: showAddIoc ? 'var(--fl-card)' : 'var(--fl-accent)', color: showAddIoc ? 'var(--fl-dim)' : '#fff', border: `1px solid ${showAddIoc ? 'var(--fl-border)' : 'var(--fl-accent)'}` }}>
+                  {showAddIoc ? <><X size={12} /> {t('common.cancel')}</> : <><Plus size={12} /> {t('casedetail.add_ioc_long')}</>}
+                </button>
+              </div>
             </div>
 
             {/* ── add form ── */}
@@ -1144,6 +1306,19 @@ export default function CaseDetailPage({ user }) {
                   </button>
                 );
               })}
+              <div style={{ marginLeft: 'auto', display: 'flex', gap: 2, background: 'var(--fl-panel)', border: '1px solid var(--fl-border)', borderRadius: 6, padding: 2 }}>
+                {(['table', 'timeline']).map(v => (
+                  <button key={v} onClick={() => setCaseIocView(v)}
+                    style={{
+                      display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 10px', borderRadius: 4, cursor: 'pointer',
+                      fontFamily: 'var(--f-mono, monospace)', fontSize: 10.5, fontWeight: 600,
+                      border: 'none', background: caseIocView === v ? 'color-mix(in srgb, var(--fl-accent) 14%, transparent)' : 'transparent',
+                      color: caseIocView === v ? 'var(--fl-accent)' : 'var(--fl-muted)',
+                    }}>
+                    {v === 'table' ? '☰ ' + t('iocs.view_table') : '⏱ ' + t('iocs.view_timeline')}
+                  </button>
+                ))}
+              </div>
             </div>
 
             {/* ── enrichment hint ── */}
@@ -1152,8 +1327,10 @@ export default function CaseDetailPage({ user }) {
               {t('iocs.enrichment_hint')} <code style={{ color: 'var(--fl-dim)' }}>.env</code>
             </div>
 
-            {/* ── table ── */}
-            {caseIOCs.length === 0 ? (
+            {/* ── table / timeline ── */}
+            {caseIocView === 'timeline' ? (
+              <IocTimelineView iocs={visibleIOCs} onUpdateIoc={() => refetchIOCs()} />
+            ) : caseIOCs.length === 0 ? (
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '64px 16px', gap: 12 }}>
                 <div style={{
                   width: 44, height: 44, borderRadius: 12,
@@ -1174,6 +1351,7 @@ export default function CaseDetailPage({ user }) {
                       <th>Description</th>
                       <th style={{ width: 170 }}>{t('iocs.enrichment')}</th>
                       <th style={{ width: 160 }}>Tags</th>
+                      <th style={{ width: 180 }}>Notes</th>
                       <th style={{ width: 112 }}></th>
                     </tr>
                   </thead>
@@ -1249,6 +1427,17 @@ export default function CaseDetailPage({ user }) {
                             </div>
                           </td>
 
+                          {/* NOTES — analyst free text, editable inline */}
+                          <td>
+                            <IocNotesCell
+                              value={ioc.notes || ''}
+                              onSave={async notes => {
+                                await iocsAPI.update(ioc.id, { notes });
+                                refetchIOCs();
+                              }}
+                            />
+                          </td>
+
                           {/* ACTIONS */}
                           <td>
                             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 4 }}>
@@ -1291,6 +1480,27 @@ export default function CaseDetailPage({ user }) {
               live={parseProg.live}
             />
           )}
+
+          {parseProg && !parseProg.active && parseProg.done && (() => {
+            const pstates = parseProg.parsers || {};
+            const errN = Object.values(pstates).filter(s => s && s.status === 'error').length;
+            const isErr = parseProg.outcome === 'error';
+            const color = isErr ? 'var(--fl-danger)' : (errN > 0 ? '#d9a400' : 'var(--fl-ok)');
+            return (
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, border: `1px solid color-mix(in srgb, ${color} 40%, transparent)`, borderRadius: 8, background: `color-mix(in srgb, ${color} 8%, transparent)`, padding: '10px 14px', marginBottom: 12 }}>
+                {isErr
+                  ? <XCircle size={15} style={{ color, flexShrink: 0, marginTop: 1 }} />
+                  : <CheckCircle2 size={15} style={{ color, flexShrink: 0, marginTop: 1 }} />}
+                <div style={{ fontSize: 12.5, color: 'var(--fl-text)', fontFamily: 'var(--f-ui, Inter, sans-serif)', lineHeight: 1.45 }}>
+                  {isErr
+                    ? <><b style={{ color }}>{t('casedetail.parse_failed')}</b> — {parseProg.error || t('casedetail.parse_failed_default')}</>
+                    : errN > 0
+                      ? <><b style={{ color }}>{t('casedetail.parse_done_errors', { n: errN })}</b> — {t('casedetail.parse_done_errors_hint')}</>
+                      : <b style={{ color }}>{t('casedetail.parse_done')}</b>}
+                </div>
+              </div>
+            );
+          })()}
 
           <RightDrawer open={!!drawerEv} onClose={() => setDrawerEv(null)} title={drawerEv?.name}>
             {drawerEv && (
@@ -1440,7 +1650,9 @@ export default function CaseDetailPage({ user }) {
             {evidence.map((ev, _evIdx) => {
               const evResult = evResultMap[ev.name];
               const resultId = evResult?.resultId;
-              const recordCount = evResult?.recordCount ?? 0;
+              // Live timeline row count (climbs during a parse, exact at the
+              // end) — falls back to the parser_results snapshot.
+              const recordCount = (liveEvCounts[ev.id] ?? evResult?.recordCount) || 0;
               // "Analyzed" reflects ACTUAL parse completion (real records written at the
               // end of the job), not the mere existence of a parser_results row — that row
               // is created at import/start, which made the badge flip to "analyzed" too early.
@@ -1457,11 +1669,11 @@ export default function CaseDetailPage({ user }) {
                   background: 'var(--fl-panel)',
                   transition: 'border-color 0.15s',
                 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', cursor: 'pointer' }}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', cursor: 'pointer', flexWrap: 'wrap', rowGap: 8 }}
                     onClick={() => { if (isExpanded) navigate(`/cases/${id}`); else navigate(`/cases/${id}/collections/${ev.id}`); }}>
                     <FolderOpen size={13} style={{ color: isParsed ? 'var(--fl-ok)' : 'var(--fl-muted)', flexShrink: 0 }} />
-                    <div style={{ flex: 1, overflow: 'hidden', minWidth: 0 }}>
-                      <span style={{ fontWeight: 600, fontSize: 13, color: 'var(--fl-text)', display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <span title={ev.name} style={{ fontWeight: 600, fontSize: 13, color: 'var(--fl-text)', display: 'block', lineHeight: 1.35, whiteSpace: 'normal', wordBreak: 'break-word' }}>
                         {ev.name}
                       </span>
                       {ev.additional_files?.length > 0 && (
@@ -1512,13 +1724,111 @@ export default function CaseDetailPage({ user }) {
                       <Icon name="Info" size={13} />
                     </button>
                     <button
-                      onClick={e => { e.stopPropagation(); collectionAPI.parse(id, { evidence_id: ev.id, socketId }).catch(() => {}); }}
+                      onClick={e => {
+                        e.stopPropagation();
+                        const types = detectedArtifactTypes(ev).map(t => t.key);
+                        if (types.length === 0) {
+                          // No detected-types metadata (single-file upload): keep
+                          // the legacy one-click full re-parse behaviour.
+                          lastLaunchAtRef.current = Date.now();
+                          setParsePollNonce(n => n + 1);
+                          collectionAPI.parse(id, { evidence_id: ev.id, socketId, artifact_types: 'all' }).catch(() => {});
+                          return;
+                        }
+                        if (reparseOpenFor === ev.id) {
+                          setReparseOpenFor(null);
+                        } else {
+                          // Default to ALL detected types selected on open.
+                          setReparseSel(prev => ({ ...prev, [ev.id]: new Set(types) }));
+                          setReparseOpenFor(ev.id);
+                        }
+                      }}
                       title={t('casedetail.reparse_title')}
-                      style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 9px', borderRadius: 5, fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', cursor: 'pointer', background: 'transparent', color: 'var(--fl-muted)', border: '1px solid var(--fl-border)', flexShrink: 0 }}
+                      style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 9px', borderRadius: 5, fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', cursor: 'pointer', background: reparseOpenFor === ev.id ? 'color-mix(in srgb, var(--fl-accent) 12%, transparent)' : 'transparent', color: reparseOpenFor === ev.id ? 'var(--fl-accent)' : 'var(--fl-muted)', border: `1px solid ${reparseOpenFor === ev.id ? 'var(--fl-border3)' : 'var(--fl-border)'}`, flexShrink: 0 }}
                       onMouseEnter={e => { e.currentTarget.style.color = 'var(--fl-accent)'; e.currentTarget.style.borderColor = 'var(--fl-border3)'; }}
-                      onMouseLeave={e => { e.currentTarget.style.color = 'var(--fl-muted)'; e.currentTarget.style.borderColor = 'var(--fl-border)'; }}>
+                      onMouseLeave={e => { e.currentTarget.style.color = reparseOpenFor === ev.id ? 'var(--fl-accent)' : 'var(--fl-muted)'; e.currentTarget.style.borderColor = reparseOpenFor === ev.id ? 'var(--fl-border3)' : 'var(--fl-border)'; }}>
                       <RefreshCw size={11} /> {t('casedetail.reparse')}
                     </button>
+                    {reparseOpenFor === ev.id && (() => {
+                      const detected = detectedArtifactTypes(ev);
+                      const sel = reparseSel[ev.id] || new Set();
+                      const allSelected = detected.every(t => sel.has(t.key));
+                      const toggle = (key) => {
+                        const next = new Set(sel);
+                        if (next.has(key)) next.delete(key); else next.add(key);
+                        setReparseSel(prev => ({ ...prev, [ev.id]: next }));
+                      };
+                      const launch = (all) => {
+                        setReparseOpenFor(null);
+                        const payload = { evidence_id: ev.id, socketId };
+                        if (all) payload.artifact_types = 'all';
+                        else payload.artifact_types = detected.filter(t => sel.has(t.key)).map(t => t.key);
+                        // Re-arm the parse-progress poll so the monitor appears right away.
+                        lastLaunchAtRef.current = Date.now();
+                        setParsePollNonce(n => n + 1);
+                        collectionAPI.parse(id, payload).catch(() => {});
+                      };
+                      return (
+                        <div
+                          onClick={e => e.stopPropagation()}
+                          style={{ flexBasis: '100%', display: 'flex', flexDirection: 'column', gap: 8, padding: '10px 12px', margin: '0 14px 8px', background: 'var(--fl-bg)', border: '1px solid var(--fl-border2)', borderRadius: 8 }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                            <span style={{ fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--fl-dim)' }}>
+                              {t('casedetail.reparse_select', 'Types à re-analyser')}
+                            </span>
+                            <button
+                              onClick={() => launch(true)}
+                              style={{ fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', cursor: 'pointer', padding: '2px 8px', borderRadius: 4, background: allSelected ? 'color-mix(in srgb, var(--fl-accent) 14%, transparent)' : 'transparent', color: 'var(--fl-accent)', border: `1px solid ${allSelected ? 'var(--fl-border3)' : 'var(--fl-border)'}` }}
+                            >
+                              {t('casedetail.reparse_all', 'Tous')}
+                            </button>
+                            <button
+                              onClick={() => setReparseSel(prev => ({ ...prev, [ev.id]: new Set(detected.map(t => t.key)) }))}
+                              style={{ fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', cursor: 'pointer', padding: '2px 8px', borderRadius: 4, background: allSelected ? 'color-mix(in srgb, var(--fl-accent) 12%, transparent)' : 'transparent', color: 'var(--fl-accent)', border: '1px solid var(--fl-border)' }}
+                            >
+                              {t('casedetail.reparse_check_all', 'Tout cocher')}
+                            </button>
+                            <button
+                              onClick={() => setReparseSel(prev => ({ ...prev, [ev.id]: new Set() }))}
+                              disabled={detected.length === 0}
+                              style={{ fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', cursor: detected.length === 0 ? 'not-allowed' : 'pointer', padding: '2px 8px', borderRadius: 4, opacity: detected.length === 0 ? 0.5 : 1, background: 'transparent', color: 'var(--fl-muted)', border: '1px solid var(--fl-border)' }}
+                            >
+                              {t('casedetail.reparse_uncheck_all', 'Tout décocher')}
+                            </button>
+                          </div>
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                            {detected.map(t => (
+                              <label key={t.key} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-text)', cursor: 'pointer', padding: '3px 8px', borderRadius: 4, background: sel.has(t.key) ? 'color-mix(in srgb, var(--fl-accent) 9%, transparent)' : 'var(--fl-card)', border: `1px solid ${sel.has(t.key) ? 'var(--fl-border3)' : 'var(--fl-border)'}` }}>
+                                <input type="checkbox" checked={sel.has(t.key)} onChange={() => toggle(t.key)} style={{ accentColor: 'var(--fl-accent)' }} />
+                                <span style={{ width: 6, height: 6, borderRadius: '50%', background: t.color, flexShrink: 0 }} />
+                                {t.name}
+                                {(() => {
+                                  const realCount = reparseCounts[ev.id]?.[t.key];
+                                  const shown = realCount !== undefined ? realCount : t.count;
+                                  return shown > 0
+                                    ? <span style={{ color: 'var(--fl-dim)', fontSize: 9 }}>({Number(shown).toLocaleString()})</span>
+                                    : null;
+                                })()}
+                              </label>
+                            ))}
+                          </div>
+                          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                            <button onClick={() => setReparseOpenFor(null)} style={{ fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', cursor: 'pointer', padding: '4px 10px', borderRadius: 5, background: 'transparent', color: 'var(--fl-muted)', border: '1px solid var(--fl-border)' }}>
+                              {t('common.cancel', 'Annuler')}
+                            </button>
+                            <button
+                              onClick={() => launch(allSelected)}
+                              disabled={detected.length === 0 || (!allSelected && !detected.some(t => sel.has(t.key)))}
+                              style={{ fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontWeight: 600, cursor: detected.length === 0 || (!allSelected && !detected.some(t => sel.has(t.key))) ? 'not-allowed' : 'pointer', padding: '4px 12px', borderRadius: 5, background: 'var(--fl-accent)', color: 'var(--fl-on-accent, #0b0c14)', border: 'none', opacity: detected.length === 0 || (!allSelected && !detected.some(t => sel.has(t.key))) ? 0.5 : 1 }}
+                            >
+                              <RefreshCw size={11} style={{ display: 'inline', marginRight: 4, verticalAlign: '-2px' }} />
+                              {t('casedetail.reparse_launch', 'Re-lancer')}
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })()}
                     {isParsed && (
                       <button
                         onClick={e => { e.stopPropagation(); navigate(`/cases/${id}/collections/${ev.id}/timeline`, { state: { evidenceName: ev.name, caseTitle: caseData?.title, caseNumber: caseData?.case_number } }); }}
@@ -1542,7 +1852,7 @@ export default function CaseDetailPage({ user }) {
                               e.target.value = '';
                               setPcapState(prev => ({ ...prev, [ev.id]: { loading: true, result: null, error: null } }));
                               try {
-                                const res = await pcapAPI.upload(id, file);
+                                const res = await pcapAPI.upload(id, file, undefined, ev.id);
                                 setPcapState(prev => ({ ...prev, [ev.id]: { loading: false, result: res.data, error: null } }));
                               } catch (err) {
                                 const msg = err.response?.data?.error || err.message || t('casedetail.pcap_error');
@@ -1566,6 +1876,11 @@ export default function CaseDetailPage({ user }) {
                             {ps.loading ? <Loader2 size={11} style={{ animation: 'spin 1s linear infinite' }} /> : <Wifi size={11} />}
                             {ps.loading ? t('casedetail.pcap_loading') : ps.result ? t('casedetail.pcap_done', { count: ps.result.inserted }) : t('casedetail.import_pcap')}
                           </button>
+                          {ps.error && (
+                            <span style={{ fontSize: 10, color: 'var(--fl-danger)', maxWidth: 220, whiteSpace: 'normal', lineHeight: 1.35, flexBasis: '100%' }}>
+                              {ps.error}
+                            </span>
+                          )}
                         </>
                       );
                     })()}
@@ -1667,7 +1982,8 @@ export default function CaseDetailPage({ user }) {
           {evidence.length > 0 && (() => {
             // Count only over the collections actually displayed — an orphan evidence_name
             // (from a deleted/re-imported collection) must not inflate the count past evidence.length.
-            const recsFor = (ev) => evResultMap[ev.name]?.recordCount || 0;
+            // Prefer the live timeline row count; fall back to the parser_results snapshot.
+            const recsFor = (ev) => (liveEvCounts[ev.id] ?? evResultMap[ev.name]?.recordCount) || 0;
             const totalRecords = evidence.reduce((s, ev) => s + recsFor(ev), 0);
             const parsedCount  = evidence.filter(ev => recsFor(ev) > 0).length;
             const parsedEvNames = evidence.filter(ev => recsFor(ev) > 0).map(ev => ev.name);
@@ -2335,3 +2651,5 @@ export default function CaseDetailPage({ user }) {
     </div>
   );
 }
+
+

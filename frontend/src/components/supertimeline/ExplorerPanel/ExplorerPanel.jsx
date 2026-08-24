@@ -5,11 +5,13 @@ import ArtifactsTab from './ArtifactsTab';
 import TimelineTab  from './TimelineTab';
 import EntitiesTab  from './EntitiesTab';
 import TipsTab      from './TipsTab';
+import TaggerTab    from './TaggerTab';
 
 const TABS = [
   { key: 'artifacts', icon: '◈', label: 'Artifacts' },
   { key: 'timeline',  icon: '⊟', label: 'Timeline'  },
   { key: 'entities',  icon: '⊕', label: 'Entities'  },
+  { key: 'tags',      icon: '🏷', label: 'Tags'      },
   { key: 'tips',      icon: '?', label: 'Tips'       },
 ];
 
@@ -83,6 +85,7 @@ export default function ExplorerPanel() {
         {activeTab === 'artifacts' && <ArtifactsTab />}
         {activeTab === 'timeline'  && <TimelineTab  />}
         {activeTab === 'entities'  && <EntitiesTab  />}
+        {activeTab === 'tags'      && <TaggerTab    />}
         {activeTab === 'tips'      && <TipsTab      />}
       </div>
     </div>

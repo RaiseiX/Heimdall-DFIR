@@ -106,15 +106,23 @@ export const attributionAPI = {
 };
 
 export const detectionsAPI = {
-  timestomping:    (id, params) => api.get(`/cases/${id}/detections/timestomping`,    { params }),
-  doubleExt:       (id)         => api.get(`/cases/${id}/detections/double-ext`),
-  beaconing:       (id, params) => api.get(`/cases/${id}/detections/beaconing`,       { params }),
-  persistence:     (id)         => api.get(`/cases/${id}/detections/persistence`),
-  sysmonBehavior:  (id)         => api.get(`/cases/${id}/detections/sysmon-behavior`),
-  antiForensic:    (id)         => api.get(`/cases/${id}/detections/anti-forensic`),
-  executionAnomaly:(id)         => api.get(`/cases/${id}/detections/execution-anomaly`),
-  attackTechniques:(id)         => api.get(`/cases/${id}/detections/attack-techniques`),
-  vulnDrivers:     (id)         => api.get(`/cases/${id}/detections/vuln-drivers`, { timeout: 120_000 }),
+  // `refresh` (bool) forces the backend to recompute instead of serving its cache.
+  // `evidenceId` (uuid) restricts the scan to one evidence of the case
+  // (case-wide when omitted) — passed as ?evidence_id= to the backend.
+  _p: (extra, refresh, evidenceId) => ({
+    ...(extra || {}),
+    ...(refresh ? { refresh: 1 } : {}),
+    ...(evidenceId ? { evidence_id: evidenceId } : {}),
+  }),
+  timestomping:    (id, params, refresh, evidenceId) => api.get(`/cases/${id}/detections/timestomping`,    { params: detectionsAPI._p(params, refresh, evidenceId) }),
+  doubleExt:       (id, refresh, evidenceId)         => api.get(`/cases/${id}/detections/double-ext`, { params: detectionsAPI._p(null, refresh, evidenceId) }),
+  beaconing:       (id, params, refresh, evidenceId) => api.get(`/cases/${id}/detections/beaconing`,       { params: detectionsAPI._p(params, refresh, evidenceId) }),
+  persistence:     (id, refresh, evidenceId)         => api.get(`/cases/${id}/detections/persistence`, { params: detectionsAPI._p(null, refresh, evidenceId) }),
+  sysmonBehavior:  (id, refresh, evidenceId)         => api.get(`/cases/${id}/detections/sysmon-behavior`, { params: detectionsAPI._p(null, refresh, evidenceId) }),
+  antiForensic:    (id, refresh, evidenceId)         => api.get(`/cases/${id}/detections/anti-forensic`, { params: detectionsAPI._p(null, refresh, evidenceId) }),
+  executionAnomaly:(id, refresh, evidenceId)         => api.get(`/cases/${id}/detections/execution-anomaly`, { params: detectionsAPI._p(null, refresh, evidenceId) }),
+  attackTechniques:(id, refresh, evidenceId)         => api.get(`/cases/${id}/detections/attack-techniques`, { params: detectionsAPI._p(null, refresh, evidenceId) }),
+  vulnDrivers:     (id, refresh, evidenceId)         => api.get(`/cases/${id}/detections/vuln-drivers`, { timeout: 120_000, params: detectionsAPI._p(null, refresh, evidenceId) }),
   exceptions:      (id)         => api.get(`/cases/${id}/detections/exceptions`),
   addException:    (id, data)   => api.post(`/cases/${id}/detections/exceptions`, data),
   deleteException: (id, exId)   => api.delete(`/cases/${id}/detections/exceptions/${exId}`),
@@ -148,6 +156,8 @@ export const iocsAPI = {
   crossCases: (value) => api.get(`/iocs/${encodeURIComponent(value)}/cross-cases`),
   topShared: () => api.get('/iocs/top-shared'),
   confirmIOC: (id, data) => api.post(`/iocs/${id}/confirm`, data),
+  update: (id, data) => api.put(`/iocs/${id}`, data),
+  backfillFirstSeen: (data) => api.post('/iocs/backfill-first-seen', data || {}),
   remove: (id) => api.delete(`/iocs/${id}`),
   internalIntel: (params) => api.get('/iocs/internal-intel', { params }),
   importStix: (caseId, bundles) => api.post(`/iocs/${caseId}/import-stix`, { bundles }),
@@ -174,6 +184,8 @@ export const networkAPI = {
   saveAnnotations:       (caseId, data) => api.put(`/network/${caseId}/annotations`, data),
   saveGlobalAnnotations: (caseId, data) => api.put(`/network/${caseId}/annotations/global`, data),
   globalGraph:           (caseId)       => api.get(`/network/${caseId}/global-graph`),
+  authGraph:             (caseId, params) => api.get(`/network/${caseId}/auth-graph`, { params }),
+  authGraphEvents:       (caseId, params) => api.get(`/network/${caseId}/auth-graph/events`, { params }),
 };
 
 export const parsersAPI = {
@@ -227,13 +239,34 @@ export const collectionAPI = {
   import: (caseId, formData, onUploadProgress) => api.post(`/collection/${caseId}/import`, formData, { headers: { 'Content-Type': 'multipart/form-data' }, onUploadProgress }),
   parse: (caseId, data) => api.post(`/collection/${caseId}/parse`, data),
   parseProgress: (caseId) => api.get(`/collection/${caseId}/parse-progress`),
+  parseResult: (caseId) => api.get(`/collection/${caseId}/parse-result`),
+  parserOptions: (caseId) => api.get(`/collection/${caseId}/parser-options`),
+  files: (caseId, params) => api.get(`/collection/${caseId}/files`, { params }),
+  fileContent: (caseId, params) => api.get(`/collection/${caseId}/file/content`, { params }),
+  fileHive: (caseId, params) => api.get(`/collection/${caseId}/file/hive`, { params }),
+  fileDownload: (caseId, params) => api.get(`/collection/${caseId}/file/download`, { params, responseType: 'blob' }),
+  mftResidentExport: (caseId, params) => api.get(`/collection/${caseId}/mft-resident/export`, { params, responseType: 'blob' }),
+  fileSearch: (caseId, params) => api.get(`/collection/${caseId}/files/search`, { params }),
+  artifactsSummary: (caseId, params) => api.get(`/collection/${caseId}/artifacts`, { params }),
+  evidenceCounts: (caseId)      => api.get(`/collection/${caseId}/evidence-counts`),
+  artifactRows: (caseId, type, params) => api.get(`/collection/${caseId}/artifacts/${type}`, { params }),
+  artifactFacets: (caseId, type, params) => api.get(`/collection/${caseId}/artifacts/${type}/facets`, { params }),
+  artifactGroups: (caseId, type, params) => api.get(`/collection/${caseId}/artifacts/${type}/groups`, { params }),
+  artifactTree: (caseId, type, params) => api.get(`/collection/${caseId}/artifacts/${type}/tree`, { params }),
+  artifactSearch: (caseId, params) => api.get(`/collection/${caseId}/artifacts/search`, { params }),
   timelineHistogram: (caseId, buckets = 48) => api.get(`/collection/${caseId}/timeline-histogram`, { params: { buckets } }),
   rdpCacheList: (caseId) => api.get(`/collection/${caseId}/rdp-cache`),
   rdpCacheImage: (caseId, name) => api.get(`/collection/${caseId}/rdp-cache/${name}`, { responseType: 'blob' }),
   timeline: (caseId, params) => api.get(`/collection/${caseId}/timeline`, { params }),
+  tagger: (caseId, params) => api.get(`/collection/${caseId}/timeline/tagger`, { params }),
+  taggerRun: (caseId, data) => api.post(`/collection/${caseId}/timeline/tagger/run`, data),
   detectionsSummary: (caseId) => api.get(`/collection/${caseId}/detections/summary`),
   record: (caseId, index) => api.get(`/collection/${caseId}/record/${index}`),
-  runHayabusa: (caseId)         => api.post(`/collection/${caseId}/hayabusa`),
+  // Hayabusa on a large EVTX set can legitimately run 30+ min (4961 rules,
+  // --enable-all-rules). The old no-timeout call let the browser drop the
+  // connection mid-run (Traefik 499s), which made the pipeline report
+  // "✗ Hayabusa" even though the backend kept inserting in the background.
+  runHayabusa: (caseId)         => api.post(`/collection/${caseId}/hayabusa`, {}, { timeout: 2 * 60 * 60 * 1000 }),
   getHayabusa: (caseId, params) => api.get(`/collection/${caseId}/hayabusa`, { params }),
   deleteData:  (caseId) => api.delete(`/collection/${caseId}/data`),
   exportCsv: (caseId, params) => api.get(`/collection/${caseId}/export/csv`, { params, responseType: 'blob' }),
@@ -420,12 +453,18 @@ export const legalHoldAPI = {
 };
 
 export const pcapAPI = {
-  upload: (caseId, file, onProgress) => {
+  upload: (caseId, file, onProgress, evidenceId) => {
     const fd = new FormData();
     fd.append('pcap', file);
+    // Link the parsed events to the evidence row so they show up in that
+    // evidence's timeline (the button lives on the evidence line).
+    if (evidenceId) fd.append('evidence_id', evidenceId);
     return api.post(`/collection/${caseId}/pcap`, fd, {
       headers: { 'Content-Type': 'multipart/form-data' },
       onUploadProgress: onProgress,
+      // tshark analysis can take minutes on a big capture, but never hang
+      // forever: surface a stuck upload as an error instead of a dead button.
+      timeout: 5 * 60 * 1000,
     });
   },
 };

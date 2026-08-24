@@ -60,55 +60,12 @@ http:
           ipStrategy:
             depth: 1
 
-  # ── Routers ───────────────────────────────────────────────────────────────
-
-  routers:
-    heimdall-auth:
-      rule: "Host(`localhost`) && PathPrefix(`/api/auth`)"
-      entryPoints: [websecure]
-      tls: {}
-      middlewares: [security-headers, auth-ratelimit]
-      service: backend-svc
-      priority: 30
-
-    heimdall-socket:
-      rule: "Host(`localhost`) && PathPrefix(`/socket.io`)"
-      entryPoints: [websecure]
-      tls: {}
-      middlewares: [security-headers]
-      service: backend-svc
-      priority: 20
-
-    heimdall-api:
-      rule: "Host(`localhost`) && PathPrefix(`/api`)"
-      entryPoints: [websecure]
-      tls: {}
-      middlewares: [security-headers, api-ratelimit]
-      service: backend-svc
-      priority: 10
-
-    heimdall-frontend:
-      rule: "Host(`localhost`)"
-      entryPoints: [websecure]
-      tls: {}
-      middlewares: [security-headers]
-      service: frontend-svc
-      priority: 1
-
-  # ── Services ──────────────────────────────────────────────────────────────
-
-  services:
-    backend-svc:
-      loadBalancer:
-        passHostHeader: true
-        serversTransport: heavy
-        servers:
-          - url: "http://backend:4000"
-
-    frontend-svc:
-      loadBalancer:
-        servers:
-          - url: "http://frontend:3000"
+  # ── Routers & Services ────────────────────────────────────────────────────
+  # Routers/services are declared via traefik.* labels on the backend (odin)
+  # and frontend (asgard) containers (docker provider), using Host(${DOMAIN})
+  # from .env. Nothing to define here — the docker labels are the source of
+  # truth for routing. Middlewares/transports below are referenced by those
+  # labels with the @file suffix.
 
   # ── ServersTransports ─────────────────────────────────────────────────────
 

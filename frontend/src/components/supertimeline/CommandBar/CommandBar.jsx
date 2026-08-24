@@ -1,8 +1,9 @@
 // frontend/src/components/supertimeline/CommandBar/CommandBar.jsx
 import { useRef, useState, useEffect, useCallback } from 'react';
-import { Search, X, ChevronDown, Save, Share2, Trash2, Pencil } from 'lucide-react';
+import { Search, X, ChevronDown, Save, Share2, Trash2, Pencil, Clock, Star, Tag } from 'lucide-react';
 import { useTimelineStore } from '../store/useTimelineStore';
-import { tabColor } from '../utils/timelineUtils';
+import { collectionAPI } from '../../../utils/api';
+import { tabColor, parseFlexibleTimestamp } from '../utils/timelineUtils';
 import { currentUser } from '../../../utils/auth';
 
 const CHIP_STYLES = {
@@ -52,10 +53,12 @@ export default function CommandBar() {
   const {
     search, artifactTypes, hostFilter, userFilter, startTime, endTime,
     detSeverity, tagFilter, toolFilter, eventIdFilter, extFilter,
+    caseId,
     hitsOnly, dedupe, availTypes, typeCounts,
     setFilter, applyFilters, clearFilters, toggleArtifactType, soloArtifactType,
     savedSearches, applySavedSearch, saveCurrentSearch,
     promoteSavedSearch, deleteSavedSearch, updateSavedSearch,
+    bookmarks, jumpToBookmark, removeBookmark,
   } = store;
 
   const inputRef = useRef(null);
@@ -64,6 +67,17 @@ export default function CommandBar() {
   const advancedRef = useRef(null);
   const [showSearches, setShowSearches] = useState(false);
   const searchesRef = useRef(null);
+  const [showTags, setShowTags] = useState(false);
+  const tagsRef = useRef(null);
+  const [tagCounts, setTagCounts] = useState([]);
+  const [showBookmarks, setShowBookmarks] = useState(false);
+  const bookmarksRef = useRef(null);
+  const [showJump, setShowJump] = useState(false);
+  const jumpRef = useRef(null);
+  const jumpInputRef = useRef(null);
+  const [jumpVal, setJumpVal] = useState('');
+  const [jumpWindow, setJumpWindow] = useState(15);
+  const [jumpError, setJumpError] = useState('');
   const [saveName, setSaveName] = useState('');
   const [saveShared, setSaveShared] = useState(false);
   const me = currentUser().id;
@@ -92,6 +106,28 @@ export default function CommandBar() {
     return () => document.removeEventListener('mousedown', h);
   }, []);
 
+  useEffect(() => {
+    const h = e => { if (tagsRef.current && !tagsRef.current.contains(e.target)) setShowTags(false); };
+    document.addEventListener('mousedown', h);
+    return () => document.removeEventListener('mousedown', h);
+  }, []);
+
+  useEffect(() => {
+    const h = e => { if (bookmarksRef.current && !bookmarksRef.current.contains(e.target)) setShowBookmarks(false); };
+    document.addEventListener('mousedown', h);
+    return () => document.removeEventListener('mousedown', h);
+  }, []);
+
+  useEffect(() => {
+    const h = e => { if (jumpRef.current && !jumpRef.current.contains(e.target)) { setShowJump(false); setJumpError(''); } };
+    document.addEventListener('mousedown', h);
+    return () => document.removeEventListener('mousedown', h);
+  }, []);
+
+  useEffect(() => {
+    if (showJump) jumpInputRef.current?.focus();
+  }, [showJump]);
+
   const applyToken = useCallback(token => {
     const s = useTimelineStore.getState();
     switch (token.kind) {
@@ -99,8 +135,16 @@ export default function CommandBar() {
       case 'artifactType': s.toggleArtifactType(token.value); return;
       case 'host':         s.setFilter('hostFilter', token.value); break;
       case 'user':         s.setFilter('userFilter', token.value); break;
-      case 'after':        s.setFilter('startTime', token.value); break;
-      case 'before':       s.setFilter('endTime', token.value); break;
+      case 'after': {
+        const d = parseFlexibleTimestamp(token.value);
+        s.setFilter('startTime', d ? d.toISOString() : token.value);
+        break;
+      }
+      case 'before': {
+        const d = parseFlexibleTimestamp(token.value);
+        s.setFilter('endTime', d ? d.toISOString() : token.value);
+        break;
+      }
       case 'sev':          s.setFilter('detSeverity', token.value); break;
       case 'tag':          s.setFilter('tagFilter', token.value); break;
       case 'tool':         s.setFilter('toolFilter', token.value); break;
@@ -121,15 +165,47 @@ export default function CommandBar() {
     }
   }, [inputVal, applyToken, applyFilters]);
 
+  const doJump = useCallback(() => {
+    const d = parseFlexibleTimestamp(jumpVal);
+    if (!d) { setJumpError('Format de date invalide'); return; }
+    if (useTimelineStore.getState().jumpToTime(d.toISOString(), jumpWindow)) {
+      setShowJump(false); setJumpVal(''); setJumpError('');
+    }
+  }, [jumpVal, jumpWindow]);
+
+  // Keep milliseconds so after:/before: chips show the exact bookmark time.
+  const fmtTs = iso => (iso ? iso.replace('T', ' ').replace('Z', '').slice(0, 23) : '');
+
+  // ── Tag filter (tags text[] overlap) ──────────────────────────────────────
+  // tagFilter holds a comma-joined list (OR semantics — the backend matches
+  // `tags && ARRAY[...]`). The dropdown lists the case's tag distribution and
+  // toggles tags in/out; the chips render one per active tag so each can be
+  // removed individually. The free-text search also matches tags (backend
+  // SEARCH_COLS includes tags::text), so typing a tag name works too.
+  const activeTags = (tagFilter || '').split(',').map(t => t.trim()).filter(Boolean);
+  const loadTags = () => {
+    if (!caseId) return;
+    collectionAPI.tagger(caseId, {}).then(r => setTagCounts(r.data?.tag_counts || [])).catch(() => {});
+  };
+  const toggleTag = (tag) => {
+    const cur = activeTags.includes(tag) ? activeTags.filter(t => t !== tag) : [...activeTags, tag];
+    setFilter('tagFilter', cur.join(','));
+    applyFilters();
+  };
+  const removeTag = (tag) => {
+    setFilter('tagFilter', activeTags.filter(t => t !== tag).join(','));
+    applyFilters();
+  };
+
   const chips = [
     ...(search ? [{ kind: 'search', label: search, remove: () => { setFilter('search', ''); applyFilters(); } }] : []),
     // artifactTypes are shown via the pills row below — no chips here to avoid overflow
     ...(hostFilter  ? [{ kind: 'host',    label: `host:${hostFilter}`,  remove: () => { setFilter('hostFilter', '');  applyFilters(); } }] : []),
     ...(userFilter  ? [{ kind: 'user',    label: `user:${userFilter}`,  remove: () => { setFilter('userFilter', '');  applyFilters(); } }] : []),
-    ...(startTime   ? [{ kind: 'after',   label: `after:${startTime.slice(0, 10)}`,  remove: () => { setFilter('startTime', '');  applyFilters(); } }] : []),
-    ...(endTime     ? [{ kind: 'before',  label: `before:${endTime.slice(0, 10)}`,   remove: () => { setFilter('endTime', '');    applyFilters(); } }] : []),
+    ...(startTime   ? [{ kind: 'after',   label: `after:${fmtTs(startTime)}`,  remove: () => { setFilter('startTime', '');  applyFilters(); } }] : []),
+    ...(endTime     ? [{ kind: 'before',  label: `before:${fmtTs(endTime)}`,   remove: () => { setFilter('endTime', '');    applyFilters(); } }] : []),
     ...(detSeverity ? [{ kind: 'sev',     label: `sev:${detSeverity}`,  remove: () => { setFilter('detSeverity', ''); applyFilters(); } }] : []),
-    ...(tagFilter   ? [{ kind: 'tag',     label: `tag:${tagFilter}`,    remove: () => { setFilter('tagFilter', '');   applyFilters(); } }] : []),
+    ...(activeTags.map(tag => ({ kind: 'tag', label: `tag:${tag}`, remove: () => removeTag(tag) }))),
     ...(toolFilter  ? [{ kind: 'tool',    label: `tool:${toolFilter}`,  remove: () => { setFilter('toolFilter', '');  applyFilters(); } }] : []),
     ...(eventIdFilter ? [{ kind: 'eventId', label: `eid:${eventIdFilter}`, remove: () => { setFilter('eventIdFilter', ''); applyFilters(); } }] : []),
     ...(extFilter   ? [{ kind: 'ext',     label: `ext:${extFilter}`,    remove: () => { setFilter('extFilter', '');   applyFilters(); } }] : []),
@@ -163,7 +239,7 @@ export default function CommandBar() {
           <input ref={inputRef} value={inputVal}
             onChange={e => setInputVal(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder={chips.length === 0 ? 'Search… or type:evtx · host:DC01 · sev:critical · after:2024-01-15' : ''}
+            placeholder={chips.length === 0 ? 'Search… or type:evtx · host:DC01 · sev:critical · tag:LateralMovement · after:2024-01-15' : ''}
             style={{ flex: 1, background: 'none', border: 'none', outline: 'none',
               fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11, color: 'var(--fl-dim)', minWidth: 100 }} />
         </div>
@@ -265,6 +341,108 @@ export default function CommandBar() {
             </div>
           )}
         </div>
+        <div ref={tagsRef} style={{ position: 'relative' }}>
+          <button onClick={() => { const next = !showTags; setShowTags(next); if (next) loadTags(); }} style={{
+            padding: '4px 10px', borderRadius: 4, fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
+            background: showTags ? 'var(--fl-card)' : 'transparent',
+            border: `1px solid ${showTags ? 'color-mix(in srgb, var(--fl-purple) 38%, transparent)' : 'var(--fl-raised)'}`,
+            color: showTags ? 'var(--fl-purple)' : 'var(--fl-muted)', cursor: 'pointer',
+            display: 'inline-flex', alignItems: 'center', gap: 4,
+          }}>
+            <Tag size={9} style={{ verticalAlign: 'middle' }} />
+            {activeTags.length > 0 ? `Tags (${activeTags.length})` : 'Tags'}
+            <ChevronDown size={9} style={{ verticalAlign: 'middle' }} />
+          </button>
+          {showTags && (
+            <div style={{ position: 'absolute', top: '100%', right: 0, zIndex: 500, marginTop: 4,
+              background: 'var(--fl-bg)', border: '1px solid var(--fl-raised)', borderRadius: 8,
+              padding: 8, width: 300, maxHeight: 380, overflowY: 'auto', boxShadow: '0 8px 28px rgba(0,0,0,0.7)',
+              fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11, color: 'var(--fl-on-dark)',
+              display: 'flex', flexDirection: 'column', gap: 2 }}>
+              <span style={{ fontSize: 9, color: 'var(--fl-dim)', textTransform: 'uppercase', letterSpacing: '0.06em', padding: '4px 6px 6px' }}>
+                Filtrer par tag — cliquer pour (dés)activer
+              </span>
+              {tagCounts.length === 0 && <span style={{ fontSize: 10, color: 'var(--fl-muted)', padding: '4px 6px' }}>Aucun tag sur cette timeline</span>}
+              {tagCounts.map(({ tag, cnt }) => {
+                const on = activeTags.includes(tag);
+                return (
+                  <button key={tag} onClick={() => toggleTag(tag)} title={`${cnt} événement(s)`}
+                    style={{ display: 'flex', alignItems: 'center', gap: 8, textAlign: 'left', background: 'transparent', border: 'none',
+                      color: 'var(--fl-on-dark)', cursor: 'pointer', padding: '5px 6px', borderRadius: 5, fontSize: 11,
+                      fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}
+                    onMouseEnter={e => { e.currentTarget.style.background = 'var(--fl-card)'; }}
+                    onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}>
+                    <span style={{ width: 12, display: 'inline-flex', justifyContent: 'center', color: on ? 'var(--fl-purple)' : 'var(--fl-muted)' }}>
+                      {on ? '✓' : ''}
+                    </span>
+                    <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: on ? 'var(--fl-purple)' : 'var(--fl-on-dark)' }}>{tag}</span>
+                    <span style={{ fontSize: 9.5, color: 'var(--fl-dim)' }}>{cnt}</span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+        <div ref={bookmarksRef} style={{ position: 'relative' }}>
+          <button onClick={() => { const next = !showBookmarks; setShowBookmarks(next); if (next) useTimelineStore.getState().loadBookmarks(); }} style={{
+            padding: '4px 10px', borderRadius: 4, fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
+            background: showBookmarks ? 'var(--fl-card)' : 'transparent',
+            border: `1px solid ${showBookmarks ? 'color-mix(in srgb, var(--fl-gold) 38%, transparent)' : 'var(--fl-raised)'}`,
+            color: showBookmarks ? 'var(--fl-gold)' : 'var(--fl-muted)', cursor: 'pointer',
+            display: 'inline-flex', alignItems: 'center', gap: 4,
+          }}>
+            <Star size={9} style={{ verticalAlign: 'middle' }} />
+            {bookmarks.length > 0 ? `Bookmarks (${bookmarks.length})` : 'Bookmarks'}
+            <ChevronDown size={9} style={{ verticalAlign: 'middle' }} />
+          </button>
+          {showBookmarks && (
+            <div style={{ position: 'absolute', top: '100%', right: 0, zIndex: 500, marginTop: 4,
+              background: 'var(--fl-bg)', border: '1px solid var(--fl-raised)', borderRadius: 8,
+              padding: 10, width: 340, maxHeight: 420, overflowY: 'auto', boxShadow: '0 8px 28px rgba(0,0,0,0.7)',
+              fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11, color: 'var(--fl-on-dark)',
+              display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <span style={{ fontSize: 9, color: 'var(--fl-dim)', textTransform: 'uppercase', letterSpacing: '0.06em', padding: '0 4px 4px' }}>
+                ★ Bookmarks · {bookmarks.length}
+              </span>
+              {bookmarks.length === 0 ? (
+                <span style={{ fontSize: 10, color: 'var(--fl-muted)', padding: '4px 6px' }}>
+                  Aucun bookmark. Cliquez sur ☆ d'un événement pour le marquer.
+                </span>
+              ) : [...bookmarks]
+                .sort((a, b) => new Date(b.event_timestamp || b.timestamp) - new Date(a.event_timestamp || a.timestamp))
+                .map(b => {
+                  const rawTs = b.event_timestamp || b.timestamp;
+                  const tsTxt = rawTs ? new Date(rawTs).toISOString().replace('T', ' ').slice(0, 23) : '';
+                  return (
+                    <div key={b.id}
+                      onClick={() => { jumpToBookmark(b); setShowBookmarks(false); }}
+                      title="Aller à cet événement (after: à son timestamp, +15 min)"
+                      style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 7px', borderRadius: 5, cursor: 'pointer' }}
+                      onMouseEnter={e => { e.currentTarget.style.background = 'var(--fl-card)'; }}
+                      onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
+                    >
+                      <span style={{ color: 'var(--fl-gold)', fontSize: 11, flexShrink: 0 }}>★</span>
+                      <span style={{ flex: 1, minWidth: 0 }}>
+                        <span style={{ display: 'block', color: 'var(--fl-on-dark)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 10.5 }}>
+                          {b.title || b.label || b.ref || '—'}
+                        </span>
+                        {tsTxt && <span style={{ display: 'block', fontSize: 8.5, color: 'var(--fl-muted)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}>{tsTxt}</span>}
+                      </span>
+                      <button
+                        onClick={e => { e.stopPropagation(); removeBookmark(b); }}
+                        title="Retirer le bookmark"
+                        style={{ background: 'none', border: 'none', color: 'var(--fl-muted)', cursor: 'pointer', padding: 2, display: 'inline-flex', flexShrink: 0 }}
+                        onMouseEnter={e => { e.currentTarget.style.color = 'var(--fl-danger)'; }}
+                        onMouseLeave={e => { e.currentTarget.style.color = 'var(--fl-muted)'; }}
+                      >
+                        <X size={10} />
+                      </button>
+                    </div>
+                  );
+                })}
+            </div>
+          )}
+        </div>
         <div style={{ width: 1, height: 18, background: 'var(--fl-raised)', flexShrink: 0 }} />
         <div ref={advancedRef} style={{ position: 'relative' }}>
           <button onClick={() => setShowAdvanced(v => !v)} style={{
@@ -318,6 +496,52 @@ export default function CommandBar() {
               <div style={{ display: 'flex', gap: 6, paddingTop: 4, borderTop: '1px solid var(--fl-card)' }}>
                 <button onClick={() => { setShowAdvanced(false); applyFilters(); }} style={{ flex: 1, padding: '5px', borderRadius: 5, background: 'var(--fl-card)', border: '1px solid color-mix(in srgb, var(--fl-accent) 25%, transparent)', color: 'var(--fl-accent)', cursor: 'pointer', fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}>Apply</button>
                 <button onClick={() => { clearFilters(); setShowAdvanced(false); }} style={{ padding: '5px 10px', borderRadius: 5, background: 'transparent', border: '1px solid var(--fl-raised)', color: 'var(--fl-dim)', cursor: 'pointer', fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}>Reset</button>
+              </div>
+            </div>
+          )}
+        </div>
+        <div ref={jumpRef} style={{ position: 'relative' }}>
+          <button onClick={() => { setShowJump(v => !v); setJumpError(''); }} title="Aller à un timestamp précis pour voir les événements autour" style={{
+            padding: '4px 10px', borderRadius: 4, fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
+            background: showJump ? 'var(--fl-card)' : 'transparent',
+            border: `1px solid ${showJump ? 'color-mix(in srgb, var(--fl-gold) 38%, transparent)' : 'var(--fl-raised)'}`,
+            color: showJump ? 'var(--fl-gold)' : 'var(--fl-muted)', cursor: 'pointer',
+            display: 'inline-flex', alignItems: 'center', gap: 4,
+          }}>
+            <Clock size={11} style={{ verticalAlign: 'middle' }} /> Aller à…
+          </button>
+          {showJump && (
+            <div style={{ position: 'absolute', top: '100%', right: 0, zIndex: 500, marginTop: 4,
+              background: 'var(--fl-bg)', border: '1px solid var(--fl-raised)', borderRadius: 8,
+              padding: 14, width: 300, boxShadow: '0 8px 28px rgba(0,0,0,0.7)',
+              fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11, color: 'var(--fl-on-dark)',
+              display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <span style={{ fontSize: 9, color: 'var(--fl-dim)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                ⏱ Aller à un timestamp
+              </span>
+              <input ref={jumpInputRef} value={jumpVal}
+                placeholder="2024-01-15 14:32:05"
+                onChange={e => { setJumpVal(e.target.value); setJumpError(''); }}
+                onKeyDown={e => { if (e.key === 'Enter') doJump(); else if (e.key === 'Escape') setShowJump(false); }}
+                style={{ background: 'var(--fl-panel)', color: 'var(--fl-on-dark)', border: `1px solid ${jumpError ? 'var(--fl-danger)' : 'var(--fl-raised)'}`, borderRadius: 5, padding: '6px 8px', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11, outline: 'none' }} />
+              <label style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                <span style={{ fontSize: 9, color: 'var(--fl-dim)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Fenêtre autour</span>
+                <select value={jumpWindow} onChange={e => setJumpWindow(parseInt(e.target.value, 10))}
+                  style={{ background: 'var(--fl-panel)', color: 'var(--fl-on-dark)', border: '1px solid var(--fl-raised)', borderRadius: 5, padding: '5px 8px', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11, outline: 'none' }}>
+                  <option value={1}>± 1 min</option>
+                  <option value={5}>± 5 min</option>
+                  <option value={15}>± 15 min</option>
+                  <option value={60}>± 1 h</option>
+                  <option value={360}>± 6 h</option>
+                  <option value={1440}>± 24 h</option>
+                </select>
+              </label>
+              {jumpError && <span style={{ fontSize: 10, color: 'var(--fl-danger)' }}>{jumpError}</span>}
+              <div style={{ display: 'flex', gap: 6, paddingTop: 2, borderTop: '1px solid var(--fl-card)' }}>
+                <button onClick={doJump} disabled={!jumpVal.trim()}
+                  style={{ flex: 1, padding: '5px', borderRadius: 5, background: 'var(--fl-card)', border: '1px solid color-mix(in srgb, var(--fl-gold) 25%, transparent)', color: 'var(--fl-gold)', cursor: jumpVal.trim() ? 'pointer' : 'not-allowed', opacity: jumpVal.trim() ? 1 : 0.5, fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}>Aller</button>
+                <button onClick={() => { setShowJump(false); setJumpError(''); }}
+                  style={{ padding: '5px 10px', borderRadius: 5, background: 'transparent', border: '1px solid var(--fl-raised)', color: 'var(--fl-dim)', cursor: 'pointer', fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}>Fermer</button>
               </div>
             </div>
           )}

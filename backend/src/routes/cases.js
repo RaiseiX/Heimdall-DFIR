@@ -14,6 +14,25 @@ const { SYSMON_BEHAVIOR_VECTORS, TIMESTOMP_QUERY, EXEC_ANOMALY_VECTORS, WMI_PERS
 const router = express.Router();
 
 const { caseAccessParam, caseListFilter, canAccessCase, ELEVATED } = require('../middleware/caseAccess');
+
+// ── Evidence-scoped detections ──────────────────────────────────────────────
+// Detection scans are case-wide by default. When the client passes
+// ?evidence_id=<uuid>, every vector is restricted to that evidence's timeline
+// rows, and the result cache is keyed per evidence so per-evidence results
+// never collide with case-wide ones.
+function evidenceScope(req) {
+  const v = req.query.evidence_id || '';
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v) ? v : null;
+}
+function scopeToEvidence(sql, params, evidenceId) {
+  if (!evidenceId) return [sql, params];
+  const idx = params.length + 1;
+  return [sql.replace(/WHERE\s+case_id\s*=\s*\$1/i, `WHERE case_id = $1 AND evidence_id = $${idx}`), [...params, evidenceId]];
+}
+function evSection(section, evidenceId) {
+  return evidenceId ? `${section}:e${evidenceId}` : section;
+}
+
 // Enforce case-level access on every route carrying :id (the case id). The cases
 // list (no :id) and global routes (e.g. /detections/exceptions/:exId) are unaffected.
 // NB: param callbacks run before route-level middleware, so authenticate must be
@@ -556,7 +575,7 @@ router.get('/:id/lateral-movement', authenticate, async (req, res) => {
               NULLIF(TRIM(raw->>'SubjectUserName'), ''), '?'
             ) AS username,
 
-            COALESCE(raw->>'EventID', raw->>'EventId', event_id::text, '?') AS event_id,
+            COALESCE(COALESCE(raw->>'EventId', raw->>'EventID'), raw->>'EventId', event_id::text, '?') AS event_id,
 
             COALESCE(
               raw->'AllFieldInfo'->>'LogonType',
@@ -570,7 +589,7 @@ router.get('/:id/lateral-movement', authenticate, async (req, res) => {
           WHERE case_id = $1
             AND (
               event_id IN (4624, 4625, 4648, 4768, 4769, 4776, 4771)
-              OR raw->>'EventID' IN ('4624','4625','4648','4768','4769','4776','4771','3')
+              OR COALESCE(raw->>'EventId', raw->>'EventID') IN ('4624','4625','4648','4768','4769','4776','4771','3')
               OR raw->>'EventId' IN ('4624','4625','4648','4768','4769','4776','4771','3')
             )
         )
@@ -735,11 +754,15 @@ router.get('/:id/detections/timestomping', authenticate, async (req, res) => {
   try {
     const { id } = req.params;
     const threshold = parseInt(req.query.threshold_days || '0', 10);
+    const evId = evidenceScope(req);
 
-    const result = await pool.query(
-      TIMESTOMP_QUERY,
-      [id]
-    );
+    if (!(req.query.refresh === '1' || req.query.refresh === 'true')) {
+      const hit = await pool.query(`SELECT payload FROM detection_cache WHERE case_id=$1 AND section='${evSection('timestomping', evId)}'`, [id]);
+      if (hit.rows.length) return res.json({ ...hit.rows[0].payload, cached: true });
+    }
+
+    const [sql, params] = scopeToEvidence(TIMESTOMP_QUERY, [id], evId);
+    const result = await pool.query(sql, params);
 
     const items = result.rows
       .map(r => {
@@ -766,7 +789,12 @@ router.get('/:id/detections/timestomping', authenticate, async (req, res) => {
 
     const _exc = await getExceptions(req.params.id);
     const _items = applyExceptions(items, _exc, 'timestomping');
-    res.json({ items: _items, total: _items.length, mft_records_analyzed: result.rowCount, suppressed: items.length - _items.length });
+    const body = { items: _items, total: _items.length, mft_records_analyzed: result.rowCount, suppressed: items.length - _items.length };
+    await pool.query(
+      `INSERT INTO detection_cache (case_id, section, payload, updated_at) VALUES ($1, $2, $3, NOW())
+       ON CONFLICT (case_id, section) DO UPDATE SET payload = EXCLUDED.payload, updated_at = NOW()`,
+      [id, evSection('timestomping', evId), JSON.stringify(body)]);
+    res.json({ ...body, cached: false });
   } catch (err) {
     logger.error('[timestomping]', err);
     res.status(500).json({ error: 'Erreur détection timestomping: ' + err.message });
@@ -776,12 +804,18 @@ router.get('/:id/detections/timestomping', authenticate, async (req, res) => {
 router.get('/:id/detections/double-ext', authenticate, async (req, res) => {
   try {
     const { id } = req.params;
+    const evId = evidenceScope(req);
+
+    if (!(req.query.refresh === '1' || req.query.refresh === 'true')) {
+      const hit = await pool.query(`SELECT payload FROM detection_cache WHERE case_id=$1 AND section='${evSection('double-ext', evId)}'`, [id]);
+      if (hit.rows.length) return res.json({ ...hit.rows[0].payload, cached: true });
+    }
 
     const DANGEROUS_EXT = ['exe','bat','cmd','scr','vbs','js','ps1','hta','com','pif','lnk','dll','msi','reg','jar','wsf'];
 
     const DECOY_EXT = ['pdf','doc','docx','xls','xlsx','ppt','pptx','txt','jpg','jpeg','png','gif','bmp','mp3','mp4','avi','zip','rar'];
 
-    const result = await pool.query(
+    const [sql, params] = scopeToEvidence(
       `SELECT
          id,
          timestamp,
@@ -794,8 +828,8 @@ router.get('/:id/detections/double-ext', authenticate, async (req, res) => {
        WHERE case_id = $1
          AND artifact_type IN ('mft','lnk','prefetch','amcache','appcompat','recycle','shellbags','jumplist')
        ORDER BY timestamp ASC`,
-      [id]
-    );
+      [id], evId);
+    const result = await pool.query(sql, params);
 
     const doubleExtPattern = new RegExp(
       `\\.(${DECOY_EXT.join('|')})\\.(?:${DANGEROUS_EXT.join('|')})$`,
@@ -845,7 +879,12 @@ router.get('/:id/detections/double-ext', authenticate, async (req, res) => {
 
     const _exc = await getExceptions(req.params.id);
     const _items = applyExceptions(items, _exc, 'double-ext');
-    res.json({ items: _items, total: _items.length, records_scanned: result.rowCount, suppressed: items.length - _items.length });
+    const body = { items: _items, total: _items.length, records_scanned: result.rowCount, suppressed: items.length - _items.length };
+    await pool.query(
+      `INSERT INTO detection_cache (case_id, section, payload, updated_at) VALUES ($1, $2, $3, NOW())
+       ON CONFLICT (case_id, section) DO UPDATE SET payload = EXCLUDED.payload, updated_at = NOW()`,
+      [id, evSection('double-ext', evId), JSON.stringify(body)]);
+    res.json({ ...body, cached: false });
   } catch (err) {
     logger.error('[double-ext]', err);
     res.status(500).json({ error: 'Erreur détection double extension: ' + err.message });
@@ -856,8 +895,14 @@ router.get('/:id/detections/beaconing', authenticate, async (req, res) => {
   try {
     const { id } = req.params;
     const minConnections = parseInt(req.query.min_connections || '5', 10);
+    const evId = evidenceScope(req);
 
-    const result = await pool.query(
+    if (!(req.query.refresh === '1' || req.query.refresh === 'true')) {
+      const hit = await pool.query(`SELECT payload FROM detection_cache WHERE case_id=$1 AND section='${evSection('beaconing', evId)}'`, [id]);
+      if (hit.rows.length) return res.json({ ...hit.rows[0].payload, cached: true });
+    }
+
+    const [sql, params] = scopeToEvidence(
       `SELECT
          timestamp,
          COALESCE(
@@ -877,8 +922,8 @@ router.get('/:id/detections/beaconing', authenticate, async (req, res) => {
          )
          AND timestamp IS NOT NULL
        ORDER BY timestamp ASC`,
-      [id]
-    );
+      [id], evId);
+    const result = await pool.query(sql, params);
 
     const ipGroups = {};
     for (const row of result.rows) {
@@ -933,8 +978,13 @@ router.get('/:id/detections/beaconing', authenticate, async (req, res) => {
     items.sort((a, b) => b.beacon_score - a.beacon_score);
     const _exc = await getExceptions(req.params.id);
     const _items = applyExceptions(items, _exc, 'beaconing');
-    res.json({ items: _items, total: _items.length, network_events_analyzed: result.rowCount, suppressed: items.length - _items.length,
-      limitation: 'Score CV : les beacons jitterisés (intervalles randomisés) peuvent échapper. Métrique robuste (MAD/autocorrélation) = suivi roadmap.' });
+    const body = { items: _items, total: _items.length, network_events_analyzed: result.rowCount, suppressed: items.length - _items.length,
+      limitation: 'Score CV : les beacons jitterisés (intervalles randomisés) peuvent échapper. Métrique robuste (MAD/autocorrélation) = suivi roadmap.' };
+    await pool.query(
+      `INSERT INTO detection_cache (case_id, section, payload, updated_at) VALUES ($1, $2, $3, NOW())
+       ON CONFLICT (case_id, section) DO UPDATE SET payload = EXCLUDED.payload, updated_at = NOW()`,
+      [id, evSection('beaconing', evId), JSON.stringify(body)]);
+    res.json({ ...body, cached: false });
   } catch (err) {
     logger.error('[beaconing]', err);
     res.status(500).json({ error: 'Erreur détection beaconing: ' + err.message });
@@ -957,11 +1007,10 @@ router.get('/:id/detections/persistence', authenticate, async (req, res) => {
           WHERE case_id = $1
             AND artifact_type = 'registry'
             AND (
-              source  ILIKE '%\\CurrentVersion\\Run%'
-              OR source  ILIKE '%\\CurrentVersion\\RunOnce%'
-              OR source  ILIKE '%\\CurrentVersion\\RunServices%'
-              OR description ILIKE '%\\Run%'
-              OR description ILIKE '%\\RunOnce%'
+              -- registry rows: source = HivePath (hive file), KeyPath = the key
+              (raw->>'KeyPath' ILIKE '%\\CurrentVersion\\Run%'
+                OR raw->>'KeyPath' ILIKE '%\\CurrentVersion\\RunOnce%'
+                OR raw->>'KeyPath' ILIKE '%\\CurrentVersion\\RunServices%')
             )
           ORDER BY timestamp
           LIMIT 200`,
@@ -989,6 +1038,15 @@ router.get('/:id/detections/persistence', authenticate, async (req, res) => {
               OR raw->>'TargetPath' ILIKE 'C:\\ProgramData\\Microsoft%'
               OR raw->>'TargetPath' ILIKE '%\\AppData\\Local\\Microsoft\\Teams%'
               OR raw->>'TargetPath' ILIKE '%\\AppData\\Local\\Programs\\Microsoft VS Code%'
+              OR raw->>'TargetPath' ILIKE '%\\Start Menu\\Programs%'
+              OR raw->>'TargetPath' ILIKE '%\\AppData\\Roaming\\Microsoft\\Windows\\Start Menu%'
+              OR raw->>'TargetPath' ILIKE '%\\OneDrive%'
+              OR raw->>'TargetPath' ILIKE '%\\Dropbox%'
+              OR raw->>'TargetPath' ILIKE '%\\Spotify%'
+              OR raw->>'TargetPath' ILIKE '%\\Slack%'
+              OR raw->>'TargetPath' ILIKE '%\\Zoom%'
+              OR raw->>'TargetPath' ILIKE '%\\Discord%'
+              OR raw->>'TargetPath' ILIKE '%\\Docker%'
             )
           ORDER BY timestamp
           LIMIT 200`,
@@ -1003,6 +1061,12 @@ router.get('/:id/detections/persistence', authenticate, async (req, res) => {
           FROM collection_timeline
           WHERE case_id = $1
             AND artifact_type = 'bits'
+            AND (
+              raw->>'Command' ILIKE '%powershell%' OR raw->>'Command' ILIKE '%cmd%'
+              OR raw->>'Command' ILIKE '%\\Temp\\%' OR raw->>'Command' ILIKE '%\\AppData\\%'
+              OR raw->>'Command' ILIKE '%rundll32%' OR raw->>'Command' ILIKE '%mshta%'
+              OR raw->>'Command' ILIKE '%wscript%' OR raw->>'Command' ILIKE '%cscript%'
+            )
           ORDER BY timestamp
           LIMIT 200`,
       },
@@ -1013,13 +1077,15 @@ router.get('/:id/detections/persistence', authenticate, async (req, res) => {
         severity: 'CRITIQUE',
         query: `
           SELECT id, timestamp, artifact_type, description, source, host_name, raw,
-                 raw->>'level'     AS hay_level,
-                 raw->>'rule_file' AS rule_file
+                 raw->>'Level'     AS hay_level,
+                 raw->>'RuleTitle' AS rule_file
           FROM collection_timeline
           WHERE case_id = $1
             AND artifact_type = 'hayabusa'
             AND (
-              raw->>'mitre_tactics' ILIKE '%Persistence%'
+              -- MitreTactics is a JSON array (["Persistence",…]); ->'text' + ILIKE matches it.
+              raw->>'MitreTactics' ILIKE '%Persistence%'
+              OR raw->>'mitre_tactics' ILIKE '%Persistence%'
               OR raw->>'tactic'     ILIKE '%Persistence%'
               OR description ILIKE '%service install%'
               OR description ILIKE '%scheduled task%'
@@ -1046,13 +1112,23 @@ router.get('/:id/detections/persistence', authenticate, async (req, res) => {
           SELECT id, timestamp, artifact_type, description, source, host_name, raw
           FROM collection_timeline
           WHERE case_id = $1
-            AND artifact_type IN ('evtx','sysmon','hayabusa')
+            AND artifact_type IN ('evtx','sysmon','hayabusa','wmi')
+            -- consumer par defaut Windows (SCM Event Log Consumer) = bruit sur chaque hote
+            AND description NOT ILIKE '%SCM Event Log Consumer%'
             AND (
-              raw->>'EventID' IN ('19','20','21')
+              (
+                COALESCE(raw->>'EventId', raw->>'EventID') IN ('19','20','21','5861')
+                -- EID 19/20/21 sont reutilises par d'autres canaux (RDP LocalSessionManager 20/21, etc.)
+                -- -> exiger un contexte WMI (canal WMI-Activity ou description WMI)
+                AND (source ILIKE '%WMI-Activity%' OR description ILIKE '%WMI%'
+                     OR description ILIKE '%EventConsumer%' OR description ILIKE '%EventFilter%')
+              )
               OR description ILIKE '%CommandLineEventConsumer%'
               OR description ILIKE '%ActiveScriptEventConsumer%'
               OR description ILIKE '%__EventFilter%'
               OR description ILIKE '%WmiEventConsumer%'
+              OR (artifact_type = 'wmi' AND (description ILIKE '%CmdConsumer%' OR description ILIKE '%ScriptConsumer%'
+                   OR description ILIKE '%CommandLineTemplate%' OR description ILIKE '%ScriptText%'))
             )
           ORDER BY timestamp
           LIMIT 200`,
@@ -1067,8 +1143,8 @@ router.get('/:id/detections/persistence', authenticate, async (req, res) => {
           FROM collection_timeline
           WHERE case_id = $1
             AND (
-              (artifact_type = 'registry' AND source ILIKE '%TaskCache%Tasks%')
-              OR (artifact_type IN ('evtx','sysmon','hayabusa') AND raw->>'EventID' IN ('4698','4702'))
+              (artifact_type = 'registry' AND (raw->>'KeyPath' ILIKE '%TaskCache%Tasks%' OR source ILIKE '%TaskCache%Tasks%'))
+              OR (artifact_type IN ('evtx','sysmon','hayabusa') AND COALESCE(raw->>'EventId', raw->>'EventID') IN ('4698','4702'))
             )
             AND (
               description ILIKE '%temp%'       OR description ILIKE '%appdata%'
@@ -1076,6 +1152,7 @@ router.get('/:id/detections/persistence', authenticate, async (req, res) => {
               OR description ILIKE '%mshta%'     OR description ILIKE '%rundll32%'
               OR description ILIKE '%programdata%' OR description ILIKE '%users%public%'
             )
+            AND description NOT ILIKE '%\\Windows\\%'
           ORDER BY timestamp
           LIMIT 200`,
       },
@@ -1089,14 +1166,16 @@ router.get('/:id/detections/persistence', authenticate, async (req, res) => {
           FROM collection_timeline
           WHERE case_id = $1
             AND artifact_type = 'registry'
-            AND source ILIKE '%Services%'
+            AND (raw->>'KeyPath' ILIKE '%\\Services\\%' OR source ILIKE '%Services%')
             AND (
               description ILIKE '%temp%'    OR description ILIKE '%appdata%'
               OR description ILIKE '%powershell%' OR description ILIKE '%cmd.exe /c%'
               OR description ILIKE '%programdata%' OR description ILIKE '%users%'
+              OR raw->>'ValueData' ILIKE '%temp%' OR raw->>'ValueData' ILIKE '%powershell%'
             )
-            AND description NOT ILIKE '%system32%'
-            AND description NOT ILIKE '%program files%'
+            AND description NOT ILIKE '%system32%' AND (raw->>'ValueData' IS NULL OR raw->>'ValueData' NOT ILIKE '%system32%')
+            AND description NOT ILIKE '%program files%' AND (raw->>'ValueData' IS NULL OR raw->>'ValueData' NOT ILIKE '%program files%')
+            AND description NOT ILIKE '%\\Windows\\Temp%' AND (raw->>'ValueData' IS NULL OR raw->>'ValueData' NOT ILIKE '%\\Windows\\Temp%')
           ORDER BY timestamp
           LIMIT 200`,
       },
@@ -1110,10 +1189,12 @@ router.get('/:id/detections/persistence', authenticate, async (req, res) => {
           FROM collection_timeline
           WHERE case_id = $1
             AND artifact_type = 'registry'
-            AND source ILIKE '%Winlogon%'
-            AND (description ILIKE '%Userinit%' OR description ILIKE '%Shell%' OR description ILIKE '%Notify%')
+            AND (raw->>'KeyPath' ILIKE '%Winlogon%' OR source ILIKE '%Winlogon%')
+            AND (description ILIKE '%Userinit%' OR description ILIKE '%Shell%' OR description ILIKE '%Notify%'
+                 OR raw->>'ValueName' ILIKE '%Userinit%' OR raw->>'ValueName' ILIKE '%Shell%')
             AND description NOT ILIKE '%explorer.exe%'
             AND description NOT ILIKE '%userinit.exe%'
+            AND NOT (raw->>'ValueData' ILIKE '%explorer.exe%' OR raw->>'ValueData' ILIKE '%userinit.exe%')
           ORDER BY timestamp
           LIMIT 200`,
       },
@@ -1127,25 +1208,132 @@ router.get('/:id/detections/persistence', authenticate, async (req, res) => {
           FROM collection_timeline
           WHERE case_id = $1
             AND artifact_type = 'registry'
-            AND source ILIKE '%Image File Execution Options%'
-            AND description ILIKE '%Debugger%'
+            AND (raw->>'KeyPath' ILIKE '%Image File Execution Options%' OR source ILIKE '%Image File Execution Options%')
+            AND (description ILIKE '%Debugger%' OR raw->>'ValueName' ILIKE '%Debugger%')
+          ORDER BY timestamp
+          LIMIT 200`,
+      },
+      {
+        id: 'startup_folder',
+        label: 'Fichiers dans les dossiers Startup',
+        mitre: 'T1547.001',
+        severity: 'ÉLEVÉ',
+        query: `
+          SELECT id, timestamp, artifact_type, description, source, host_name, raw
+          FROM collection_timeline
+          WHERE case_id = $1
+            AND (
+              (artifact_type = 'lnk' AND (source ILIKE '%\\Start Menu\\Programs\\Startup\\%' OR description ILIKE '%\\Start Menu\\Programs\\Startup\\%'))
+              OR (artifact_type = 'prefetch' AND description ILIKE '%\\Startup\\%')
+              OR (artifact_type IN ('evtx','sysmon') AND raw->>'TargetFilename' ILIKE '%\\Start Menu\\Programs\\Startup\\%')
+            )
+          ORDER BY timestamp
+          LIMIT 200`,
+      },
+      {
+        id: 'appinit_dlls',
+        label: 'AppInit_DLLs (injection au chargement)',
+        mitre: 'T1546.010',
+        severity: 'CRITIQUE',
+        query: `
+          SELECT id, timestamp, artifact_type, description, source, host_name, raw
+          FROM collection_timeline
+          WHERE case_id = $1
+            AND artifact_type = 'registry'
+            AND (raw->>'KeyPath' ILIKE '%AppInit_DLLs%' OR raw->>'ValueName' ILIKE '%AppInit_DLLs%'
+                 OR source ILIKE '%AppInit_DLLs%' OR description ILIKE '%AppInit_DLLs%')
+          ORDER BY timestamp
+          LIMIT 200`,
+      },
+      {
+        id: 'appcert_dlls',
+        label: 'AppCertDlls (exécution via API Win32)',
+        mitre: 'T1546.009',
+        severity: 'CRITIQUE',
+        query: `
+          SELECT id, timestamp, artifact_type, description, source, host_name, raw
+          FROM collection_timeline
+          WHERE case_id = $1
+            AND artifact_type = 'registry'
+            AND (raw->>'KeyPath' ILIKE '%AppCertDlls%' OR raw->>'ValueName' ILIKE '%AppCertDlls%'
+                 OR source ILIKE '%AppCertDlls%' OR description ILIKE '%AppCertDlls%')
+          ORDER BY timestamp
+          LIMIT 200`,
+      },
+      {
+        id: 'sticky_keys_backdoor',
+        label: 'Backdoor RDP — clés d\'accessibilité (sethc/utilman/osk)',
+        mitre: 'T1546.008',
+        severity: 'CRITIQUE',
+        query: `
+          SELECT id, timestamp, artifact_type, description, source, host_name, raw
+          FROM collection_timeline
+          WHERE case_id = $1
+            AND artifact_type = 'registry'
+            AND (raw->>'KeyPath' ILIKE '%Image File Execution Options%' OR source ILIKE '%Image File Execution Options%')
+            AND (
+              raw->>'KeyPath' ILIKE '%sethc.exe%' OR raw->>'KeyPath' ILIKE '%utilman.exe%' OR raw->>'KeyPath' ILIKE '%osk.exe%'
+              OR raw->>'KeyPath' ILIKE '%magnify.exe%' OR raw->>'KeyPath' ILIKE '%narrator.exe%' OR raw->>'KeyPath' ILIKE '%displayswitch.exe%'
+              OR source ILIKE '%sethc.exe%' OR source ILIKE '%utilman.exe%' OR source ILIKE '%osk.exe%'
+            )
+            AND (description ILIKE '%Debugger%' OR raw->>'ValueName' ILIKE '%Debugger%')
+          ORDER BY timestamp
+          LIMIT 200`,
+      },
+      {
+        id: 'com_hijack',
+        label: 'Détournement COM (InprocServer32 suspect)',
+        mitre: 'T1546.015',
+        severity: 'ÉLEVÉ',
+        query: `
+          SELECT id, timestamp, artifact_type, description, source, host_name, raw
+          FROM collection_timeline
+          WHERE case_id = $1
+            AND artifact_type = 'registry'
+            AND (raw->>'KeyPath' ILIKE '%\\CLSID\\%' OR source ILIKE '%\\CLSID\\%')
+            AND (raw->>'KeyPath' ILIKE '%InprocServer32%' OR source ILIKE '%InprocServer32%')
+            AND (description ILIKE '%\\Temp\\%' OR description ILIKE '%\\AppData\\%' OR description ILIKE '%\\ProgramData\\%'
+                 OR raw->>'ValueData' ILIKE '%\\Temp\\%' OR raw->>'ValueData' ILIKE '%\\AppData\\%' OR raw->>'ValueData' ILIKE '%\\ProgramData\\%')
+          ORDER BY timestamp
+          LIMIT 200`,
+      },
+      {
+        id: 'netsh_port_proxy',
+        label: 'Tunneling / redirection (netsh portproxy, helper DLL)',
+        mitre: 'T1090.001 / T1546.007',
+        severity: 'ÉLEVÉ',
+        query: `
+          SELECT id, timestamp, artifact_type, description, source, host_name, raw
+          FROM collection_timeline
+          WHERE case_id = $1
+            AND artifact_type IN ('evtx','sysmon','hayabusa')
+            AND (
+              raw->>'CommandLine' ILIKE '%netsh%interface%portproxy%'
+              OR raw->>'CommandLine' ILIKE '%netsh%add%helper%'
+              OR description ILIKE '%netsh%portproxy%'
+            )
+          ORDER BY timestamp
+          LIMIT 200`,
+      },
+      {
+        id: 'screensaver',
+        label: 'Économiseur d\'écran détourné (.scr)',
+        mitre: 'T1546.002',
+        severity: 'MOYEN',
+        query: `
+          SELECT id, timestamp, artifact_type, description, source, host_name, raw
+          FROM collection_timeline
+          WHERE case_id = $1
+            AND artifact_type = 'registry'
+            AND (raw->>'KeyPath' ILIKE '%Control Panel%Desktop%' OR source ILIKE '%Control Panel%Desktop%')
+            AND (description ILIKE '%SCRNSAVE.EXE%' OR raw->>'ValueName' ILIKE 'SCRNSAVE.EXE' OR raw->>'ValueData' ILIKE '%.scr')
+            AND NOT (raw->>'ValueData' ILIKE '%C:\\Windows\\System32%' OR description ILIKE '%C:\\Windows\\System32%')
           ORDER BY timestamp
           LIMIT 200`,
       },
     ];
 
-    const populated = [];
-    for (const v of VECTORS) {
-      const r = await pool.query(v.query, [id]);
-      if (r.rows.length > 0) {
-        populated.push({ id: v.id, label: v.label, mitre: v.mitre, severity: v.severity, confidence: vecConf(v), count: r.rows.length, items: r.rows });
-      }
-    }
-
-    const total = populated.reduce((s, v) => s + v.count, 0);
-    const _exc = await getExceptions(req.params.id);
-    const _g = applyExceptionsGrouped(populated, _exc, 'persistence');
-    res.json({ vectors: _g.vectors, total: _g.total, suppressed: total - _g.total });
+    return runGroupedDetection(req, res, 'persistence', VECTORS, 'persistance');
   } catch (err) {
     logger.error('[persistence]', err);
     res.status(500).json({ error: 'Erreur détection persistance: ' + err.message });
@@ -1158,18 +1346,7 @@ router.get('/:id/detections/sysmon-behavior', authenticate, async (req, res) => 
 
     const VECTORS = SYSMON_BEHAVIOR_VECTORS;
 
-    const populated = [];
-    for (const v of VECTORS) {
-      const r = await pool.query(v.query, [id]);
-      if (r.rows.length > 0) {
-        populated.push({ id: v.id, label: v.label, mitre: v.mitre, severity: v.severity, confidence: vecConf(v), count: r.rows.length, items: r.rows });
-      }
-    }
-
-    const total = populated.reduce((s, v) => s + v.count, 0);
-    const _exc = await getExceptions(req.params.id);
-    const _g = applyExceptionsGrouped(populated, _exc, 'sysmon-behavior');
-    res.json({ vectors: _g.vectors, total: _g.total, suppressed: total - _g.total });
+    return runGroupedDetection(req, res, 'sysmon-behavior', VECTORS, 'comportementale Sysmon');
   } catch (err) {
     logger.error('[sysmon-behavior]', err);
     res.status(500).json({ error: 'Erreur détection comportementale Sysmon: ' + err.message });
@@ -1177,23 +1354,87 @@ router.get('/:id/detections/sysmon-behavior', authenticate, async (req, res) => 
 });
 
 // Generic grouped detection runner — shared by anti-forensic & execution-anomaly.
+// Grouped detection with backend result cache. The PRE-exception vectors are
+// stored; exceptions are re-applied on every serve so FP suppressions stay
+// effective even on cached responses. `?refresh=1` forces a recompute.
 async function runGroupedDetection(req, res, type, VECTORS, label) {
   try {
     const { id } = req.params;
-    const populated = [];
-    for (const v of VECTORS) {
-      try {
-        const r = await pool.query(v.query, [id]);
-        if (r.rows.length) populated.push({ id: v.id, label: v.label, mitre: v.mitre, severity: v.severity, confidence: vecConf(v), count: r.rows.length, items: r.rows });
-      } catch (e) { logger.warn(`[${type}:${v.id}]`, e.message); }
+    const evId = evidenceScope(req);
+    const section = evSection(type, evId);
+    const refresh = req.query.refresh === '1' || req.query.refresh === 'true';
+    // Attach each vector's SQL definition (rule logic) to the response so the UI
+    // can render it. Derived from the in-memory VECTORS at serve time — never
+    // stored in the cache, so cached payloads stay lean and always get fresh SQL.
+    const withLogic = (vecs) => vecs.map(v => {
+      const def = VECTORS.find(x => x.id === v.id);
+      return def ? { ...v, query: def.query } : v;
+    });
+    // Cache-busting: toute modification du SQL d'un vecteur invalide le cache.
+    const sqlHash = crypto.createHash('md5').update(VECTORS.map(v => v.query).join('\n')).digest('hex').slice(0, 12);
+    if (!refresh) {
+      const hit = await pool.query(
+        `SELECT payload FROM detection_cache WHERE case_id = $1 AND section = $2`, [id, section]);
+      if (hit.rows.length) {
+        const { vectors: pre, rawTotal, sqlHash: cachedHash } = hit.rows[0].payload;
+        if (cachedHash === sqlHash) {
+          const _exc = await getExceptions(id);
+          const _g = applyExceptionsGrouped(pre || [], _exc, type);
+          return res.json({ vectors: withLogic(_g.vectors), total: _g.total, suppressed: (rawTotal || 0) - _g.total, cached: true });
+        }
+      }
     }
+    // Run every vector in parallel — attack-techniques alone has ~20 vectors and
+    // each is an index-bounded scan (ORDER BY timestamp LIMIT 200); executing them
+    // sequentially made the endpoint take the SUM of their runtimes. The write
+    // pool (max ~30) absorbs the concurrent queries, and Promise.all preserves
+    // vector order in `populated`. A failing vector degrades to null (logged),
+    // exactly like the sequential loop did.
+    const settled = await Promise.all(VECTORS.map(async (v) => {
+      try {
+        const [sql, params] = scopeToEvidence(v.query, [id], evId);
+        const r = await pool.query(sql, params);
+        return { id: v.id, label: v.label, mitre: v.mitre, severity: v.severity, confidence: vecConf(v), count: r.rows.length, items: r.rows };
+      } catch (e) { logger.warn(`[${type}:${v.id}]`, e.message); return null; }
+    }));
+    const populated = settled.filter(Boolean);
     const total = populated.reduce((s, v) => s + v.count, 0);
     const _exc = await getExceptions(id);
     const _g = applyExceptionsGrouped(populated, _exc, type);
-    res.json({ vectors: _g.vectors, total: _g.total, suppressed: total - _g.total });
+    await pool.query(
+      `INSERT INTO detection_cache (case_id, section, payload, updated_at) VALUES ($1, $2, $3, NOW())
+       ON CONFLICT (case_id, section) DO UPDATE SET payload = EXCLUDED.payload, updated_at = NOW()`,
+      [id, section, JSON.stringify({ vectors: populated, rawTotal: total, sqlHash })]);
+    res.json({ vectors: withLogic(_g.vectors), total: _g.total, suppressed: total - _g.total, cached: false });
   } catch (err) {
     logger.error(`[${type}]`, err);
     res.status(500).json({ error: `Erreur détection ${label}: ` + err.message });
+  }
+}
+
+// Cache the final response body of a flat detection endpoint (timestomping /
+// double-ext / beaconing / vuln-drivers). `compute` returns the body object.
+async function cachedFlat(req, res, section, compute) {
+  try {
+    const { id } = req.params;
+    const refresh = req.query.refresh === '1' || req.query.refresh === 'true';
+    if (!refresh) {
+      const hit = await pool.query(
+        `SELECT payload FROM detection_cache WHERE case_id = $1 AND section = $2`, [id, section]);
+      if (hit.rows.length) return res.json({ ...hit.rows[0].payload, cached: true });
+    }
+    const body = await compute(req, res);
+    if (body) {
+      await pool.query(
+        `INSERT INTO detection_cache (case_id, section, payload, updated_at) VALUES ($1, $2, $3, NOW())
+         ON CONFLICT (case_id, section) DO UPDATE SET payload = EXCLUDED.payload, updated_at = NOW()`,
+        [id, section, JSON.stringify(body)]);
+      return res.json({ ...body, cached: false });
+    }
+    return undefined;
+  } catch (err) {
+    logger.error(`[${section}]`, err);
+    res.status(500).json({ error: `Erreur détection ${section}: ` + err.message });
   }
 }
 
@@ -1202,7 +1443,7 @@ router.get('/:id/detections/anti-forensic', authenticate, async (req, res) => {
     { id: 'log_cleared', label: 'Journaux d\'événements effacés', mitre: 'T1070.001', severity: 'CRITIQUE', query: `
       SELECT timestamp, artifact_type, description, source, host_name, raw FROM collection_timeline
       WHERE case_id=$1 AND artifact_type IN ('evtx','sysmon','hayabusa') AND (
-        raw->>'EventID' IN ('1102','104')
+        COALESCE(raw->>'EventId', raw->>'EventID') IN ('1102','104')
         OR description ILIKE '%audit log was cleared%' OR description ILIKE '%event log was cleared%'
         OR raw->>'CommandLine' ILIKE '%wevtutil%cl%' OR raw->>'CommandLine' ILIKE '%clear-eventlog%'
       ) ORDER BY timestamp LIMIT 200` },
@@ -1228,7 +1469,7 @@ router.get('/:id/detections/anti-forensic', authenticate, async (req, res) => {
       SELECT timestamp, artifact_type, description, source, host_name, raw FROM collection_timeline
       WHERE case_id=$1 AND (
         raw->>'CommandLine' ILIKE '%sysmon%-u%' OR description ILIKE '%sysmon%uninstall%'
-        OR (description ILIKE '%sysmon%' AND raw->>'EventID' IN ('4','5') AND description ILIKE '%stop%')
+        OR (description ILIKE '%sysmon%' AND COALESCE(raw->>'EventId', raw->>'EventID') IN ('4','5') AND description ILIKE '%stop%')
       ) ORDER BY timestamp LIMIT 200` },
     { id: 'defender_tampering', label: 'Désactivation de Microsoft Defender', mitre: 'T1562.001', severity: 'ÉLEVÉ', query: `
       SELECT timestamp, artifact_type, description, source, host_name, raw FROM collection_timeline
@@ -1239,8 +1480,49 @@ router.get('/:id/detections/anti-forensic', authenticate, async (req, res) => {
       ) ORDER BY timestamp LIMIT 200` },
     { id: 'prefetch_disabled', label: 'Prefetch désactivé', mitre: 'T1562', severity: 'MOYEN', query: `
       SELECT timestamp, artifact_type, description, source, host_name, raw FROM collection_timeline
-      WHERE case_id=$1 AND artifact_type='registry' AND source ILIKE '%PrefetchParameters%'
-        AND description ILIKE '%EnablePrefetcher%' AND (description ILIKE '%=0%' OR raw->>'value'='0')
+      WHERE case_id=$1 AND artifact_type='registry'
+        AND (raw->>'KeyPath' ILIKE '%PrefetchParameters%' OR source ILIKE '%PrefetchParameters%')
+        AND (raw->>'ValueName' ILIKE '%EnablePrefetcher%' OR description ILIKE '%EnablePrefetcher%')
+        AND raw->>'ValueData' = '0'
+      ORDER BY timestamp LIMIT 200` },
+    { id: 'audit_policy_disable', label: 'Désactivation de la politique d\'audit (auditpol)', mitre: 'T1562.002', severity: 'ÉLEVÉ', query: `
+      SELECT timestamp, artifact_type, description, source, host_name, raw FROM collection_timeline
+      WHERE case_id=$1 AND (
+        raw->>'CommandLine' ILIKE '%auditpol%clear%'
+        OR raw->>'CommandLine' ILIKE '%auditpol%/set%disable%'
+        OR raw->>'CommandLine' ILIKE '%auditpol%/success:disable%'
+        OR raw->>'CommandLine' ILIKE '%auditpol%/failure:disable%'
+      ) ORDER BY timestamp LIMIT 200` },
+    { id: 'eventlog_disable', label: 'Désactivation du service Journal d\'événements', mitre: 'T1562.002', severity: 'ÉLEVÉ', query: `
+      SELECT timestamp, artifact_type, description, source, host_name, raw FROM collection_timeline
+      WHERE case_id=$1 AND (
+        raw->>'CommandLine' ILIKE '%sc%config%eventlog%start=%disabled%'
+        OR raw->>'CommandLine' ILIKE '%stop-service%eventlog%'
+        OR description ILIKE '%eventlog%disabled%'
+      ) ORDER BY timestamp LIMIT 200` },
+    { id: 'amsi_etw_disable', label: 'Désactivation AMSI / ETW / protections PowerShell', mitre: 'T1562.001', severity: 'ÉLEVÉ', query: `
+      SELECT timestamp, artifact_type, description, source, host_name, raw FROM collection_timeline
+      WHERE case_id=$1 AND (
+        raw->>'CommandLine' ILIKE '%AmsiInitFailed%'
+        OR raw->>'CommandLine' ILIKE '%SblByPass%'
+        OR raw->>'CommandLine' ILIKE '%set-mppreference%disablerealtimemonitoring%'
+        OR description ILIKE '%amsi%bypass%'
+        OR description ILIKE '%etw%disabled%'
+      ) ORDER BY timestamp LIMIT 200` },
+    { id: 'eventlog_svc_disabled', label: 'Service Journal d\'événements désactivé (EID 7040)', mitre: 'T1562.002', severity: 'CRITIQUE', query: `
+      SELECT timestamp, artifact_type, description, source, host_name, raw FROM collection_timeline
+      WHERE case_id=$1 AND artifact_type IN ('evtx','sysmon','hayabusa') AND COALESCE(raw->>'EventId', raw->>'EventID')='7040'
+        AND (description ILIKE '%event log%' OR description ILIKE '%disabled%')
+      ORDER BY timestamp LIMIT 200` },
+    { id: 'defender_exclusions', label: 'Exclusions Windows Defender ajoutées (registre)', mitre: 'T1562.001', severity: 'ÉLEVÉ', query: `
+      SELECT timestamp, artifact_type, description, source, host_name, raw FROM collection_timeline
+      WHERE case_id=$1 AND artifact_type='registry'
+        AND (raw->>'KeyPath' ILIKE '%Windows Defender%Exclusions%' OR source ILIKE '%Windows Defender%Exclusions%')
+      ORDER BY timestamp LIMIT 200` },
+    { id: 'applocker_disabled', label: 'AppLocker désactivé / exécutions bloquées', mitre: 'T1059.003', severity: 'MOYEN', query: `
+      SELECT timestamp, artifact_type, description, source, host_name, raw FROM collection_timeline
+      WHERE case_id=$1 AND artifact_type IN ('evtx','sysmon','hayabusa')
+        AND COALESCE(raw->>'EventId', raw->>'EventID') IN ('8003','8004','8006','8007','8008')
       ORDER BY timestamp LIMIT 200` },
   ];
   return runGroupedDetection(req, res, 'anti-forensic', VECTORS, 'anti-forensique');
@@ -1260,29 +1542,43 @@ router.get('/:id/detections/attack-techniques', authenticate, async (req, res) =
       SELECT id, timestamp, artifact_type, description, source, host_name, raw FROM collection_timeline
       WHERE case_id=$1 AND (
         raw->>'CommandLine' ILIKE '%comsvcs.dll%minidump%' OR raw->>'CommandLine' ILIKE '%procdump%lsass%'
-        OR raw->>'CommandLine' ILIKE '%rundll32%comsvcs%' OR (raw->>'EventID'='10' AND raw->>'TargetImage' ILIKE '%lsass%')
+        OR raw->>'CommandLine' ILIKE '%rundll32%comsvcs%' OR (COALESCE(raw->>'EventId', raw->>'EventID')='10' AND raw->>'TargetImage' ILIKE '%lsass%')
         OR description ILIKE '%lsass%dump%' OR description ILIKE '%mimikatz%' OR description ILIKE '%sekurlsa%' OR raw->>'CommandLine' ILIKE '%lsadump%'
       ) ORDER BY timestamp LIMIT 200` },
     { id: 'dcsync', label: 'DCSync (réplication AD)', mitre: 'T1003.006', severity: 'CRITIQUE', query: `
       SELECT id, timestamp, artifact_type, description, source, host_name, raw FROM collection_timeline
-      WHERE case_id=$1 AND raw->>'EventID'='4662' AND description ILIKE '%replicating directory changes%'
+      WHERE case_id=$1 AND (
+        -- EVTX: 4662 + droit de réplication (GUID DS-Replication-Get-Changes[-All])
+        -- dans le payload, ou description EvtxECmd/Hayabusa explicite.
+        (COALESCE(raw->>'EventId', raw->>'EventID') = '4662'
+          AND (raw::text ~* '1131f6aa-9c07-11d1-f79f-00c04fc2dcd2|1131f6ad-9c07-11d1-f79f-00c04fc2dcd2|DS-Replication-Get-Changes'
+               OR description ILIKE '%replicating directory changes%'))
+        OR (artifact_type = 'hayabusa' AND (description ILIKE '%dcsync%' OR raw->>'RuleTitle' ILIKE '%dcsync%'))
+      )
       ORDER BY timestamp LIMIT 200` },
     { id: 'kerberoasting', label: 'Kerberoasting (TGS RC4)', mitre: 'T1558.003', severity: 'ÉLEVÉ', query: `
       SELECT id, timestamp, artifact_type, description, source, host_name, raw FROM collection_timeline
-      WHERE case_id=$1 AND raw->>'EventID'='4769'
+      WHERE case_id=$1 AND COALESCE(raw->>'EventId', raw->>'EventID')='4769'
         AND (raw->>'TicketEncryptionType' ILIKE '%0x17%' OR description ILIKE '%0x17%' OR description ILIKE '%RC4%')
+        AND (raw->>'TargetUserName' IS NULL OR raw->>'TargetUserName' NOT ILIKE '%$')
       ORDER BY timestamp LIMIT 200` },
-    { id: 'remote_exec', label: 'Exécution distante (PsExec / WMI / WinRM)', mitre: 'T1021.002 / T1021.006', severity: 'ÉLEVÉ', query: `
+    { id: 'remote_exec', label: 'Exécution distante (PsExec / schtasks / sc)', mitre: 'T1021.002 / T1053.005 / T1543.003', severity: 'ÉLEVÉ', confidence: 'low', query: `
       SELECT id, timestamp, artifact_type, description, source, host_name, raw FROM collection_timeline
       WHERE case_id=$1 AND (
-        description ILIKE '%psexec%' OR (raw->>'EventID'='7045' AND description ILIKE '%PSEXESVC%')
-        OR raw->>'CommandLine' ILIKE '%wmic%/node:%' OR raw->>'CommandLine' ILIKE '%enter-pssession%'
-        OR raw->>'CommandLine' ILIKE '%invoke-command%-computername%' OR description ILIKE '%winrm%'
+        description ILIKE '%psexec%' OR raw->>'CommandLine' ILIKE '%psexec%'
+        OR (COALESCE(raw->>'EventId', raw->>'EventID')='7045' AND description ILIKE '%PSEXESVC%')
+        OR (description ILIKE '%schtasks%' AND description ILIKE '%/create%' AND description ILIKE '%/s%')
+        OR description ILIKE '%sc%\\\\%create%'
+        OR raw->>'CommandLine' ILIKE '%sc%\\\\%create%'
       ) ORDER BY timestamp LIMIT 200` },
     { id: 'rdp_explicit_logon', label: 'Connexion RDP / credentials explicites', mitre: 'T1021.001', severity: 'MOYEN', confidence: 'low', query: `
       SELECT id, timestamp, artifact_type, description, source, host_name, raw FROM collection_timeline
       WHERE case_id=$1 AND (
-        (raw->>'EventID'='4624' AND raw->>'LogonType'='10') OR raw->>'EventID'='4648'
+        -- 4624 LogonType 10 (RDP). For EvtxECmd rows LogonType lives in the rendered
+        -- description text ("Logon Type: 10") — Security IDs are not Sysmon, so raw
+        -- has no named fields; for Hayabusa rows it is in raw after AllFieldInfo flattening.
+        COALESCE(raw->>'EventId', raw->>'EventID')='4624'
+        AND (raw->>'LogonType'='10' OR description ~* 'logon type[\\s:]+10')
       ) ORDER BY timestamp LIMIT 200` },
     { id: 'recon_burst', label: 'Reconnaissance (whoami / net / nltest)', mitre: 'T1087 / T1082', severity: 'MOYEN', confidence: 'low', query: `
       SELECT id, timestamp, artifact_type, description, source, host_name, raw FROM collection_timeline
@@ -1291,6 +1587,251 @@ router.get('/:id/detections/attack-techniques', authenticate, async (req, res) =
         OR raw->>'CommandLine' ILIKE '%nltest%/dclist%' OR raw->>'CommandLine' ILIKE '%net localgroup administrators%'
         OR raw->>'CommandLine' ILIKE '%nltest%/domain_trusts%'
       ) ORDER BY timestamp LIMIT 200` },
+    { id: 'ad_recon_tools', label: 'Énumération AD (SharpHound / ADFind / BloodHound)', mitre: 'T1087.002', severity: 'ÉLEVÉ', query: `
+      SELECT id, timestamp, artifact_type, description, source, host_name, raw FROM collection_timeline
+      WHERE case_id=$1 AND (
+        raw->>'CommandLine' ILIKE '%sharphound%'
+        OR raw->>'CommandLine' ILIKE '%adfind%'
+        OR raw->>'CommandLine' ILIKE '%bloodhound%'
+        OR description ILIKE '%sharphound%'
+        OR description ILIKE '%adfind%'
+        OR description ILIKE '%bloodhound%'
+      ) ORDER BY timestamp LIMIT 200` },
+    { id: 'admin_share_access', label: 'Accès aux partages admin (C$/ADMIN$/IPC$)', mitre: 'T1021.002', severity: 'MOYEN', query: `
+      SELECT id, timestamp, artifact_type, description, source, host_name, raw FROM collection_timeline
+      WHERE case_id=$1 AND (
+        (COALESCE(raw->>'EventId', raw->>'EventID')='5140' AND (description ILIKE '%\\C$%' OR description ILIKE '%\\ADMIN$%' OR description ILIKE '%\\IPC$%'))
+        OR raw->>'CommandLine' ILIKE '%net use%\\c$%'
+      ) ORDER BY timestamp LIMIT 200` },
+    { id: 'data_staging', label: 'Collecte / archivage de données (Compress-Archive, makecab, 7z/rar)', mitre: 'T1074 / T1560.001', severity: 'MOYEN', confidence: 'low', query: `
+      SELECT id, timestamp, artifact_type, description, source, host_name, raw FROM collection_timeline
+      WHERE case_id=$1 AND (
+        raw->>'CommandLine' ILIKE '%Compress-Archive%'
+        OR raw->>'CommandLine' ILIKE '%makecab%'
+        OR raw->>'CommandLine' ILIKE '%7z% a %'
+        OR raw->>'CommandLine' ILIKE '%rar% a %'
+      ) ORDER BY timestamp LIMIT 200` },
+    { id: 'uac_bypass', label: 'Contournement UAC (fodhelper / sdclt / computerdefaults)', mitre: 'T1548.002', severity: 'ÉLEVÉ', query: `
+      SELECT id, timestamp, artifact_type, description, source, host_name, raw FROM collection_timeline
+      WHERE case_id=$1 AND (
+        raw->>'CommandLine' ILIKE '%bypassuac%'
+        OR description ILIKE '%bypassuac%'
+        OR raw->>'CommandLine' ILIKE '%fodhelper%'
+        OR raw->>'CommandLine' ILIKE '%computerdefaults%'
+        OR raw->>'CommandLine' ILIKE '%sdclt%'
+      ) ORDER BY timestamp LIMIT 200` },
+    { id: 'token_manipulation', label: 'Manipulation de jeton (runas /netonly, incognito, SeImpersonate)', mitre: 'T1134', severity: 'ÉLEVÉ', query: `
+      SELECT id, timestamp, artifact_type, description, source, host_name, raw FROM collection_timeline
+      WHERE case_id=$1 AND (
+        raw->>'CommandLine' ILIKE '%runas%/netonly%'
+        OR raw->>'CommandLine' ILIKE '%incognito%'
+        OR description ILIKE '%SeImpersonatePrivilege%'
+        OR description ILIKE '%token%impersonat%'
+      ) ORDER BY timestamp LIMIT 200` },
+    { id: 'golden_silver_ticket', label: 'Golden / Silver Ticket (KRBTGT / TGS forge)', mitre: 'T1558.001 / T1558.002', severity: 'CRITIQUE', query: `
+      SELECT id, timestamp, artifact_type, description, source, host_name, raw FROM collection_timeline
+      WHERE case_id=$1 AND (
+        (COALESCE(raw->>'EventId', raw->>'EventID')='4769' AND raw->>'TicketEncryptionType'='0x12'
+          AND raw->>'ServiceName' ILIKE '%krbtgt%')
+        OR (COALESCE(raw->>'EventId', raw->>'EventID')='4769' AND description ILIKE '%0x12%'
+          AND description ILIKE '%krbtgt%')
+        OR description ILIKE '%golden ticket%' OR description ILIKE '%silver ticket%'
+        OR raw->>'CommandLine' ILIKE '%mimikatz%kerberos%golden%'
+      ) ORDER BY timestamp LIMIT 200` },
+    { id: 'asrep_roasting', label: 'AS-REP Roasting (pas de preauth requise)', mitre: 'T1558.004', severity: 'ÉLEVÉ', query: `
+      SELECT id, timestamp, artifact_type, description, source, host_name, raw FROM collection_timeline
+      WHERE case_id=$1 AND (
+        (COALESCE(raw->>'EventId', raw->>'EventID')='4768' AND (raw->>'PreAuthType'='0'
+          OR description ~* 'pre-authentication[\\s:]+0'))
+        OR raw->>'CommandLine' ILIKE '%asrep%'
+        OR description ILIKE '%as-rep%roast%' OR description ILIKE '%does not require preauth%'
+      ) ORDER BY timestamp LIMIT 200` },
+    { id: 'pass_the_hash', label: 'Pass-the-Hash / Overpass-the-Hash', mitre: 'T1550.002', severity: 'ÉLEVÉ', query: `
+      SELECT id, timestamp, artifact_type, description, source, host_name, raw FROM collection_timeline
+      WHERE case_id=$1 AND (
+        raw->>'CommandLine' ILIKE '%sekurlsa::pth%' OR raw->>'CommandLine' ILIKE '%psexec%-hashes%'
+        OR raw->>'CommandLine' ILIKE '%mimikatz%pth%' OR raw->>'CommandLine' ILIKE '%wmiexec%-hashes%'
+        OR raw->>'CommandLine' ILIKE '%atexec%-hashes%'
+        OR description ILIKE '%pass the hash%' OR description ILIKE '%overpass%the hash%'
+      ) ORDER BY timestamp LIMIT 200` },
+    { id: 'ntds_dit', label: 'Extraction NTDS.dit (base AD)', mitre: 'T1003.003', severity: 'CRITIQUE', query: `
+      SELECT id, timestamp, artifact_type, description, source, host_name, raw FROM collection_timeline
+      WHERE case_id=$1 AND (
+        -- ntdsutil : flux IFM / activation d'instance = extraction ; admin courant exclu
+        (raw->>'CommandLine' ILIKE '%ntdsutil%' AND (raw->>'CommandLine' ILIKE '%ifm%' OR raw->>'CommandLine' ILIKE '%ac i ntds%'))
+        OR (description ILIKE '%ntdsutil%' AND description ILIKE '%ifm%')
+        -- esentutl /y = copie de la base ; reparation (/p) et defrag (/d) exclues
+        OR (raw->>'CommandLine' ILIKE '%esentutl%' AND raw->>'CommandLine' ILIKE '%/y%' AND raw->>'CommandLine' ILIKE '%ntds%')
+        OR (description ILIKE '%esentutl%' AND description ILIKE '%ntds%' AND description ILIKE '%shadow%')
+        -- diskshadow scripte / lecture directe d'une shadow copy
+        OR (raw->>'CommandLine' ILIKE '%diskshadow%' AND raw->>'CommandLine' ILIKE '%/s%')
+        OR (description ILIKE '%diskshadow%' AND description ILIKE '%/s%')
+        OR raw->>'CommandLine' ILIKE '%harddiskvolumeshadowcopy%'
+        OR description ILIKE '%harddiskvolumeshadowcopy%'
+        -- EID 11 : copie de ntds.dit par un processus non legitime (VSS/backup exclus)
+        OR (COALESCE(raw->>'EventId', raw->>'EventID') = '11'
+            AND raw->>'TargetFilename' ILIKE '%ntds.dit%'
+            AND COALESCE(raw->>'ProcessName','') NOT ILIKE '%vssvc%'
+            AND COALESCE(raw->>'ProcessName','') NOT ILIKE '%wbengine%'
+            AND COALESCE(raw->>'ProcessName','') NOT ILIKE '%ntbackup%'
+            AND COALESCE(raw->>'ProcessName','') NOT ILIKE '%sqlservr%')
+      ) ORDER BY timestamp LIMIT 200` },
+    { id: 'wmiexec_dcomexec', label: 'Exécution distante (wmiexec / dcomexec / evil-winrm / atexec)', mitre: 'T1021.006 / T1021.002', severity: 'ÉLEVÉ', query: `
+      SELECT id, timestamp, artifact_type, description, source, host_name, raw FROM collection_timeline
+      WHERE case_id=$1 AND (
+        raw->>'CommandLine' ILIKE '%wmiexec%' OR raw->>'CommandLine' ILIKE '%dcomexec%'
+        OR raw->>'CommandLine' ILIKE '%evil-winrm%' OR raw->>'CommandLine' ILIKE '%atexec%'
+        OR description ILIKE '%wmiexec%' OR description ILIKE '%evil-winrm%'
+      ) ORDER BY timestamp LIMIT 200` },
+    { id: 'wmi_remote_exec', label: 'Exécution distante WMI (T1047) — wmic process call create, Invoke-WmiMethod, wmiprvse→shell', mitre: 'T1047', severity: 'ÉLEVÉ', confidence: 'low', query: `
+      SELECT id, timestamp, artifact_type, description, source, host_name, raw FROM collection_timeline
+      WHERE case_id=$1 AND artifact_type IN ('evtx','sysmon','hayabusa') AND (
+        -- wmic /node: seul = requete (admin) ; /node: + process call create = execution distante
+        (raw->>'CommandLine' ILIKE '%wmic%' AND raw->>'CommandLine' ILIKE '%/node:%' AND raw->>'CommandLine' ILIKE '%process call create%')
+        OR raw->>'CommandLine' ILIKE '%invoke-wmimethod%'
+        OR raw->>'CommandLine' ILIKE '%invoke-cimmethod%'
+        OR raw->>'CommandLine' ILIKE '%new-cimsession%'
+        OR description ILIKE '%invoke-wmimethod%' OR description ILIKE '%invoke-cimmethod%'
+        OR description ILIKE '%new-cimsession%'
+        -- wmiprvse.exe (hote WMI) lançant un interpreteur de commandes
+        OR (raw->>'ParentImage' ILIKE '%wmiprvse%' AND raw->>'Image' ~* '(cmd|powershell|pwsh|wscript|cscript)[.]exe$')
+        OR (description ILIKE '%wmiprvse%' AND description ~* '(cmd|powershell|pwsh|wscript|cscript)[.]exe')
+      ) ORDER BY timestamp LIMIT 200` },
+    { id: 'clipboard_steal', label: 'Vol de presse-papiers / clés de registre credentials', mitre: 'T1115 / T1003.004', severity: 'MOYEN', query: `
+      SELECT id, timestamp, artifact_type, description, source, host_name, raw FROM collection_timeline
+      WHERE case_id=$1 AND (
+        raw->>'CommandLine' ILIKE '%cmdkey%/list%' OR raw->>'CommandLine' ILIKE '%vaultcmd%/listcreds%'
+        OR raw->>'CommandLine' ILIKE '%clipboard%' OR raw->>'CommandLine' ILIKE '%Get-Clipboard%'
+        OR description ILIKE '%cmdkey%' OR description ILIKE '%windows credential%'
+      ) ORDER BY timestamp LIMIT 200` },
+    { id: 'rdp_bruteforce', label: 'Bruteforce RDP (nombreuses connexions échouées)', mitre: 'T1110.001', severity: 'MOYEN', confidence: 'low', query: `
+      SELECT id, timestamp, artifact_type, description, source, host_name, raw FROM collection_timeline
+      WHERE case_id=$1 AND COALESCE(raw->>'EventId', raw->>'EventID')='4625' AND (
+        description ILIKE '%rdp%' OR raw->>'LogonType'='10' OR description ~* 'logon type[\\s:]+10'
+      ) ORDER BY timestamp LIMIT 200` },
+    { id: 'wmi_event_subscription', label: 'Persistance WMI (Event Subscription) — contenu CmdConsumer/ScriptConsumer', mitre: 'T1546.003', severity: 'CRITIQUE', query: `
+      SELECT id, timestamp, artifact_type, description, source, host_name, raw FROM collection_timeline
+      WHERE case_id=$1 AND artifact_type IN ('evtx','sysmon','hayabusa','wmi')
+        -- evenements bruts 19/20/21/5861 deja couverts par wmi_subscription (section persistence)
+        AND (artifact_type = 'wmi' OR COALESCE(raw->>'EventId', raw->>'EventID') NOT IN ('19','20','21','5861'))
+        AND description NOT ILIKE '%SCM Event Log Consumer%' AND (
+        description ILIKE '%CommandLineEventConsumer%' OR description ILIKE '%ActiveScriptEventConsumer%'
+        OR description ILIKE '%__EventFilter%' OR description ILIKE '%WmiEventConsumer%'
+        OR (artifact_type = 'wmi' AND (description ILIKE '%CmdConsumer%' OR description ILIKE '%ScriptConsumer%'
+             OR description ILIKE '%CommandLineTemplate%' OR description ILIKE '%ScriptText%'))
+      ) ORDER BY timestamp LIMIT 200` },
+    { id: 'rdp_tunnel', label: 'Tunnel RDP (LogonType 10 depuis 127.0.0.1)', mitre: 'T1572', severity: 'ÉLEVÉ', query: `
+      SELECT id, timestamp, artifact_type, description, source, host_name, raw FROM collection_timeline
+      WHERE case_id=$1 AND artifact_type IN ('evtx','sysmon','hayabusa')
+        AND COALESCE(raw->>'EventId', raw->>'EventID')='4624'
+        AND (raw->>'LogonType'='10' OR description ~* 'logon type[\\s:]+10')
+        AND (raw->>'IpAddress'='127.0.0.1' OR raw->>'SourceIp'='127.0.0.1'
+             OR description ~* 'source network address[\\s:]+127\\.0\\.0\\.1' OR description ILIKE '%127.0.0.1%')
+      ORDER BY timestamp LIMIT 200` },
+    { id: 'zerologon', label: 'Indicateurs Zerologon (CVE-2020-1472)', mitre: 'T1068', severity: 'CRITIQUE', query: `
+      SELECT id, timestamp, artifact_type, description, source, host_name, raw FROM collection_timeline
+      WHERE case_id=$1 AND artifact_type IN ('evtx','sysmon','hayabusa')
+        AND COALESCE(raw->>'EventId', raw->>'EventID') IN ('5827','5828','5829','5830','5831','5832','5833')
+      ORDER BY timestamp LIMIT 200` },
+    { id: 'local_account_created', label: 'Création de compte local (EID 4720)', mitre: 'T1136.001', severity: 'ÉLEVÉ', query: `
+      SELECT id, timestamp, artifact_type, description, source, host_name, raw FROM collection_timeline
+      WHERE case_id=$1 AND artifact_type IN ('evtx','sysmon','hayabusa') AND COALESCE(raw->>'EventId', raw->>'EventID')='4720'
+      ORDER BY timestamp LIMIT 200` },
+    { id: 'scheduled_task_created', label: 'Création de tâche planifiée (EID 4698)', mitre: 'T1053.005', severity: 'MOYEN', confidence: 'low', query: `
+      SELECT id, timestamp, artifact_type, description, source, host_name, raw FROM collection_timeline
+      WHERE case_id=$1 AND artifact_type IN ('evtx','sysmon','hayabusa') AND COALESCE(raw->>'EventId', raw->>'EventID')='4698'
+        AND (description ILIKE '%\\Temp\\%' OR description ILIKE '%\\AppData\\%' OR description ILIKE '%\\Users\\Public\\%'
+             OR description ILIKE '%\\ProgramData\\%' OR description ILIKE '%powershell%' OR description ILIKE '%-enc %'
+             OR description ILIKE '%frombase64string%' OR description ILIKE '%downloadstring%' OR description ILIKE '%mshta%'
+             OR description ILIKE '%rundll32%')
+        AND description NOT ILIKE '%\\Windows\\%'
+      ORDER BY timestamp LIMIT 200` },
+    { id: 'gpo_modified', label: 'Modification d\'objet GPO (EID 5136)', mitre: 'T1484', severity: 'ÉLEVÉ', query: `
+      SELECT id, timestamp, artifact_type, description, source, host_name, raw FROM collection_timeline
+      WHERE case_id=$1 AND artifact_type IN ('evtx','sysmon','hayabusa') AND COALESCE(raw->>'EventId', raw->>'EventID')='5136'
+      ORDER BY timestamp LIMIT 200` },
+    { id: 'winrm_lateral', label: 'PowerShell remoting à distance (WinRM / wsmprovhost / PSSession)', mitre: 'T1021.006', severity: 'ÉLEVÉ', confidence: 'low', query: `
+      SELECT id, timestamp, artifact_type, description, source, host_name, raw FROM collection_timeline
+      WHERE case_id=$1 AND artifact_type IN ('evtx','sysmon','hayabusa') AND (
+        -- wsmprovhost / WinRsHost : hote d'une session WinRM (EID 91/168 seuls = bruit reseau)
+        raw->>'Image' ILIKE '%wsmprovhost%' OR raw->>'ParentImage' ILIKE '%wsmprovhost%'
+        OR raw->>'Image' ILIKE '%WinRsHost%'
+        OR description ILIKE '%wsmprovhost%' OR description ILIKE '%winrshost%'
+        -- commandes PowerShell remoting (connexion sortante / session)
+        OR raw->>'CommandLine' ILIKE '%enter-pssession%' OR raw->>'CommandLine' ILIKE '%new-pssession%'
+        OR raw->>'CommandLine' ILIKE '%invoke-command%-computername%'
+        OR description ILIKE '%enter-pssession%' OR description ILIKE '%new-pssession%'
+        OR description ILIKE '%invoke-command%-computername%'
+        OR raw->>'CommandLine' ILIKE '%winrs%-r:%' OR description ILIKE '%winrs%-r:%'
+      ) ORDER BY timestamp LIMIT 200` },
+    { id: 'smb_lateral_source', label: 'Connexion SMB explicite (EID 4648 vers port 445)', mitre: 'T1021.002', severity: 'ÉLEVÉ', query: `
+      SELECT id, timestamp, artifact_type, description, source, host_name, raw FROM collection_timeline
+      WHERE case_id=$1 AND artifact_type IN ('evtx','sysmon','hayabusa')
+        AND COALESCE(raw->>'EventId', raw->>'EventID')='4648'
+        AND (raw->>'IpPort'='445' OR raw->>'RemoteIpPort'='445' OR description ~* 'port[\\s:]+445')
+      ORDER BY timestamp LIMIT 200` },
+    { id: 'named_pipe_impersonation', label: 'Impersonation par pipe nommé (service + COMSPEC/echo)', mitre: 'T1134.001', severity: 'CRITIQUE', query: `
+      SELECT id, timestamp, artifact_type, description, source, host_name, raw FROM collection_timeline
+      WHERE case_id=$1 AND artifact_type IN ('evtx','sysmon','hayabusa') AND COALESCE(raw->>'EventId', raw->>'EventID') IN ('4697','7045')
+        AND (description ILIKE '%COMSPEC%' OR raw->>'CommandLine' ILIKE '%COMSPEC%')
+        AND (description ILIKE '%echo%' OR raw->>'CommandLine' ILIKE '%echo%')
+      ORDER BY timestamp LIMIT 200` },
+    { id: 'domain_trust_discovery', label: 'Découverte des confiances AD (nltest / domainlist / adfind)', mitre: 'T1482', severity: 'MOYEN', confidence: 'low', query: `
+      SELECT id, timestamp, artifact_type, description, source, host_name, raw FROM collection_timeline
+      WHERE case_id=$1 AND (
+        raw->>'CommandLine' ILIKE '%nltest%/domain_trusts%' OR raw->>'CommandLine' ILIKE '%nltest%/dclist%'
+        OR raw->>'CommandLine' ILIKE '%adfind%-sc%u:%' OR description ILIKE '%domainlist%'
+        OR description ILIKE '%trustdmp%'
+      ) ORDER BY timestamp LIMIT 200` },
+    { id: 'lsass_dump_file', label: 'Fichier dump LSASS (.dmp) sur le disque', mitre: 'T1003.001', severity: 'CRITIQUE', query: `
+      SELECT id, timestamp, artifact_type, description, source, host_name, raw FROM collection_timeline
+      WHERE case_id=$1 AND artifact_type IN ('mft','lnk','shellbags') AND (
+        (raw->>'FileName' ILIKE '%.dmp' OR description ILIKE '%.dmp')
+        AND (raw->>'ParentPath' ILIKE '%lsass%' OR raw->>'ParentPath' ILIKE '%Temp%' OR description ILIKE '%lsass%')
+      ) ORDER BY timestamp LIMIT 200` },
+    { id: 'archive_collection', label: 'Archives de collecte (zip / 7z / rar / tar)', mitre: 'T1560.001', severity: 'MOYEN', confidence: 'low', query: `
+      SELECT id, timestamp, artifact_type, description, source, host_name, raw FROM collection_timeline
+      WHERE case_id=$1 AND artifact_type IN ('mft','lnk')
+        AND raw->>'Extension' ~* '^(7z|rar|zip|gz|tar)$'
+        AND (raw->>'ParentPath' ILIKE '%\\Temp\\%' OR raw->>'ParentPath' ILIKE '%\\AppData\\%'
+             OR raw->>'ParentPath' ILIKE '%\\Users\\Public\\%' OR raw->>'ParentPath' ILIKE '%\\ProgramData\\%')
+        AND raw->>'ParentPath' NOT ILIKE '%\\Downloads%'
+      ORDER BY timestamp LIMIT 200` },
+    { id: 'sql_login_failure', label: 'Échecs de connexion SQL Server (EID 18456)', mitre: 'T1110', severity: 'MOYEN', query: `
+      SELECT id, timestamp, artifact_type, description, source, host_name, raw FROM collection_timeline
+      WHERE case_id=$1 AND artifact_type IN ('evtx','sysmon','hayabusa') AND COALESCE(raw->>'EventId', raw->>'EventID')='18456'
+      ORDER BY timestamp LIMIT 200` },
+    { id: 'cobalt_make_token', label: 'Cobalt Strike make_token (impersonation de jeton)', mitre: 'T1134', severity: 'CRITIQUE', query: `
+      SELECT id, timestamp, artifact_type, description, source, host_name, raw FROM collection_timeline
+      WHERE case_id=$1 AND (
+        description ILIKE '%make_token%' OR raw->>'CommandLine' ILIKE '%make_token%'
+      ) ORDER BY timestamp LIMIT 200` },
+    { id: 'blank_pw_check', label: 'Vérification de mot de passe vide (EID 4797)', mitre: 'T1078.003', severity: 'MOYEN', query: `
+      SELECT id, timestamp, artifact_type, description, source, host_name, raw FROM collection_timeline
+      WHERE case_id=$1 AND artifact_type IN ('evtx','sysmon','hayabusa') AND COALESCE(raw->>'EventId', raw->>'EventID')='4797'
+      ORDER BY timestamp LIMIT 200` },
+    { id: 'account_lockout', label: 'Verrouillage de compte (EID 4740)', mitre: 'T1110.002', severity: 'ÉLEVÉ', query: `
+      SELECT id, timestamp, artifact_type, description, source, host_name, raw FROM collection_timeline
+      WHERE case_id=$1 AND artifact_type IN ('evtx','sysmon','hayabusa') AND COALESCE(raw->>'EventId', raw->>'EventID')='4740'
+      ORDER BY timestamp LIMIT 200` },
+    { id: 'service_install_susp_path', label: 'Installation de service (EID 7045) — chemin suspect', mitre: 'T1543.003', severity: 'ÉLEVÉ', query: `
+      SELECT id, timestamp, artifact_type, description, source, host_name, raw FROM collection_timeline
+      WHERE case_id=$1 AND artifact_type IN ('evtx','sysmon','hayabusa') AND COALESCE(raw->>'EventId', raw->>'EventID')='7045'
+        AND (description ILIKE '%temp%' OR description ILIKE '%appdata%' OR description ILIKE '%programdata%'
+             OR description ILIKE '%users%public%' OR description ILIKE '%powershell%')
+        AND description NOT ILIKE '%system32%' AND description NOT ILIKE '%program files%'
+        AND description NOT ILIKE '%\\Windows\\Temp%'
+      ORDER BY timestamp LIMIT 200` },
+    { id: 'ps_scriptblock', label: 'PowerShell ScriptBlock (EID 4104) — blocs suspects', mitre: 'T1059.001', severity: 'MOYEN', confidence: 'low', query: `
+      SELECT id, timestamp, artifact_type, description, source, host_name, raw FROM collection_timeline
+      WHERE case_id=$1 AND artifact_type IN ('evtx','sysmon','hayabusa') AND COALESCE(raw->>'EventId', raw->>'EventID')='4104'
+        AND (
+          description ILIKE '%frombase64string%' OR description ILIKE '%downloadstring%' OR description ILIKE '%invoke-expression%'
+          OR description ILIKE '%iex(%' OR description ILIKE '%-enc %' OR description ILIKE '%net.webclient%'
+          OR description ILIKE '%mimikatz%' OR description ILIKE '%invoke-mimikatz%' OR description ILIKE '%out-minidump%'
+          OR description ILIKE '%add-type%' OR description ILIKE '%[dllimport]%'
+        )
+      ORDER BY timestamp LIMIT 200` },
   ];
   return runGroupedDetection(req, res, 'attack-techniques', VECTORS, 'techniques ATT&CK');
 });
@@ -1299,15 +1840,21 @@ router.get('/:id/detections/attack-techniques', authenticate, async (req, res) =
 // in JS against cached threat-intel datasets (too large for SQL IN/ILIKE).
 router.get('/:id/detections/vuln-drivers', authenticate, async (req, res) => {
   const { id } = req.params;
+  const evId = evidenceScope(req);
   try {
+    if (!(req.query.refresh === '1' || req.query.refresh === 'true')) {
+      const hit = await pool.query(`SELECT payload FROM detection_cache WHERE case_id=$1 AND section='${evSection('vuln-drivers', evId)}'`, [id]);
+      if (hit.rows.length) return res.json({ ...hit.rows[0].payload, cached: true });
+    }
     const populated = [];
     let degraded = null;
 
     // LOLDrivers: Amcache driver inventory carries SHA1 (DriverId) + DriverName.
     try {
-      const drvRows = (await pool.query(
+      const [drvSql, drvParams] = scopeToEvidence(
         `SELECT timestamp, artifact_type, description, source, host_name, raw FROM collection_timeline
-         WHERE case_id=$1 AND artifact_type='amcache' AND (raw ? 'DriverName' OR raw ? 'DriverId') LIMIT 20000`, [id])).rows;
+         WHERE case_id=$1 AND artifact_type='amcache' AND jsonb_top_keys(raw) && ARRAY['DriverName', 'DriverId'] LIMIT 20000`, [id], evId);
+      const drvRows = (await pool.query(drvSql, drvParams)).rows;
       const idx = await getDriverIndex();
       const items = matchDrivers(drvRows, idx);
       if (items.length) populated.push({ id: 'loldrivers', label: 'Driver vulnérable / malveillant (LOLDrivers)', mitre: 'T1068', severity: 'CRITIQUE', confidence: 'high', count: items.length, items });
@@ -1316,9 +1863,10 @@ router.get('/:id/detections/vuln-drivers', authenticate, async (req, res) => {
     // LOLDrivers runtime: Sysmon EID 6 (Driver Loaded) carries ImageLoaded + Hashes,
     // matched the same way as the Amcache inventory (H6 — BYOVD, T1068).
     try {
-      const evtRows = (await pool.query(
+      const [evtSql, evtParams] = scopeToEvidence(
         `SELECT timestamp, artifact_type, description, source, host_name, raw FROM collection_timeline
-         WHERE case_id=$1 AND artifact_type IN ('evtx','sysmon') AND raw->>'EventID'='6' LIMIT 20000`, [id])).rows;
+         WHERE case_id=$1 AND artifact_type IN ('evtx','sysmon') AND COALESCE(raw->>'EventId', raw->>'EventID')='6' LIMIT 20000`, [id], evId);
+      const evtRows = (await pool.query(evtSql, evtParams)).rows;
       const idx = await getDriverIndex();
       const items = matchDrivers(evtRows, idx);
       if (items.length) populated.push({ id: 'loldrivers_runtime', label: 'Driver vulnérable chargé (LOLDrivers, EID 6)', mitre: 'T1068', severity: 'CRITIQUE', confidence: 'high', count: items.length, items });
@@ -1326,9 +1874,10 @@ router.get('/:id/detections/vuln-drivers', authenticate, async (req, res) => {
 
     // HijackLibs: known-hijackable DLL name found outside its expected location.
     try {
-      const dllRows = (await pool.query(
+      const [dllSql, dllParams] = scopeToEvidence(
         `SELECT timestamp, artifact_type, description, source, host_name, raw FROM collection_timeline
-         WHERE case_id=$1 AND (raw->>'path' ILIKE '%.dll' OR raw->>'FullPath' ILIKE '%.dll' OR description ILIKE '%.dll') LIMIT 20000`, [id])).rows;
+         WHERE case_id=$1 AND (raw->>'path' ILIKE '%.dll' OR raw->>'FullPath' ILIKE '%.dll' OR description ILIKE '%.dll') LIMIT 20000`, [id], evId);
+      const dllRows = (await pool.query(dllSql, dllParams)).rows;
       const hidx = await getHijackIndex();
       const items = matchHijack(dllRows, hidx);
       if (items.length) populated.push({ id: 'hijacklibs', label: 'DLL hijacking (HijackLibs)', mitre: 'T1574.001', severity: 'ÉLEVÉ', confidence: 'medium', count: items.length, items });
@@ -1337,7 +1886,12 @@ router.get('/:id/detections/vuln-drivers', authenticate, async (req, res) => {
     const total = populated.reduce((s, v) => s + v.count, 0);
     const _exc = await getExceptions(id);
     const _g = applyExceptionsGrouped(populated, _exc, 'vuln-drivers');
-    res.json({ vectors: _g.vectors, total: _g.total, suppressed: total - _g.total, degraded });
+    const body = { vectors: _g.vectors, total: _g.total, suppressed: total - _g.total, degraded };
+    await pool.query(
+      `INSERT INTO detection_cache (case_id, section, payload, updated_at) VALUES ($1, $2, $3, NOW())
+       ON CONFLICT (case_id, section) DO UPDATE SET payload = EXCLUDED.payload, updated_at = NOW()`,
+      [id, evSection('vuln-drivers', evId), JSON.stringify(body)]);
+    res.json({ ...body, cached: false });
   } catch (err) {
     logger.error('[vuln-drivers]', err);
     res.status(500).json({ error: 'Erreur détection drivers/DLL : ' + err.message });

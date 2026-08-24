@@ -6,7 +6,9 @@
 // Kept out of catscaleService.ts, which is already long, and kept free of any
 // database call so the routing decisions are testable on their own.
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
+import { spawnSync } from 'child_process';
 import { findArtifactFiles, type CatScaleFailure } from './catscaleFiles';
 import type { StateRow } from './catscaleStateStore';
 import {
@@ -385,6 +387,101 @@ export function collectStateArtifacts(
     if (content === null) continue;
     for (const e of parsePasswdCheck(content)) {
       stateRows.push({ kind: 'passwd_check', label: e.user, source_file: base, raw: { ...e } });
+    }
+  }
+
+  // ── Archives: ssh folders, modified /etc files, key files, crash dumps ──
+  // Each ships as a tar.gz whose member list is the inventory; the ssh archive
+  // additionally holds authorized_keys and private keys, which are findings.
+  const archiveDir = (base: string) => path.join(os.tmpdir(), `catscale-${base}-${caseId}-${Date.now()}`);
+  const listArchive = (archivePath: string): string[] => {
+    const r = spawnSync('tar', ['tzf', archivePath], { timeout: 120_000, maxBuffer: 50 * 1024 * 1024 });
+    if (r.status !== 0) {
+      failures?.push({ stage: 'parse', target: archivePath, reason: r.stderr?.toString().trim() || `tar exited ${r.status}` });
+      return [];
+    }
+    return r.stdout.toString().split('\n').map(s => s.trim()).filter(Boolean);
+  };
+  const readMember = (archivePath: string, member: string): string | null => {
+    const r = spawnSync('tar', ['xzOf', archivePath, member], { timeout: 120_000, maxBuffer: 50 * 1024 * 1024 });
+    return r.status === 0 ? r.stdout.toString() : null;
+  };
+
+  const sshArchives = findArtifactFiles(path.join(catscaleRoot, 'Process_and_Network'), 'ssh-folders.tar.gz');
+  for (const sshTar of sshArchives) {
+    const base = path.basename(sshTar);
+    for (const member of listArchive(sshTar)) {
+      if (!member) continue;
+      const isAuthorized = /authorized_keys$/.test(member);
+      const isPrivate = /\.(id_(rsa|ecdsa|ed25519|dsa))$/.test(member);
+      stateRows.push({ kind: 'ssh_key', label: member, source_file: base, raw: { path: member, authorized: isAuthorized, private: isPrivate } });
+      if (isAuthorized) {
+        const content = readMember(sshTar, member);
+        if (content) {
+          for (const line of content.split('\n')) {
+            const t = line.trim();
+            if (!t || t.startsWith('#')) continue;
+            const from = /(?:\s|^)from="([^"]+)"/.exec(t);
+            const comment = t.split(/\s+/).slice(-1)[0] || '';
+            // A restricted source host on an authorized key is an access rule
+            // worth surfacing; every key entry itself is recorded as state.
+            if (from) {
+              timelineRows.push(finding('ssh_restricted_source', 'catscale_ssh',
+                `authorized_keys restricts access from ${from[1]}: ${comment}`,
+                member, base, { path: member, from: from[1], comment }));
+            }
+          }
+        }
+      }
+      if (isPrivate) {
+        timelineRows.push(finding('ssh_private_key', 'catscale_ssh',
+          `Private SSH key collected: ${member}`,
+          member, base, { path: member }));
+      }
+    }
+  }
+
+  for (const fp of findArtifactFiles(path.join(catscaleRoot, 'System_Info'), 'etc-modified-files.tar.gz')) {
+    const base = path.basename(fp);
+    for (const member of listArchive(fp)) {
+      if (!member) continue;
+      stateRows.push({ kind: 'etc_modified_file', label: '/' + member.replace(/^\/?(etc\/|etc$)/, 'etc/'), source_file: base, raw: { path: member } });
+      // A unit under /etc/systemd/system is the standard persistence location.
+      if (/^etc\/systemd\/system\/[^\/]+\.service$/.test(member)) {
+        timelineRows.push(finding('systemd_unit_modified', 'catscale_persistence',
+          `Modified systemd unit in /etc: ${member}`,
+          '/' + member, base, { path: member }));
+      }
+    }
+  }
+
+  for (const fp of findArtifactFiles(path.join(catscaleRoot, 'System_Info'), 'etc-key-files.tar.gz')) {
+    const base = path.basename(fp);
+    for (const member of listArchive(fp)) {
+      if (!member) continue;
+      const isKey = /\.(key|pem|crt|keytab|pub)$/.test(member) || /(^|\/)ssh\//.test(member) || /keytab$/.test(member);
+      stateRows.push({ kind: 'etc_key_file', label: '/' + member, source_file: base, raw: { path: member, is_key: isKey } });
+      if (isKey) {
+        timelineRows.push(finding('sensitive_key_file', 'catscale_state',
+          `Sensitive key material in /etc: ${member}`,
+          '/' + member, base, { path: member }));
+      }
+    }
+  }
+
+  for (const fp of findArtifactFiles(path.join(catscaleRoot, 'Logs'), 'var-crash.tar.gz')) {
+    const base = path.basename(fp);
+    for (const member of listArchive(fp)) {
+      if (!member || member.endsWith('/')) continue;
+      stateRows.push({ kind: 'crash_file', label: member, source_file: base, raw: { path: member } });
+      // A fresh core of a system binary (systemd, sshd, sssd...) is a crash the
+      // host did not expect — worth a timeline row next to the other findings.
+      const prog = /\/_usr_(?:lib_)?(?:systemd_)?([a-zA-Z0-9_\-]+)\.\d+\.crash$/.exec(member)?.[1];
+      if (prog && /^(systemd|sshd|sssd|nginx|apache|postgres|mysql|redis)/.test(prog)) {
+        timelineRows.push(finding('service_crash', 'catscale_state',
+          `Service crashed (core dump collected): ${member}`,
+          '/' + member, base, { path: member, program: prog }));
+      }
     }
   }
 

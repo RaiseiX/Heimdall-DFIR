@@ -16,6 +16,8 @@ import SettingsPage from './pages/SettingsPage';
 import CaseDetailPage from './pages/CaseDetailPage';
 import CaseShell from './pages/CaseShell';
 import CollectionPage from './pages/CollectionPage';
+import CollectionFilesPage from './pages/CollectionFilesPage';
+import CollectionArtifactsPage from './pages/CollectionArtifactsPage';
 import CollectionLayout from './pages/CollectionLayout';
 import SuperTimelinePage from './pages/SuperTimelinePage';
 import ParserLogsPage from './pages/ParserLogsPage';
@@ -121,6 +123,8 @@ function AppInner() {
                     <Route index element={<Navigate to="evidence" replace />} />
                     <Route path="timeline" element={<SuperTimelinePage />} />
                     <Route path="logs" element={<ParserLogsPage />} />
+                    <Route path="files" element={<CollectionFilesPage />} />
+                    <Route path="artifacts" element={<CollectionArtifactsPage />} />
                     <Route path=":tab" element={<CaseDetailPage user={user} />} />
                   </Route>
                   <Route path="global-map" element={<GlobalNetworkMapPage />} />

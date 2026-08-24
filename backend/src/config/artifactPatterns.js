@@ -77,7 +77,7 @@ const ARTIFACT_PATTERNS = {
     tool: 'RECmd.dll',
     toolKey: 'registry',
     name: 'Registry Hives',
-    argsBuilder: (input, output) => ['dotnet', path.join(ZIMMERMAN_DIR, 'RECmd.dll'), '-f', input, '--csv', output, '--csvf', 'registry_results.csv', '--bn', path.join(ZIMMERMAN_DIR, 'BatchExamples', 'RECmd_Batch_MC.reb')],
+    argsBuilder: (input, output) => ['dotnet', path.join(ZIMMERMAN_DIR, 'RECmd.dll'), '-f', input, '--csv', output, '--csvf', 'registry_results.csv', '--bn', '/app/parsers/recmd-batch/DFIRBatch.reb'],
     timestampColumns: ['LastWriteTimestamp'],
     descriptionColumns: ['Description', 'ValueName'],
     sourceColumn: 'HivePath',

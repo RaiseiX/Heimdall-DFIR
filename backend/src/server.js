@@ -29,6 +29,19 @@ const requireHealthySchema = require('./middleware/requireHealthySchema');
 const { connectRedis } = require('./config/redis');
 const { authenticate, auditLog, JWT_SECRET } = require('./middleware/auth');
 const logger = require('./config/logger').default;
+
+// Safety net: the parse runs IN this process. A single unhandled rejection from
+// any async route (e.g. a pg pool.connect() timing out under write saturation)
+// used to crash the whole backend mid-parse, killing the multi-30-min parse with
+// it and leaving a zombie 'parsing' row that the UI spins on forever. Log instead
+// of dying so one bad request can never take a running analysis down.
+process.on('unhandledRejection', (reason) => {
+  logger.error('[process] unhandledRejection:', reason instanceof Error ? `${reason.message}\n${reason.stack}` : String(reason));
+});
+process.on('uncaughtException', (err) => {
+  logger.error('[process] uncaughtException:', err && err.stack ? err.stack : String(err));
+});
+
 const { requestIdMiddleware } = require('./middleware/requestId');
 const { accessLogMiddleware } = require('./middleware/accessLogMiddleware');
 
@@ -241,6 +254,35 @@ async function runMigrations() {
   } catch (e) {
     logger.error('[migration] collection_timeline FAILED — ingestion disabled', { error: e.message });
     markDegraded('collection_timeline', e.message);
+  }
+
+  // Network-map GIN: index only the top-level keys of `raw` (jsonb_top_keys)
+  // instead of the whole jsonb — the write-cost fix for 5000-row UNNEST batches.
+  // The function must exist before network.js / cases.js call it, so this
+  // self-heals on every boot: migrate.sh (start.sh) applies db/migrations, but
+  // `docker compose up -d` does NOT, and the old index only disappears here.
+  // A missing index only slows the network map — never a crash — so a failure
+  // is logged, not marked degraded.
+  try {
+    await runGuardedMigrations(pool, {
+      name: 'collection_timeline.raw top-level-keys GIN',
+      statements: [
+        `CREATE OR REPLACE FUNCTION jsonb_top_keys(j jsonb)
+         RETURNS text[]
+         LANGUAGE sql
+         IMMUTABLE
+         STRICT
+         AS $$ SELECT CASE jsonb_typeof(j) WHEN 'object' THEN ARRAY(SELECT jsonb_object_keys(j)) ELSE '{}'::text[] END $$`,
+        `DROP INDEX CONCURRENTLY IF EXISTS idx_ct_raw_gin`,
+        {
+          sql: `CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_ct_raw_keys_gin
+                ON collection_timeline USING GIN (jsonb_top_keys(raw))`,
+          indexName: 'idx_ct_raw_keys_gin',
+        },
+      ],
+    });
+  } catch (e) {
+    logger.warn('[migration] collection_timeline.raw GIN (best-effort): ' + e.message);
   }
 
   try {
@@ -507,6 +549,101 @@ async function runMigrations() {
   }
 }
 
+// Free-text search speed, built in the BACKGROUND so boot never blocks on them:
+// every search filter (timeline, artifacts browser) builds `col ILIKE '%term%'`
+// with a LEADING wildcard, which a btree index cannot serve — Postgres falls
+// back to a full sequential scan of the whole timeline per query (hundreds of
+// thousands of rows × an OR of ~12 columns). pg_trgm GIN indexes turn those
+// ILIKE patterns into index scans. They are created CONCURRENTLY (never blocks
+// reads/writes) after the API is already listening, so a long build on a big
+// table delays search speed, never startup. Best-effort: failures are logged.
+//
+// Correctness note: an OR is only index-served when EVERY branch is indexed —
+// otherwise the bitmap scan misses rows matching the unindexed branches. So
+// every column the search filters touch is indexed here, expression casts
+// included (event_id::text, tags::text, raw::text).
+async function buildSearchIndexes() {
+  try {
+    await runGuardedMigrations(pool, {
+      name: 'collection_timeline pg_trgm search indexes',
+      statementTimeoutMs: 3600000,
+      statements: [
+        `CREATE EXTENSION IF NOT EXISTS pg_trgm`,
+        { sql: `CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_ct_trgm_description ON collection_timeline USING gin (description gin_trgm_ops)`, indexName: 'idx_ct_trgm_description' },
+        { sql: `CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_ct_trgm_source     ON collection_timeline USING gin (source     gin_trgm_ops)`, indexName: 'idx_ct_trgm_source' },
+        { sql: `CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_ct_trgm_details    ON collection_timeline USING gin (details    gin_trgm_ops)`, indexName: 'idx_ct_trgm_details' },
+        { sql: `CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_ct_trgm_path       ON collection_timeline USING gin ("path"     gin_trgm_ops)`, indexName: 'idx_ct_trgm_path' },
+        { sql: `CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_ct_trgm_host       ON collection_timeline USING gin (host_name  gin_trgm_ops)`, indexName: 'idx_ct_trgm_host' },
+        { sql: `CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_ct_trgm_user       ON collection_timeline USING gin (user_name  gin_trgm_ops)`, indexName: 'idx_ct_trgm_user' },
+        { sql: `CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_ct_trgm_proc       ON collection_timeline USING gin (process_name gin_trgm_ops)`, indexName: 'idx_ct_trgm_proc' },
+        { sql: `CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_ct_trgm_tool       ON collection_timeline USING gin (tool       gin_trgm_ops)`, indexName: 'idx_ct_trgm_tool' },
+        { sql: `CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_ct_trgm_ext        ON collection_timeline USING gin (ext        gin_trgm_ops)`, indexName: 'idx_ct_trgm_ext' },
+        { sql: `CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_ct_trgm_artype     ON collection_timeline USING gin (artifact_type gin_trgm_ops)`, indexName: 'idx_ct_trgm_artype' },
+        { sql: `CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_ct_trgm_eventid    ON collection_timeline USING gin ((event_id::text) gin_trgm_ops)`, indexName: 'idx_ct_trgm_eventid' },
+        // text[]::text is rejected in index expressions ("functions in index
+        // expression must be marked IMMUTABLE"); array_to_string is the
+        // immutable way to make the tags array searchable as text.
+        { sql: `CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_ct_trgm_tags       ON collection_timeline USING gin ((array_to_string(tags, ',')) gin_trgm_ops)`, indexName: 'idx_ct_trgm_tags' },
+        { sql: `CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_ct_trgm_raw        ON collection_timeline USING gin ((raw::text)      gin_trgm_ops)`, indexName: 'idx_ct_trgm_raw' },
+      ],
+    });
+  } catch (e) {
+    logger.warn('[migration] collection_timeline pg_trgm (best-effort): ' + e.message);
+  }
+}
+
+// One-time reconciliation of timeline rows with NULL evidence_id. The per-
+// evidence menu counts rows bound to an evidence, while the SuperTimeline
+// counts EVERYTHING — so orphaned rows (older parses, parses launched without
+// evidence context) make the two totals drift apart (e.g. 935 k vs 1 422 k).
+// Precisely inherit from parser_results first, then attach the case's
+// most-populated evidence to the rest. Idempotent, best-effort, background:
+// a large UPDATE must never delay startup.
+async function reconcileEvidenceLinks() {
+  try {
+    const client = await pool.connect();
+    try {
+      await client.query(`SET statement_timeout = 1800000`); // 30 min, one-time
+      // Fast no-op check: once every timeline row has an evidence_id, both
+      // UPDATEs below have nothing to do — skip them entirely instead of
+      // re-scanning the whole (multi-million row) table on every boot. The
+      // partial index idx_ct_unlinked_result makes this check instant.
+      const unlinked = await client.query(
+        `SELECT 1 FROM collection_timeline WHERE evidence_id IS NULL LIMIT 1`);
+      if (unlinked.rowCount === 0) {
+        logger.info('[boot] evidence reconciliation: nothing to link (all rows already bound)');
+        return;
+      }
+      const r1 = await client.query(
+        `UPDATE collection_timeline ct
+            SET evidence_id = pr.evidence_id
+           FROM parser_results pr
+          WHERE ct.evidence_id IS NULL
+            AND ct.result_id = pr.id
+            AND pr.evidence_id IS NOT NULL`);
+      const r2 = await client.query(
+        `WITH top AS (
+           SELECT case_id, evidence_id AS id,
+                  ROW_NUMBER() OVER (PARTITION BY case_id ORDER BY COUNT(*) DESC) AS rn
+             FROM collection_timeline
+            WHERE evidence_id IS NOT NULL
+            GROUP BY case_id, evidence_id
+         )
+         UPDATE collection_timeline ct
+            SET evidence_id = top.id
+           FROM top
+          WHERE top.rn = 1
+            AND ct.case_id = top.case_id
+            AND ct.evidence_id IS NULL`);
+      logger.info(`[boot] evidence reconciliation: ${r1.rowCount ?? 0} rows from parser_results, ${r2.rowCount ?? 0} from dominant evidence`);
+    } finally {
+      client.release();
+    }
+  } catch (e) {
+    logger.warn('[boot] evidence reconciliation failed (best-effort): ' + String(e.message).substring(0, 200));
+  }
+}
+
 async function start() {
   try {
     await testConnection();
@@ -517,12 +654,55 @@ async function start() {
 
     await runMigrations();
 
+    // Zombie-parse recovery: the parse runs IN this process, so any UnifiedTimeline
+    // row still marked 'parsing' at boot is a parse that died with the previous
+    // process (crash, OOM, docker restart). Mark it interrupted so the UI cockpit
+    // resolves to a terminal state instead of spinning forever on a dead parse.
+    try {
+      const { rows: zombies } = await pool.query(
+        `SELECT case_id FROM parser_results
+          WHERE parser_name = 'UnifiedTimeline' AND output_data->>'status' = 'parsing'`
+      );
+      for (const z of zombies) {
+        await pool.query(
+          `UPDATE parser_results
+              SET output_data = output_data
+                  || '{"status":"error","error":"Analyse interrompue par un redémarrage du serveur. Relancez l analyse."}'::jsonb,
+                  updated_at = NOW()
+            WHERE case_id = $1 AND parser_name = 'UnifiedTimeline'
+              AND output_data->>'status' = 'parsing'`,
+          [z.case_id]
+        );
+        logger.warn(`[boot] parse interrompu pour le cas ${z.case_id} (processus redémarré) — marqué erreur`);
+      }
+    } catch (e) {
+      logger.warn('[boot] zombie-parse sweep failed:', e.message);
+    }
+
     server.listen(PORT, '0.0.0.0', () => {
       logger.info('Heimdall DFIR API démarrée', {
         version: '2.7.0',
         port: PORT,
         mode: 'Streaming + Chunked Upload',
       });
+    });
+
+    // Search indexes build in the background, AFTER the API is up — a long build
+    // on a large timeline must never delay startup again.
+    buildSearchIndexes().catch(e =>
+      logger.warn('[boot] buildSearchIndexes failed: ' + String(e.message).substring(0, 200)));
+
+    // Bind orphaned timeline rows to an evidence so the per-evidence menu and
+    // the SuperTimeline totals agree (background, one-time, best-effort), then
+    // run the ES ↔ PG consistency sweep. Serialized on purpose: both jobs scan
+    // the whole timeline table at boot and used to run concurrently, competing
+    // for IO and delaying the ES index rebuild by minutes.
+    reconcileEvidenceLinks().finally(() => {
+      // ES ↔ PG consistency sweep: rebuild case indexes whose document count
+      // diverges from PG (stale duplicates from the pre-dedupe indexing path
+      // made the SuperTimeline count drift above the per-evidence menu).
+      const { reconcileAllCases } = require('./services/esRebuild');
+      reconcileAllCases();
     });
 
     // Daily retention purge tick (no-op unless explicitly enabled in Settings).

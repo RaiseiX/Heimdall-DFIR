@@ -123,6 +123,49 @@ async function* readLines(filePath: string): AsyncIterable<string> {
   for await (const line of rl) yield line;
 }
 
+// Full-timeline.csv is CSV: paths and usernames can legitimately contain commas
+// and are then double-quoted. A naive line.split(',') shifts every column after
+// such a field, dropping rows or inventing rows from the wrong columns. Parse
+// quoted fields properly (doubled "" is an escaped quote).
+function splitCsvLine(line: string): string[] {
+  const out: string[] = [];
+  let cur = '';
+  let inQ = false;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (inQ) {
+      if (c === '"') {
+        if (line[i + 1] === '"') { cur += '"'; i++; }
+        else inQ = false;
+      } else cur += c;
+    } else if (c === '"') {
+      inQ = true;
+    } else if (c === ',') {
+      out.push(cur); cur = '';
+    } else cur += c;
+  }
+  out.push(cur);
+  return out;
+}
+
+// Linux `stat` writes wall-clock timestamps with nanosecond precision and no
+// offset — e.g. "2026-07-30 12:44:06.123456789 +0000". `new Date()` on the raw
+// string is fragile (space separator, 9-digit fraction, offset without colon can
+// all fail) and every failed parse silently drops the row later on. Normalise to
+// ISO: 'T' separator, milliseconds only, UTC anchor.
+function parseFsTs(s: string): Date | null {
+  if (!s) return null;
+  let str = String(s).trim();
+  if (!str || str === '-') return null;
+  str = str.replace(/ /, 'T');
+  str = str.replace(/([+-]\d{2})(\d{2})$/, '$1:$2'); // +0000 → +00:00
+  const fracM = /\.(\d+)/.exec(str);
+  if (fracM) str = str.replace(fracM[0], '.' + (fracM[1] + '000').slice(0, 3));
+  if (!/[+-]\d{2}:\d{2}$|Z$/i.test(str)) str += 'Z';
+  const d = new Date(str);
+  return isNaN(d.getTime()) ? null : d;
+}
+
 type Row = {
   case_id: string;
   timestamp: Date;
@@ -245,6 +288,25 @@ function countMarkers(dir: string): number {
   catch { return 0; }
 }
 
+// UAC (Unix-like Artifacts Collector) writes a different tree: live_response/
+// (network, process, packages, system, storage, hardware), system/ (suid/sgid…),
+// hash_executables/, bodyfile/ and a [root]/ copy of the filesystem. Cat-Scale's
+// marker dirs are absent, so a UAC archive used to fall through to the generic
+// Windows-oriented detection and parse almost nothing. Recognise it as the same
+// kind of Linux IR collection.
+const UAC_MARKER_DIRS = ['live_response', 'bodyfile', 'hash_executables', 'system', 'uac.log'];
+
+function isUacRoot(dir: string): boolean {
+  try {
+    const entries = fs.readdirSync(dir);
+    // uac.log is the collector's own log — the strongest single signal. Requiring
+    // at least one structural dir too keeps a random file named uac.log honest.
+    const hasLog = entries.includes('uac.log') || entries.includes('uac');
+    const structural = entries.filter(e => ['live_response', 'bodyfile', 'hash_executables', '[root]'].includes(e)).length;
+    return hasLog && structural >= 1;
+  } catch { return false; }
+}
+
 // Cat-Scale writes its output 0600/0700 as root; a backend that dropped
 // privileges gets EACCES on every readdir. findFiles/walkDir turn that into an
 // empty listing, which would otherwise surface as a successful parse of an empty
@@ -269,11 +331,13 @@ function unreadableDirs(root: string): string[] {
 
 export function findCatScaleRoot(extractDir: string): string | null {
   if (countMarkers(extractDir) >= 2) return extractDir;
+  if (isUacRoot(extractDir)) return extractDir;
   try {
     for (const e of fs.readdirSync(extractDir)) {
       const sub = path.join(extractDir, e);
       try {
-        if (fs.statSync(sub).isDirectory() && countMarkers(sub) >= 2) return sub;
+        if (fs.statSync(sub).isDirectory()
+          && (countMarkers(sub) >= 2 || isUacRoot(sub))) return sub;
       } catch (_e) {}
     }
   } catch (_e) {}
@@ -615,11 +679,38 @@ async function parseBashHistory(filePath: string, caseId: string, pool: Pool, t:
       // reading a thousand co-timestamped commands as a burst of activity.
       timestamp_kind: pendingTs ? 'command' : 'collection',
       process_name: procName(line),
-    });
-    pendingTs = null;
+    });    pendingTs = null;
   }
   return batchInsert(pool, rows, link);
 }
+
+
+// dmesg: "[Fri Dec 26 07:41:28 2025] CIFS: Status code returned ..." — kernel
+// ring buffer. The bracketed timestamp is fully qualified (no year guessing),
+// and lines without one are kept anchored to the collection time.
+async function parseDmesg(filePath: string, caseId: string, pool: Pool, collectedAt: Date, hostname: string, link: TimelineLink = {}): Promise<number> {
+  const rows: Row[] = [];
+  for await (const line of readLines(filePath)) {
+    if (!line.trim()) continue;
+    const m = /^\[\s*(\w{3})\s+(\d{1,2})\s+(\d{2}):(\d{2}):(\d{2})\s+(\d{4})\s*\]\s*(.*)$/.exec(line.trim());
+    const ts = m ? new Date(Date.UTC(+m[6], MONTHS[m[1]] ?? 0, +m[2], +m[3], +m[4], +m[5])) : null;
+    const msg = (m?.[7] ?? line.trim());
+    rows.push({
+      case_id: caseId, timestamp: ts && !isNaN(ts.getTime()) ? ts : collectedAt,
+      artifact_type: 'catscale_dmesg', artifact_name: 'Linux Kernel Log (dmesg)',
+      source: 'dmesg',
+      description: msg.substring(0, 300),
+      raw: { message: msg, host: hostname },
+      host_name: hostname,
+      timestamp_kind: ts && !isNaN(ts.getTime()) ? 'kernel' : 'collection',
+      process_name: null,
+    });
+  }
+  return batchInsert(pool, rows, link);
+}
+
+
+
 
 
 async function parseCronTabList(filePath: string, caseId: string, pool: Pool, t: Date, hostname: string, link: TimelineLink = {}): Promise<number> {
@@ -647,42 +738,373 @@ async function parseCronTabList(filePath: string, caseId: string, pool: Pool, t:
 }
 
 
+// CatScale ships systemd data in two shapes:
+//  - `systemctl list-units` / `list-unit-files` lines: "unit.service active ..."
+//  - a dump of unit files (persistence-systemdlist): "[Unit]\nDescription=...\n"
+//    with [Unit]/[Service]/[Install] sections, one service after another.
+// Both are handled here. For the unit-file dump each block of sections is one
+// service row, and a suspicious ExecStart (base64 decode, curl/wget to an IP,
+// /dev/shm staging, bash -c) is flagged so persistence implants are visible
+// without opening the file.
+const SYSTEMD_SUSPECT_RE = /(base64|curl|wget|nc\b|ncat|\/dev\/shm\/|\/tmp\/|python\s+-c|bash\s+-c|\b\d{1,3}(\.\d{1,3}){3}:\d+|chmod\s+\+x)/i;
+
 async function parseSystemdList(filePath: string, caseId: string, pool: Pool, t: Date, hostname: string, link: TimelineLink = {}): Promise<number> {
   const rows: Row[] = [];
+  const isUnitFileDump = (line: string) => /^\s*\[Unit\]/.test(line) || /^\s*\[Service\]/.test(line);
+
+  // Detect the format from the first handful of non-blank lines so the two
+  // loops below stay cleanly separated (a unit dump can carry a command-line
+  // header before the first [Unit] block, and can contain lines that look like
+  // list rows).
+  let format: 'list' | 'dump' = 'list';
+  let probeCount = 0;
+  for await (const probe of readLines(filePath)) {
+    if (!probe.trim()) continue;
+    if (isUnitFileDump(probe)) { format = 'dump'; break; }
+    probeCount += 1;
+    // A `systemctl status` output starts with "● unit.service — desc" lines,
+    // while a unit dump normally opens with [Unit] within the first few lines.
+    // 30 lines covers long command headers without mistaking a list for a dump.
+    if (probeCount >= 30) break;
+  }
+
+  if (format === 'list') {
+    for await (const line of readLines(filePath)) {
+      const m1 = /^\s*(\S+\.service)\s+\S+\s+(active|failed)\s+(\S+)\s+(.*)$/.exec(line);
+      if (m1) {
+        const [, unit, active, sub, desc] = m1;
+        rows.push({
+          case_id: caseId, timestamp: t,
+          artifact_type: 'catscale_persistence', artifact_name: 'Linux Systemd Unit',
+          source: 'systemd',
+          description: `Service ${active === 'failed' ? '⚠ FAILED' : 'actif'}: ${unit} (${sub}) — ${desc.trim().substring(0, 100)}`,
+          raw: { unit, active, sub, description: desc.trim(), host: hostname },
+          host_name: hostname,
+          timestamp_kind: 'collection', process_name: unit,
+        });
+        continue;
+      }
+      const m2 = /^\s*(\S+\.service)\s+(enabled|disabled|masked|static|alias|indirect|generated)\s/.exec(line);
+      if (m2) {
+        const [, unit, state] = m2;
+        if (['masked', 'disabled'].includes(state) && !unit.startsWith('ssh') && !unit.startsWith('cron')) continue; // skip noise
+        rows.push({
+          case_id: caseId, timestamp: t,
+          artifact_type: 'catscale_persistence', artifact_name: 'Linux Systemd Unit',
+          source: 'systemd-unit-files',
+          description: `Service [${state}]: ${unit}`,
+          raw: { unit, state, host: hostname },
+          host_name: hostname,
+          timestamp_kind: 'collection', process_name: unit,
+        });
+      }
+    }
+    return batchInsert(pool, rows, link);
+  }
+
+  // ── Unit-file dump: accumulate sections until the next [Unit] starts a new
+  //    service, then emit one row carrying its Description + ExecStart lines. ──
+  interface UnitBlock { unit: string; description: string; execs: string[]; wantedBy: string; aliases: string[]; }
+  let block: UnitBlock | null = null;
+  const flush = () => {
+    if (!block) return;
+    const execStart = block.execs[0] || '';
+    const allExec = block.execs.join(' ; ');
+    const suspicious = SYSTEMD_SUSPECT_RE.test(allExec);
+    const name = block.unit || block.description || 'systemd-unit';
+    rows.push({
+      case_id: caseId, timestamp: t,
+      artifact_type: 'catscale_persistence', artifact_name: 'Linux Systemd Unit',
+      source: 'systemd-unit-file',
+      description: `${suspicious ? '⚠ SUSPECT ' : ''}Systemd unit: ${name}${block.description ? ' — ' + block.description.substring(0, 80) : ''}${execStart ? ' · ExecStart=' + execStart.substring(0, 120) : ''}`,
+      raw: {
+        unit: block.unit || null, description: block.description || null,
+        exec_start: block.execs, wanted_by: block.wantedBy || null,
+        aliases: block.aliases, suspicious, host: hostname,
+      },
+      host_name: hostname,
+      timestamp_kind: 'collection',
+      process_name: block.unit || null,
+    });
+    block = null;
+  };
 
   for await (const line of readLines(filePath)) {
-    const m1 = /^\s*(\S+\.service)\s+\S+\s+(active|failed)\s+(\S+)\s+(.*)$/.exec(line);
-    if (m1) {
-      const [, unit, active, sub, desc] = m1;
-      rows.push({
-        case_id: caseId, timestamp: t,
-        artifact_type: 'catscale_persistence', artifact_name: 'Linux Systemd Unit',
-        source: 'systemd',
-        description: `Service ${active === 'failed' ? '⚠ FAILED' : 'actif'}: ${unit} (${sub}) — ${desc.trim().substring(0, 100)}`,
-        raw: { unit, active, sub, description: desc.trim(), host: hostname },
-        host_name: hostname,
-        timestamp_kind: 'collection', process_name: unit,
-      });
+    const sec = /^\s*\[(\w+)\]\s*$/.exec(line);
+    if (sec) {
+      if (sec[1] === 'Unit' && block) flush();
+      if (!block) block = { unit: '', description: '', execs: [], wantedBy: '', aliases: [] };
       continue;
     }
-    const m2 = /^\s*(\S+\.service)\s+(enabled|disabled|masked|static|alias|indirect|generated)\s/.exec(line);
-    if (m2) {
-      const [, unit, state] = m2;
-      if (['masked', 'disabled'].includes(state) && !unit.startsWith('ssh') && !unit.startsWith('cron')) continue; // skip noise
-      rows.push({
-        case_id: caseId, timestamp: t,
-        artifact_type: 'catscale_persistence', artifact_name: 'Linux Systemd Unit',
-        source: 'systemd-unit-files',
-        description: `Service [${state}]: ${unit}`,
-        raw: { unit, state, host: hostname },
-        host_name: hostname,
-        timestamp_kind: 'collection', process_name: unit,
-      });
-    }
+    if (!block) continue;
+    const kv = /^\s*([A-Za-z][A-Za-z0-9]*)\s*=\s*(.*)$/.exec(line);
+    if (!kv) continue;
+    const key = kv[1]; const val = kv[2].trim();
+    if (!val) continue;
+    if (key === 'Description' && !block.description) block.description = val;
+    else if (key === 'ExecStart' || key === 'ExecStartPre' || key === 'ExecStartPost' || key === 'ExecReload') block.execs.push(val);
+    else if (key === 'WantedBy' && !block.wantedBy) block.wantedBy = val;
+    else if (key === 'Alias') block.aliases.push(val);
+    else if (key === 'Unit' && !block.unit) block.unit = val;
   }
+  flush();
   return batchInsert(pool, rows, link);
 }
 
+
+// ── full-timeline.csv column mapping ──────────────────────────────────────────
+// The exact column layout of CatScale's full-timeline.csv varies between
+// versions, so we never trust a fixed schema: the header is read when present,
+// and the *content* of the first data rows drives the mapping. A column is the
+// path column when most of its values start with '/'; a column is a timestamp
+// when most of its values parse as dates; user/perms/size are classified the
+// same way. This works for any column order and any naming.
+interface TimelineColMap {
+  path: number | null;
+  mtime: number | null;
+  atime: number | null;
+  ctime: number | null;
+  crtime: number | null;
+  user: number | null;
+  perms: number | null;
+  size: number | null;
+  inode: number | null;
+  md5: number | null;
+}
+
+const TS_KINDS = ['mtime', 'atime', 'ctime', 'crtime'] as const;
+
+function looksLikePath(v: string): boolean {
+  return typeof v === 'string' && v.startsWith('/');
+}
+function looksLikeTs(v: string): boolean {
+  return parseFsTs(v) !== null;
+}
+function looksLikePerms(v: string): boolean {
+  // drwxr-xr-x, -rw-r--r--, octal 0644
+  return /^[bcdlps-][rwxstST-]{9}([.+]|\s|$)/.test(v) || /^0?[0-7]{3,4}$/.test(v);
+}
+function looksLikeUser(v: string): boolean {
+  // usernames / numeric uid, but not a path, not a date, not perms, not a pure
+  // number (pure numbers are size/inode candidates, never usernames).
+  return typeof v === 'string' && v.length > 0 && v.length <= 64
+    && /^[a-zA-Z0-9_.\-]+$/.test(v)
+    && !/^\d+$/.test(v)
+    && !looksLikePath(v) && !looksLikeTs(v) && !looksLikePerms(v);
+}
+function looksLikeSize(v: string): boolean {
+  return /^\d{1,20}$/.test(v);
+}
+function looksLikeMd5(v: string): boolean {
+  return /^[0-9a-f]{32}$/i.test(v);
+}
+
+// Classify each column. Returns the column map, or null when no column looks
+// like a path (nothing we can do).
+//
+// Three strategies, most reliable first:
+//  1. Header mapping — CatScale writes a named header ("Inode,Hard link Count,
+//     Full Path,Last Access,Last Modification,Last Status Change,File Creation,
+//     User,Group,File Permissions,File Size(bytes)"), so column names pin the
+//     exact order with zero guesswork.
+//  2. The known positional layout of that same format (path=2, atime=3,
+//     mtime=4, ctime=5, crtime=6, user=7, perms=9, size=10, inode=0), validated
+//     by content — for collections that stripped the header.
+//  3. Content-based detection for unusual layouts.
+const POSITIONAL_LAYOUT: { key: keyof TimelineColMap; idx: number }[] = [
+  { key: 'inode', idx: 0 },
+  { key: 'path', idx: 2 },
+  { key: 'atime', idx: 3 },
+  { key: 'mtime', idx: 4 },
+  { key: 'ctime', idx: 5 },
+  { key: 'crtime', idx: 6 },
+  { key: 'user', idx: 7 },
+  { key: 'perms', idx: 9 },
+  { key: 'size', idx: 10 },
+];
+
+// Header names as CatScale writes them, lower-cased and trimmed.
+const HEADER_COL_MAP: Record<string, keyof TimelineColMap | null> = {
+  'inode': 'inode',
+  'hard link count': null,
+  'full path': 'path',
+  'path': 'path',
+  'last access': 'atime',
+  'atime': 'atime',
+  'access': 'atime',
+  'last modification': 'mtime',
+  'modification': 'mtime',
+  'modified': 'mtime',
+  'mtime': 'mtime',
+  'last status change': 'ctime',
+  'status change': 'ctime',
+  'ctime': 'ctime',
+  'file creation': 'crtime',
+  'creation': 'crtime',
+  'crtime': 'crtime',
+  'user': 'user',
+  'group': null,
+  'file permissions': 'perms',
+  'permissions': 'perms',
+  'perms': 'perms',
+  'file size(bytes)': 'size',
+  'file size': 'size',
+  'size': 'size',
+  'md5': 'md5',
+  'sha256': null,
+};
+
+function detectTimelineCols(samples: string[][], header?: string[]): TimelineColMap | null {
+  const width = Math.max(...samples.map(r => r.length));
+  if (width === 0) return null;
+  const n = samples.length;
+
+  const map: TimelineColMap = {
+    path: null, mtime: null, atime: null, ctime: null, crtime: null,
+    user: null, perms: null, size: null, inode: null, md5: null,
+  };
+
+  // 1) Header mapping: exact, no guessing. Only accepted when the header
+  //    actually names the path column AND the sampled rows agree the path
+  //    column contains paths.
+  if (header && header.length >= 3) {
+    const named = new Map<string, number>();
+    header.forEach((h, i) => {
+      // Strip a UTF-8 BOM that some collectors prepend to the first column.
+      const k = (HEADER_COL_MAP[String(h).replace(/^\uFEFF/, '').trim().toLowerCase()] as string | null);
+      if (k && !named.has(k)) named.set(k, i);
+    });
+    const pathIdx = named.get('path');
+    if (pathIdx !== undefined) {
+      let pathOk = 0;
+      for (const row of samples) { const v = (row[pathIdx] ?? '').trim(); if (looksLikePath(v)) pathOk += 1; }
+      if (pathOk / n >= 0.6) {
+        for (const [k, idx] of named) (map as any)[k] = idx;
+        return map;
+      }
+    }
+  }
+
+  // 2) Known positional layout (header-less collections), validated by content:
+  //    path column = '/'-prefixed values, timestamp columns = parseable dates,
+  //    user/perms = plausible strings. A column that fails its check is left
+  //    null rather than emitting garbage rows.
+  let pathLikeAt2 = 0;
+  for (const row of samples) {
+    const v2 = (row[2] ?? '').trim();
+    if (looksLikePath(v2)) pathLikeAt2 += 1;
+  }
+  if (pathLikeAt2 / n >= 0.6 && width >= 11) {
+    const isTsCol = (idx: number) => {
+      let ok = 0;
+      for (const row of samples) {
+        const v = (row[idx] ?? '').trim();
+        if (v && v !== '-' && looksLikeTs(v)) ok += 1;
+      }
+      return ok / n >= 0.5;
+    };
+    for (const { key, idx } of POSITIONAL_LAYOUT) {
+      if (key === 'path') { (map as any)[key] = idx; continue; }
+      if (key === 'mtime' || key === 'atime' || key === 'ctime' || key === 'crtime') {
+        if (isTsCol(idx)) (map as any)[key] = idx;
+        continue;
+      }
+      if (key === 'perms') {
+        let ok = 0;
+        for (const row of samples) { const v = (row[idx] ?? '').trim(); if (v && looksLikePerms(v)) ok += 1; }
+        if (ok / n >= 0.4) (map as any)[key] = idx;
+        continue;
+      }
+      if (key === 'user') {
+        let ok = 0;
+        for (const row of samples) { const v = (row[idx] ?? '').trim(); if (v && looksLikeUser(v)) ok += 1; }
+        if (ok / n >= 0.4) (map as any)[key] = idx;
+        continue;
+      }
+      if (key === 'inode' || key === 'size') {
+        let ok = 0;
+        for (const row of samples) { const v = (row[idx] ?? '').trim(); if (v && /^\d{1,20}$/.test(v)) ok += 1; }
+        if (ok / n >= 0.4) (map as any)[key] = idx;
+        continue;
+      }
+    }
+    // md5: not in the known layout, fill by content on the rest.
+    const taken = new Set(POSITIONAL_LAYOUT.map(p => p.idx));
+    for (let i = 0; i < width; i++) {
+      if (taken.has(i)) continue;
+      let md5V = 0;
+      for (const row of samples) {
+        const v = (row[i] ?? '').trim();
+        if (looksLikeMd5(v)) md5V += 1;
+      }
+      if (md5V / n >= 0.6 && map.md5 === null) { map.md5 = i; taken.add(i); }
+    }
+    return map;
+  }
+
+  // 2) Fallback: content-based detection for unusual layouts.
+  const votes = new Map<string, number[]>();
+  const keys: (keyof TimelineColMap)[] = ['path', 'mtime', 'atime', 'ctime', 'crtime', 'user', 'perms', 'size', 'inode', 'md5'];
+  keys.forEach(k => votes.set(k, new Array(width).fill(0)));
+
+  for (const row of samples) {
+    for (let i = 0; i < width; i++) {
+      const v = (row[i] ?? '').trim();
+      if (!v) continue;
+      if (looksLikePath(v)) (votes.get('path') as number[])[i] += 1;
+      if (looksLikeTs(v))   (votes.get('mtime') as number[])[i] += 1; // any ts column
+      if (looksLikePerms(v)) (votes.get('perms') as number[])[i] += 1;
+      if (looksLikeUser(v)) (votes.get('user') as number[])[i] += 1;
+      if (looksLikeSize(v)) (votes.get('size') as number[])[i] += 1;
+      if (looksLikeMd5(v))  (votes.get('md5') as number[])[i] += 1;
+    }
+  }
+
+  const taken = new Set<number>();
+  const pickBest = (key: keyof TimelineColMap, threshold = 0.6, exclude: Set<number> = taken) => {
+    const arr = votes.get(key) as number[];
+    let best = -1, bestV = 0;
+    for (let i = 0; i < arr.length; i++) {
+      if (exclude.has(i)) continue;
+      if (arr[i] > bestV) { bestV = arr[i]; best = i; }
+    }
+    if (best >= 0 && bestV / n >= threshold) {
+      (map as any)[key] = best;
+      taken.add(best);
+    }
+  };
+
+  // Path first — everything else is relative to it.
+  pickBest('path', 0.8);
+  if (map.path === null) pickBest('path', 0.3); // looser fallback
+  if (map.path === null) return null;
+  taken.add(map.path);
+
+  // Timestamps: every column that is mostly timestamps, in column order. The
+  // first is mtime (CatScale sorts by it and it is the traditional primary),
+  // the rest get assigned atime/ctime/crtime in order.
+  const tsCols: number[] = [];
+  const tsVotes = votes.get('mtime') as number[];
+  for (let i = 0; i < tsVotes.length; i++) {
+    if (!taken.has(i) && tsVotes[i] / n >= 0.6) tsCols.push(i);
+  }
+  tsCols.sort((a, b) => a - b);
+  TS_KINDS.forEach((k, idx) => {
+    if (idx < tsCols.length) {
+      (map as any)[k] = tsCols[idx];
+      taken.add(tsCols[idx]);
+    }
+  });
+
+  pickBest('perms');
+  pickBest('user');
+  pickBest('size');
+  pickBest('md5');
+  // inode: a pure-number column not already claimed (size may have taken one).
+  pickBest('inode', 0.6);
+
+  return map;
+}
 
 // Package-managed and pseudo filesystems: rewritten by every apt/snap upgrade,
 // forensically inert unless the path is independently suspicious.
@@ -735,13 +1157,143 @@ function locationKey(fullPath: string): string {
   return '/' + segs.slice(0, segs.length > 2 && fullPath.startsWith('/var/lib/') ? 3 : 2).join('/');
 }
 
+// UAC ships `bodyfile/bodyfile.txt` — a TSK bodyfile (the `fls`-style format,
+// pipe-separated, epoch timestamps) covering the whole filesystem. Same semantic
+// as Cat-Scale's full-timeline.csv (path + MACB timestamps), different layout:
+//   md5|name|inode|mode|uid|gid|size|atime|mtime|ctime|crtime
+// Rows are filtered through the same noise floor as the CSV timeline and emit
+// one timeline row per distinct parsable timestamp (MACB).
+async function parseBodyfile(
+  filePath: string, caseId: string, pool: Pool, hostname: string, collectedAt: Date,
+  link: TimelineLink = {}, stats?: FsTimelineFilterStats, exhaustive = false,
+): Promise<number> {
+  const rows: Row[] = [];
+  let inserted = 0;
+  const dropped = new Map<string, number>();
+  const note = (reason: keyof FsTimelineFilterStats['dropped'], p?: string) => {
+    if (!stats) return;
+    stats.dropped[reason] += 1;
+    if (p) dropped.set(locationKey(p), (dropped.get(locationKey(p)) ?? 0) + 1);
+  };
+  const cutoff = new Date(collectedAt.getTime() - 90 * 24 * 60 * 60 * 1000);
+
+  const epoch = (s: string | undefined): Date | null => {
+    if (!s || s === '0') return null;
+    const n = parseInt(s, 10);
+    if (isNaN(n) || n <= 0) return null;
+    const d = new Date(n * 1000);
+    return isNaN(d.getTime()) ? null : d;
+  };
+
+  const processLine = async (line: string): Promise<void> => {
+    if (stats) stats.scanned += 1;
+    const p = line.split('|');
+    if (p.length < 9) { note('unparsable'); return; }
+
+    const fullPath = p[1]?.trim();
+    if (!fullPath || fullPath === '-' || fullPath.startsWith('#')) { note('unparsable'); return; }
+    // Strip the symlink target "path -> target": the path itself is what matters.
+    const cleanPath = fullPath.split(' -> ')[0].trim();
+
+    if (!exhaustive && CONTAINER_LAYER_PREFIXES.some(pr => cleanPath.startsWith(pr))) {
+      note('container_layer', cleanPath); return;
+    }
+    const isSuspiciousExt = SUSPICIOUS_EXT_RE.test(cleanPath);
+    if (!exhaustive && !isSuspiciousExt && REBUILDABLE_RE.test(cleanPath)) {
+      note('rebuildable', cleanPath); return;
+    }
+    const isSuspiciousPath = SUSPICIOUS_PATHS.some(pr => cleanPath.startsWith(pr));
+    if (!exhaustive && !isSuspiciousPath && NOISE_PREFIXES.some(pr => cleanPath.startsWith(pr))) {
+      note('package_tree', cleanPath); return;
+    }
+
+    const modTs = epoch(p[8]);
+    const atsTs = epoch(p[7]);
+    const ctsTs = epoch(p[9]);
+    const crtTs = epoch(p[10]);
+
+    const anyRecent =
+      (modTs && modTs >= cutoff) || (atsTs && atsTs >= cutoff)
+      || (ctsTs && ctsTs >= cutoff) || (crtTs && crtTs >= cutoff);
+    if (!exhaustive && modTs && !isSuspiciousPath && !isSuspiciousExt && !anyRecent) {
+      note('not_relevant', cleanPath); return;
+    }
+    if (stats) stats.kept += 1;
+
+    const perms = p[3] ?? null;
+    const user  = p[4] ?? null;
+    const base = {
+      case_id: caseId,
+      artifact_type: 'catscale_fstimeline', artifact_name: 'Linux Filesystem Timeline',
+      source: 'bodyfile.txt',
+      raw: {
+        path: cleanPath, last_modified: modTs?.toISOString() ?? null,
+        atime: atsTs?.toISOString() ?? null, ctime: ctsTs?.toISOString() ?? null,
+        crtime: crtTs?.toISOString() ?? null,
+        permissions: perms, user, size: p[6] ?? null, inode: p[2] ?? null, md5: p[0] || null,
+        host: hostname,
+      },
+      host_name: hostname, user_name: user && user !== '0' ? user : null,
+      path: cleanPath, ext: extOf(cleanPath),
+    };
+
+    const kinds: { kind: string; ts: Date | null }[] = [
+      { kind: 'mtime',  ts: modTs },
+      { kind: 'atime',  ts: atsTs },
+      { kind: 'ctime',  ts: ctsTs },
+      { kind: 'crtime', ts: crtTs },
+    ];
+    const seen = new Set<string>();
+    let emitted = 0;
+    for (const { kind, ts } of kinds) {
+      if (!ts) continue;
+      const key = ts.toISOString();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      rows.push({
+        ...base,
+        timestamp: ts,
+        timestamp_kind: kind,
+        description: `${perms ?? ''} [${user ?? ''}] ${cleanPath} — ${kind.toUpperCase()}`,
+      });
+      emitted += 1;
+    }
+    if (emitted === 0) {
+      rows.push({
+        ...base,
+        timestamp: collectedAt,
+        timestamp_kind: 'collection',
+        description: `${perms ?? ''} [${user ?? ''}] ${cleanPath}`,
+      });
+    }
+
+    if (rows.length >= 1000) {
+      inserted += await batchInsert(pool, rows.splice(0), link);
+    }
+  };
+
+  for await (const line of readLines(filePath)) {
+    if (!line.trim()) continue;
+    await processLine(line);
+  }
+
+  inserted += await batchInsert(pool, rows, link);
+  if (stats) {
+    stats.top_dropped_locations = [...dropped]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 20)
+      .map(([path, count]) => ({ path, count }));
+  }
+  return inserted;
+}
+
+
 async function parseFsTimeline(
   filePath: string, caseId: string, pool: Pool, hostname: string, collectedAt: Date,
   link: TimelineLink = {}, stats?: FsTimelineFilterStats, exhaustive = false,
 ): Promise<number> {
   const rows: Row[] = [];
   let inserted = 0;
-  let headerSeen = false;
   const dropped = new Map<string, number>();
   const note = (reason: keyof FsTimelineFilterStats['dropped'], p?: string) => {
     if (!stats) return;
@@ -752,31 +1304,49 @@ async function parseFsTimeline(
   // later must not silently lose every file it recorded.
   const cutoff = new Date(collectedAt.getTime() - 90 * 24 * 60 * 60 * 1000);
 
-  for await (const line of readLines(filePath)) {
-    if (!headerSeen) { headerSeen = true; continue; } // skip CSV header
-    if (!line.trim()) continue;
+  // Two-pass: buffer the first data rows to auto-detect the column layout from
+  // their content, then process them plus the rest with the resolved map. The
+  // header (if present) is captured for named column mapping.
+  const buffered: string[] = [];
+  let colMap: TimelineColMap | null = null;
+  let headerNames: string[] | null = null;
+  const SAMPLE_SIZE = 30;
 
+  const flushBuffered = async () => {
+    for (const line of buffered) await processLine(line);
+    buffered.length = 0;
+  };
+
+  const processLine = async (line: string): Promise<void> => {
     if (stats) stats.scanned += 1;
+    const parts = splitCsvLine(line);
+    if (parts.length < 2) { note('unparsable'); return; }
 
-    const parts = line.split(',');
-    if (parts.length < 11) { note('unparsable'); continue; }
+    const col = colMap!;
+    const at = (idx: number | null) => (idx === null ? undefined : parts[idx]);
 
-    const fullPath = parts[2];
-    const lastMod = parts[4];
-    const user = parts[7];
-    const perms = parts[9];
+    const fullPath = at(col.path);
+    const lastMod  = at(col.mtime);
+    const atime    = at(col.atime);
+    const ctime    = at(col.ctime);
+    const crtime   = at(col.crtime);
+    const user     = at(col.user);
+    const perms    = at(col.perms);
+    const size     = at(col.size);
+    const inode    = at(col.inode);
+    const md5      = at(col.md5);
 
-    if (!fullPath || fullPath === '-') { note('unparsable'); continue; }
+    if (!fullPath || fullPath === '-') { note('unparsable'); return; }
 
     // Container layers first, and unconditionally: nothing here is worth a row.
     if (!exhaustive && CONTAINER_LAYER_PREFIXES.some(p => fullPath.startsWith(p))) {
-      note('container_layer', fullPath); continue;
+      note('container_layer', fullPath); return;
     }
 
     const isSuspiciousExt = SUSPICIOUS_EXT_RE.test(fullPath);
     // Caches and build output, unless the name itself is a reason to look.
     if (!exhaustive && !isSuspiciousExt && REBUILDABLE_RE.test(fullPath)) {
-      note('rebuildable', fullPath); continue;
+      note('rebuildable', fullPath); return;
     }
 
     const isSuspiciousPath = SUSPICIOUS_PATHS.some(p => fullPath.startsWith(p));
@@ -785,31 +1355,76 @@ async function parseFsTimeline(
     // 900k filesystem entries. Nothing here survives on recency or extension alone;
     // only an explicitly suspicious location gets through.
     if (!exhaustive && !isSuspiciousPath && NOISE_PREFIXES.some(p => fullPath.startsWith(p))) {
-      note('package_tree', fullPath); continue;
+      note('package_tree', fullPath); return;
     }
-    let modTs: Date | null = null;
-    if (lastMod && lastMod !== '-') {
-      modTs = new Date(lastMod.trim());
-      if (isNaN(modTs.getTime())) modTs = null;
-    }
-    const isRecent = modTs && modTs >= cutoff;
 
-    if (!exhaustive && !isSuspiciousPath && !isSuspiciousExt && !isRecent) {
-      note('not_relevant', fullPath); continue;
+    // Parse all available MACB timestamps. mtime is the primary recency signal
+    // (the other columns may be absent in older collections); if it is unparsable
+    // the row is kept anchored to the collection time, exactly as before.
+    const modTs  = lastMod && lastMod !== '-' ? parseFsTs(lastMod) : null;
+    const atsTs  = atime   && atime   !== '-' ? parseFsTs(atime)   : null;
+    const ctsTs  = ctime   && ctime   !== '-' ? parseFsTs(ctime)   : null;
+    const crtTs  = crtime  && crtime  !== '-' ? parseFsTs(crtime)  : null;
+
+    const anyRecent =
+      (modTs && modTs >= cutoff) || (atsTs && atsTs >= cutoff)
+      || (ctsTs && ctsTs >= cutoff) || (crtTs && crtTs >= cutoff);
+
+    // Only a real, parsed timestamp can be judged "not recent". An unparsable
+    // timestamp must not silently discard the row — keep it, anchored to the
+    // collection time, exactly like the fallback below.
+    if (!exhaustive && modTs && !isSuspiciousPath && !isSuspiciousExt && !anyRecent) {
+      note('not_relevant', fullPath); return;
     }
     if (stats) stats.kept += 1;
 
-    const ts = modTs ?? collectedAt;
-    rows.push({
-      case_id: caseId, timestamp: ts,
+    const base = {
+      case_id: caseId,
       artifact_type: 'catscale_fstimeline', artifact_name: 'Linux Filesystem Timeline',
       source: 'full-timeline.csv',
-      description: `${perms} [${user}] ${fullPath}`,
-      raw: { path: fullPath, last_modified: lastMod, permissions: perms, user, host: hostname },
-      host_name: hostname, user_name: user !== 'root' ? user : null,
-      timestamp_kind: modTs ? 'mtime' : 'collection',
+      raw: {
+        path: fullPath, last_modified: lastMod ?? null,
+        atime: atime ?? null, ctime: ctime ?? null, crtime: crtime ?? null,
+        permissions: perms ?? null, user: user ?? null, size: size ?? null,
+        inode: inode ?? null, md5: md5 ?? null, host: hostname,
+      },
+      host_name: hostname, user_name: user && user !== 'root' ? user : null,
       path: fullPath, ext: extOf(fullPath),
-    });
+    };
+
+    // MACB: emit one timeline row per distinct, parsable timestamp so every
+    // filesystem event becomes searchable. Duplicate timestamps collapse onto
+    // one row; when no timestamp parsed at all, a single collection-anchored row
+    // keeps the file visible (matching the pre-MACB behaviour).
+    const kinds: { kind: string; ts: Date | null }[] = [
+      { kind: 'mtime',  ts: modTs },
+      { kind: 'atime',  ts: atsTs },
+      { kind: 'ctime',  ts: ctsTs },
+      { kind: 'crtime', ts: crtTs },
+    ];
+    const seen = new Set<string>();
+    let emitted = 0;
+    for (const { kind, ts } of kinds) {
+      if (!ts) continue;
+      const key = ts.toISOString();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      rows.push({
+        ...base,
+        timestamp: ts,
+        timestamp_kind: kind,
+        description: `${perms ?? ''} [${user ?? ''}] ${fullPath} — ${kind.toUpperCase()}`,
+      });
+      emitted += 1;
+    }
+    if (emitted === 0) {
+      rows.push({
+        ...base,
+        timestamp: collectedAt,
+        timestamp_kind: 'collection',
+        description: `${perms ?? ''} [${user ?? ''}] ${fullPath}`,
+      });
+    }
 
     if (rows.length >= 1000) {
       // The count of every intermediate flush used to be discarded, so a run that
@@ -817,7 +1432,55 @@ async function parseFsTimeline(
       // rows were in the database; the number shown to the analyst was not.
       inserted += await batchInsert(pool, rows.splice(0), link);
     }
+  };
+
+  for await (const line of readLines(filePath)) {
+    if (!line.trim()) continue;
+
+    if (!headerNames) {
+      const probe = splitCsvLine(line);
+      // A first line whose path column (index 2) does not start with '/' is the
+      // CSV header: keep its column names for the named mapping below. A data
+      // row has a '/' at column 2 and is kept and fed to detection.
+      if (!(probe[2] && String(probe[2]).trim().startsWith('/'))) {
+        headerNames = probe.map(p => String(p).trim());
+        continue; // consume the header line
+      }
+      headerNames = []; // no header: remember we already looked
+    }
+
+    if (buffered.length < SAMPLE_SIZE) {
+      buffered.push(line);
+      continue;
+    }
+    if (!colMap) {
+      const samples = buffered.slice(0, SAMPLE_SIZE).map(l => splitCsvLine(l));
+      colMap = detectTimelineCols(samples, headerNames ?? undefined);
+      if (!colMap) {
+        logger.warn(`[CatScale] full-timeline.csv: cannot detect columns (${samples.length} rows sampled) — 0 rows`);
+        buffered.length = 0;
+        return 0;
+      }
+      logger.info(`[CatScale] full-timeline.csv columns: path=${colMap.path} mtime=${colMap.mtime} atime=${colMap.atime} ctime=${colMap.ctime} crtime=${colMap.crtime} user=${colMap.user} perms=${colMap.perms} size=${colMap.size}`);
+      await flushBuffered();
+    }
+    await processLine(line);
   }
+
+  // Handle the tail: remaining buffered lines and the case where the whole file
+  // was small enough to fit in the sample buffer.
+  if (!colMap) {
+    const samples = buffered.slice(0, SAMPLE_SIZE).map(l => splitCsvLine(l));
+    colMap = detectTimelineCols(samples, headerNames ?? undefined);
+    if (!colMap) {
+      logger.warn(`[CatScale] full-timeline.csv: cannot detect columns — 0 rows`);
+      buffered.length = 0;
+      return 0;
+    }
+    logger.info(`[CatScale] full-timeline.csv columns: path=${colMap.path} mtime=${colMap.mtime} atime=${colMap.atime} ctime=${colMap.ctime} crtime=${colMap.crtime} user=${colMap.user} perms=${colMap.perms} size=${colMap.size}`);
+  }
+  await flushBuffered();
+
   inserted += await batchInsert(pool, rows, link);
   if (stats) {
     stats.top_dropped_locations = [...dropped]
@@ -847,6 +1510,215 @@ export interface CatScaleParseResult {
   fs_filter: FsTimelineFilterStats | null;
 }
 
+// UAC layout → the same Cat-Scale parsers, fed with the files UAC actually
+// writes. Kept separate so the Cat-Scale path stays untouched.
+async function parseUacCollection(
+  uacRoot: string,
+  caseId: string,
+  pool: Pool,
+  collectionTime: Date,
+  emitProgress?: (p: Record<string, unknown>) => void,
+  link: TimelineLink = {},
+  options: { exhaustiveFsTimeline?: boolean } = {},
+  failures: CatScaleFailure[] = [],
+  unreadable: string[] = [],
+): Promise<CatScaleParseResult> {
+  let totalEvents = 0;
+  let stateRows = 0;
+  const artifacts: string[] = [];
+  link = { ...link, failures };
+  const fail = (stage: CatScaleFailure['stage'], target: string) => (e: any) => {
+    const reason = e?.message ?? String(e);
+    logger.warn(`[UAC] ${stage} failed on ${path.basename(target)}: ${reason}`);
+    failures.push({ stage, target, reason });
+    return 0;
+  };
+
+  const emit = (step: string) =>
+    emitProgress?.({ type: 'catscale_step', step, artifact: 'catscale' });
+
+  // uac.log carries the hostname and the collection timestamp.
+  let hostname = 'linux-host';
+  const logPath = path.join(uacRoot, 'uac.log');
+  try {
+    if (fs.existsSync(logPath)) {
+      const first = fs.readFileSync(logPath, 'utf8').split('\n').find(l => l.trim());
+      // "2026-04-18 04:58:42 +0200 INF Unix-like Artifacts Collector 3.3.0"
+      const tsM = first && /^(\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2})/.exec(first);
+      if (tsM) {
+        const d = new Date(tsM[1].replace(' ', 'T') + 'Z');
+        if (!isNaN(d.getTime())) collectionTime = d;
+      }
+      const hostM = /Hostname:\s*(\S+)/.exec(fs.readFileSync(logPath, 'utf8'));
+      if (hostM) hostname = hostM[1];
+    }
+  } catch (_e) {}
+
+  // ── bodyfile → filesystem MACB timeline (the big one) ─────────────────────
+  emit('fstimeline');
+  const bodyfile = path.join(uacRoot, 'bodyfile', 'bodyfile.txt');
+  const fsFilter: FsTimelineFilterStats | null = {
+    scanned: 0, kept: 0,
+    dropped: { container_layer: 0, rebuildable: 0, package_tree: 0, not_relevant: 0, unparsable: 0 },
+    top_dropped_locations: [],
+  };
+  if (fs.existsSync(bodyfile)) {
+    const n = await parseBodyfile(bodyfile, caseId, pool, hostname, collectionTime, link,
+      fsFilter, options.exhaustiveFsTimeline === true).catch(fail('parse', bodyfile));
+    if (n > 0) { totalEvents += n; artifacts.push(`fstimeline:bodyfile (${n})`); }
+    const d = fsFilter.dropped;
+    const removed = d.container_layer + d.rebuildable + d.package_tree + d.not_relevant + d.unparsable;
+    logger.info(`[UAC] fs timeline: ${fsFilter.kept} kept of ${fsFilter.scanned} scanned (${removed} filtered)`);
+  }
+
+  // ── auth logs from the [root]/ filesystem copy ────────────────────────────
+  emit('auth_logs');
+  const varLog = path.join(uacRoot, '[root]', 'var', 'log');
+  if (fs.existsSync(varLog)) {
+    for (const base of ['auth.log', 'secure', 'messages', 'syslog']) {
+      for (const fp of [path.join(varLog, base), path.join(varLog, base + '.1')]) {
+        if (!fs.existsSync(fp)) continue;
+        const n = await parseAuthLog(fp, caseId, pool, hostname, collectionTime, link).catch(fail('parse', fp));
+        if (n > 0) { totalEvents += n; artifacts.push(`auth:${base} (${n})`); }
+      }
+    }
+  }
+
+  // ── logon history: `last`/`lastb` text dumps in live_response/system ──────
+  emit('logon_history');
+  const sysDir = path.join(uacRoot, 'live_response', 'system');
+  if (fs.existsSync(sysDir)) {
+    const lastFiles = fs.readdirSync(sysDir).filter(f => /^lastb?-/.test(f) && f.endsWith('.txt'));
+    for (const f of lastFiles.sort()) {
+      const fp = path.join(sysDir, f);
+      const n = await parseLastWtmp(fp, caseId, pool, hostname, link).catch(fail('parse', fp));
+      if (n > 0) { totalEvents += n; artifacts.push(`logon:${f} (${n})`); }
+    }
+  }
+
+  // ── kernel ring buffer ────────────────────────────────────────────────────
+  const hwDir = path.join(uacRoot, 'live_response', 'hardware');
+  for (const fp of [path.join(hwDir, 'dmesg.txt'), path.join(hwDir, 'dmesg')]) {
+    if (!fs.existsSync(fp)) continue;
+    const n = await parseDmesg(fp, caseId, pool, collectionTime, hostname, link).catch(fail('parse', fp));
+    if (n > 0) { totalEvents += n; artifacts.push(`dmesg (${n})`); }
+  }
+
+  // ── processes ─────────────────────────────────────────────────────────────
+  emit('processes');
+  const procDir = path.join(uacRoot, 'live_response', 'process');
+  if (fs.existsSync(procDir)) {
+    const psFiles = fs.readdirSync(procDir).filter(f => /^ps.*\.txt$/.test(f)).sort();
+    for (const f of psFiles) {
+      const fp = path.join(procDir, f);
+      const n = await parseProcessList(fp, caseId, pool, collectionTime, hostname, link).catch(fail('parse', fp));
+      if (n > 0) { totalEvents += n; artifacts.push(`process:${f} (${n})`); }
+    }
+  }
+
+  // ── network sockets ───────────────────────────────────────────────────────
+  emit('network');
+  const netDir = path.join(uacRoot, 'live_response', 'network');
+  if (fs.existsSync(netDir)) {
+    const ssFiles = fs.readdirSync(netDir).filter(f => /^ss[-_].*\.txt$|^netstat.*\.txt$/.test(f)).sort();
+    for (const f of ssFiles) {
+      const fp = path.join(netDir, f);
+      const n = await parseNetworkConnections(fp, caseId, pool, collectionTime, hostname, link).catch(fail('parse', fp));
+      if (n > 0) { totalEvents += n; artifacts.push(`network:${f} (${n})`); }
+    }
+  }
+
+  // ── shell history from home dirs ──────────────────────────────────────────
+  emit('history');
+  const homeDir = path.join(uacRoot, '[root]', 'home');
+  if (fs.existsSync(homeDir)) {
+    const walkHistory = async (dir: string): Promise<void> => {
+      let entries: string[] = [];
+      try { entries = fs.readdirSync(dir); } catch { return; }
+      for (const e of entries) {
+        const fp = path.join(dir, e);
+        let st: fs.Stats;
+        try { st = fs.statSync(fp); } catch { continue; }
+        if (st.isDirectory()) {
+          if (!['snap', '.cache', '.local', '.mozilla'].includes(e)) await walkHistory(fp);
+        } else if (/^\.?(bash_history|zsh_history|sh_history|fish_history|ksh_history|history)$/.test(e)) {
+          const parts = fp.split(path.sep);
+          const username = parts[parts.length - 2] || 'unknown';
+          const n = await parseBashHistory(fp, caseId, pool, collectionTime, username, hostname, link).catch(fail('parse', fp));
+          if (n > 0) { totalEvents += n; artifacts.push(`history:${username}:${e} (${n})`); }
+        }
+      }
+    };
+    await walkHistory(homeDir);
+  }
+
+  // ── persistence: crontab + systemd unit files ─────────────────────────────
+  emit('persistence');
+  const etcDir = path.join(uacRoot, '[root]', 'etc');
+  for (const cronFp of [path.join(etcDir, 'crontab'), ...(fs.existsSync(path.join(uacRoot, '[root]', 'var', 'spool', 'cron', 'crontabs'))
+    ? fs.readdirSync(path.join(uacRoot, '[root]', 'var', 'spool', 'cron', 'crontabs')).map(f => path.join(uacRoot, '[root]', 'var', 'spool', 'cron', 'crontabs', f))
+    : [])]) {
+    if (!fs.existsSync(cronFp)) continue;
+    const n = await parseCronTabList(cronFp, caseId, pool, collectionTime, hostname, link).catch(fail('parse', cronFp));
+    if (n > 0) { totalEvents += n; artifacts.push(`cron:${path.basename(cronFp)} (${n})`); }
+  }
+  const systemdDir = path.join(etcDir, 'systemd', 'system');
+  if (fs.existsSync(systemdDir)) {
+    for (const f of fs.readdirSync(systemdDir).filter(f => f.endsWith('.service')).sort()) {
+      const fp = path.join(systemdDir, f);
+      const n = await parseSystemdList(fp, caseId, pool, collectionTime, hostname, link).catch(fail('parse', fp));
+      if (n > 0) { totalEvents += n; artifacts.push(`systemd:${f} (${n})`); }
+    }
+  }
+
+  // ── host state: hashes, suid/sgid/world-writable inventories ─────────────
+  emit('host_state');
+  const stateRowsArr: { kind: string; label: string; source_file: string; raw: Record<string, unknown> }[] = [];
+  const addState = (kind: string, label: string, sourceFile: string, raw: Record<string, unknown> = {}) => {
+    stateRowsArr.push({ kind, label, source_file: sourceFile, raw });
+  };
+  const hashDir = path.join(uacRoot, 'hash_executables');
+  if (fs.existsSync(hashDir)) {
+    for (const f of fs.readdirSync(hashDir).filter(f => /^hash_executables\.(md5|sha1|sha256)$/.test(f)).sort()) {
+      try {
+        for (const line of fs.readFileSync(path.join(hashDir, f), 'utf8').split('\n')) {
+          const m = /^([0-9a-fA-F]{32,128})\s+(.+)$/.exec(line.trim());
+          if (m) addState('executable_hash', m[2], f, { hash: m[1].toLowerCase(), algo: f.split('.')[1] });
+        }
+      } catch (_e) {}
+    }
+  }
+  for (const f of ['suid.txt', 'sgid.txt', 'getcap.txt', 'socket_files.txt']) {
+    const fp = path.join(uacRoot, 'system', f);
+    if (!fs.existsSync(fp)) continue;
+    try {
+      for (const line of fs.readFileSync(fp, 'utf8').split('\n')) {
+        const p = line.trim();
+        if (!p || p.startsWith('#')) continue;
+        addState(f.replace('.txt', ''), p, f, { path: p });
+      }
+    } catch (_e) {}
+  }
+  if (stateRowsArr.length) {
+    stateRows = await insertStateRows(pool, caseId, hostname, collectionTime, stateRowsArr, {
+      evidence_id: link.evidenceId ?? null,
+      result_id: link.resultId ?? null,
+    });
+    const byKind = stateRowsArr.reduce<Record<string, number>>((acc, r) => {
+      acc[r.kind] = (acc[r.kind] ?? 0) + 1; return acc;
+    }, {});
+    for (const [kind, n] of Object.entries(byKind)) artifacts.push(`state:${kind} (${n})`);
+  }
+
+  logger.info(`[UAC] ${hostname}: ${totalEvents} events, ${stateRows} state rows — ${artifacts.length} sources`);
+  return {
+    events: totalEvents, hostname, os_info: 'Linux (UAC)',
+    collection_time: collectionTime.toISOString(), artifacts, unreadable, failures,
+    state_rows: stateRows, fs_filter: fsFilter.scanned > 0 ? fsFilter : null,
+  };
+}
+
+
 export async function parseCatScale(
   catscaleRoot: string,
   caseId: string,
@@ -875,6 +1747,12 @@ export async function parseCatScale(
     logger.warn(`[CatScale] ${unreadable.length} directory(ies) unreadable (permissions): ${unreadable.slice(0, 5).join(', ')}`);
   }
 
+  // UAC collection (Unix-like Artifacts Collector): different tree, same parsers.
+  // Route it before the Cat-Scale-specific discovery below.
+  if (isUacRoot(catscaleRoot)) {
+    return parseUacCollection(catscaleRoot, caseId, pool, collectionTime, emitProgress, link, { exhaustiveFsTimeline: options.exhaustiveFsTimeline === true }, failures, unreadable);
+  }
+
   const emit = (step: string) =>
     emitProgress?.({ type: 'catscale_step', step, artifact: 'catscale' });
 
@@ -896,6 +1774,12 @@ export async function parseCatScale(
     const releaseContent = fs.readFileSync(releaseFile, 'utf8');
     const pretty = /PRETTY_NAME="([^"]+)"/.exec(releaseContent);
     osInfo = pretty?.[1] ?? releaseContent.split('\n')[0] ?? '';
+  }
+
+  // Kernel ring buffer — every line carries its own fully-qualified timestamp.
+  for (const dmesgFile of findArtifactFiles(sysDir, 'dmesg')) {
+    const n = await parseDmesg(dmesgFile, caseId, pool, collectionTime, hostname, link).catch(fail('parse', dmesgFile));
+    if (n > 0) { totalEvents += n; artifacts.push(`dmesg:${path.basename(dmesgFile)} (${n})`); }
   }
 
   emit('auth_logs');
@@ -991,7 +1875,7 @@ export async function parseCatScale(
     }
   }
 
-  for (const fp of findArtifactFiles(persistDir, 'systemctl_service_status', 'systemctl_all', 'persistence-systemdlist')) {
+  for (const fp of findArtifactFiles(persistDir, 'systemctl-service-status', 'systemctl_service_status', 'systemctl-all', 'systemctl_all', 'systemctl-list-units', 'systemctl-list-unit-files', 'persistence-systemdlist')) {
     const n = await parseSystemdList(fp, caseId, pool, collectionTime, hostname, link).catch(fail('parse', fp));
     if (n > 0) { totalEvents += n; artifacts.push(`systemd:${path.basename(fp)} (${n})`); }
   }

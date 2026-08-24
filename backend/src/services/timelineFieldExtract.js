@@ -51,7 +51,7 @@ const SYSMON_FIELDS = [
   'Consumer', 'Filter', 'Query', 'Destination',
   // logon / network context
   'User', 'LogonId', 'LogonType', 'Protocol',
-  'SourceIp', 'SourcePort', 'DestinationIp', 'DestinationPort', 'DestinationHostname', 'QueryName',
+  'SourceIp', 'SourcePort', 'DestinationIp', 'DestinationPort', 'DestinationHostname', 'DestinationIsIpv6', 'QueryName',
 ];
 const SYSMON_FIELD_SET = new Set(SYSMON_FIELDS);
 
@@ -81,7 +81,20 @@ function extractEvtxFields(clean) {
   return out;
 }
 
+// Tree-capable artifact types keep EVERY parser column in `raw`, so the
+// artifact browser can render complete native rows (registry, $MFT, shellbags)
+// instead of the slim projection. The tree view (and its search) is built on
+// these full rows.
+// Registry / MFT / USN rows are small (a dozen columns each) and every field is
+// forensically meaningful — keep the full raw record instead of the 15-column
+// slim cut, so rename pairings (EntryNumber/SequenceNumber/UpdateReasons/…)
+// stay visible in the detail panel.
+const FULL_COLUMN_TYPES = new Set(['registry', 'mft', 'usn', 'shellbags']);
+
 function buildSlimRaw(clean, artifactType) {
+  if (FULL_COLUMN_TYPES.has(artifactType)) {
+    return { ...clean };
+  }
   const baseEntries  = Object.entries(clean).slice(0, 15);
   const extraEntries = Object.entries(clean).slice(15).filter(([k]) => CRITICAL_FIELDS.has(k));
   const slimRaw = Object.fromEntries([...baseEntries, ...extraEntries]);

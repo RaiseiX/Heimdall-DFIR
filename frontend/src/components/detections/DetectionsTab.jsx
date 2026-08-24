@@ -1,24 +1,16 @@
 import { useState, useCallback, useEffect, useRef, createContext, useContext } from 'react';
 import {
-  Clock, FileWarning, Radio, Shield, Activity, HardDrive,
-  ChevronDown, ChevronRight, RefreshCw, CheckCircle2, Copy, Play, FlagOff, X,
+  Clock, FileWarning, Radio, Shield, Activity, HardDrive, FolderOpen,
+  ChevronDown, ChevronRight, RefreshCw, CheckCircle2, Copy, Play, FlagOff, X, Search,
 } from 'lucide-react';
 import { detectionsAPI, iocsAPI, threatHuntingAPI } from '../../utils/api';
+import { detectIocType } from '../../utils/iocType';
 import { Crosshair, Rocket, Loader } from 'lucide-react';
 import { Button, EmptyState } from '../ui';
 import { useDateFormat } from '../../hooks/useDateFormat';
 import { useTranslation } from 'react-i18next';
 
-function guessIocType(v) {
-  const s = String(v || '');
-  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(s)) return 'ip';
-  if (/^[a-f0-9]{64}$/i.test(s)) return 'sha256';
-  if (/^[a-f0-9]{40}$/i.test(s)) return 'sha1';
-  if (/^[a-f0-9]{32}$/i.test(s)) return 'md5';
-  if (/^https?:\/\//i.test(s)) return 'url';
-  if (/^[\w.-]+\.[a-z]{2,}$/i.test(s) && !/[\\/]/.test(s)) return 'domain';
-  return 'other';
-}
+
 
 // Pick the most identifying string of a detection result to suppress on.
 function fpValue(it) {
@@ -63,7 +55,7 @@ function IocBtn({ caseId, item }) {
     e.stopPropagation();
     if (state === 'done') return;
     try {
-      await iocsAPI.create(caseId, { ioc_type: guessIocType(value), value: String(value).slice(0, 500), is_malicious: true, severity: 7, description: 'Promoted from detection' });
+      await iocsAPI.create(caseId, { ioc_type: detectIocType(value).type, value: String(value).slice(0, 500), is_malicious: true, severity: 7, description: 'Promoted from detection', first_seen: item.timestamp || null });
       setState('done');
     } catch { /* ignore */ }
   };
@@ -129,6 +121,13 @@ const TH_STYLE = {
 
 const TD = { padding: '5px 8px', borderBottom: '1px solid var(--fl-border2)', verticalAlign: 'middle' };
 
+// ── Module-level result cache ────────────────────────────────────────────────
+// Detections are expensive SQL scans. Cache each engine's result per
+// (case, section, params) so navigating back to the tab doesn't re-run every
+// engine. The explicit Analyze/Scan/Detect buttons pass force=true to refresh.
+const resultsCache = new Map();
+const cacheKey = (caseId, section, extra = '', evidenceId = '') => `${caseId}::${section}::${extra}::${evidenceId}`;
+
 function topSeverity(items) {
   for (const sev of SEV_ORDER) {
     if (items.some(it => normalizeSeverity(it.severity) === sev)) return sev;
@@ -181,7 +180,7 @@ function ConfBadge({ confidence }) {
   );
 }
 
-function CopyCell({ value, style, maxWidth = 200 }) {
+function CopyCell({ value, style, maxWidth = 200, query }) {
   const { t } = useTranslation();
   const [hover, setHover] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -200,7 +199,7 @@ function CopyCell({ value, style, maxWidth = 200 }) {
       onMouseLeave={() => setHover(false)}
     >
       <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth, ...style }} title={value || undefined}>
-        {value || '—'}
+        {value ? (query ? <Highlight text={value} query={query} /> : value) : '—'}
       </span>
       {value && hover && (
         <button onClick={copy} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, color: copied ? 'var(--fl-ok)' : 'var(--fl-accent)', flexShrink: 0 }} title={t('detections.actions.copy')}>
@@ -214,7 +213,7 @@ function CopyCell({ value, style, maxWidth = 200 }) {
 // Description cell: wraps onto 2 lines (no jarring native tooltip) and reveals a
 // copy button on hover. Gives the primary content the room reclaimed from the
 // empty process/host columns.
-function DescCell({ value }) {
+function DescCell({ value, query }) {
   const { t } = useTranslation();
   const [hover, setHover] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -231,7 +230,7 @@ function DescCell({ value }) {
         display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical',
         overflow: 'hidden', wordBreak: 'break-word',
       }}>
-        {value || '—'}
+        {value ? (query ? <Highlight text={value} query={query} /> : value) : '—'}
       </span>
       {value && hover && (
         <button onClick={copy} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, marginTop: 1, color: copied ? 'var(--fl-ok)' : 'var(--fl-accent)', flexShrink: 0 }} title={t('detections.actions.copy')}>
@@ -239,6 +238,37 @@ function DescCell({ value }) {
         </button>
       )}
     </span>
+  );
+}
+
+// ── Search helpers ────────────────────────────────────────────────────────
+// Build a lowercase searchable blob for a detection result row: the visible
+// text fields plus the flattened raw payload, so a query can hit process names,
+// command lines, IPs, registry paths… anywhere in the row.
+function searchableText(it) {
+  if (!it) return '';
+  const raw = it.raw && typeof it.raw === 'object' ? Object.values(it.raw).join(' ') : '';
+  return [it.description, it.source, it.host_name, it.artifact_type, it.dest_ip, it.filename,
+          it.process_name, it.user_name, it.value, raw]
+    .filter(v => v != null && v !== '')
+    .join(' ')
+    .toLowerCase();
+}
+
+// Highlight the first case-insensitive occurrence of query inside text.
+function Highlight({ text, query }) {
+  const s = String(text ?? '');
+  const q = String(query || '').trim().toLowerCase();
+  if (!q || !s) return s;
+  const idx = s.toLowerCase().indexOf(q);
+  if (idx === -1) return s;
+  const end = idx + q.length;
+  return (
+    <>
+      {s.slice(0, idx)}
+      <mark style={{ background: 'color-mix(in srgb, var(--fl-gold) 32%, transparent)', color: 'var(--fl-on-dark)', borderRadius: 2, padding: '0 1px' }}>{s.slice(idx, end)}</mark>
+      {s.slice(end)}
+    </>
   );
 }
 
@@ -410,6 +440,118 @@ function Section({ icon: Icon, title, badge, severity, children, defaultOpen = t
   );
 }
 
+// Collapsible viewer for a rule's SQL definition (the detection logic).
+function RuleLogic({ query }) {
+  const [open, setOpen]   = useState(false);
+  const [copied, setCopied] = useState(false);
+  if (!query) return null;
+  const copy = (e) => {
+    e.stopPropagation();
+    navigator.clipboard?.writeText(query).catch(() => {});
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1200);
+  };
+  return (
+    <div style={{ marginBottom: 6 }}>
+      <button
+        onClick={() => setOpen(o => !o)}
+        style={{
+          display: 'inline-flex', alignItems: 'center', gap: 4, background: 'none', border: 'none', cursor: 'pointer',
+          color: 'var(--fl-muted)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10, padding: '1px 2px',
+        }}
+        onMouseEnter={e => { e.currentTarget.style.color = 'var(--fl-accent)'; }}
+        onMouseLeave={e => { e.currentTarget.style.color = 'var(--fl-muted)'; }}
+      >
+        {open ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
+        SQL
+      </button>
+      {open && (
+        <div style={{ position: 'relative', marginTop: 4 }}>
+          <button
+            onClick={copy}
+            title="Copier"
+            style={{
+              position: 'absolute', top: 6, right: 6, zIndex: 1, display: 'inline-flex', alignItems: 'center', gap: 4,
+              background: 'var(--fl-panel)', border: '1px solid var(--fl-border)', borderRadius: 4, cursor: 'pointer',
+              color: 'var(--fl-subtle)', padding: '2px 6px', fontSize: 10,
+            }}
+            onMouseEnter={e => { e.currentTarget.style.color = 'var(--fl-on-dark)'; }}
+            onMouseLeave={e => { e.currentTarget.style.color = 'var(--fl-subtle)'; }}
+          >
+            {copied ? <CheckCircle2 size={11} style={{ color: 'var(--fl-ok)' }} /> : <Copy size={11} />}
+            {copied ? 'Copié' : 'Copier'}
+          </button>
+          <pre style={{
+            margin: 0, padding: '10px 12px', borderRadius: 6, overflow: 'auto', maxHeight: 320,
+            background: 'var(--fl-bg)', border: '1px solid var(--fl-border2)',
+            color: 'var(--fl-subtle)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
+            fontSize: 11, lineHeight: 1.5, whiteSpace: 'pre', tabSize: 2,
+          }}>
+            <code>{query}</code>
+          </pre>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// A rule that is registered but produced no hits — rendered so the analyst sees
+// the full detection coverage (e.g. "DCSync … 0 événements") instead of only the
+// rules that fired. Search-aware: hidden unless the query matches label/MITRE.
+function ZeroVectorRow({ v, query }) {
+  const { t } = useTranslation();
+  const q = (query || '').trim().toLowerCase();
+  const labelHit = !q || v.label.toLowerCase().includes(q) || (v.mitre || '').toLowerCase().includes(q);
+  if (!labelHit) return null;
+  return (
+    <div style={{ marginBottom: 6 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', borderRadius: 6,
+        border: '1px dashed var(--fl-border)', background: 'color-mix(in srgb, var(--fl-bg) 55%, transparent)',
+        fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', opacity: 0.9 }}>
+        <SevBadge severity={v.severity} />
+        <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--fl-subtle)' }}><Highlight text={v.label} query={q} /></span>
+        {v.mitre && (
+          <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 4, background: 'color-mix(in srgb, var(--fl-accent) 7%, transparent)', color: 'var(--fl-accent)', border: '1px solid color-mix(in srgb, var(--fl-accent) 14%, transparent)' }}>{v.mitre}</span>
+        )}
+        <span style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 10, color: 'var(--fl-muted)', flexShrink: 0 }}>
+          <span style={{ width: 6, height: 6, borderRadius: 3, background: 'var(--fl-border)', flexShrink: 0 }} />
+          0 {t('detections.units.event')}
+        </span>
+      </div>
+      <div style={{ padding: '2px 10px 0' }}><RuleLogic query={v.query} /></div>
+    </div>
+  );
+}
+
+// Groups every zero-hit rule of a section behind one collapsible header, so a
+// section with 20 registered-but-silent rules shows one quiet line instead of 20
+// dashed rows. Auto-expands while a search is active so matches surface.
+function ZeroRulesGroup({ rules, query }) {
+  const [open, setOpen] = useState(false);
+  if (!rules.length) return null;
+  const active = !!(query && String(query).trim());
+  const expanded = active || open;
+  return (
+    <div style={{ marginBottom: 14, border: '1px solid var(--fl-border2)', borderRadius: 8, overflow: 'hidden', background: 'color-mix(in srgb, var(--fl-bg) 40%, transparent)' }}>
+      <button
+        onClick={() => setOpen(o => !o)}
+        style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 8, padding: '7px 12px', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--fl-muted)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10.5, textAlign: 'left' }}
+      >
+        {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+        <span style={{ textTransform: 'uppercase', letterSpacing: '0.07em' }}>Règles sans événement</span>
+        <span style={{ background: 'var(--fl-border2)', borderRadius: 8, padding: '0 6px', fontSize: 10, fontWeight: 700 }}>{rules.length}</span>
+        <span style={{ flex: 1 }} />
+        <span style={{ fontSize: 10, opacity: 0.75 }}>{active ? 'correspondances' : 'voir la logique'}</span>
+      </button>
+      {expanded && (
+        <div style={{ padding: '4px 8px 8px' }}>
+          {rules.map(v => <ZeroVectorRow key={v.id} v={v} query={query} />)}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function DetTable({ headers, children }) {
   return (
     <div style={{ overflowX: 'auto', borderRadius: 8, border: '1px solid var(--fl-border)', maxHeight: 400, overflowY: 'auto' }}>
@@ -425,7 +567,7 @@ function DetTable({ headers, children }) {
   );
 }
 
-function TimestompingSection({ caseId, runSignal, hiddenSevs, onComplete, onCounts }) {
+function TimestompingSection({ caseId, runSignal, force, hiddenSevs, search, onComplete, onCounts, evidenceId }) {
   const { t } = useTranslation();
   const { fmtDateTime } = useDateFormat();
   const [data, setData]       = useState(null);
@@ -434,28 +576,35 @@ function TimestompingSection({ caseId, runSignal, hiddenSevs, onComplete, onCoun
   const cbRef = useRef({ onComplete, onCounts });
   useEffect(() => { cbRef.current = { onComplete, onCounts }; });
 
-  const run = useCallback(async () => {
+  const key = cacheKey(caseId, 'timestomping', threshold, evidenceId);
+  const run = useCallback(async (forceRun = false) => {
+    if (!forceRun) {
+      const hit = resultsCache.get(key);
+      if (hit) { setData(hit); cbRef.current.onComplete?.(); return; }
+    }
     setLoading(true);
     try {
-      const r = await detectionsAPI.timestomping(caseId, { threshold_days: threshold });
+      const r = await detectionsAPI.timestomping(caseId, { threshold_days: threshold }, forceRun, evidenceId);
       setData(r.data);
+      resultsCache.set(key, r.data);
     } catch {
       setData({ items: [], count: 0 });
     } finally {
       setLoading(false);
       cbRef.current.onComplete?.();
     }
-  }, [caseId, threshold]);
+  }, [caseId, threshold, key]);
 
-  useEffect(() => { if (runSignal > 0) run(); }, [runSignal]);
+  useEffect(() => { if (runSignal > 0) run(force); }, [runSignal, evidenceId]);
 
   const items = data?.items ?? [];
   useEffect(() => { if (data) cbRef.current.onCounts?.(countsBySev(items)); }, [data]);
 
-  const visible = items.filter(it => !hiddenSevs.has(normalizeSeverity(it.severity)));
+  const q = (search || '').trim().toLowerCase();
+  const visible = items.filter(it => !hiddenSevs.has(normalizeSeverity(it.severity)) && (!q || searchableText(it).includes(q)));
 
   return (
-    <Section icon={Clock} title={t('detections.sections.timestomping.title')} badge={data ? items.length : undefined} severity={topSeverity(items)}>
+    <Section icon={Clock} title={t('detections.sections.timestomping.title')} badge={data ? (q ? visible.length : items.length) : undefined} severity={topSeverity(items)}>
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 10 }}>
         <label style={{ color: 'var(--fl-accent)', fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}>{t('detections.controls.threshold_days')}</label>
         <select
@@ -465,7 +614,7 @@ function TimestompingSection({ caseId, runSignal, hiddenSevs, onComplete, onCoun
         >
           {[0, 1, 7, 30].map(v => <option key={v} value={v}>{v === 0 ? t('detections.controls.any_gap') : t('detections.controls.days_value', { count: v })}</option>)}
         </select>
-        <Button size="sm" icon={loading ? undefined : RefreshCw} loading={loading} onClick={run} disabled={loading}>
+        <Button size="sm" icon={loading ? undefined : RefreshCw} loading={loading} onClick={() => run(true)} disabled={loading}>
           {t('detections.actions.analyze')}
         </Button>
       </div>
@@ -476,17 +625,20 @@ function TimestompingSection({ caseId, runSignal, hiddenSevs, onComplete, onCoun
       {data && items.length === 0 && (
         <EmptyState icon={CheckCircle2} title={t('detections.sections.timestomping.empty_title')} subtitle={t('detections.sections.timestomping.empty_subtitle')} />
       )}
+      {q && data && items.length > 0 && visible.length === 0 && (
+        <p style={{ color: 'var(--fl-muted)', fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', margin: '10px 0' }}>Aucune correspondance pour « {q} » dans cette section</p>
+      )}
       {visible.length > 0 && (
         <DetTable headers={[t('detections.table.file'), t('detections.table.source'), '$SIA Created', '$FN Created', t('detections.table.gap_days_short'), t('detections.table.severity'), '']}>
           {visible.map((it, i) => (
             <Row key={i} i={i} detail={{ item: it, detectionType: 'timestomping', sectionTitle: t('detections.sections.timestomping.title') }}>
-              <td style={{ ...TD, color: 'var(--fl-on-dark)' }}><CopyCell value={it.description} maxWidth={220} /></td>
+              <td style={{ ...TD, color: 'var(--fl-on-dark)' }}><CopyCell value={it.description} maxWidth={220} query={q} /></td>
               <td style={{ ...TD, color: 'var(--fl-accent)' }}>{it.source || '—'}</td>
               <td style={{ ...TD, color: 'var(--fl-on-dark)', whiteSpace: 'nowrap', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11 }}>{fmtDateTime(it.sia_created)}</td>
               <td style={{ ...TD, color: 'var(--fl-on-dark)', whiteSpace: 'nowrap', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11 }}>{fmtDateTime(it.fn_created)}</td>
               <td style={{ ...TD, color: 'var(--fl-gold)', fontWeight: 700, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}>{it.diff_days != null ? it.diff_days.toFixed(1) : '—'}</td>
               <td style={TD}><SevBadge severity={it.severity} /></td>
-              <td style={TD}><ResultActions caseId={caseId} detectionType="timestomping" item={it} onDone={run} /></td>
+              <td style={TD}><ResultActions caseId={caseId} detectionType="timestomping" item={it} onDone={() => run(true)} /></td>
             </Row>
           ))}
         </DetTable>
@@ -495,7 +647,7 @@ function TimestompingSection({ caseId, runSignal, hiddenSevs, onComplete, onCoun
   );
 }
 
-function DoubleExtSection({ caseId, runSignal, hiddenSevs, onComplete, onCounts }) {
+function DoubleExtSection({ caseId, runSignal, force, hiddenSevs, search, onComplete, onCounts, evidenceId }) {
   const { t } = useTranslation();
   const { fmtDateTime } = useDateFormat();
   const [data, setData]       = useState(null);
@@ -503,30 +655,37 @@ function DoubleExtSection({ caseId, runSignal, hiddenSevs, onComplete, onCounts 
   const cbRef = useRef({ onComplete, onCounts });
   useEffect(() => { cbRef.current = { onComplete, onCounts }; });
 
-  const run = useCallback(async () => {
+  const key = cacheKey(caseId, 'doubleext', '', evidenceId);
+  const run = useCallback(async (forceRun = false) => {
+    if (!forceRun) {
+      const hit = resultsCache.get(key);
+      if (hit) { setData(hit); cbRef.current.onComplete?.(); return; }
+    }
     setLoading(true);
     try {
-      const r = await detectionsAPI.doubleExt(caseId);
+      const r = await detectionsAPI.doubleExt(caseId, forceRun, evidenceId);
       setData(r.data);
+      resultsCache.set(key, r.data);
     } catch {
       setData({ items: [], count: 0 });
     } finally {
       setLoading(false);
       cbRef.current.onComplete?.();
     }
-  }, [caseId]);
+  }, [caseId, key]);
 
-  useEffect(() => { if (runSignal > 0) run(); }, [runSignal]);
+  useEffect(() => { if (runSignal > 0) run(force); }, [runSignal, evidenceId]);
 
   const items = data?.items ?? [];
   useEffect(() => { if (data) cbRef.current.onCounts?.(countsBySev(items)); }, [data]);
 
-  const visible = items.filter(it => !hiddenSevs.has(normalizeSeverity(it.severity)));
+  const q = (search || '').trim().toLowerCase();
+  const visible = items.filter(it => !hiddenSevs.has(normalizeSeverity(it.severity)) && (!q || searchableText(it).includes(q)));
 
   return (
-    <Section icon={FileWarning} title={t('detections.sections.double_ext.title')} badge={data ? items.length : undefined} severity={topSeverity(items)}>
+    <Section icon={FileWarning} title={t('detections.sections.double_ext.title')} badge={data ? (q ? visible.length : items.length) : undefined} severity={topSeverity(items)}>
       <div style={{ marginBottom: 10 }}>
-        <Button size="sm" icon={loading ? undefined : RefreshCw} loading={loading} onClick={run} disabled={loading}>
+        <Button size="sm" icon={loading ? undefined : RefreshCw} loading={loading} onClick={() => run(true)} disabled={loading}>
           {t('detections.actions.scan')}
         </Button>
       </div>
@@ -537,17 +696,20 @@ function DoubleExtSection({ caseId, runSignal, hiddenSevs, onComplete, onCounts 
       {data && items.length === 0 && (
         <EmptyState icon={CheckCircle2} title={t('detections.sections.double_ext.empty_title')} subtitle={t('detections.sections.double_ext.empty_subtitle')} />
       )}
+      {q && data && items.length > 0 && visible.length === 0 && (
+        <p style={{ color: 'var(--fl-muted)', fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', margin: '10px 0' }}>Aucune correspondance pour « {q} » dans cette section</p>
+      )}
       {visible.length > 0 && (
         <DetTable headers={[t('detections.table.file'), t('detections.table.decoy_ext'), t('detections.table.danger_ext'), t('detections.table.source'), t('detections.table.timestamp'), t('detections.table.severity'), '']}>
           {visible.map((it, i) => (
             <Row key={i} i={i} detail={{ item: it, detectionType: 'double-ext', sectionTitle: t('detections.sections.double_ext.detail_title') }}>
-              <td style={{ ...TD, color: 'var(--fl-on-dark)' }}><CopyCell value={it.description} maxWidth={240} /></td>
+              <td style={{ ...TD, color: 'var(--fl-on-dark)' }}><CopyCell value={it.description} maxWidth={240} query={q} /></td>
               <td style={{ ...TD, color: 'var(--fl-accent)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}>.{it.decoy_ext}</td>
               <td style={{ ...TD, color: 'var(--fl-danger)', fontWeight: 700, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}>.{it.danger_ext}</td>
               <td style={{ ...TD, color: 'var(--fl-accent)' }}>{it.source || '—'}</td>
               <td style={{ ...TD, color: 'var(--fl-on-dark)', whiteSpace: 'nowrap', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11 }}>{fmtDateTime(it.timestamp)}</td>
               <td style={TD}><SevBadge severity={it.severity} /></td>
-              <td style={TD}><ResultActions caseId={caseId} detectionType="double-ext" item={it} onDone={run} /></td>
+              <td style={TD}><ResultActions caseId={caseId} detectionType="double-ext" item={it} onDone={() => run(true)} /></td>
             </Row>
           ))}
         </DetTable>
@@ -556,7 +718,7 @@ function DoubleExtSection({ caseId, runSignal, hiddenSevs, onComplete, onCounts 
   );
 }
 
-function BeaconingSection({ caseId, runSignal, hiddenSevs, onComplete, onCounts }) {
+function BeaconingSection({ caseId, runSignal, force, hiddenSevs, search, onComplete, onCounts, evidenceId }) {
   const { t } = useTranslation();
   const [data, setData]       = useState(null);
   const [loading, setLoading] = useState(false);
@@ -564,25 +726,32 @@ function BeaconingSection({ caseId, runSignal, hiddenSevs, onComplete, onCounts 
   const cbRef = useRef({ onComplete, onCounts });
   useEffect(() => { cbRef.current = { onComplete, onCounts }; });
 
-  const run = useCallback(async () => {
+  const key = cacheKey(caseId, 'beaconing', minScore, evidenceId);
+  const run = useCallback(async (forceRun = false) => {
+    if (!forceRun) {
+      const hit = resultsCache.get(key);
+      if (hit) { setData(hit); cbRef.current.onComplete?.(); return; }
+    }
     setLoading(true);
     try {
-      const r = await detectionsAPI.beaconing(caseId, { min_score: minScore });
+      const r = await detectionsAPI.beaconing(caseId, { min_score: minScore }, forceRun, evidenceId);
       setData(r.data);
+      resultsCache.set(key, r.data);
     } catch {
       setData({ candidates: [], count: 0 });
     } finally {
       setLoading(false);
       cbRef.current.onComplete?.();
     }
-  }, [caseId, minScore]);
+  }, [caseId, minScore, key]);
 
-  useEffect(() => { if (runSignal > 0) run(); }, [runSignal]);
+  useEffect(() => { if (runSignal > 0) run(force); }, [runSignal, evidenceId]);
 
   const items = data?.candidates ?? [];
   useEffect(() => { if (data) cbRef.current.onCounts?.(countsBySev(items)); }, [data]);
 
-  const visible = items.filter(it => !hiddenSevs.has(normalizeSeverity(it.severity)));
+  const q = (search || '').trim().toLowerCase();
+  const visible = items.filter(it => !hiddenSevs.has(normalizeSeverity(it.severity)) && (!q || searchableText(it).includes(q)));
 
   function fmtInterval(sec) {
     if (sec < 60)   return `${sec.toFixed(0)}s`;
@@ -591,7 +760,7 @@ function BeaconingSection({ caseId, runSignal, hiddenSevs, onComplete, onCounts 
   }
 
   return (
-    <Section icon={Radio} title={t('detections.sections.beaconing.title')} badge={data ? items.length : undefined} severity={topSeverity(items)}>
+    <Section icon={Radio} title={t('detections.sections.beaconing.title')} badge={data ? (q ? visible.length : items.length) : undefined} severity={topSeverity(items)}>
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 10 }}>
         <label style={{ color: 'var(--fl-accent)', fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}>{t('detections.controls.min_score')}</label>
         <select
@@ -601,7 +770,7 @@ function BeaconingSection({ caseId, runSignal, hiddenSevs, onComplete, onCounts 
         >
           {[40, 60, 75, 90].map(v => <option key={v} value={v}>{v}%</option>)}
         </select>
-        <Button size="sm" icon={loading ? undefined : RefreshCw} loading={loading} onClick={run} disabled={loading}>
+        <Button size="sm" icon={loading ? undefined : RefreshCw} loading={loading} onClick={() => run(true)} disabled={loading}>
           {t('detections.actions.detect')}
         </Button>
       </div>
@@ -612,11 +781,14 @@ function BeaconingSection({ caseId, runSignal, hiddenSevs, onComplete, onCounts 
       {data && items.length === 0 && (
         <EmptyState icon={CheckCircle2} title={t('detections.sections.beaconing.empty_title')} subtitle={t('detections.sections.beaconing.empty_subtitle')} />
       )}
+      {q && data && items.length > 0 && visible.length === 0 && (
+        <p style={{ color: 'var(--fl-muted)', fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', margin: '10px 0' }}>Aucune correspondance pour « {q} » dans cette section</p>
+      )}
       {visible.length > 0 && (
         <DetTable headers={[t('detections.table.dest_ip'), t('detections.table.connections'), t('detections.table.avg_interval'), t('detections.table.beacon_score'), t('detections.table.severity'), '']}>
           {visible.map((it, i) => (
             <Row key={i} i={i} detail={{ item: it, detectionType: 'beaconing', sectionTitle: t('detections.sections.beaconing.detail_title') }}>
-              <td style={{ ...TD, color: 'var(--fl-accent)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}><CopyCell value={it.dest_ip} style={{ color: 'var(--fl-accent)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }} maxWidth={160} /></td>
+              <td style={{ ...TD, color: 'var(--fl-accent)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}><CopyCell value={it.dest_ip} style={{ color: 'var(--fl-accent)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }} maxWidth={160} query={q} /></td>
               <td style={{ ...TD, color: 'var(--fl-on-dark)', textAlign: 'right', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}>{it.connection_count}</td>
               <td style={{ ...TD, color: 'var(--fl-on-dark)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}>{fmtInterval(it.avg_interval_sec)}</td>
               <td style={TD}>
@@ -631,7 +803,7 @@ function BeaconingSection({ caseId, runSignal, hiddenSevs, onComplete, onCounts 
                 </div>
               </td>
               <td style={TD}><SevBadge severity={it.severity} /></td>
-              <td style={TD}><ResultActions caseId={caseId} detectionType="beaconing" item={it} onDone={run} /></td>
+              <td style={TD}><ResultActions caseId={caseId} detectionType="beaconing" item={it} onDone={() => run(true)} /></td>
             </Row>
           ))}
         </DetTable>
@@ -640,7 +812,7 @@ function BeaconingSection({ caseId, runSignal, hiddenSevs, onComplete, onCounts 
   );
 }
 
-function PersistenceSection({ caseId, runSignal, hiddenSevs, onComplete, onCounts }) {
+function PersistenceSection({ caseId, runSignal, force, hiddenSevs, search, onComplete, onCounts, evidenceId }) {
   const { t } = useTranslation();
   const { fmtDateTime } = useDateFormat();
   const [data, setData]       = useState(null);
@@ -648,29 +820,51 @@ function PersistenceSection({ caseId, runSignal, hiddenSevs, onComplete, onCount
   const cbRef = useRef({ onComplete, onCounts });
   useEffect(() => { cbRef.current = { onComplete, onCounts }; });
 
-  const run = useCallback(async () => {
+  const key = cacheKey(caseId, 'persistence', '', evidenceId);
+  const run = useCallback(async (forceRun = false) => {
+    if (!forceRun) {
+      const hit = resultsCache.get(key);
+      if (hit) { setData(hit); cbRef.current.onComplete?.(); return; }
+    }
     setLoading(true);
     try {
-      const r = await detectionsAPI.persistence(caseId);
+      const r = await detectionsAPI.persistence(caseId, forceRun, evidenceId);
       setData(r.data);
+      resultsCache.set(key, r.data);
     } catch {
       setData({ vectors: [], total: 0 });
     } finally {
       setLoading(false);
       cbRef.current.onComplete?.();
     }
-  }, [caseId]);
+  }, [caseId, key]);
 
-  useEffect(() => { if (runSignal > 0) run(); }, [runSignal]);
+  useEffect(() => { if (runSignal > 0) run(force); }, [runSignal, evidenceId]);
 
   const vectors = [...(data?.vectors ?? [])].sort((a, b) => (CONF_ORDER[a.confidence] ?? 1) - (CONF_ORDER[b.confidence] ?? 1));
   const allItems = vectors.flatMap(v => v.items ?? []);
   useEffect(() => { if (data) cbRef.current.onCounts?.(countsBySev(allItems)); }, [data]);
 
+  const q = (search || '').trim().toLowerCase();
+  const zeroRules = [];
+  const rendered = [];
+  for (const v of vectors) {
+    const items = (v.items ?? []).filter(it => !hiddenSevs.has(normalizeSeverity(it.severity)));
+    const labelHit = !q || v.label.toLowerCase().includes(q) || (v.mitre || '').toLowerCase().includes(q);
+    if (items.length === 0) { if (labelHit) zeroRules.push(v); continue; }
+    let vis = items;
+    if (q) {
+      const matched = items.filter(it => searchableText(it).includes(q));
+      if (matched.length === 0 && !labelHit) continue;
+      vis = matched.length > 0 ? matched : items;
+    }
+    rendered.push({ ...v, visibleItems: vis });
+  }
+
   return (
-    <Section icon={Shield} title={t('detections.sections.persistence.title')} badge={data ? data.total : undefined} severity={topSeverity(allItems)} defaultOpen>
+    <Section icon={Shield} title={t('detections.sections.persistence.title')} badge={data ? (q ? rendered.reduce((s, v) => s + v.visibleItems.length, 0) : data.total) : undefined} severity={topSeverity(allItems)} defaultOpen>
       <div style={{ marginBottom: 10 }}>
-        <Button size="sm" icon={loading ? undefined : RefreshCw} loading={loading} onClick={run} disabled={loading}>
+        <Button size="sm" icon={loading ? undefined : RefreshCw} loading={loading} onClick={() => run(true)} disabled={loading}>
           {t('detections.actions.analyze')}
         </Button>
       </div>
@@ -683,15 +877,17 @@ function PersistenceSection({ caseId, runSignal, hiddenSevs, onComplete, onCount
       {data && vectors.length === 0 && (
         <EmptyState icon={CheckCircle2} title={t('detections.sections.persistence.empty_title')} subtitle={t('detections.sections.persistence.empty_subtitle')} />
       )}
+      {q && data && vectors.length > 0 && rendered.length === 0 && zeroRules.length === 0 && (
+        <p style={{ color: 'var(--fl-muted)', fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', margin: '10px 0' }}>Aucune correspondance pour « {q} » dans cette section</p>
+      )}
 
-      {vectors.map(v => {
-        const visibleItems = (v.items ?? []).filter(it => !hiddenSevs.has(normalizeSeverity(it.severity)));
-        if (visibleItems.length === 0) return null;
+      {rendered.map(v => {
+        const visibleItems = v.visibleItems;
         return (
           <div key={v.id} style={{ marginBottom: 14 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
               <SevBadge severity={v.severity} />
-              <span style={{ fontSize: 12, fontWeight: 700, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-on-dark)' }}>{v.label}</span>
+              <span style={{ fontSize: 12, fontWeight: 700, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-on-dark)' }}><Highlight text={v.label} query={q} /></span>
               {v.mitre && (
                 <span style={{ fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', padding: '1px 7px', borderRadius: 4,
                   background: 'color-mix(in srgb, var(--fl-accent) 8%, transparent)', color: 'var(--fl-accent)', border: '1px solid color-mix(in srgb, var(--fl-accent) 16%, transparent)' }}>
@@ -703,6 +899,7 @@ function PersistenceSection({ caseId, runSignal, hiddenSevs, onComplete, onCount
                 {v.count} {t(v.count > 1 ? 'detections.units.artifacts' : 'detections.units.artifact')}
               </span>
             </div>
+            <RuleLogic query={v.query} />
             <DetTable headers={[t('detections.table.timestamp'), t('detections.table.type'), t('detections.table.description'), t('detections.table.source'), t('detections.table.host'), '']}>
               {visibleItems.map((it, i) => {
                 const hayCol = it.hay_level ? HAY_LEVEL_COL[it.hay_level] : null;
@@ -723,12 +920,12 @@ function PersistenceSection({ caseId, runSignal, hiddenSevs, onComplete, onCount
                         </span>
                       )}
                     </td>
-                    <td style={{ ...TD, color: 'var(--fl-on-dark)' }}><CopyCell value={it.description} maxWidth={240} /></td>
-                    <td style={{ ...TD, color: 'var(--fl-accent)' }}><CopyCell value={it.source} maxWidth={180} style={{ color: 'var(--fl-accent)' }} /></td>
+                    <td style={{ ...TD, color: 'var(--fl-on-dark)' }}><CopyCell value={it.description} maxWidth={240} query={q} /></td>
+                    <td style={{ ...TD, color: 'var(--fl-accent)' }}><CopyCell value={it.source} maxWidth={180} style={{ color: 'var(--fl-accent)' }} query={q} /></td>
                     <td style={{ ...TD, color: 'var(--fl-subtle)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11, whiteSpace: 'nowrap' }}>
                       {it.host_name || '—'}
                     </td>
-                    <td style={TD}><ResultActions caseId={caseId} detectionType="persistence" item={it} onDone={run} /></td>
+                    <td style={TD}><ResultActions caseId={caseId} detectionType="persistence" item={it} onDone={() => run(true)} /></td>
                   </Row>
                 );
               })}
@@ -736,11 +933,12 @@ function PersistenceSection({ caseId, runSignal, hiddenSevs, onComplete, onCount
           </div>
         );
       })}
+      <ZeroRulesGroup rules={zeroRules} query={q} />
     </Section>
   );
 }
 
-function SysmonBehaviorSection({ caseId, runSignal, hiddenSevs, onComplete, onCounts }) {
+function SysmonBehaviorSection({ caseId, runSignal, force, hiddenSevs, search, onComplete, onCounts, evidenceId }) {
   const { t } = useTranslation();
   const { fmtDateTime } = useDateFormat();
   const [data, setData]       = useState(null);
@@ -748,29 +946,51 @@ function SysmonBehaviorSection({ caseId, runSignal, hiddenSevs, onComplete, onCo
   const cbRef = useRef({ onComplete, onCounts });
   useEffect(() => { cbRef.current = { onComplete, onCounts }; });
 
-  const run = useCallback(async () => {
+  const key = cacheKey(caseId, 'sysmon', '', evidenceId);
+  const run = useCallback(async (forceRun = false) => {
+    if (!forceRun) {
+      const hit = resultsCache.get(key);
+      if (hit) { setData(hit); cbRef.current.onComplete?.(); return; }
+    }
     setLoading(true);
     try {
-      const r = await detectionsAPI.sysmonBehavior(caseId);
+      const r = await detectionsAPI.sysmonBehavior(caseId, forceRun, evidenceId);
       setData(r.data);
+      resultsCache.set(key, r.data);
     } catch {
       setData({ vectors: [], total: 0 });
     } finally {
       setLoading(false);
       cbRef.current.onComplete?.();
     }
-  }, [caseId]);
+  }, [caseId, key]);
 
-  useEffect(() => { if (runSignal > 0) run(); }, [runSignal]);
+  useEffect(() => { if (runSignal > 0) run(force); }, [runSignal, evidenceId]);
 
   const vectors = [...(data?.vectors ?? [])].sort((a, b) => (CONF_ORDER[a.confidence] ?? 1) - (CONF_ORDER[b.confidence] ?? 1));
   const allItems = vectors.flatMap(v => v.items ?? []);
   useEffect(() => { if (data) cbRef.current.onCounts?.(countsBySev(allItems)); }, [data]);
 
+  const q = (search || '').trim().toLowerCase();
+  const zeroRules = [];
+  const rendered = [];
+  for (const v of vectors) {
+    const items = (v.items ?? []).filter(it => !hiddenSevs.has(normalizeSeverity(it.severity)));
+    const labelHit = !q || v.label.toLowerCase().includes(q) || (v.mitre || '').toLowerCase().includes(q);
+    if (items.length === 0) { if (labelHit) zeroRules.push(v); continue; }
+    let vis = items;
+    if (q) {
+      const matched = items.filter(it => searchableText(it).includes(q));
+      if (matched.length === 0 && !labelHit) continue;
+      vis = matched.length > 0 ? matched : items;
+    }
+    rendered.push({ ...v, visibleItems: vis });
+  }
+
   return (
-    <Section icon={Activity} title={t('detections.sections.sysmon.title')} badge={data ? data.total : undefined} severity={topSeverity(allItems)}>
+    <Section icon={Activity} title={t('detections.sections.sysmon.title')} badge={data ? (q ? rendered.reduce((s, v) => s + v.visibleItems.length, 0) : data.total) : undefined} severity={topSeverity(allItems)}>
       <div style={{ marginBottom: 10 }}>
-        <Button size="sm" icon={loading ? undefined : RefreshCw} loading={loading} onClick={run} disabled={loading}>
+        <Button size="sm" icon={loading ? undefined : RefreshCw} loading={loading} onClick={() => run(true)} disabled={loading}>
           {t('detections.actions.analyze')}
         </Button>
       </div>
@@ -783,15 +1003,17 @@ function SysmonBehaviorSection({ caseId, runSignal, hiddenSevs, onComplete, onCo
       {data && vectors.length === 0 && (
         <EmptyState icon={CheckCircle2} title={t('detections.sections.sysmon.empty_title')} subtitle={t('detections.sections.sysmon.empty_subtitle')} />
       )}
+      {q && data && vectors.length > 0 && rendered.length === 0 && zeroRules.length === 0 && (
+        <p style={{ color: 'var(--fl-muted)', fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', margin: '10px 0' }}>Aucune correspondance pour « {q} » dans cette section</p>
+      )}
 
-      {vectors.map(v => {
-        const visibleItems = (v.items ?? []).filter(it => !hiddenSevs.has(normalizeSeverity(it.severity)));
-        if (visibleItems.length === 0) return null;
+      {rendered.map(v => {
+        const visibleItems = v.visibleItems;
         return (
           <div key={v.id} style={{ marginBottom: 14 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
               <SevBadge severity={v.severity} />
-              <span style={{ fontSize: 12, fontWeight: 700, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-on-dark)' }}>{v.label}</span>
+              <span style={{ fontSize: 12, fontWeight: 700, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-on-dark)' }}><Highlight text={v.label} query={q} /></span>
               {v.mitre && (
                 <span style={{ fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', padding: '1px 7px', borderRadius: 4,
                   background: 'color-mix(in srgb, var(--fl-accent) 8%, transparent)', color: 'var(--fl-accent)', border: '1px solid color-mix(in srgb, var(--fl-accent) 16%, transparent)' }}>
@@ -803,6 +1025,7 @@ function SysmonBehaviorSection({ caseId, runSignal, hiddenSevs, onComplete, onCo
                 {v.count} {t(v.count > 1 ? 'detections.units.events' : 'detections.units.event')}
               </span>
             </div>
+            <RuleLogic query={v.query} />
             <DetTable headers={[t('detections.table.timestamp'), t('detections.table.type'), t('detections.table.description'), t('detections.table.process_target'), t('detections.table.host'), '']}>
               {visibleItems.map((it, i) => {
                 const proc = it.raw?.Image || it.raw?.TargetImage || it.raw?.TargetFilename || '';
@@ -817,12 +1040,12 @@ function SysmonBehaviorSection({ caseId, runSignal, hiddenSevs, onComplete, onCo
                         {it.artifact_type}{it.raw?.EventID ? ` EID:${it.raw.EventID}` : ''}
                       </span>
                     </td>
-                    <td style={{ ...TD, color: 'var(--fl-on-dark)' }}><CopyCell value={it.description} maxWidth={220} /></td>
-                    <td style={{ ...TD, color: 'var(--fl-warn)' }}><CopyCell value={proc} maxWidth={200} style={{ color: 'var(--fl-warn)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11 }} /></td>
+                    <td style={{ ...TD, color: 'var(--fl-on-dark)' }}><CopyCell value={it.description} maxWidth={220} query={q} /></td>
+                    <td style={{ ...TD, color: 'var(--fl-warn)' }}><CopyCell value={proc} maxWidth={200} style={{ color: 'var(--fl-warn)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11 }} query={q} /></td>
                     <td style={{ ...TD, color: 'var(--fl-subtle)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11 }}>
                       {it.host_name || '—'}
                     </td>
-                    <td style={TD}><ResultActions caseId={caseId} detectionType="sysmon-behavior" item={it} onDone={run} /></td>
+                    <td style={TD}><ResultActions caseId={caseId} detectionType="sysmon-behavior" item={it} onDone={() => run(true)} /></td>
                   </Row>
                 );
               })}
@@ -830,12 +1053,13 @@ function SysmonBehaviorSection({ caseId, runSignal, hiddenSevs, onComplete, onCo
           </div>
         );
       })}
+      <ZeroRulesGroup rules={zeroRules} query={q} />
     </Section>
   );
 }
 
 // Generic grouped detection section (reused for anti-forensic & execution-anomaly).
-function GroupedSection({ caseId, runSignal, hiddenSevs, onComplete, onCounts, apiFn, detectionType, title, icon, intro }) {
+function GroupedSection({ caseId, runSignal, force, hiddenSevs, search, onComplete, onCounts, apiFn, detectionType, title, icon, intro, evidenceId }) {
   const { t } = useTranslation();
   const { fmtDateTime } = useDateFormat();
   const [data, setData]       = useState(null);
@@ -843,22 +1067,43 @@ function GroupedSection({ caseId, runSignal, hiddenSevs, onComplete, onCounts, a
   const cbRef = useRef({ onComplete, onCounts });
   useEffect(() => { cbRef.current = { onComplete, onCounts }; });
 
-  const run = useCallback(async () => {
+  const key = cacheKey(caseId, detectionType, '', evidenceId);
+  const run = useCallback(async (forceRun = false) => {
+    if (!forceRun) {
+      const hit = resultsCache.get(key);
+      if (hit) { setData(hit); cbRef.current.onComplete?.(); return; }
+    }
     setLoading(true);
-    try { const r = await apiFn(caseId); setData(r.data); }
+    try { const r = await apiFn(caseId, forceRun, evidenceId); setData(r.data); resultsCache.set(key, r.data); }
     catch { setData({ vectors: [], total: 0 }); }
     finally { setLoading(false); cbRef.current.onComplete?.(); }
-  }, [caseId, apiFn]);
-  useEffect(() => { if (runSignal > 0) run(); }, [runSignal]);
+  }, [caseId, apiFn, key]);
+  useEffect(() => { if (runSignal > 0) run(force); }, [runSignal, evidenceId]);
 
   const vectors = [...(data?.vectors ?? [])].sort((a, b) => (CONF_ORDER[a.confidence] ?? 1) - (CONF_ORDER[b.confidence] ?? 1));
   const allItems = vectors.flatMap(v => v.items ?? []);
   useEffect(() => { if (data) cbRef.current.onCounts?.(countsBySev(allItems)); }, [data]);
 
+  const q = (search || '').trim().toLowerCase();
+  const zeroRules = [];
+  const rendered = [];
+  for (const v of vectors) {
+    const items = (v.items ?? []).filter(it => !hiddenSevs.has(normalizeSeverity(it.severity)));
+    const labelHit = !q || v.label.toLowerCase().includes(q) || (v.mitre || '').toLowerCase().includes(q);
+    if (items.length === 0) { if (labelHit) zeroRules.push(v); continue; }
+    let vis = items;
+    if (q) {
+      const matched = items.filter(it => searchableText(it).includes(q));
+      if (matched.length === 0 && !labelHit) continue;
+      vis = matched.length > 0 ? matched : items;
+    }
+    rendered.push({ ...v, visibleItems: vis });
+  }
+
   return (
-    <Section icon={icon} title={title} badge={data ? data.total : undefined} severity={topSeverity(allItems)}>
+    <Section icon={icon} title={title} badge={data ? (q ? rendered.reduce((s, v) => s + v.visibleItems.length, 0) : data.total) : undefined} severity={topSeverity(allItems)}>
       <div style={{ marginBottom: 10 }}>
-        <Button size="sm" icon={loading ? undefined : RefreshCw} loading={loading} onClick={run} disabled={loading}>{t('detections.actions.analyze')}</Button>
+        <Button size="sm" icon={loading ? undefined : RefreshCw} loading={loading} onClick={() => run(true)} disabled={loading}>{t('detections.actions.analyze')}</Button>
       </div>
       {!data && !loading && (
         <p style={{ color: 'var(--fl-subtle)', fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', margin: 0 }}>{intro}</p>
@@ -866,9 +1111,11 @@ function GroupedSection({ caseId, runSignal, hiddenSevs, onComplete, onCounts, a
       {data && vectors.length === 0 && (
         <EmptyState icon={CheckCircle2} title={t('detections.sections.grouped.empty_title')} subtitle={t('detections.sections.grouped.empty_subtitle')} />
       )}
-      {vectors.map(v => {
-        const visibleItems = (v.items ?? []).filter(it => !hiddenSevs.has(normalizeSeverity(it.severity)));
-        if (visibleItems.length === 0) return null;
+      {q && data && vectors.length > 0 && rendered.length === 0 && zeroRules.length === 0 && (
+        <p style={{ color: 'var(--fl-muted)', fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', margin: '10px 0' }}>Aucune correspondance pour « {q} » dans cette section</p>
+      )}
+      {rendered.map(v => {
+        const visibleItems = v.visibleItems;
 
         // Adaptive columns: only render PROCESS / HOST when they actually carry
         // differentiating signal. MFT-based detections have no process; a single
@@ -894,7 +1141,7 @@ function GroupedSection({ caseId, runSignal, hiddenSevs, onComplete, onCounts, a
           <div key={v.id} style={{ marginBottom: 14 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, flexWrap: 'wrap' }}>
               <SevBadge severity={v.severity} />
-              <span style={{ fontSize: 12, fontWeight: 700, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-on-dark)' }}>{v.label}</span>
+              <span style={{ fontSize: 12, fontWeight: 700, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-on-dark)' }}><Highlight text={v.label} query={q} /></span>
               {v.mitre && (
                 <span style={{ fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', padding: '1px 7px', borderRadius: 4,
                   background: 'color-mix(in srgb, var(--fl-accent) 8%, transparent)', color: 'var(--fl-accent)', border: '1px solid color-mix(in srgb, var(--fl-accent) 16%, transparent)' }}>{v.mitre}</span>
@@ -907,6 +1154,7 @@ function GroupedSection({ caseId, runSignal, hiddenSevs, onComplete, onCounts, a
                 </span>
               )}
             </div>
+            <RuleLogic query={v.query} />
             <DetTable headers={headers}>
               {visibleItems.map((it, i) => {
                 const proc = procOf(it);
@@ -914,16 +1162,16 @@ function GroupedSection({ caseId, runSignal, hiddenSevs, onComplete, onCounts, a
                   <Row key={i} i={i} detail={{ item: it, vector: v, detectionType, sectionTitle: title }}>
                     <td style={{ ...TD, color: 'var(--fl-accent)', whiteSpace: 'nowrap', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11, verticalAlign: 'top' }}>{fmtDateTime(it.timestamp)}</td>
                     <td style={{ ...TD, verticalAlign: 'top' }}><span style={{ fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', padding: '1px 5px', borderRadius: 3, background: 'var(--fl-sep)', color: 'var(--fl-accent)', border: '1px solid var(--fl-border)', whiteSpace: 'nowrap' }}>{it.artifact_type}{it.raw?.EventID ? ` EID:${it.raw.EventID}` : ''}</span></td>
-                    <td style={{ ...TD }}><DescCell value={it.description} /></td>
+                    <td style={{ ...TD }}><DescCell value={it.description} query={q} /></td>
                     {hasProc && (
-                      <td style={{ ...TD, color: 'var(--fl-warn)', verticalAlign: 'top' }}><CopyCell value={proc} maxWidth={200} style={{ color: 'var(--fl-warn)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11 }} /></td>
+                      <td style={{ ...TD, color: 'var(--fl-warn)', verticalAlign: 'top' }}><CopyCell value={proc} maxWidth={200} style={{ color: 'var(--fl-warn)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11 }} query={q} /></td>
                     )}
                     {hasHostCol && (
                       <td style={{ ...TD, color: 'var(--fl-subtle)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11, verticalAlign: 'top' }}>{hostOf(it) || '—'}</td>
                     )}
                     <td style={{ ...TD, verticalAlign: 'top' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 4, justifyContent: 'flex-end' }}>
-                        <ResultActions caseId={caseId} detectionType={detectionType} item={it} onDone={run} />
+                        <ResultActions caseId={caseId} detectionType={detectionType} item={it} onDone={() => run(true)} />
                         <ChevronRight size={13} style={{ color: 'var(--fl-subtle)', flexShrink: 0 }} />
                       </div>
                     </td>
@@ -934,18 +1182,21 @@ function GroupedSection({ caseId, runSignal, hiddenSevs, onComplete, onCounts, a
           </div>
         );
       })}
+      <ZeroRulesGroup rules={zeroRules} query={q} />
     </Section>
   );
 }
 
 const SECTION_COUNT = 9;
 
-export default function DetectionsTab({ caseId }) {
+export default function DetectionsTab({ caseId, evidenceId, evidenceName }) {
   const { t } = useTranslation();
   const [runSignal, setRunSignal]         = useState(0);
   const [completedCount, setCompleted]    = useState(0);
   const [isRunningAll, setIsRunningAll]   = useState(false);
+  const [forceRun, setForceRun]           = useState(false);
   const [hiddenSevs, setHiddenSevs]       = useState(new Set());
+  const [search, setSearch]               = useState('');
   const [totalSevCounts, setTotalCounts]  = useState({ CRITICAL: 0, HIGH: 0, MEDIUM: 0, LOW: 0 });
   const sectionCountsRef = useRef({});
   const [exceptions, setExceptions] = useState([]);
@@ -975,14 +1226,15 @@ export default function DetectionsTab({ caseId }) {
     try { const r = await threatHuntingAPI.runAll(caseId); setBgJob(r.data); } catch { /* ignore */ }
   };
 
-  const handleRunAll = () => {
+  const handleRunAll = (force = false) => {
     setCompleted(0);
     setIsRunningAll(true);
+    setForceRun(force);
     setRunSignal(s => s + 1);
   };
 
-  // Auto-run all detections once when the tab opens.
-  useEffect(() => { handleRunAll(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // Auto-run all detections once when the tab opens (cache-hit when revisiting).
+  useEffect(() => { handleRunAll(false); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleComplete = useCallback((sectionId) => {
     setCompleted(c => {
@@ -1013,11 +1265,36 @@ export default function DetectionsTab({ caseId }) {
 
   const sectionProps = (id) => ({
     caseId,
+    evidenceId,
     runSignal,
+    force: forceRun,
     hiddenSevs,
+    search,
     onComplete: () => handleComplete(id),
     onCounts: (c) => handleCounts(id, c),
   });
+
+  // Evidence-scoped detections: a scan always targets the timeline rows of ONE
+  // evidence. Without a selected evidence there is nothing to scan — prompt the
+  // analyst to pick one instead of silently scanning the whole case.
+  if (!evidenceId) {
+    return (
+      <div style={{ padding: '0 4px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+          <p style={{ flex: 1, color: 'var(--fl-subtle)', fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', margin: 0 }}>
+            {t('detections.header.intro')}
+          </p>
+        </div>
+        <div style={{ maxWidth: 460, margin: '48px auto 0' }}>
+          <EmptyState
+            icon={FolderOpen}
+            title="Sélectionnez une évidence"
+            subtitle="Les détections s'appliquent au périmètre d'une seule évidence. Ouvrez une évidence depuis l'onglet Preuves (ou le fil d'Ariane en haut), puis relancez l'analyse."
+          />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <DetailContext.Provider value={setDetail}>
@@ -1027,6 +1304,11 @@ export default function DetectionsTab({ caseId }) {
         <p style={{ flex: 1, color: 'var(--fl-subtle)', fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', margin: 0 }}>
           {t('detections.header.intro')}
         </p>
+        {evidenceId && evidenceName && (
+          <span title={evidenceName} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '3px 9px', borderRadius: 5, background: 'color-mix(in srgb, var(--fl-accent) 10%, transparent)', color: 'var(--fl-accent)', border: '1px solid color-mix(in srgb, var(--fl-accent) 22%, transparent)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10.5, maxWidth: 280, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flexShrink: 0 }}>
+            <FolderOpen size={10} /> {evidenceName}
+          </span>
+        )}
         {exceptions.length > 0 && (
           <div style={{ position: 'relative' }}>
             <button onClick={() => { setShowExc(v => !v); loadExceptions(); }}
@@ -1073,11 +1355,36 @@ export default function DetectionsTab({ caseId }) {
           size="sm"
           icon={isRunningAll ? undefined : Play}
           loading={isRunningAll}
-          onClick={handleRunAll}
+          onClick={() => handleRunAll(true)}
           disabled={isRunningAll}
         >
           {isRunningAll ? t('detections.header.analyzing_all', { completed: completedCount, total: SECTION_COUNT }) : t('detections.header.analyze_all')}
         </Button>
+      </div>
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+        <div style={{ position: 'relative', flex: '1 1 380px', maxWidth: 460 }}>
+          <Search size={13} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--fl-muted)', pointerEvents: 'none' }} />
+          <input
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Rechercher : règle, mot-clé, chemin, IOC…"
+            style={{
+              width: '100%', background: 'var(--fl-bg)', border: '1px solid var(--fl-border)', borderRadius: 6,
+              color: 'var(--fl-on-dark)', padding: '7px 32px 7px 30px', fontSize: 12,
+              fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', outline: 'none',
+            }}
+          />
+          {search && (
+            <button onClick={() => setSearch('')} title="Effacer la recherche"
+              style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--fl-subtle)', display: 'inline-flex', padding: 2 }}>
+              <X size={13} />
+            </button>
+          )}
+        </div>
+        <span style={{ fontSize: 10.5, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-muted)' }}>
+          {search.trim() ? `Filtre actif : « ${search.trim()} »` : 'Filtre les règles et leurs événements en direct'}
+        </span>
       </div>
 
       {totalFindings > 0 && (

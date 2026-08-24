@@ -11,7 +11,7 @@ const PERSISTENCE_RULES = [
   { mitre: 'T1547.009', name: 'LNK Startup Folder',      weight: 3, match: r => /Startup\\.*\.lnk/i.test(r._blob) || (r.artifact_type === 'lnk' && /\\Startup\\/i.test(r._blob)) },
   { mitre: 'T1543.003', name: 'Windows Services',        weight: 3, match: r => r.event_id === 7045 || /CurrentControlSet\\Services\\/i.test(r._blob) || r.artifact_type === 'services' },
   { mitre: 'T1053.005', name: 'Scheduled Tasks',         weight: 3, match: r => r.event_id === 4698 || r.event_id === 4702 || /\\Tasks\\|schtasks|Task Scheduler/i.test(r._blob) },
-  { mitre: 'T1546.003', name: 'WMI Event Subscription',  weight: 4, match: r => /__EventFilter|__EventConsumer|ActiveScriptEventConsumer|CommandLineEventConsumer/i.test(r._blob) },
+  { mitre: 'T1546.003', name: 'WMI Event Subscription',  weight: 4, match: r => /__EventFilter|__EventConsumer|ActiveScriptEventConsumer|CommandLineEventConsumer|CmdConsumer|ScriptConsumer|CommandLineTemplate|ScriptText/i.test(r._blob) },
   { mitre: 'T1197',     name: 'BITS Jobs',               weight: 2, match: r => r.artifact_type === 'bits' || /bitsadmin|BITS Job/i.test(r._blob) },
   { mitre: 'T1037.001', name: 'Logon Scripts',           weight: 2, match: r => /UserInitMprLogonScript|Environment\\UserInitMpr/i.test(r._blob) },
   { mitre: 'T1546.008', name: 'Accessibility Features',  weight: 4, match: r => /(sethc|utilman|osk|narrator|magnify|displayswitch|atbroker)\.exe/i.test(r._blob) && /Image File Execution Options/i.test(r._blob) },

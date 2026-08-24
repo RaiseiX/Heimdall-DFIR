@@ -1,6 +1,9 @@
 import { useState, useMemo } from 'react';
+import { Shield } from 'lucide-react';
 import { useTimelineStore } from '../../store/useTimelineStore';
 import { ARTIFACT_FIELD_PRIORITY, buildDynamicCols } from '../../utils/timelineUtils';
+import { iocsAPI } from '../../../../utils/api';
+import { detectIocType } from '../../../../utils/iocType';
 
 export default function SchemaTab({ record }) {
   const { artifactTypes, records, caseId } = useTimelineStore();
@@ -98,14 +101,17 @@ export default function SchemaTab({ record }) {
                   {displayVal.length > 200 ? `${displayVal.slice(0, 200)}…` : displayVal}
                 </div>
               </div>
-              {isSingleArtifact && !isActive && (
-                <button onClick={() => addColumn(key)} title="Add as column in timeline"
-                  style={{ flexShrink: 0, fontSize: 9, padding: '2px 6px', borderRadius: 3, cursor: 'pointer',
-                    background: 'var(--fl-card)', border: '1px solid color-mix(in srgb, var(--fl-accent) 25%, transparent)', color: 'var(--fl-accent)',
-                    fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', marginTop: 2 }}>
-                  + col
-                </button>
-              )}
+              <div style={{ display: 'flex', gap: 3, flexShrink: 0, marginTop: 2 }}>
+                {isSingleArtifact && !isActive && (
+                  <button onClick={() => addColumn(key)} title="Add as column in timeline"
+                    style={{ fontSize: 9, padding: '2px 6px', borderRadius: 3, cursor: 'pointer',
+                      background: 'var(--fl-card)', border: '1px solid color-mix(in srgb, var(--fl-accent) 25%, transparent)', color: 'var(--fl-accent)',
+                      fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}>
+                    + col
+                  </button>
+                )}
+                <IocButton value={displayVal} fieldKey={key} caseId={caseId} ts={record.timestamp} />
+              </div>
             </div>
           );
         })}
@@ -122,5 +128,49 @@ export default function SchemaTab({ record }) {
         {rawFields.length} fields · {filtered.length} shown
       </div>
     </div>
+  );
+}
+
+// ── IOC quick-create button (appears next to each field value) ─────────────
+// Type auto-detection is shared via utils/iocType.js.
+
+function IocButton({ value, fieldKey, caseId, ts }) {
+  const [added, setAdded] = useState(false);
+  const [err, setErr]     = useState('');
+  if (!caseId || !value || value === '—' || typeof value !== 'string' || value.length < 2) return null;
+  // Auto-detect the IOC type from the value; fall back to 'other' so the
+  // button is always available on any non-trivial field.
+  const match = detectIocType(value);
+
+  const handleAdd = async () => {
+    setErr('');
+    try {
+      await iocsAPI.create(caseId, {
+        ioc_type: match.type,
+        value: String(value).slice(0, 500),
+        description: `${fieldKey} from timeline event`,
+        severity: 5,
+        source: 'timeline_field',
+        first_seen: ts || null,
+      });
+      setAdded(true);
+      setTimeout(() => setAdded(false), 2000);
+    } catch (e) {
+      setErr('Failed');
+    }
+  };
+
+  return (
+    <button
+      onClick={handleAdd}
+      title={err || `Add ${match.label} IOC: ${value}`}
+      style={{ fontSize: 8, padding: '1px 5px', borderRadius: 3, cursor: 'pointer',
+        background: added ? 'color-mix(in srgb, var(--fl-ok) 14%, transparent)' : 'var(--fl-card)',
+        border: `1px solid ${added ? 'color-mix(in srgb, var(--fl-ok) 30%, transparent)' : 'color-mix(in srgb, var(--fl-danger) 25%, transparent)'}`,
+        color: added ? 'var(--fl-ok)' : 'var(--fl-danger)',
+        fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', whiteSpace: 'nowrap',
+        transition: 'all 0.15s' }}>
+      {added ? '✓' : <><Shield size={8} style={{ marginRight: 1 }} />IOC</>}
+    </button>
   );
 }

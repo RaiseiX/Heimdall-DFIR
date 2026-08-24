@@ -4,7 +4,7 @@ import { artifactColor } from '../../../constants/artifactColors';
 import { evaluateColorRules } from '../../../utils/colorRulesEngine';
 import {
   fmtDesc, fmtSrc, CONFIDENCE_MAP, FORENSIC_TAGS,
-  topDetectionSeverity, DETECTION_SEV_COLOR,
+  topDetectionSeverity, DETECTION_SEV_COLOR, pickPayload,
 } from '../utils/timelineUtils';
 
 const FORENSIC_TAG_MAP = Object.fromEntries(FORENSIC_TAGS.map(t => [t.key, t]));
@@ -50,9 +50,9 @@ function rowBg({ isSelected, lvl, colorMatch, hayLevel }) {
 
 export const EventRow = memo(function EventRow({
   record: r, gridTemplate, visibleCols,
-  isSelected, hasNote,
+  isSelected, hasNote, isBookmarked,
   tagEntry, colorRules, searchTerm,
-  onClick, onCellContextMenu,
+  onClick, onCellContextMenu, onToggleBookmark,
   pinnedCols, pinnedOffsets, scrollLeftRef,
 }) {
   const acol       = artifactColor(r.artifact_type);
@@ -83,9 +83,22 @@ export const EventRow = memo(function EventRow({
           const d   = sep > 0 ? ts.slice(0, sep) : ts;
           const t   = sep > 0 ? ts.slice(sep + 1) : '';
           content = (
-            <span style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+            <span style={{ position: 'relative', display: 'flex', flexDirection: 'column', justifyContent: 'center', flex: 1, minWidth: 0 }}>
               <span style={{ color: 'var(--fl-dim)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10, whiteSpace: 'nowrap', lineHeight: '14px' }}>{d}</span>
               {t && <span style={{ color: 'var(--fl-subtle)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 8,  whiteSpace: 'nowrap', lineHeight: '13px' }}>{t}</span>}
+              <button
+                onClick={e => { e.stopPropagation(); onToggleBookmark(r); }}
+                title={isBookmarked ? 'Retirer le bookmark' : 'Bookmarker cet événement'}
+                style={{
+                  position: 'absolute', top: 0, right: 0, zIndex: 3,
+                  background: 'transparent', border: 'none', cursor: 'pointer',
+                  padding: 0, fontSize: 11, lineHeight: 1,
+                  color: isBookmarked ? 'var(--fl-gold)' : 'var(--fl-subtle)',
+                  opacity: isBookmarked ? 1 : 0.45,
+                }}
+                onMouseEnter={e => { e.currentTarget.style.opacity = '1'; e.currentTarget.style.color = 'var(--fl-gold)'; }}
+                onMouseLeave={e => { e.currentTarget.style.opacity = isBookmarked ? 1 : 0.45; e.currentTarget.style.color = isBookmarked ? 'var(--fl-gold)' : 'var(--fl-subtle)'; }}
+              >{isBookmarked ? '★' : '☆'}</button>
             </span>
           );
 
@@ -144,6 +157,20 @@ export const EventRow = memo(function EventRow({
             ? <span style={{ padding: '1px 6px', borderRadius: 3, fontSize: 9, fontWeight: 700, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', background: chip.bg, color: chip.color, border: chip.border, whiteSpace: 'nowrap' }}>{chip.label}</span>
             : null;
 
+        } else if (col.key === 'payload') {
+          const pl = pickPayload(r);
+          if (pl) {
+            const shown = pl.value.length > 320 ? `${pl.value.slice(0, 320)}…` : pl.value;
+            content = (
+              <span title={`${pl.field}: ${pl.value}`} style={{ display: 'flex', alignItems: 'baseline', gap: 5, minWidth: 0 }}>
+                <span style={{ color: 'var(--fl-gold)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 8.5, textTransform: 'uppercase', letterSpacing: '0.04em', flexShrink: 0 }}>{pl.field}</span>
+                <span style={{ color: 'var(--fl-text)', fontSize: 10.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>{shown}</span>
+              </span>
+            );
+          } else {
+            content = <span style={{ color: 'var(--fl-border)' }}>—</span>;
+          }
+
         } else if (col.meta?.dynamic) {
           content = val != null
             ? <span style={{ color: 'var(--fl-dim)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10 }}>{String(val).slice(0, 80)}</span>
@@ -181,6 +208,8 @@ export const EventRow = memo(function EventRow({
   prev.gridTemplate  === next.gridTemplate &&
   prev.isSelected    === next.isSelected   &&
   prev.hasNote       === next.hasNote      &&
+  prev.isBookmarked  === next.isBookmarked &&
+  prev.onToggleBookmark === next.onToggleBookmark &&
   prev.tagEntry      === next.tagEntry     &&
   prev.colorRules    === next.colorRules   &&
   prev.searchTerm    === next.searchTerm   &&

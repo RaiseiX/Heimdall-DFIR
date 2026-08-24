@@ -1,12 +1,13 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
   FolderOpen, Clock, Network, Shield, AlertTriangle, Activity, ScrollText,
-  RefreshCw, Loader2, ArrowRight, Database, ShieldCheck,
+  RefreshCw, Loader2, ArrowRight, Database, ShieldCheck, Files, Boxes, CheckCircle2,
 } from 'lucide-react';
 import { evidenceAPI, parsersAPI, collectionAPI } from '../../utils/api';
 import { artifactColor } from '../../constants/artifactColors';
+import ParsingMonitor from './ParsingMonitor';
 
 const MONO = 'var(--f-mono, "JetBrains Mono", monospace)';
 
@@ -26,6 +27,8 @@ const QUICK_TABS = [
   { tab: 'mitre',      labelKey: 'collectionOverview.tiles.mitre',      fallback: 'MITRE',          icon: Shield,         accent: 'var(--fl-accent)' },
   { tab: 'hayabusa',   labelKey: 'collectionOverview.tiles.hayabusa',   fallback: 'Hayabusa',       icon: Activity,       accent: 'var(--fl-danger)' },
   { tab: 'logs',       labelKey: 'collectionOverview.tiles.logs',       fallback: 'Logs',           icon: ScrollText,     accent: 'var(--fl-dim)' },
+  { tab: 'artifacts',  labelKey: 'collectionOverview.tiles.artifacts',  fallback: 'Artifacts',      icon: Boxes,          accent: 'var(--fl-accent)' },
+  { tab: 'files',      labelKey: 'collectionOverview.tiles.files',      fallback: 'Files',          icon: Files,          accent: 'var(--fl-purple)' },
 ];
 
 export default function CollectionOverview({ caseId, collectionId, collName }) {
@@ -37,46 +40,123 @@ export default function CollectionOverview({ caseId, collectionId, collName }) {
   const [breakdown, setBreakdown] = useState([]);   // [{ artifact_type, count }]
   const [loading, setLoading]   = useState(true);
   const [reparsing, setReparsing] = useState(false);
+  const [parseProg, setParseProg] = useState(null); // { active, globalPct, parsers, done, outcome, error }
+  const lastLaunchAtRef = useRef(0); // grace window after a Re-parser click
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const [evRes, prRes] = await Promise.all([
-        evidenceAPI.list(caseId),
-        parsersAPI.results(caseId),
-      ]);
-      const ev = (evRes.data || []).find(e => e.id === collectionId) || null;
-      setEvidence(ev);
+  // Single fetch shared by the initial load and the silent refresh after a parse settles.
+  const fetchAll = useCallback(async () => {
+    const [evRes, prRes, artRes] = await Promise.all([
+      evidenceAPI.list(caseId),
+      parsersAPI.results(caseId),
+      collectionAPI.artifactsSummary(caseId, { evidence_id: collectionId }),
+    ]);
+    const ev = (evRes.data || []).find(e => e.id === collectionId) || null;
+    setEvidence(ev);
 
-      // Match parser results to THIS collection by evidence_id; keep the richest run.
-      const mine = (Array.isArray(prRes.data) ? prRes.data : [])
-        .filter(r => r.evidence_id === collectionId)
-        .sort((a, b) => (b.record_count ?? 0) - (a.record_count ?? 0));
-      const top = mine[0] || null;
+    // Match parser results to THIS collection by evidence_id; keep the richest run.
+    const mine = (Array.isArray(prRes.data) ? prRes.data : [])
+      .filter(r => r.evidence_id === collectionId)
+      .sort((a, b) => (b.record_count ?? 0) - (a.record_count ?? 0));
+    const top = mine[0] || null;
 
-      if (top) {
-        setResult({ resultId: top.id, recordCount: top.record_count ?? 0, parsedAt: top.created_at, parsedBy: top.parsed_by });
-        try {
-          const typesRes = await parsersAPI.resultTypes(top.id);
-          const rows = (typesRes.data || []).filter(r => r.artifact_type).sort((a, b) => b.count - a.count);
-          setBreakdown(rows);
-        } catch { setBreakdown([]); }
-      } else {
-        setResult(null);
-        setBreakdown([]);
-      }
-    } catch (e) {
-      console.error('[CollectionOverview]', e);
-    } finally {
-      setLoading(false);
+    // Live breakdown straight from the timeline rows (collection_timeline) —
+    // the same source as the artifacts browser — never the parse_results
+    // snapshot, which lags mid-parse and goes stale if a run crashes before
+    // finalization (that's what produced a persistent "0 types" and a record
+    // count frozen at an old value). The counts therefore always agree with
+    // the artifacts page and keep climbing while a parse streams rows in.
+    const arts = (artRes.data && artRes.data.artifacts) || [];
+    const liveRows = arts
+      .filter(a => a && a.artifact_type)
+      .map(a => ({ artifact_type: a.artifact_type, count: a.cnt || 0 }))
+      .sort((a, b) => b.count - a.count);
+    const liveTotal = liveRows.reduce((s, r) => s + r.count, 0);
+
+    if (top) {
+      setResult({
+        resultId: top.id,
+        recordCount: liveTotal > 0 ? liveTotal : (top.record_count ?? 0),
+        parsedAt: top.created_at,
+        parsedBy: top.parsed_by,
+      });
+      setBreakdown(liveRows);
+    } else {
+      setResult(null);
+      setBreakdown([]);
     }
   }, [caseId, collectionId]);
 
+  const load = useCallback(async () => {
+    setLoading(true);
+    try { await fetchAll(); } catch (e) { console.error('[CollectionOverview]', e); }
+    finally { setLoading(false); }
+  }, [fetchAll]);
+
+  const refreshCounts = useCallback(() => {
+    fetchAll().catch(e => console.error('[CollectionOverview]', e));
+  }, [fetchAll]);
+
   useEffect(() => { load(); }, [load]);
+
+  // Live parse status: attaches on mount (a parse launched from another tab
+  // still shows up here without a refresh), keeps polling while a parse is
+  // active or within the 25 s grace window after a Re-parser click, and
+  // refreshes the ENREGISTREMENTS / TYPES numbers once the parse settles.
+  useEffect(() => {
+    let alive = true;
+    let pollIv = null;
+    let dismissT = null;
+    let doneHandled = false;
+    const stopPolling = () => { if (pollIv) { clearInterval(pollIv); pollIv = null; } };
+    const poll = () => collectionAPI.parseProgress(caseId)
+      .then(r => {
+        if (!alive) return;
+        const d = r.data;
+        if (!d) { setParseProg(null); stopPolling(); return; }
+        if (d.active) {
+          lastLaunchAtRef.current = 0;
+          doneHandled = false;
+          setParseProg(d);
+          if (!pollIv) pollIv = setInterval(poll, 2500);
+        } else if (d.done) {
+          // A launch races the backend registering the new job: for a couple of
+          // seconds /parse-progress can still serve the PREVIOUS parse's
+          // terminal snapshot. Keep polling during the grace window instead of
+          // treating it as the end of the new run.
+          const withinGrace = Date.now() - lastLaunchAtRef.current < 25000;
+          if (withinGrace) {
+            if (!pollIv) pollIv = setInterval(poll, 2000);
+            return;
+          }
+          if (!doneHandled) { doneHandled = true; refreshCounts(); }
+          setParseProg(d);
+          stopPolling();
+          if (dismissT) clearTimeout(dismissT);
+          dismissT = setTimeout(() => { if (alive) setParseProg(null); }, 12000);
+        } else {
+          // Idle — keep polling briefly after a launch until the backend
+          // registers the job, otherwise there is nothing to track.
+          const withinGrace = Date.now() - lastLaunchAtRef.current < 25000;
+          if (withinGrace) {
+            if (!pollIv) pollIv = setInterval(poll, 2000);
+          } else {
+            setParseProg(null);
+            stopPolling();
+          }
+        }
+      })
+      .catch(() => {});
+    poll();
+    return () => { alive = false; stopPolling(); if (dismissT) clearTimeout(dismissT); };
+  }, [caseId, refreshCounts]);
 
   const handleReparse = () => {
     setReparsing(true);
-    collectionAPI.parse(caseId, { evidence_id: collectionId })
+    // Re-arm the status poll right away (grace window) so the monitor appears
+    // immediately — and always send artifact_types: 'all' so the overview
+    // button performs a full re-parse instead of an empty type list.
+    lastLaunchAtRef.current = Date.now();
+    collectionAPI.parse(caseId, { evidence_id: collectionId, artifact_types: 'all' })
       .catch(() => {})
       .finally(() => setTimeout(() => setReparsing(false), 1500));
   };
@@ -96,6 +176,39 @@ export default function CollectionOverview({ caseId, collectionId, collName }) {
 
   return (
     <div style={{ maxWidth: 1000, margin: '0 auto', width: '100%', padding: '20px 16px 48px' }}>
+
+      {/* ── Live parse status: appears the moment a re-parse is launched and
+           re-attaches on refresh without any manual action ── */}
+      {parseProg?.active && (
+        <ParsingMonitor
+          caseId={caseId}
+          parsers={Object.entries(parseProg.parsers || {}).map(([key, v]) => ({ key, name: v.name || key, color: artifactColor(key) }))}
+          states={parseProg.parsers || {}}
+          globalPct={parseProg.globalPct}
+          live={parseProg.live}
+        />
+      )}
+
+      {parseProg && !parseProg.active && parseProg.done && (() => {
+        const pstates = parseProg.parsers || {};
+        const errN = Object.values(pstates).filter(s => s && s.status === 'error').length;
+        const isErr = parseProg.outcome === 'error';
+        const color = isErr ? 'var(--fl-danger)' : (errN > 0 ? '#d9a400' : 'var(--fl-ok)');
+        return (
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, border: `1px solid color-mix(in srgb, ${color} 40%, transparent)`, borderRadius: 8, background: `color-mix(in srgb, ${color} 8%, transparent)`, padding: '10px 14px', marginBottom: 12 }}>
+            {isErr
+              ? <AlertTriangle size={15} style={{ color, flexShrink: 0, marginTop: 1 }} />
+              : <CheckCircle2 size={15} style={{ color, flexShrink: 0, marginTop: 1 }} />}
+            <div style={{ fontSize: 12.5, color: 'var(--fl-text)', fontFamily: 'var(--f-ui, Inter, sans-serif)', lineHeight: 1.45 }}>
+              {isErr
+                ? <><b style={{ color }}>{t('collectionOverview.parse_failed', 'Analyse terminée en erreur')}</b> — {parseProg.error || ''}</>
+                : errN > 0
+                  ? <><b style={{ color }}>{t('collectionOverview.parse_done_errors', 'Analyse terminée avec erreurs')}</b> ({errN})</>
+                  : <b style={{ color }}>{t('collectionOverview.parse_done', 'Analyse terminée')}</b>}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* ── Header ── */}
       <div style={{
@@ -131,22 +244,58 @@ export default function CollectionOverview({ caseId, collectionId, collName }) {
           </div>
         </div>
 
-        <button
-          onClick={handleReparse}
-          disabled={reparsing}
-          style={{
-            display: 'inline-flex', alignItems: 'center', gap: 6, flexShrink: 0,
-            padding: '7px 13px', borderRadius: 7, cursor: reparsing ? 'wait' : 'pointer',
-            fontFamily: MONO, fontSize: 11.5, fontWeight: 600,
-            background: 'transparent', color: 'var(--fl-dim)', border: '1px solid var(--fl-border)',
-            transition: 'color 0.15s, border-color 0.15s',
-          }}
-          onMouseEnter={e => { e.currentTarget.style.color = 'var(--fl-accent)'; e.currentTarget.style.borderColor = 'color-mix(in srgb, var(--fl-accent) 35%, transparent)'; }}
-          onMouseLeave={e => { e.currentTarget.style.color = 'var(--fl-dim)'; e.currentTarget.style.borderColor = 'var(--fl-border)'; }}
-        >
-          {reparsing ? <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <RefreshCw size={12} />}
-          {t('casedetail.reparse')}
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+          <button
+            onClick={() => navigate(`/cases/${caseId}/collections/${collectionId}/artifacts`)}
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: 6, flexShrink: 0,
+              padding: '7px 13px', borderRadius: 7, cursor: 'pointer',
+              fontFamily: MONO, fontSize: 11.5, fontWeight: 600,
+              background: 'color-mix(in srgb, var(--fl-accent) 11%, transparent)',
+              color: 'var(--fl-accent)', border: '1px solid color-mix(in srgb, var(--fl-accent) 30%, transparent)',
+              transition: 'background 0.15s, border-color 0.15s',
+            }}
+            onMouseEnter={e => { e.currentTarget.style.background = 'color-mix(in srgb, var(--fl-accent) 18%, transparent)'; }}
+            onMouseLeave={e => { e.currentTarget.style.background = 'color-mix(in srgb, var(--fl-accent) 11%, transparent)'; }}
+          >
+            <Boxes size={12} />
+            {t('collectionOverview.artifacts', 'Artifacts')}
+          </button>
+
+          <button
+            onClick={() => navigate(`/cases/${caseId}/collections/${collectionId}/files`)}
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: 6, flexShrink: 0,
+              padding: '7px 13px', borderRadius: 7, cursor: 'pointer',
+              fontFamily: MONO, fontSize: 11.5, fontWeight: 600,
+              background: 'color-mix(in srgb, var(--fl-purple) 11%, transparent)',
+              color: 'var(--fl-purple)', border: '1px solid color-mix(in srgb, var(--fl-purple) 30%, transparent)',
+              transition: 'background 0.15s, border-color 0.15s',
+            }}
+            onMouseEnter={e => { e.currentTarget.style.background = 'color-mix(in srgb, var(--fl-purple) 18%, transparent)'; }}
+            onMouseLeave={e => { e.currentTarget.style.background = 'color-mix(in srgb, var(--fl-purple) 11%, transparent)'; }}
+          >
+            <Files size={12} />
+            {t('collectionOverview.files', 'Files')}
+          </button>
+
+          <button
+            onClick={handleReparse}
+            disabled={reparsing}
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: 6, flexShrink: 0,
+              padding: '7px 13px', borderRadius: 7, cursor: reparsing ? 'wait' : 'pointer',
+              fontFamily: MONO, fontSize: 11.5, fontWeight: 600,
+              background: 'transparent', color: 'var(--fl-dim)', border: '1px solid var(--fl-border)',
+              transition: 'color 0.15s, border-color 0.15s',
+            }}
+            onMouseEnter={e => { e.currentTarget.style.color = 'var(--fl-accent)'; e.currentTarget.style.borderColor = 'color-mix(in srgb, var(--fl-accent) 35%, transparent)'; }}
+            onMouseLeave={e => { e.currentTarget.style.color = 'var(--fl-dim)'; e.currentTarget.style.borderColor = 'var(--fl-border)'; }}
+          >
+            {reparsing ? <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <RefreshCw size={12} />}
+            {t('casedetail.reparse')}
+          </button>
+        </div>
       </div>
 
       {!isParsed ? (

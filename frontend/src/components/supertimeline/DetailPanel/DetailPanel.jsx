@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Maximize2, Minimize2, X, History } from 'lucide-react';
+import { Maximize2, Minimize2, X, History, Shield } from 'lucide-react';
 import { useTimelineStore } from '../store/useTimelineStore';
 import { artifactColor } from '../../../constants/artifactColors';
 import { fmtTs } from '../../../utils/formatters';
@@ -8,6 +8,8 @@ import {
   topDetectionSeverity, DETECTION_SEV_COLOR,
   computeRef,
 } from '../utils/timelineUtils';
+import { iocsAPI } from '../../../utils/api';
+import { detectIocType } from '../../../utils/iocType';
 import DetailsTab from './tabs/DetailsTab';
 import RawTab     from './tabs/RawTab';
 import MitreTab   from './tabs/MitreTab';
@@ -28,9 +30,121 @@ const TABS = [
   { key: 'ai',      label: 'AI ✦', accent: 'var(--fl-ok)' },
 ];
 
+// ── IOC quick-add: pick a candidate value from the row and create an IOC ──────
+// Visible in the header so the feature is discoverable without opening the Schema
+// tab. Candidates are drawn from the promoted forensic columns first, then the
+// most IOC-looking raw fields. Type auto-detection lives in utils/iocType.js
+// (shared with every other add-IOC button).
+
+// Flatten a raw value into a list of scalar strings. Arrays (exec_start, env,
+// mounts) each become one candidate; nested objects recurse one level.
+function iocScalars(v, out = []) {
+  if (v == null) return out;
+  if (Array.isArray(v)) { v.forEach(x => iocScalars(x, out)); return out; }
+  if (typeof v === 'object') {
+    Object.keys(v).sort().forEach(k => {
+      const x = v[k];
+      if (x == null) return;
+      if (typeof x === 'object') { const s = JSON.stringify(x); if (s && s.length > 2) out.push(s); }
+      else out.push(String(x));
+    });
+    return out;
+  }
+  const s = String(v);
+  if (s && s !== '—' && s.length >= 2 && s.length <= 512) out.push(s);
+  return out;
+}
+
+function iocCandidates(record) {
+  const out = [];
+  const push = (s, field) => {
+    const m = detectIocType(s);
+    out.push({ value: s, field, ...m });
+  };
+  // Promoted columns first — these are what an analyst sees in the grid.
+  ['path', 'src_ip', 'dst_ip', 'process_name', 'command', 'cmdline', 'command_line',
+   'description', 'source', 'host_name', 'host', 'user_name', 'username', 'user',
+   'exec_start', 'url', 'domain', 'ip'].forEach(f => {
+    iocScalars(record?.[f]).forEach(s => push(s, f));
+  });
+  // Then raw fields, in a stable order.
+  if (record?.raw && typeof record.raw === 'object') {
+    Object.keys(record.raw).sort().forEach(k => iocScalars(record.raw[k]).forEach(s => push(s, k)));
+  }
+  // De-dupe by value (slice keeps long raw payloads from flooding the menu).
+  const seen = new Set();
+  return out.filter(c => (seen.has(c.value) ? false : (seen.add(c.value), true))).slice(0, 60);
+}
+
+function HeaderIocButton({ record, caseId }) {
+  const [open, setOpen] = useState(false);
+  const [added, setAdded] = useState('');
+  const [err, setErr] = useState('');
+  if (!caseId || !record) return null;
+  const candidates = iocCandidates(record);
+
+  const handleAdd = async (c) => {
+    setErr('');
+    try {
+      await iocsAPI.create(caseId, {
+        ioc_type: c.type,
+        value: String(c.value).slice(0, 500),
+        description: `${c.field} from timeline event`,
+        severity: 5,
+        source: 'timeline_field',
+        first_seen: record.timestamp || null,
+      });
+      setAdded(c.value);
+      setOpen(false);
+      setTimeout(() => setAdded(''), 2000);
+    } catch (e) {
+      setErr('Failed');
+    }
+  };
+
+  return (
+    <div style={{ position: 'relative', flexShrink: 0 }}>
+      <button
+        onClick={() => setOpen(v => !v)}
+        title="Add an IOC from this event"
+        style={{ height: 18, padding: '0 6px', borderRadius: 3, background: 'var(--fl-card)',
+          border: '1px solid color-mix(in srgb, var(--fl-danger) 35%, transparent)',
+          color: 'var(--fl-danger)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 3,
+          fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 9,
+          fontWeight: 600 }}>
+        {added ? <span style={{ color: 'var(--fl-ok)' }}>✓</span> : <Shield size={9} />}
+        {added ? 'IOC added' : 'IOC'}
+      </button>
+      {open && (
+        <div style={{ position: 'absolute', right: 0, top: 22, zIndex: 50, width: 300,
+          background: 'var(--fl-panel)', border: '1px solid var(--fl-border)', borderRadius: 6,
+          boxShadow: '0 8px 24px rgba(0,0,0,.5)', padding: 6, maxHeight: 360, overflowY: 'auto' }}>
+          <div style={{ fontSize: 9, color: 'var(--fl-muted)', textTransform: 'uppercase',
+            letterSpacing: '.08em', padding: '2px 6px 6px' }}>Add IOC from event ({candidates.length})</div>
+          {err && <div style={{ fontSize: 9, color: 'var(--fl-danger)', padding: '0 6px 4px' }}>{err}</div>}
+          {candidates.map((c, i) => (
+            <button key={i} onClick={() => handleAdd(c)} title={c.value}
+              style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%', textAlign: 'left',
+                padding: '4px 6px', borderRadius: 4, background: 'transparent', border: 'none', cursor: 'pointer',
+                fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 9,
+                color: 'var(--fl-dim)' }}
+              onMouseEnter={e => { e.currentTarget.style.background = 'var(--fl-card)'; e.currentTarget.style.color = 'var(--fl-text)'; }}
+              onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--fl-dim)'; }}>
+              <span style={{ flexShrink: 0, padding: '0 4px', borderRadius: 2, fontSize: 8, fontWeight: 700,
+                background: 'color-mix(in srgb, var(--fl-danger) 12%, transparent)', color: 'var(--fl-danger)',
+                border: '1px solid color-mix(in srgb, var(--fl-danger) 25%, transparent)' }}>{c.label}</span>
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.value}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function DetailPanel() {
   const {
-    selectedRowId, detailOpen, records, tagData,
+    selectedRowId, detailOpen, records, tagData, caseId,
     detailTab, setDetailTab, closeDetail, setSelectedRow,
     bookmarks, toggleBookmark, openContext,
   } = useTimelineStore();
@@ -112,6 +226,7 @@ export default function DetailPanel() {
                 <History size={10} />
               </button>
             )}
+            <HeaderIocButton record={record} caseId={caseId} />
             <button
               onClick={() => record && toggleBookmark(record)}
               title={isBookmarked ? 'Remove bookmark' : 'Bookmark this event'}

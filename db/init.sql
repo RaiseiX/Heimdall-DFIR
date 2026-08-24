@@ -140,6 +140,7 @@ CREATE TABLE iocs (
     ioc_type ioc_type NOT NULL,
     value VARCHAR(500) NOT NULL,
     description TEXT,
+    notes TEXT,
     severity INTEGER DEFAULT 5 CHECK (severity >= 1 AND severity <= 10),
     is_malicious BOOLEAN,
     source VARCHAR(255),

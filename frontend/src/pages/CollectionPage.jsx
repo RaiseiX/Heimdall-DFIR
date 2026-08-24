@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useSocket } from '../hooks/useSocket';
-import { Upload, CheckCircle2, Loader2, Package, Cpu, Shield, FolderOpen, ChevronRight, AlertTriangle, X } from 'lucide-react';
+import { Upload, CheckCircle2, Loader2, Package, Cpu, Shield, FolderOpen, ChevronRight, AlertTriangle, X, Eye } from 'lucide-react';
 import { collectionAPI, casesAPI } from '../utils/api';
 
 const ARTIFACTS = {
@@ -48,6 +49,9 @@ export default function CollectionPage() {
   const [collDir, setCollDir] = useState('');
   const [pipelineLog, setPipelineLog] = useState([]);
   const [dragging, setDragging] = useState(false);
+  const [evidenceId, setEvidenceId] = useState(null); // evidence/collection id → link to its evidence view
+  const startingRef = useRef(false); // one analysis launch at a time
+  const navigate = useNavigate();
 
   useEffect(() => {
     setLoadingCases(true);
@@ -88,6 +92,65 @@ export default function CollectionPage() {
 
   const addLog = (msg) => setPipelineLog(prev => [...prev, { time: new Date().toLocaleTimeString('en-US'), msg }]);
 
+  // Re-attach to an in-progress parse after a page refresh. The parse runs
+  // detached server-side and its socket events are lost on refresh, so poll the
+  // durable /parse-progress record and restore the pipeline when idle.
+  const reattachedRef = useRef(false);
+  const handledDoneRef = useRef(false);
+  useEffect(() => {
+    if (!selectedCase) return;
+    const locallyActive = ['uploading', 'extracting', 'detecting', 'parsing', 'hayabusa'].includes(step) && !reattachedRef.current;
+    if (locallyActive) return;
+    let alive = true;
+    const poll = () => collectionAPI.parseProgress(selectedCase)
+      .then(r => {
+        if (!alive) return;
+        const d = r.data;
+        if (d?.active) {
+          handledDoneRef.current = false;
+          if (!reattachedRef.current) {
+            reattachedRef.current = true;
+            addLog('↻ Session re-attachée — analyse en cours');
+          }
+          setStep('parsing');
+          setProgress(Math.round((d.globalPct || 0) * 0.8));
+          if (!pollIv) pollIv = setInterval(poll, 3000);
+        } else if (d?.done && !handledDoneRef.current) {
+          handledDoneRef.current = true;
+          reattachedRef.current = false;
+          if (d.outcome === 'error') addLog(`✗ Analyse terminée en erreur : ${d.error || 'voir les logs'}`);
+          else {
+            addLog('✓ Analyse terminée — consultez le cas');
+            // A page refresh loses the pipeline's post-parse Hayabusa trigger.
+            // If this parse included EVTX, run it now (409 = auto-hunt already
+            // started it → success).
+            if (d.parsers && d.parsers.evtx && d.parsers.evtx.status === 'done') {
+              addLog('Running Hayabusa on EVTX...');
+              collectionAPI.runHayabusa(selectedCase)
+                .then(res => addLog('Hayabusa: ' + (res.data?.total || res.data?.detections?.length || 0) + ' detections'))
+                .catch(err => {
+                  if (err.response?.status === 409) addLog('Hayabusa déjà en cours (lancé par le serveur)');
+                  else addLog('  ✗ Hayabusa: ' + (err.response?.data?.error || err.message || 'unavailable'));
+                });
+            }
+          }
+          setProgress(100);
+          setStep('idle');
+          stopPolling();
+        } else {
+          // Idle: nothing to track, stop polling until the next step change.
+          if (reattachedRef.current) reattachedRef.current = false;
+          stopPolling();
+        }
+      })
+      .catch(() => {});
+    // Poll once to (re-)attach, then keep polling ONLY while a parse is live.
+    let pollIv = null;
+    const stopPolling = () => { if (pollIv) { clearInterval(pollIv); pollIv = null; } };
+    poll();
+    return () => { alive = false; stopPolling(); };
+  }, [selectedCase, step]);
+
   const handleFile = async (file) => {
     if (!file || !selectedCase) return;
     setFileName(file.name);
@@ -95,6 +158,7 @@ export default function CollectionPage() {
     setPipelineLog([]);
     setHayabusaResults(null);
     setResults(null);
+    setEvidenceId(null);
 
     if (!socket) {
       setError('Socket connection required — reload the page');
@@ -140,6 +204,7 @@ export default function CollectionPage() {
 
           const detectedArtifacts = data?.detected_artifacts || null;
           if (data?.collection_dir) setCollDir(data.collection_dir);
+          if (data?.evidence_id) setEvidenceId(data.evidence_id);
           if (data?.hashes) setFileHashes(data.hashes);
 
           if (detectedArtifacts && Object.keys(detectedArtifacts).length > 0) {
@@ -194,6 +259,10 @@ export default function CollectionPage() {
 
   const startParsing = async () => {
     if (!selectedCase || selected.length === 0) return;
+    // Guard against double-clicks / rapid re-launches (backend also 409s
+    // same-collection re-parses while one is still running).
+    if (startingRef.current) return;
+    startingRef.current = true;
     try {
       setStep('parsing');
       setProgress(0);
@@ -218,28 +287,39 @@ export default function CollectionPage() {
       }
 
       const doneData = await new Promise((resolve, reject) => {
-        const timer = setTimeout(() => {
+        let settled = false;
+        let sawActive = false;
+        let pollIv = null;
+        const cleanup = () => {
+          if (pollIv) clearInterval(pollIv);
           socket.off('collection:parse:done', onDone);
           socket.off('collection:parse:error', onError);
-          reject(new Error('Timeout parsing (> 2h)'));
-        }, 2 * 60 * 60 * 1000);
+        };
+        const finish = (data) => { if (settled) return; settled = true; clearTimeout(timer); cleanup(); resolve(data); };
+        const fail = (err) => { if (settled) return; settled = true; clearTimeout(timer); cleanup(); reject(err); };
 
-        function onDone(data) {
-          clearTimeout(timer);
-          socket.off('collection:parse:done', onDone);
-          socket.off('collection:parse:error', onError);
-          resolve(data);
-        }
+        const timer = setTimeout(() => fail(new Error('Timeout parsing (> 2h)')), 2 * 60 * 60 * 1000);
 
-        function onError(data) {
-          clearTimeout(timer);
-          socket.off('collection:parse:done', onDone);
-          socket.off('collection:parse:error', onError);
-          reject(new Error(data?.details || data?.error || 'Parsing error'));
-        }
+        function onDone(data) { finish(data); }
+        function onError(data) { fail(new Error(data?.details || data?.error || 'Parsing error')); }
 
         socket.on('collection:parse:done', onDone);
         socket.on('collection:parse:error', onError);
+
+        // Socket events are lost on a mid-parse reconnect — poll the durable
+        // progress record and finish from the stored result once it settles.
+        const poll = async () => {
+          try {
+            const r = await collectionAPI.parseProgress(selectedCase);
+            if (r.data?.active) { sawActive = true; return; }
+            if (!sawActive) return;
+            const res = await collectionAPI.parseResult(selectedCase);
+            if (res.data?.failed) { fail(new Error('Parsing error')); return; }
+            finish({ results: res.data?.results || {}, total_records: res.data?.total_records || 0 });
+          } catch (_e) { /* keep waiting */ }
+        };
+        pollIv = setInterval(poll, 3000);
+        poll();
       });
 
       const perResults = doneData?.results || {};
@@ -267,7 +347,12 @@ export default function CollectionPage() {
           setHayabusaResults(hayRes.data);
           addLog('Hayabusa: ' + (hayRes.data.total || hayRes.data.detections?.length || 0) + ' detections');
         } catch (e) {
-          addLog('  ✗ Hayabusa: ' + (e.response?.data?.error || e.message || 'unavailable'));
+          // 409 = the backend auto-hunt already started Hayabusa for this case.
+          if (e.response?.status === 409) {
+            addLog('Hayabusa déjà en cours (lancé par le serveur)');
+          } else {
+            addLog('  ✗ Hayabusa: ' + (e.response?.data?.error || e.message || 'unavailable'));
+          }
         }
       }
 
@@ -278,6 +363,8 @@ export default function CollectionPage() {
       setError(err.message || 'Parsing error');
       addLog('✗ ERROR: ' + err.message);
       setStep('idle');
+    } finally {
+      startingRef.current = false;
     }
   };
 
@@ -410,7 +497,20 @@ export default function CollectionPage() {
               {step === 'parsing' && 'Analyzing artifacts…'}
               {step === 'hayabusa' && 'Hayabusa analysis (EVTX)…'}
             </span>
-            <span className="font-mono text-sm font-bold" style={{ color: 'var(--fl-accent)' }}>{progress}%</span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              {step === 'parsing' && (
+                <button
+                  onClick={() => navigate(evidenceId
+                    ? `/cases/${selectedCase}/collections/${evidenceId}/evidence`
+                    : `/cases/${selectedCase}/evidence`)}
+                  className="fl-btn fl-btn-ghost fl-btn-sm"
+                  title="Opens this collection's evidence view — already-parsed artifacts are there"
+                >
+                  <Eye size={12} /> View parsed events
+                </button>
+              )}
+              <span className="font-mono text-sm font-bold" style={{ color: 'var(--fl-accent)' }}>{progress}%</span>
+            </span>
           </div>
           <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--fl-panel)' }}>
             <div
@@ -597,7 +697,7 @@ export default function CollectionPage() {
               View case
             </a>
             <button
-              onClick={() => { setStep('idle'); setDetected(null); setResults(null); setHayabusaResults(null); setPipelineLog([]); setFileName(''); }}
+              onClick={() => { setStep('idle'); setDetected(null); setResults(null); setHayabusaResults(null); setPipelineLog([]); setFileName(''); setEvidenceId(null); }}
               className="fl-btn fl-btn-secondary"
             >
               New collection

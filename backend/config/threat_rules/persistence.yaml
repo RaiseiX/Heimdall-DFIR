@@ -58,13 +58,24 @@ rules:
     name: "WMI Event Subscription persistence"
     severity: high
     category: persistence
-    target_artifact: [evtx, hayabusa]
+    target_artifact: [evtx, hayabusa, sysmon, wmi]
     mitre: [T1546.003]
     tags: [Persistence, WMI]
     match:
-      any:
-        - { field: event_id, op: in, value: [5861, 19, 20, 21] }
-        - { field: description, op: iregex, value: '(ActiveScriptEventConsumer|CommandLineEventConsumer|__EventFilter|FilterToConsumerBinding)' }
+      # NB: le moteur compileAst ne combine pas any+none au même niveau — imbrication via all
+      all:
+        - any:
+            # EID 19/20/21 sont réutilisés par d'autres canaux (RDP LocalSessionManager 20/21, PushNotification…) :
+            # un numéro d'événement seul ne suffit pas — exiger un contexte WMI (canal ou description)
+            - all:
+                - { field: event_id, op: in, value: [5861, 19, 20, 21] }
+                - any:
+                    - { field: source, op: iregex, value: 'WMI-Activity' }
+                    - { field: description, op: iregex, value: '(WMI|EventConsumer|EventFilter)' }
+            - { field: description, op: iregex, value: '(ActiveScriptEventConsumer|CommandLineEventConsumer|__EventFilter|FilterToConsumerBinding|CmdConsumer|ScriptConsumer|CommandLineTemplate|ScriptText)' }
+        - none:
+            # Subscription par défaut créée sur chaque hôte Windows (SCM Event Log Consumer)
+            - { field: description, op: icontains, value: 'SCM Event Log Consumer' }
 
   - id: pers_bits_persistence
     name: "BITS job persistence (setnotifycmdline)"
