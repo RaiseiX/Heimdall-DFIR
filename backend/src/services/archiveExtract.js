@@ -9,7 +9,10 @@ const TAR_EXT = new Set(['.tar', '.gz', '.tgz']);
 // process list on the server, an accepted trade-off for a local forensic tool.
 function extractArgs(ext, archivePath, destDir, password) {
   if (TAR_EXT.has(ext)) {
-    return ['tar', 'xzf', archivePath, '--no-same-owner', '--no-same-permissions', '-C', destDir];
+    // `.tar` is a plain (uncompressed) tarball — the `z` flag would make GNU tar
+    // try to gunzip it and fail with "not in gzip format". Only .gz/.tgz are gzipped.
+    const zFlag = ext === '.tar' ? '' : 'z';
+    return ['tar', `x${zFlag}f`, archivePath, '--no-same-owner', '--no-same-permissions', '-C', destDir];
   }
   if (ext === '.zip') {
     const args = ['unzip', '-o', '-q'];

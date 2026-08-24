@@ -156,6 +156,7 @@ export const iocsAPI = {
   crossCases: (value) => api.get(`/iocs/${encodeURIComponent(value)}/cross-cases`),
   topShared: () => api.get('/iocs/top-shared'),
   confirmIOC: (id, data) => api.post(`/iocs/${id}/confirm`, data),
+  update: (id, data) => api.put(`/iocs/${id}`, data),
   backfillFirstSeen: (data) => api.post('/iocs/backfill-first-seen', data || {}),
   remove: (id) => api.delete(`/iocs/${id}`),
   internalIntel: (params) => api.get('/iocs/internal-intel', { params }),
@@ -183,6 +184,8 @@ export const networkAPI = {
   saveAnnotations:       (caseId, data) => api.put(`/network/${caseId}/annotations`, data),
   saveGlobalAnnotations: (caseId, data) => api.put(`/network/${caseId}/annotations/global`, data),
   globalGraph:           (caseId)       => api.get(`/network/${caseId}/global-graph`),
+  authGraph:             (caseId, params) => api.get(`/network/${caseId}/auth-graph`, { params }),
+  authGraphEvents:       (caseId, params) => api.get(`/network/${caseId}/auth-graph/events`, { params }),
 };
 
 export const parsersAPI = {
@@ -450,12 +453,18 @@ export const legalHoldAPI = {
 };
 
 export const pcapAPI = {
-  upload: (caseId, file, onProgress) => {
+  upload: (caseId, file, onProgress, evidenceId) => {
     const fd = new FormData();
     fd.append('pcap', file);
+    // Link the parsed events to the evidence row so they show up in that
+    // evidence's timeline (the button lives on the evidence line).
+    if (evidenceId) fd.append('evidence_id', evidenceId);
     return api.post(`/collection/${caseId}/pcap`, fd, {
       headers: { 'Content-Type': 'multipart/form-data' },
       onUploadProgress: onProgress,
+      // tshark analysis can take minutes on a big capture, but never hang
+      // forever: surface a stuck upload as an error instead of a dead button.
+      timeout: 5 * 60 * 1000,
     });
   },
 };

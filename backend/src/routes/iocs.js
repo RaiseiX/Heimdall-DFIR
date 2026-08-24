@@ -109,6 +109,29 @@ router.post('/:caseId', authenticate, async (req, res) => {
   }
 });
 
+// Update mutable fields of an IOC (analyst notes, description, tags, severity)
+router.put('/:id', authenticate, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { notes, description, tags, severity } = req.body;
+    const result = await pool.query(
+      `UPDATE iocs SET
+         notes       = COALESCE($2, notes),
+         description = COALESCE($3, description),
+         tags        = COALESCE($4, tags),
+         severity    = COALESCE($5, severity),
+         updated_at  = NOW()
+       WHERE id = $1 RETURNING *`,
+      [id, notes ?? null, description ?? null, tags ?? null, severity ?? null]
+    );
+    if (!result.rowCount) return res.status(404).json({ error: 'IOC non trouvé' });
+    res.json(result.rows[0]);
+  } catch (err) {
+    logger.error('[IOC] update error:', err.message);
+    res.status(500).json({ error: 'Erreur serveur' });
+  }
+});
+
 // Delete a single IOC by id (global page deletes by IOC id, not case-scoped)
 router.delete('/:id', authenticate, async (req, res) => {
   try {

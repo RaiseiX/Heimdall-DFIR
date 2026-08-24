@@ -1,10 +1,70 @@
 const express = require('express');
 const multer = require('multer');
-const { pool, readPool, isStatementTimeout } = require('../config/database');
+const { pool, readPool, createReadPool, isStatementTimeout } = require('../config/database');
 const { authenticate, requireRole } = require('../middleware/auth');
 const { parse: parseCsv } = require('csv-parse/sync');
+const { getRedis } = require('../config/redis');
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
+
+// Heavy case-wide computations (buildNetworkGraph / beacons / legacy graph)
+// legitimately run 30-120s cold on a multi-million-row case — far beyond the
+// UI read pool's 60s bound, which turned every cold compute into a 504 and
+// prevented the cache from ever filling. They all carry LIMITs, so a long
+// statement bound is safe here; the serve-stale cache keeps warm visits instant.
+const netPool = createReadPool({ statementTimeoutMs: 15 * 60 * 1000, max: 20 });
+
+// ── Network graph cache (serve-stale) ────────────────────────────────────────
+// buildNetworkGraph / beacons / graph recompute case-wide GROUP BYs over
+// collection_timeline (tens of seconds on a 3.5M-row case) yet only change when
+// a parse lands. Serve-stale pattern so the view is instant *anytime*:
+//   - fresh copy (TTL 30 min)   → served directly;
+//   - fresh expired, stale kept → stale served immediately + recompute in the
+//     background (refreshNetCache);
+//   - nothing at all (cold)     → computed synchronously.
+// invalidateCaseCaches (collection.js) drops both keys at parse finalization,
+// then prewarmNetworkCaches re-computes the default views in the background.
+const NET_CACHE_TTL = 1800;
+const NET_STALE_TTL = 86400; // 24h — payload only changes when a parse lands
+
+async function netCacheGet(key) {
+  try {
+    const redis = getRedis();
+    if (!redis) return null;
+    const raw = await redis.get(key);
+    if (raw) return { payload: JSON.parse(raw), fresh: true };
+    const staleRaw = await redis.get(`${key}::stale`);
+    if (staleRaw) return { payload: JSON.parse(staleRaw), fresh: false };
+    return null;
+  } catch (_e) { return null; }
+}
+
+async function netCacheSet(key, payload) {
+  try {
+    const redis = getRedis();
+    if (!redis) return;
+    // Promote the current fresh copy to the stale fallback before overwriting.
+    const prev = await redis.get(key);
+    if (prev) await redis.setex(`${key}::stale`, NET_STALE_TTL, prev);
+    await redis.setex(key, NET_CACHE_TTL, JSON.stringify(payload));
+  } catch (_e) {}
+}
+
+// One in-flight background job per key (Map), errors logged — never thrown.
+const _netJobs = new Map();
+function refreshNetCache(key, computeFn) {
+  if (_netJobs.has(key)) return;
+  _netJobs.set(key, (async () => {
+    try {
+      const payload = await computeFn();
+      await netCacheSet(key, payload);
+    } catch (err) {
+      logger.error(`[network] background refresh ${key}: ${err.message}`);
+    } finally {
+      _netJobs.delete(key);
+    }
+  })());
+}
 
 // `raw->>'Key' IS NOT NULL` is a function call: no index applies and Postgres
 // deserialises every row of collection_timeline. `jsonb_top_keys(raw) && ARRAY[...]`
@@ -158,7 +218,7 @@ router.get('/:caseId', authenticate, async (req, res) => {
     }
 
     query += ' ORDER BY first_seen ASC';
-    const result = await readPool.query(query, params);
+    const result = await netPool.query(query, params);
     res.json(result.rows);
   } catch (err) {
     return sendQueryError(res, err, 'GET /:caseId');
@@ -181,7 +241,7 @@ router.post('/:caseId', authenticate, async (req, res) => {
 
 router.get('/:caseId/stats', authenticate, async (req, res) => {
   try {
-    const stats = await readPool.query(`
+    const stats = await netPool.query(`
       SELECT
         COUNT(*) as total_connections,
         COUNT(*) FILTER (WHERE is_suspicious) as suspicious_connections,
@@ -198,21 +258,19 @@ router.get('/:caseId/stats', authenticate, async (req, res) => {
   }
 });
 
-router.get('/:caseId/graph', authenticate, requireRole('admin', 'analyst'), async (req, res) => {
-  try {
-    const { caseId } = req.params;
-    const { evidence_id } = req.query;
-
-    const ctEvidenceFilter = evidence_id
+// ── Legacy /graph builder — same sources as the network view of graph-data
+// but with a flatter payload (nodes/edges/total_records) for the legacy view.
+async function buildLegacyGraph(caseId, evidenceId) {
+    const ctEvidenceFilter = evidenceId
       ? `AND result_id IN (SELECT id FROM parser_results WHERE evidence_id = $2)`
       : '';
-    const ctParams = evidence_id ? [caseId, evidence_id] : [caseId];
+    const ctParams = evidenceId ? [caseId, evidenceId] : [caseId];
 
     const [r1, r2, r3, r4] = await Promise.all([
 
-      evidence_id
+      evidenceId
         ? Promise.resolve({ rows: [] })
-        : readPool.query(`
+        : netPool.query(`
         SELECT src_ip, dst_ip, dst_port::text AS dst_port, protocol,
                COUNT(*) AS connection_count,
                SUM(COALESCE(bytes_sent,0) + COALESCE(bytes_received,0)) AS total_bytes,
@@ -227,7 +285,7 @@ router.get('/:caseId/graph', authenticate, requireRole('admin', 'analyst'), asyn
         LIMIT 300
       `, [caseId]),
 
-      readPool.query(`
+      netPool.query(`
         SELECT src_ip, dst_ip, dst_port, protocol,
                COUNT(*) AS connection_count, 0::bigint AS total_bytes, false AS is_suspicious,
                MIN(ts) AS first_seen, MAX(ts) AS last_seen
@@ -270,7 +328,7 @@ router.get('/:caseId/graph', authenticate, requireRole('admin', 'analyst'), asyn
         LIMIT 300
       `, ctParams),
 
-      readPool.query(`
+      netPool.query(`
         SELECT value, ioc_type::text AS ioc_type, is_malicious, severity
         FROM iocs
         WHERE case_id = $1 AND ioc_type IN ('ip', 'domain', 'url')
@@ -278,7 +336,7 @@ router.get('/:caseId/graph', authenticate, requireRole('admin', 'analyst'), asyn
         LIMIT 200
       `, [caseId]),
 
-      readPool.query(`
+      netPool.query(`
         SELECT
           COALESCE(NULLIF(TRIM(host_name), ''), 'local') AS src_host,
           raw->>'URL' AS dst_url,
@@ -374,11 +432,26 @@ router.get('/:caseId/graph', authenticate, requireRole('admin', 'analyst'), asyn
     }
 
     enrichNodes(nodeMap, edges);
-    res.json({
+    return {
       nodes: Array.from(nodeMap.values()),
       edges,
       total_records: edges.length,
-    });
+    };
+}
+
+router.get('/:caseId/graph', authenticate, requireRole('admin', 'analyst'), async (req, res) => {
+  try {
+    const { caseId } = req.params;
+    const { evidence_id } = req.query;
+    const cacheKey = `netc:${caseId}:graph:${evidence_id || ''}`;
+    const cached = await netCacheGet(cacheKey);
+    if (cached) {
+      if (!cached.fresh) refreshNetCache(cacheKey, () => buildLegacyGraph(caseId, evidence_id || null));
+      return res.json(cached.payload);
+    }
+    const payload = await buildLegacyGraph(caseId, evidence_id || null);
+    await netCacheSet(cacheKey, payload);
+    res.json(payload);
   } catch (err) {
     return sendQueryError(res, err, 'GET /:caseId/graph');
   }
@@ -521,7 +594,7 @@ async function buildNetworkGraph(caseId, evidenceIdList, pool, fromTs, toTs) {
     // ── Source 1: network_connections table (PCAP / CSV imports) ──
     // network_connections has no evidence_id column, so always query by case_id.
     // A collection-scoped view still shows all TCP flows for the case.
-    readPool.query(`
+    netPool.query(`
       SELECT src_ip, dst_ip, dst_port::text AS dst_port, protocol,
              COUNT(*) AS connection_count,
              SUM(COALESCE(bytes_sent,0) + COALESCE(bytes_received,0)) AS total_bytes,
@@ -539,7 +612,7 @@ async function buildNetworkGraph(caseId, evidenceIdList, pool, fromTs, toTs) {
     //   src: SourceIp (Sysmon EID 3) > src_ip column > SourceAddress (WFP 5156) > Computer hostname
     //   dst: DestinationHostname (resolved name, best for display) > DestinationIp > legacy aliases
     //   process: Image field from Sysmon — which process made this connection
-    readPool.query(`
+    netPool.query(`
       SELECT src_ip, dst_ip, dst_port, protocol, process_name,
              COUNT(*) AS connection_count, 0::bigint AS total_bytes, false AS is_suspicious
       FROM (
@@ -599,7 +672,7 @@ async function buildNetworkGraph(caseId, evidenceIdList, pool, fromTs, toTs) {
     `, ctParams),
 
     // ── Source 3: IOCs ──
-    readPool.query(`
+    netPool.query(`
       SELECT value, ioc_type::text AS ioc_type, is_malicious, severity
       FROM iocs
       WHERE case_id = $1 AND ioc_type IN ('ip', 'domain', 'url')
@@ -608,7 +681,7 @@ async function buildNetworkGraph(caseId, evidenceIdList, pool, fromTs, toTs) {
     `, [caseId]),
 
     // ── Source 4: evidence sources that have network data ──
-    readPool.query(`
+    netPool.query(`
       SELECT DISTINCT e.id, e.name, e.original_filename
       FROM evidence e
       JOIN parser_results pr ON pr.evidence_id = e.id
@@ -622,7 +695,7 @@ async function buildNetworkGraph(caseId, evidenceIdList, pool, fromTs, toTs) {
     `, [caseId]),
 
     // ── Source 5: browser history (SQLite via sqle parser) ──
-    readPool.query(`
+    netPool.query(`
       SELECT
         COALESCE(NULLIF(TRIM(host_name), ''), 'local') AS src_host,
         raw->>'URL' AS dst_url,
@@ -732,19 +805,19 @@ async function buildAttackPath(caseId, pool) {
   const MITRE_TAG_RE = /attack\.(t\d{4}(?:\.\d{3})?)/gi;
 
   const [r1, r2, r3] = await Promise.all([
-    readPool.query(`
+    netPool.query(`
       SELECT technique_id, tactic, technique_name, confidence, notes, created_at
       FROM case_mitre_techniques WHERE case_id = $1 ORDER BY created_at ASC
     `, [caseId]),
 
-    readPool.query(`
+    netPool.query(`
       SELECT id, event_timestamp, title, description, mitre_technique, mitre_tactic, color, artifact_ref
       FROM timeline_bookmarks
       WHERE case_id = $1 AND mitre_technique IS NOT NULL
       ORDER BY event_timestamp ASC
     `, [caseId]),
 
-    readPool.query(`
+    netPool.query(`
       SELECT id, hunted_at AS created_at, rule_name, matched_events
       FROM sigma_hunt_results WHERE case_id = $1 ORDER BY hunted_at ASC
     `, [caseId]),
@@ -842,19 +915,31 @@ async function buildAttackPath(caseId, pool) {
   };
 }
 
+// ── graph-data builder (network + attack-path views) ─────────────────────────
+async function buildGraphData(caseId, view, evidenceIdList, fromTs, toTs) {
+    const result = {};
+    if (view === 'network' || view === 'all') {
+      result.network = await buildNetworkGraph(caseId, evidenceIdList, pool, fromTs || null, toTs || null);
+    }
+    if (view === 'attack' || view === 'all') {
+      result.attack = await buildAttackPath(caseId, pool);
+    }
+    return result;
+}
+
 router.get('/:caseId/graph-data', authenticate, requireRole('admin', 'analyst'), async (req, res) => {
   try {
     const { caseId } = req.params;
     const { view = 'all', evidence_ids, from_ts, to_ts } = req.query;
     const evidenceIdList = evidence_ids ? evidence_ids.split(',').filter(Boolean) : [];
-
-    const result = {};
-    if (view === 'network' || view === 'all') {
-      result.network = await buildNetworkGraph(caseId, evidenceIdList, pool, from_ts || null, to_ts || null);
+    const cacheKey = `netc:${caseId}:gd:${view}:${evidence_ids || ''}:${from_ts || ''}:${to_ts || ''}`;
+    const cached = await netCacheGet(cacheKey);
+    if (cached) {
+      if (!cached.fresh) refreshNetCache(cacheKey, () => buildGraphData(caseId, view, evidenceIdList, from_ts || null, to_ts || null));
+      return res.json(cached.payload);
     }
-    if (view === 'attack' || view === 'all') {
-      result.attack = await buildAttackPath(caseId, pool);
-    }
+    const result = await buildGraphData(caseId, view, evidenceIdList, from_ts || null, to_ts || null);
+    await netCacheSet(cacheKey, result);
     res.json(result);
   } catch (err) {
     return sendQueryError(res, err, 'GET /:caseId/graph-data');
@@ -870,7 +955,7 @@ router.get('/:caseId/graph-data/events', authenticate, async (req, res) => {
     // Strip cluster/domain prefix for matching
     const matchId = node_id.replace(/^(cluster:|domain:)/, '');
 
-    const result = await readPool.query(`
+    const result = await netPool.query(`
       SELECT
         ct.timestamp,
         ct.artifact_type,
@@ -983,17 +1068,14 @@ function computeDgaScore(name) {
 // variation (CV = stddev / avg) of inter-connection intervals.
 // CV < 0.35 with ≥ 5 events signals suspiciously regular behaviour (C2 beacon).
 // beacon_score = (1 - CV) * 100  →  100 = perfectly regular, 65 = CV=0.35 threshold.
-router.get('/:caseId/beacons', authenticate, async (req, res) => {
-  try {
-    const { caseId } = req.params;
-    const { from_ts, to_ts } = req.query;
-
+// ── Beaconing detector (CV of inter-connection intervals) ────────────────────
+async function buildBeacons(caseId, fromTs, toTs) {
     const params = [caseId];
     let timeFilter = '';
-    if (from_ts) { params.push(from_ts); timeFilter += ` AND timestamp >= $${params.length}::timestamptz`; }
-    if (to_ts)   { params.push(to_ts);   timeFilter += ` AND timestamp <= $${params.length}::timestamptz`; }
+    if (fromTs) { params.push(fromTs); timeFilter += ` AND timestamp >= $${params.length}::timestamptz`; }
+    if (toTs)   { params.push(toTs);   timeFilter += ` AND timestamp <= $${params.length}::timestamptz`; }
 
-    const result = await readPool.query(`
+    const result = await netPool.query(`
       WITH raw_events AS (
         SELECT
           COALESCE(
@@ -1068,10 +1150,25 @@ router.get('/:caseId/beacons', authenticate, async (req, res) => {
       LIMIT 50
     `, params);
 
-    res.json({
+    return {
       beacons:  result.rows,
       total:    result.rows.length,
-    });
+    };
+}
+
+router.get('/:caseId/beacons', authenticate, async (req, res) => {
+  try {
+    const { caseId } = req.params;
+    const { from_ts, to_ts } = req.query;
+    const cacheKey = `netc:${caseId}:beacons:${from_ts || ''}:${to_ts || ''}`;
+    const cached = await netCacheGet(cacheKey);
+    if (cached) {
+      if (!cached.fresh) refreshNetCache(cacheKey, () => buildBeacons(caseId, from_ts || null, to_ts || null));
+      return res.json(cached.payload);
+    }
+    const payload = await buildBeacons(caseId, from_ts || null, to_ts || null);
+    await netCacheSet(cacheKey, payload);
+    res.json(payload);
   } catch (err) {
     return sendQueryError(res, err, 'GET /:caseId/beacons');
   }
@@ -1080,7 +1177,7 @@ router.get('/:caseId/beacons', authenticate, async (req, res) => {
 router.get('/:caseId/dga-analysis', authenticate, async (req, res) => {
   try {
     const { caseId } = req.params;
-    const result = await readPool.query(
+    const result = await netPool.query(
       `SELECT value FROM iocs WHERE case_id = $1 AND ioc_type = 'domain'`,
       [caseId]
     );
@@ -1125,7 +1222,7 @@ router.get('/:caseId/dga-analysis', authenticate, async (req, res) => {
 router.get('/:caseId/annotations', authenticate, requireRole('admin', 'analyst'), async (req, res) => {
   try {
     const { caseId } = req.params;
-    const result = await readPool.query(
+    const result = await netPool.query(
       'SELECT data FROM network_annotations WHERE case_id = $1',
       [caseId]
     );
@@ -1250,25 +1347,37 @@ function mergeGlobalGraph(results, evidences) {
   };
 }
 
-router.get('/:caseId/global-graph', authenticate, requireRole('admin', 'analyst'), async (req, res) => {
-  try {
-    const { caseId } = req.params;
-
-    const evidencesResult = await readPool.query(
+// ── Global graph: one network graph per evidence, merged case-wide ──────────
+// (Heaviest endpoint: N × buildNetworkGraph. Cached with serve-stale.)
+async function buildGlobalGraph(caseId) {
+    const evidencesResult = await netPool.query(
       `SELECT id, name, original_filename FROM evidence WHERE case_id = $1 ORDER BY created_at ASC`,
       [caseId]
     );
     const evidences = evidencesResult.rows;
 
     if (!evidences.length) {
-      return res.json({ nodes: [], edges: [], evidence_sources: [], truncated: false });
+      return { nodes: [], edges: [], evidence_sources: [], truncated: false };
     }
 
     const results = await Promise.all(
       evidences.map(ev => buildNetworkGraph(caseId, [ev.id], pool, null, null))
     );
 
-    const graph = mergeGlobalGraph(results, evidences);
+    return mergeGlobalGraph(results, evidences);
+}
+
+router.get('/:caseId/global-graph', authenticate, requireRole('admin', 'analyst'), async (req, res) => {
+  try {
+    const { caseId } = req.params;
+    const cacheKey = `netc:${caseId}:global-graph`;
+    const cached = await netCacheGet(cacheKey);
+    if (cached) {
+      if (!cached.fresh) refreshNetCache(cacheKey, () => buildGlobalGraph(caseId));
+      return res.json(cached.payload);
+    }
+    const graph = await buildGlobalGraph(caseId);
+    await netCacheSet(cacheKey, graph);
     res.json(graph);
   } catch (err) {
     return sendQueryError(res, err, 'GET /:caseId/global-graph');
@@ -1282,15 +1391,16 @@ router.get('/:caseId/global-graph', authenticate, requireRole('admin', 'analyst'
 const INTERNAL_SQL = (col) =>
   `(${col} LIKE '10.%' OR ${col} LIKE '192.168.%' OR ${col} ~ '^172\\.(1[6-9]|2[0-9]|3[01])\\.' OR ${col} LIKE '169.254.%' OR ${col} LIKE 'fe80:%' OR ${col} LIKE 'fc%' OR ${col} LIKE 'fd%')`;
 
-router.get('/:caseId/analytics', authenticate, async (req, res) => {
-  const cid = req.params.caseId;
+// ── Phase 2 behavioural analytics over network_connections (serve-stale cached) ─
+async function buildAnalytics(caseId) {
+  const cid = caseId;
   try {
     const findings = [];
     const nodeFlags = {}; // ip -> { exfil, scanner, lateral, pivot, rare }
     const flag = (ip, k) => { if (!ip) return; (nodeFlags[ip] = nodeFlags[ip] || {})[k] = true; };
 
     // 1. Exfiltration — large outbound volume to an external destination.
-    const exfil = (await readPool.query(
+    const exfil = (await netPool.query(
       `SELECT src_ip, dst_ip, SUM(bytes_sent) AS sent, SUM(bytes_received) AS recv
          FROM network_connections WHERE case_id=$1 AND NOT ${INTERNAL_SQL('dst_ip')}
          GROUP BY src_ip, dst_ip HAVING SUM(bytes_sent) > 52428800
@@ -1298,7 +1408,7 @@ router.get('/:caseId/analytics', authenticate, async (req, res) => {
     exfil.forEach(r => { flag(r.src_ip, 'exfil'); findings.push({ type: 'exfil', severity: 'ÉLEVÉ', mitre: 'T1048', src: r.src_ip, dst: r.dst_ip, label: `Exfiltration possible — ${(r.sent / 1048576).toFixed(0)} Mo sortants vers ${r.dst_ip}` }); });
 
     // 2. Scan / sweep — one source reaching many distinct hosts or ports.
-    const scan = (await readPool.query(
+    const scan = (await netPool.query(
       `SELECT src_ip, COUNT(DISTINCT dst_ip) AS hosts, COUNT(DISTINCT dst_port) AS ports
          FROM network_connections WHERE case_id=$1
          GROUP BY src_ip HAVING COUNT(DISTINCT dst_ip) >= 25 OR COUNT(DISTINCT dst_port) >= 25
@@ -1306,7 +1416,7 @@ router.get('/:caseId/analytics', authenticate, async (req, res) => {
     scan.forEach(r => { flag(r.src_ip, 'scanner'); findings.push({ type: 'scan', severity: 'ÉLEVÉ', mitre: 'T1046', src: r.src_ip, label: `Scan/sweep — ${r.hosts} hôtes, ${r.ports} ports depuis ${r.src_ip}` }); });
 
     // 3. Lateral movement — internal→internal on admin ports.
-    const lateral = (await readPool.query(
+    const lateral = (await netPool.query(
       `SELECT src_ip, dst_ip, dst_port, COUNT(*) AS n
          FROM network_connections WHERE case_id=$1
            AND dst_port IN (3389,445,5985,5986,22,135,139,5900)
@@ -1316,7 +1426,7 @@ router.get('/:caseId/analytics', authenticate, async (req, res) => {
     lateral.forEach(r => { flag(r.src_ip, 'lateral'); flag(r.dst_ip, 'lateral'); findings.push({ type: 'lateral', severity: 'ÉLEVÉ', mitre: 'T1021', src: r.src_ip, dst: r.dst_ip, label: `Mouvement latéral — ${PORTNAME[r.dst_port] || r.dst_port} ${r.src_ip} → ${r.dst_ip}` }); });
 
     // 4. Pivot host — internal node with high in AND out internal degree.
-    const pivot = (await readPool.query(
+    const pivot = (await netPool.query(
       `WITH deg AS (
          SELECT src_ip AS ip, COUNT(DISTINCT dst_ip) AS out_d, 0 AS in_d FROM network_connections WHERE case_id=$1 AND ${INTERNAL_SQL('src_ip')} GROUP BY src_ip
          UNION ALL
@@ -1325,25 +1435,25 @@ router.get('/:caseId/analytics', authenticate, async (req, res) => {
     pivot.forEach(r => { flag(r.ip, 'pivot'); findings.push({ type: 'pivot', severity: 'MOYEN', mitre: 'T1570', src: r.ip, label: `Relais de pivot — ${r.ip} (${r.i} entrants / ${r.o} sortants)` }); });
 
     // 5. Rare external connection — a single connection to an external host on a high port.
-    const rare = (await readPool.query(
+    const rare = (await netPool.query(
       `SELECT src_ip, dst_ip, dst_port FROM network_connections
         WHERE case_id=$1 AND NOT ${INTERNAL_SQL('dst_ip')} AND dst_port > 1024 AND dst_port NOT IN (8080,8443,3128)
         GROUP BY src_ip, dst_ip, dst_port HAVING COUNT(*) = 1 ORDER BY dst_port DESC LIMIT 25`, [cid])).rows;
     rare.forEach(r => { flag(r.dst_ip, 'rare'); findings.push({ type: 'rare', severity: 'FAIBLE', mitre: 'T1571', src: r.src_ip, dst: r.dst_ip, label: `Connexion externe rare — ${r.src_ip} → ${r.dst_ip}:${r.dst_port}` }); });
 
     // 6. Threat Intel — node matches a known-bad indicator (TAXII / feed correlation).
-    const ti = (await readPool.query(
+    const ti = (await netPool.query(
       `SELECT DISTINCT ioc_value, indicator_name, source_name FROM threat_correlations WHERE case_id=$1 LIMIT 50`, [cid])).rows;
     ti.forEach(r => { flag(r.ioc_value, 'knownBad'); findings.unshift({ type: 'threat-intel', severity: 'CRITIQUE', mitre: 'T1071', src: r.ioc_value, dst: r.ioc_value, label: `Known-bad (${r.source_name || 'feed'}) — ${r.ioc_value}${r.indicator_name ? ' · ' + r.indicator_name : ''}` }); });
 
     // GeoIP summary of external destinations.
-    const geo = (await readPool.query(
+    const geo = (await netPool.query(
       `SELECT geo_dst->>'country' AS country, COUNT(DISTINCT dst_ip) AS hosts
          FROM network_connections WHERE case_id=$1 AND COALESCE(geo_dst->>'country','') <> ''
          GROUP BY country ORDER BY hosts DESC LIMIT 10`, [cid])).rows;
 
     // Auto zone classification (internal vs external, + cloud by geo org).
-    const zones = (await readPool.query(
+    const zones = (await netPool.query(
       `SELECT
          COUNT(DISTINCT ip) FILTER (WHERE internal)                       AS internal,
          COUNT(DISTINCT ip) FILTER (WHERE NOT internal AND NOT cloud)     AS external,
@@ -1356,15 +1466,395 @@ router.get('/:caseId/analytics', authenticate, async (req, res) => {
            FROM network_connections WHERE case_id=$1
        ) u`, [cid])).rows[0] || {};
 
-    res.json({
+    return {
       findings, nodeFlags,
       counts: { exfil: exfil.length, scan: scan.length, lateral: lateral.length, pivot: pivot.length, rare: rare.length, knownBad: ti.length },
       geo, zones,
-    });
+    };
+  } catch (err) {
+    throw err;
+  }
+}
+
+router.get('/:caseId/analytics', authenticate, async (req, res) => {
+  try {
+    const { caseId } = req.params;
+    const cacheKey = `netc:${caseId}:analytics`;
+    const cached = await netCacheGet(cacheKey);
+    if (cached) {
+      if (!cached.fresh) refreshNetCache(cacheKey, () => buildAnalytics(caseId));
+      return res.json(cached.payload);
+    }
+    const payload = await buildAnalytics(caseId);
+    await netCacheSet(cacheKey, payload);
+    res.json(payload);
   } catch (err) {
     return sendQueryError(res, err, 'GET /:caseId/analytics');
   }
 });
 
+// ── Auth logon graph (LogonTracer-style) ─────────────────────────────────────
+// Windows Security logon events (4624 success / 4625 failed / 4648 explicit /
+// 4776 NTLM / 4768-4769 Kerberos / 4771 failed Kerberos) + Linux auth events
+// (catscale_auth: ssh_login/ssh_failed/ssh_invalid/su; catscale_logon: last).
+// Builds a user ↔ machine bipartite graph, edges tagged with logon type,
+// success/failure and time window — the LogonTracer view for a case.
+
+// Windows noise accounts that would drown the graph (system/service/dwm).
+const AUTH_NOISE_USERS = new Set([
+  'system', 'anonymous logon', 'local service', 'network service',
+  'dwm-0', 'dwm-1', 'dwm-2', 'dwm-3', 'umfd-0', 'umfd-1', 'umfd-2', 'umfd-3',
+  'window manager', 'null', '-', '',
+]);
+const AUTH_NOISE_SOURCES = new Set(['-', '', '::1', '127.0.0.1', 'localhost', '0.0.0.0']);
+
+function cleanAuthUser(u) {
+  if (!u) return null;
+  let s = String(u).trim();
+  if (!s) return null;
+  // DOMAIN\user → user
+  const bs = s.indexOf('\\');
+  if (bs >= 0) s = s.slice(bs + 1);
+  // user@DOMAIN → user
+  const at = s.indexOf('@');
+  if (at > 0) s = s.slice(0, at);
+  if (!s || AUTH_NOISE_USERS.has(s.toLowerCase())) return null;
+  // Machine accounts end with $ (DESKTOP-ABC$, DC01$@TRIDSK.LOCAL → DC01$)
+  if (s.endsWith('$')) return null;
+  return s;
+}
+
+function cleanAuthMachine(m) {
+  if (!m) return null;
+  const s = String(m).trim();
+  if (!s || AUTH_NOISE_SOURCES.has(s.toLowerCase())) return null;
+  return s;
+}
+
+// Normalize LogonType variants: "2 - INTERACTIVE", "2", "10 - REMOTE" → "2".
+function normalizeLogonType(lt) {
+  if (!lt) return 'unknown';
+  const s = String(lt).trim();
+  const m = /^(\d+)/.exec(s);
+  return m ? m[1] : s.toLowerCase().replace(/\s+/g, '_');
+}
+
+async function buildAuthGraph(caseId, evidenceIdList = []) {
+  const hasFilter = evidenceIdList.length > 0;
+  const ctEvidenceFilter = hasFilter
+    ? `AND result_id IN (SELECT id FROM parser_results WHERE evidence_id = ANY($2::uuid[]))`
+    : '';
+  const ctParams = hasFilter ? [caseId, evidenceIdList] : [caseId];
+
+  const result = await netPool.query(`
+    WITH auth_events AS (
+      SELECT
+        -- username
+        CASE
+          WHEN artifact_type IN ('evtx','sysmon','hayabusa') THEN COALESCE(
+            NULLIF(TRIM(raw->'AllFieldInfo'->>'TargetUserName'), ''),
+            NULLIF(TRIM(raw->>'TargetUserName'), ''),
+            NULLIF(TRIM(raw->'AllFieldInfo'->>'SubjectUserName'), ''),
+            NULLIF(TRIM(raw->>'SubjectUserName'), '')
+          )
+          WHEN artifact_type IN ('catscale_auth','catscale_logon') THEN COALESCE(
+            NULLIF(TRIM(raw->>'username'), ''),
+            NULLIF(TRIM(user_name), '')
+          )
+        END AS username,
+        -- machine (target host)
+        CASE
+          WHEN artifact_type IN ('evtx','sysmon','hayabusa') THEN COALESCE(
+            NULLIF(TRIM(raw->>'Computer'), ''),
+            NULLIF(TRIM(raw->>'ComputerName'), ''),
+            NULLIF(TRIM(host_name), '')
+          )
+          ELSE NULLIF(TRIM(host_name), '')
+        END AS machine,
+        -- source (workstation / ip)
+        CASE
+          WHEN artifact_type IN ('evtx','sysmon','hayabusa') THEN COALESCE(
+            NULLIF(TRIM(raw->'AllFieldInfo'->>'IpAddress'), ''),
+            NULLIF(TRIM(raw->>'IpAddress'), ''),
+            NULLIF(TRIM(raw->'AllFieldInfo'->>'WorkstationName'), ''),
+            NULLIF(TRIM(raw->>'WorkstationName'), ''),
+            NULLIF(TRIM(raw->>'RemoteHost'), '')
+          )
+          WHEN artifact_type = 'catscale_auth' THEN COALESCE(
+            NULLIF(TRIM(raw->>'source_ip'), ''),
+            NULLIF(src_ip::text, '')
+          )
+          WHEN artifact_type = 'catscale_logon' THEN COALESCE(
+            NULLIF(TRIM(raw->>'from'), ''),
+            NULLIF(src_ip::text, '')
+          )
+        END AS source,
+        -- logon type
+        CASE
+          WHEN artifact_type IN ('evtx','sysmon','hayabusa') THEN COALESCE(
+            raw->'AllFieldInfo'->>'LogonType',
+            raw->>'LogonType'
+          )
+          WHEN artifact_type = 'catscale_auth' THEN raw->>'category'
+          WHEN artifact_type = 'catscale_logon' THEN raw->>'type'
+        END AS logon_type,
+        -- success / failed
+        CASE
+          WHEN artifact_type IN ('evtx','sysmon','hayabusa') THEN
+            CASE WHEN event_id = 4625 THEN 'failed' ELSE 'success' END
+          WHEN artifact_type = 'catscale_auth' THEN
+            CASE WHEN raw->>'category' IN ('ssh_login') THEN 'success'
+                 WHEN raw->>'category' IN ('ssh_failed','ssh_invalid') THEN 'failed'
+                 ELSE 'other' END
+          WHEN artifact_type = 'catscale_logon' THEN
+            CASE WHEN raw->>'type' = 'logon' THEN 'success' ELSE 'other' END
+        END AS status,
+        event_id,
+        timestamp
+      FROM collection_timeline
+      WHERE case_id = $1
+        ${ctEvidenceFilter}
+        AND (
+          (artifact_type IN ('evtx','sysmon','hayabusa') AND (
+            event_id IN (4624,4625,4648,4768,4769,4776,4771)
+            OR COALESCE(raw->>'EventId', raw->>'EventID') IN ('4624','4625','4648','4768','4769','4776','4771')
+          ))
+          OR artifact_type IN ('catscale_auth','catscale_logon')
+        )
+    )
+    SELECT
+      username, machine, source, logon_type, status, event_id,
+      COUNT(*)::int AS event_count,
+      MIN(timestamp) AS first_seen,
+      MAX(timestamp) AS last_seen
+    FROM auth_events
+    WHERE username IS NOT NULL AND machine IS NOT NULL
+      AND username <> '' AND machine <> ''
+      AND username NOT ILIKE '%$'
+    GROUP BY username, machine, source, logon_type, status, event_id
+    ORDER BY event_count DESC
+    LIMIT 8000
+  `, ctParams);
+
+  const rows = result.rows;
+
+  // ── Aggregate into user ↔ machine edges ──
+  const nodeMap = new Map();
+  const edgeMap = new Map();
+  const getUserNode = (id) => {
+    if (!nodeMap.has(`u:${id}`)) nodeMap.set(`u:${id}`, { id: `u:${id}`, kind: 'user', name: id, total_events: 0, success: 0, failed: 0, machines: new Set(), first_seen: null, last_seen: null });
+    return nodeMap.get(`u:${id}`);
+  };
+  const getMachineNode = (id) => {
+    if (!nodeMap.has(`m:${id}`)) nodeMap.set(`m:${id}`, { id: `m:${id}`, kind: 'machine', name: id, total_events: 0, success: 0, failed: 0, users: new Set(), first_seen: null, last_seen: null });
+    return nodeMap.get(`m:${id}`);
+  };
+
+  let totalEvents = 0, failedEvents = 0, rdpEvents = 0;
+  const logonTypeCounts = {};
+  const sourceCounts = {};
+
+  for (const r of rows) {
+    const user = cleanAuthUser(r.username);
+    const machine = cleanAuthMachine(r.machine);
+    if (!user || !machine) continue;
+    const source = cleanAuthMachine(r.source);
+    const lt = normalizeLogonType(r.logon_type);
+    const isFailed = r.status === 'failed';
+    const count = r.event_count || 1;
+
+    totalEvents += count;
+    if (isFailed) failedEvents += count;
+    if (lt === '10') rdpEvents += count;
+    logonTypeCounts[lt] = (logonTypeCounts[lt] || 0) + count;
+    if (source && source !== '-') sourceCounts[source] = (sourceCounts[source] || 0) + count;
+
+    const u = getUserNode(user);
+    const m = getMachineNode(machine);
+    u.total_events += count; u.machines.add(machine);
+    m.total_events += count; m.users.add(user);
+    if (isFailed) { u.failed += count; m.failed += count; } else { u.success += count; m.success += count; }
+    if (!u.first_seen || r.first_seen < u.first_seen) u.first_seen = r.first_seen;
+    if (!m.first_seen || r.first_seen < m.first_seen) m.first_seen = r.first_seen;
+    if (!u.last_seen || r.last_seen > u.last_seen) u.last_seen = r.last_seen;
+    if (!m.last_seen || r.last_seen > m.last_seen) m.last_seen = r.last_seen;
+
+    const key = `${user}||${machine}`;
+    if (!edgeMap.has(key)) {
+      edgeMap.set(key, {
+        source: `u:${user}`, target: `m:${machine}`,
+        count: 0, success: 0, failed: 0,
+        logon_types: {}, statuses: {},
+        sources: {}, event_ids: {},
+        first_seen: null, last_seen: null,
+      });
+    }
+    const e = edgeMap.get(key);
+    e.count += count;
+    if (isFailed) e.failed += count; else e.success += count;
+    e.logon_types[lt] = (e.logon_types[lt] || 0) + count;
+    e.statuses[r.status || 'unknown'] = (e.statuses[r.status || 'unknown'] || 0) + count;
+    if (source && source !== '-') e.sources[source] = (e.sources[source] || 0) + count;
+    if (r.event_id != null) e.event_ids[String(r.event_id)] = (e.event_ids[String(r.event_id)] || 0) + count;
+    if (!e.first_seen || r.first_seen < e.first_seen) e.first_seen = r.first_seen;
+    if (!e.last_seen || r.last_seen > e.last_seen) e.last_seen = r.last_seen;
+  }
+
+  const edges = [...edgeMap.values()].map(e => ({
+    source: e.source, target: e.target,
+    count: e.count, success: e.success, failed: e.failed,
+    logon_types: e.logon_types,
+    statuses: e.statuses,
+    sources: Object.entries(e.sources).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([v]) => v),
+    event_ids: Object.entries(e.event_ids).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([v]) => v),
+    first_seen: e.first_seen, last_seen: e.last_seen,
+  }));
+
+  const nodes = [...nodeMap.values()].map(n => ({
+    id: n.id, kind: n.kind, name: n.name,
+    total_events: n.total_events, success: n.success, failed: n.failed,
+    degree: n.kind === 'user' ? n.machines.size : n.users.size,
+    first_seen: n.first_seen, last_seen: n.last_seen,
+  }));
+
+  return {
+    nodes,
+    edges,
+    stats: {
+      users: nodes.filter(n => n.kind === 'user').length,
+      machines: nodes.filter(n => n.kind === 'machine').length,
+      edges: edges.length,
+      total_events: totalEvents,
+      failed_events: failedEvents,
+      rdp_events: rdpEvents,
+      logon_types: Object.entries(logonTypeCounts).sort((a, b) => b[1] - a[1]),
+      top_sources: Object.entries(sourceCounts).sort((a, b) => b[1] - a[1]).slice(0, 10),
+    },
+    truncated: rows.length >= 8000,
+  };
+}
+
+router.get('/:caseId/auth-graph', authenticate, requireRole('admin', 'analyst'), async (req, res) => {
+  try {
+    const { caseId } = req.params;
+    const { evidence_ids } = req.query;
+    const evidenceIdList = evidence_ids ? String(evidence_ids).split(',').filter(Boolean) : [];
+    const cacheKey = `netc:${caseId}:auth-graph:${evidence_ids || ''}`;
+    const cached = await netCacheGet(cacheKey);
+    if (cached) {
+      if (!cached.fresh) refreshNetCache(cacheKey, () => buildAuthGraph(caseId, evidenceIdList));
+      return res.json(cached.payload);
+    }
+    const payload = await buildAuthGraph(caseId, evidenceIdList);
+    await netCacheSet(cacheKey, payload);
+    res.json(payload);
+  } catch (err) {
+    return sendQueryError(res, err, 'GET /:caseId/auth-graph');
+  }
+});
+
+// Raw auth events for one user ↔ machine pair (or one node), for the detail
+// drawer. Mirrors the auth_events projection of buildAuthGraph so the rows
+// shown match the graph exactly (same cleaning rules applied client-side).
+router.get('/:caseId/auth-graph/events', authenticate, async (req, res) => {
+  try {
+    const { caseId } = req.params;
+    const { user, machine, evidence_ids, limit = 200 } = req.query;
+    if (!user && !machine) return res.status(400).json({ error: 'user ou machine requis' });
+
+    const evidenceIdList = evidence_ids ? String(evidence_ids).split(',').filter(Boolean) : [];
+    const ctEvidenceFilter = evidenceIdList.length
+      ? `AND result_id IN (SELECT id FROM parser_results WHERE evidence_id = ANY($${evidenceIdList.length + 1}::uuid[]))`
+      : '';
+    const params = [caseId];
+    if (evidenceIdList.length) params.push(evidenceIdList);
+
+    // Match on the SAME normalized forms the graph uses: strip DOMAIN\ and @DOMAIN.
+    const userFilter = user ? ` AND COALESCE(
+        NULLIF(TRIM(raw->'AllFieldInfo'->>'TargetUserName'), ''),
+        NULLIF(TRIM(raw->>'TargetUserName'), ''),
+        NULLIF(TRIM(raw->'AllFieldInfo'->>'SubjectUserName'), ''),
+        NULLIF(TRIM(raw->>'SubjectUserName'), ''),
+        NULLIF(TRIM(raw->>'username'), ''),
+        NULLIF(TRIM(user_name), '')
+      ) ~* $${params.length + 1}` : '';
+    if (user) params.push(`(^|\\\\)${user.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(@|$)`);
+
+    const machineFilter = machine ? ` AND COALESCE(
+        NULLIF(TRIM(raw->>'Computer'), ''),
+        NULLIF(TRIM(raw->>'ComputerName'), ''),
+        NULLIF(TRIM(host_name), '')
+      ) = $${params.length + 1}` : '';
+    if (machine) params.push(machine);
+
+    const result = await netPool.query(`
+      SELECT
+        ct.timestamp,
+        ct.artifact_type,
+        ct.event_id,
+        ct.description,
+        ct.host_name,
+        ct.user_name,
+        ct.src_ip::text AS src_ip,
+        ct.process_name,
+        COALESCE(
+          NULLIF(TRIM(raw->'AllFieldInfo'->>'IpAddress'), ''),
+          NULLIF(TRIM(raw->>'IpAddress'), ''),
+          NULLIF(TRIM(raw->'AllFieldInfo'->>'WorkstationName'), ''),
+          NULLIF(TRIM(raw->>'WorkstationName'), ''),
+          NULLIF(TRIM(raw->>'RemoteHost'), ''),
+          NULLIF(TRIM(raw->>'source_ip'), '')
+        ) AS source,
+        COALESCE(
+          raw->'AllFieldInfo'->>'LogonType',
+          raw->>'LogonType',
+          raw->>'category',
+          raw->>'type'
+        ) AS logon_type,
+        CASE
+          WHEN ct.event_id = 4625 THEN 'failed'
+          WHEN ct.artifact_type IN ('evtx','sysmon','hayabusa') THEN 'success'
+          WHEN raw->>'category' IN ('ssh_login') THEN 'success'
+          WHEN raw->>'category' IN ('ssh_failed','ssh_invalid') THEN 'failed'
+          WHEN raw->>'type' = 'logon' THEN 'success'
+          ELSE 'other'
+        END AS status,
+        ct.raw
+      FROM collection_timeline ct
+      WHERE ct.case_id = $1
+        ${ctEvidenceFilter}
+        AND (
+          (ct.artifact_type IN ('evtx','sysmon','hayabusa') AND (
+            ct.event_id IN (4624,4625,4648,4768,4769,4776,4771)
+            OR COALESCE(ct.raw->>'EventId', ct.raw->>'EventID') IN ('4624','4625','4648','4768','4769','4776','4771')
+          ))
+          OR ct.artifact_type IN ('catscale_auth','catscale_logon')
+        )
+        ${userFilter}
+        ${machineFilter}
+      ORDER BY ct.timestamp DESC
+      LIMIT $${params.length + 1}
+    `, [...params, parseInt(limit) || 200]);
+
+    res.json({ events: result.rows, total: result.rowCount });
+  } catch (err) {
+    return sendQueryError(res, err, 'GET /:caseId/auth-graph/events');
+  }
+});
+
+// Recompute the default network views in the background — called at parse
+// finalization right after invalidateCaseCaches, so the first visit after a
+// parse is instant instead of a 30s synchronous recompute. Fire-and-forget:
+// errors are caught inside refreshNetCache.
+function prewarmNetworkCaches(caseId) {
+  refreshNetCache(`netc:${caseId}:gd:all:::`, () => buildGraphData(caseId, 'all', [], null, null));
+  refreshNetCache(`netc:${caseId}:beacons::`, () => buildBeacons(caseId, null, null));
+  refreshNetCache(`netc:${caseId}:global-graph`, () => buildGlobalGraph(caseId));
+  refreshNetCache(`netc:${caseId}:analytics`, () => buildAnalytics(caseId));
+  refreshNetCache(`netc:${caseId}:graph:`, () => buildLegacyGraph(caseId, null));
+  refreshNetCache(`netc:${caseId}:auth-graph`, () => buildAuthGraph(caseId));
+}
+
 module.exports = router;
 module.exports.mergeGlobalGraph = mergeGlobalGraph;
+module.exports.prewarmNetworkCaches = prewarmNetworkCaches;

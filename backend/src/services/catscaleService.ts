@@ -288,6 +288,25 @@ function countMarkers(dir: string): number {
   catch { return 0; }
 }
 
+// UAC (Unix-like Artifacts Collector) writes a different tree: live_response/
+// (network, process, packages, system, storage, hardware), system/ (suid/sgid…),
+// hash_executables/, bodyfile/ and a [root]/ copy of the filesystem. Cat-Scale's
+// marker dirs are absent, so a UAC archive used to fall through to the generic
+// Windows-oriented detection and parse almost nothing. Recognise it as the same
+// kind of Linux IR collection.
+const UAC_MARKER_DIRS = ['live_response', 'bodyfile', 'hash_executables', 'system', 'uac.log'];
+
+function isUacRoot(dir: string): boolean {
+  try {
+    const entries = fs.readdirSync(dir);
+    // uac.log is the collector's own log — the strongest single signal. Requiring
+    // at least one structural dir too keeps a random file named uac.log honest.
+    const hasLog = entries.includes('uac.log') || entries.includes('uac');
+    const structural = entries.filter(e => ['live_response', 'bodyfile', 'hash_executables', '[root]'].includes(e)).length;
+    return hasLog && structural >= 1;
+  } catch { return false; }
+}
+
 // Cat-Scale writes its output 0600/0700 as root; a backend that dropped
 // privileges gets EACCES on every readdir. findFiles/walkDir turn that into an
 // empty listing, which would otherwise surface as a successful parse of an empty
@@ -312,11 +331,13 @@ function unreadableDirs(root: string): string[] {
 
 export function findCatScaleRoot(extractDir: string): string | null {
   if (countMarkers(extractDir) >= 2) return extractDir;
+  if (isUacRoot(extractDir)) return extractDir;
   try {
     for (const e of fs.readdirSync(extractDir)) {
       const sub = path.join(extractDir, e);
       try {
-        if (fs.statSync(sub).isDirectory() && countMarkers(sub) >= 2) return sub;
+        if (fs.statSync(sub).isDirectory()
+          && (countMarkers(sub) >= 2 || isUacRoot(sub))) return sub;
       } catch (_e) {}
     }
   } catch (_e) {}
@@ -1136,6 +1157,137 @@ function locationKey(fullPath: string): string {
   return '/' + segs.slice(0, segs.length > 2 && fullPath.startsWith('/var/lib/') ? 3 : 2).join('/');
 }
 
+// UAC ships `bodyfile/bodyfile.txt` — a TSK bodyfile (the `fls`-style format,
+// pipe-separated, epoch timestamps) covering the whole filesystem. Same semantic
+// as Cat-Scale's full-timeline.csv (path + MACB timestamps), different layout:
+//   md5|name|inode|mode|uid|gid|size|atime|mtime|ctime|crtime
+// Rows are filtered through the same noise floor as the CSV timeline and emit
+// one timeline row per distinct parsable timestamp (MACB).
+async function parseBodyfile(
+  filePath: string, caseId: string, pool: Pool, hostname: string, collectedAt: Date,
+  link: TimelineLink = {}, stats?: FsTimelineFilterStats, exhaustive = false,
+): Promise<number> {
+  const rows: Row[] = [];
+  let inserted = 0;
+  const dropped = new Map<string, number>();
+  const note = (reason: keyof FsTimelineFilterStats['dropped'], p?: string) => {
+    if (!stats) return;
+    stats.dropped[reason] += 1;
+    if (p) dropped.set(locationKey(p), (dropped.get(locationKey(p)) ?? 0) + 1);
+  };
+  const cutoff = new Date(collectedAt.getTime() - 90 * 24 * 60 * 60 * 1000);
+
+  const epoch = (s: string | undefined): Date | null => {
+    if (!s || s === '0') return null;
+    const n = parseInt(s, 10);
+    if (isNaN(n) || n <= 0) return null;
+    const d = new Date(n * 1000);
+    return isNaN(d.getTime()) ? null : d;
+  };
+
+  const processLine = async (line: string): Promise<void> => {
+    if (stats) stats.scanned += 1;
+    const p = line.split('|');
+    if (p.length < 9) { note('unparsable'); return; }
+
+    const fullPath = p[1]?.trim();
+    if (!fullPath || fullPath === '-' || fullPath.startsWith('#')) { note('unparsable'); return; }
+    // Strip the symlink target "path -> target": the path itself is what matters.
+    const cleanPath = fullPath.split(' -> ')[0].trim();
+
+    if (!exhaustive && CONTAINER_LAYER_PREFIXES.some(pr => cleanPath.startsWith(pr))) {
+      note('container_layer', cleanPath); return;
+    }
+    const isSuspiciousExt = SUSPICIOUS_EXT_RE.test(cleanPath);
+    if (!exhaustive && !isSuspiciousExt && REBUILDABLE_RE.test(cleanPath)) {
+      note('rebuildable', cleanPath); return;
+    }
+    const isSuspiciousPath = SUSPICIOUS_PATHS.some(pr => cleanPath.startsWith(pr));
+    if (!exhaustive && !isSuspiciousPath && NOISE_PREFIXES.some(pr => cleanPath.startsWith(pr))) {
+      note('package_tree', cleanPath); return;
+    }
+
+    const modTs = epoch(p[8]);
+    const atsTs = epoch(p[7]);
+    const ctsTs = epoch(p[9]);
+    const crtTs = epoch(p[10]);
+
+    const anyRecent =
+      (modTs && modTs >= cutoff) || (atsTs && atsTs >= cutoff)
+      || (ctsTs && ctsTs >= cutoff) || (crtTs && crtTs >= cutoff);
+    if (!exhaustive && modTs && !isSuspiciousPath && !isSuspiciousExt && !anyRecent) {
+      note('not_relevant', cleanPath); return;
+    }
+    if (stats) stats.kept += 1;
+
+    const perms = p[3] ?? null;
+    const user  = p[4] ?? null;
+    const base = {
+      case_id: caseId,
+      artifact_type: 'catscale_fstimeline', artifact_name: 'Linux Filesystem Timeline',
+      source: 'bodyfile.txt',
+      raw: {
+        path: cleanPath, last_modified: modTs?.toISOString() ?? null,
+        atime: atsTs?.toISOString() ?? null, ctime: ctsTs?.toISOString() ?? null,
+        crtime: crtTs?.toISOString() ?? null,
+        permissions: perms, user, size: p[6] ?? null, inode: p[2] ?? null, md5: p[0] || null,
+        host: hostname,
+      },
+      host_name: hostname, user_name: user && user !== '0' ? user : null,
+      path: cleanPath, ext: extOf(cleanPath),
+    };
+
+    const kinds: { kind: string; ts: Date | null }[] = [
+      { kind: 'mtime',  ts: modTs },
+      { kind: 'atime',  ts: atsTs },
+      { kind: 'ctime',  ts: ctsTs },
+      { kind: 'crtime', ts: crtTs },
+    ];
+    const seen = new Set<string>();
+    let emitted = 0;
+    for (const { kind, ts } of kinds) {
+      if (!ts) continue;
+      const key = ts.toISOString();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      rows.push({
+        ...base,
+        timestamp: ts,
+        timestamp_kind: kind,
+        description: `${perms ?? ''} [${user ?? ''}] ${cleanPath} — ${kind.toUpperCase()}`,
+      });
+      emitted += 1;
+    }
+    if (emitted === 0) {
+      rows.push({
+        ...base,
+        timestamp: collectedAt,
+        timestamp_kind: 'collection',
+        description: `${perms ?? ''} [${user ?? ''}] ${cleanPath}`,
+      });
+    }
+
+    if (rows.length >= 1000) {
+      inserted += await batchInsert(pool, rows.splice(0), link);
+    }
+  };
+
+  for await (const line of readLines(filePath)) {
+    if (!line.trim()) continue;
+    await processLine(line);
+  }
+
+  inserted += await batchInsert(pool, rows, link);
+  if (stats) {
+    stats.top_dropped_locations = [...dropped]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 20)
+      .map(([path, count]) => ({ path, count }));
+  }
+  return inserted;
+}
+
+
 async function parseFsTimeline(
   filePath: string, caseId: string, pool: Pool, hostname: string, collectedAt: Date,
   link: TimelineLink = {}, stats?: FsTimelineFilterStats, exhaustive = false,
@@ -1358,6 +1510,215 @@ export interface CatScaleParseResult {
   fs_filter: FsTimelineFilterStats | null;
 }
 
+// UAC layout → the same Cat-Scale parsers, fed with the files UAC actually
+// writes. Kept separate so the Cat-Scale path stays untouched.
+async function parseUacCollection(
+  uacRoot: string,
+  caseId: string,
+  pool: Pool,
+  collectionTime: Date,
+  emitProgress?: (p: Record<string, unknown>) => void,
+  link: TimelineLink = {},
+  options: { exhaustiveFsTimeline?: boolean } = {},
+  failures: CatScaleFailure[] = [],
+  unreadable: string[] = [],
+): Promise<CatScaleParseResult> {
+  let totalEvents = 0;
+  let stateRows = 0;
+  const artifacts: string[] = [];
+  link = { ...link, failures };
+  const fail = (stage: CatScaleFailure['stage'], target: string) => (e: any) => {
+    const reason = e?.message ?? String(e);
+    logger.warn(`[UAC] ${stage} failed on ${path.basename(target)}: ${reason}`);
+    failures.push({ stage, target, reason });
+    return 0;
+  };
+
+  const emit = (step: string) =>
+    emitProgress?.({ type: 'catscale_step', step, artifact: 'catscale' });
+
+  // uac.log carries the hostname and the collection timestamp.
+  let hostname = 'linux-host';
+  const logPath = path.join(uacRoot, 'uac.log');
+  try {
+    if (fs.existsSync(logPath)) {
+      const first = fs.readFileSync(logPath, 'utf8').split('\n').find(l => l.trim());
+      // "2026-04-18 04:58:42 +0200 INF Unix-like Artifacts Collector 3.3.0"
+      const tsM = first && /^(\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2})/.exec(first);
+      if (tsM) {
+        const d = new Date(tsM[1].replace(' ', 'T') + 'Z');
+        if (!isNaN(d.getTime())) collectionTime = d;
+      }
+      const hostM = /Hostname:\s*(\S+)/.exec(fs.readFileSync(logPath, 'utf8'));
+      if (hostM) hostname = hostM[1];
+    }
+  } catch (_e) {}
+
+  // ── bodyfile → filesystem MACB timeline (the big one) ─────────────────────
+  emit('fstimeline');
+  const bodyfile = path.join(uacRoot, 'bodyfile', 'bodyfile.txt');
+  const fsFilter: FsTimelineFilterStats | null = {
+    scanned: 0, kept: 0,
+    dropped: { container_layer: 0, rebuildable: 0, package_tree: 0, not_relevant: 0, unparsable: 0 },
+    top_dropped_locations: [],
+  };
+  if (fs.existsSync(bodyfile)) {
+    const n = await parseBodyfile(bodyfile, caseId, pool, hostname, collectionTime, link,
+      fsFilter, options.exhaustiveFsTimeline === true).catch(fail('parse', bodyfile));
+    if (n > 0) { totalEvents += n; artifacts.push(`fstimeline:bodyfile (${n})`); }
+    const d = fsFilter.dropped;
+    const removed = d.container_layer + d.rebuildable + d.package_tree + d.not_relevant + d.unparsable;
+    logger.info(`[UAC] fs timeline: ${fsFilter.kept} kept of ${fsFilter.scanned} scanned (${removed} filtered)`);
+  }
+
+  // ── auth logs from the [root]/ filesystem copy ────────────────────────────
+  emit('auth_logs');
+  const varLog = path.join(uacRoot, '[root]', 'var', 'log');
+  if (fs.existsSync(varLog)) {
+    for (const base of ['auth.log', 'secure', 'messages', 'syslog']) {
+      for (const fp of [path.join(varLog, base), path.join(varLog, base + '.1')]) {
+        if (!fs.existsSync(fp)) continue;
+        const n = await parseAuthLog(fp, caseId, pool, hostname, collectionTime, link).catch(fail('parse', fp));
+        if (n > 0) { totalEvents += n; artifacts.push(`auth:${base} (${n})`); }
+      }
+    }
+  }
+
+  // ── logon history: `last`/`lastb` text dumps in live_response/system ──────
+  emit('logon_history');
+  const sysDir = path.join(uacRoot, 'live_response', 'system');
+  if (fs.existsSync(sysDir)) {
+    const lastFiles = fs.readdirSync(sysDir).filter(f => /^lastb?-/.test(f) && f.endsWith('.txt'));
+    for (const f of lastFiles.sort()) {
+      const fp = path.join(sysDir, f);
+      const n = await parseLastWtmp(fp, caseId, pool, hostname, link).catch(fail('parse', fp));
+      if (n > 0) { totalEvents += n; artifacts.push(`logon:${f} (${n})`); }
+    }
+  }
+
+  // ── kernel ring buffer ────────────────────────────────────────────────────
+  const hwDir = path.join(uacRoot, 'live_response', 'hardware');
+  for (const fp of [path.join(hwDir, 'dmesg.txt'), path.join(hwDir, 'dmesg')]) {
+    if (!fs.existsSync(fp)) continue;
+    const n = await parseDmesg(fp, caseId, pool, collectionTime, hostname, link).catch(fail('parse', fp));
+    if (n > 0) { totalEvents += n; artifacts.push(`dmesg (${n})`); }
+  }
+
+  // ── processes ─────────────────────────────────────────────────────────────
+  emit('processes');
+  const procDir = path.join(uacRoot, 'live_response', 'process');
+  if (fs.existsSync(procDir)) {
+    const psFiles = fs.readdirSync(procDir).filter(f => /^ps.*\.txt$/.test(f)).sort();
+    for (const f of psFiles) {
+      const fp = path.join(procDir, f);
+      const n = await parseProcessList(fp, caseId, pool, collectionTime, hostname, link).catch(fail('parse', fp));
+      if (n > 0) { totalEvents += n; artifacts.push(`process:${f} (${n})`); }
+    }
+  }
+
+  // ── network sockets ───────────────────────────────────────────────────────
+  emit('network');
+  const netDir = path.join(uacRoot, 'live_response', 'network');
+  if (fs.existsSync(netDir)) {
+    const ssFiles = fs.readdirSync(netDir).filter(f => /^ss[-_].*\.txt$|^netstat.*\.txt$/.test(f)).sort();
+    for (const f of ssFiles) {
+      const fp = path.join(netDir, f);
+      const n = await parseNetworkConnections(fp, caseId, pool, collectionTime, hostname, link).catch(fail('parse', fp));
+      if (n > 0) { totalEvents += n; artifacts.push(`network:${f} (${n})`); }
+    }
+  }
+
+  // ── shell history from home dirs ──────────────────────────────────────────
+  emit('history');
+  const homeDir = path.join(uacRoot, '[root]', 'home');
+  if (fs.existsSync(homeDir)) {
+    const walkHistory = async (dir: string): Promise<void> => {
+      let entries: string[] = [];
+      try { entries = fs.readdirSync(dir); } catch { return; }
+      for (const e of entries) {
+        const fp = path.join(dir, e);
+        let st: fs.Stats;
+        try { st = fs.statSync(fp); } catch { continue; }
+        if (st.isDirectory()) {
+          if (!['snap', '.cache', '.local', '.mozilla'].includes(e)) await walkHistory(fp);
+        } else if (/^\.?(bash_history|zsh_history|sh_history|fish_history|ksh_history|history)$/.test(e)) {
+          const parts = fp.split(path.sep);
+          const username = parts[parts.length - 2] || 'unknown';
+          const n = await parseBashHistory(fp, caseId, pool, collectionTime, username, hostname, link).catch(fail('parse', fp));
+          if (n > 0) { totalEvents += n; artifacts.push(`history:${username}:${e} (${n})`); }
+        }
+      }
+    };
+    await walkHistory(homeDir);
+  }
+
+  // ── persistence: crontab + systemd unit files ─────────────────────────────
+  emit('persistence');
+  const etcDir = path.join(uacRoot, '[root]', 'etc');
+  for (const cronFp of [path.join(etcDir, 'crontab'), ...(fs.existsSync(path.join(uacRoot, '[root]', 'var', 'spool', 'cron', 'crontabs'))
+    ? fs.readdirSync(path.join(uacRoot, '[root]', 'var', 'spool', 'cron', 'crontabs')).map(f => path.join(uacRoot, '[root]', 'var', 'spool', 'cron', 'crontabs', f))
+    : [])]) {
+    if (!fs.existsSync(cronFp)) continue;
+    const n = await parseCronTabList(cronFp, caseId, pool, collectionTime, hostname, link).catch(fail('parse', cronFp));
+    if (n > 0) { totalEvents += n; artifacts.push(`cron:${path.basename(cronFp)} (${n})`); }
+  }
+  const systemdDir = path.join(etcDir, 'systemd', 'system');
+  if (fs.existsSync(systemdDir)) {
+    for (const f of fs.readdirSync(systemdDir).filter(f => f.endsWith('.service')).sort()) {
+      const fp = path.join(systemdDir, f);
+      const n = await parseSystemdList(fp, caseId, pool, collectionTime, hostname, link).catch(fail('parse', fp));
+      if (n > 0) { totalEvents += n; artifacts.push(`systemd:${f} (${n})`); }
+    }
+  }
+
+  // ── host state: hashes, suid/sgid/world-writable inventories ─────────────
+  emit('host_state');
+  const stateRowsArr: { kind: string; label: string; source_file: string; raw: Record<string, unknown> }[] = [];
+  const addState = (kind: string, label: string, sourceFile: string, raw: Record<string, unknown> = {}) => {
+    stateRowsArr.push({ kind, label, source_file: sourceFile, raw });
+  };
+  const hashDir = path.join(uacRoot, 'hash_executables');
+  if (fs.existsSync(hashDir)) {
+    for (const f of fs.readdirSync(hashDir).filter(f => /^hash_executables\.(md5|sha1|sha256)$/.test(f)).sort()) {
+      try {
+        for (const line of fs.readFileSync(path.join(hashDir, f), 'utf8').split('\n')) {
+          const m = /^([0-9a-fA-F]{32,128})\s+(.+)$/.exec(line.trim());
+          if (m) addState('executable_hash', m[2], f, { hash: m[1].toLowerCase(), algo: f.split('.')[1] });
+        }
+      } catch (_e) {}
+    }
+  }
+  for (const f of ['suid.txt', 'sgid.txt', 'getcap.txt', 'socket_files.txt']) {
+    const fp = path.join(uacRoot, 'system', f);
+    if (!fs.existsSync(fp)) continue;
+    try {
+      for (const line of fs.readFileSync(fp, 'utf8').split('\n')) {
+        const p = line.trim();
+        if (!p || p.startsWith('#')) continue;
+        addState(f.replace('.txt', ''), p, f, { path: p });
+      }
+    } catch (_e) {}
+  }
+  if (stateRowsArr.length) {
+    stateRows = await insertStateRows(pool, caseId, hostname, collectionTime, stateRowsArr, {
+      evidence_id: link.evidenceId ?? null,
+      result_id: link.resultId ?? null,
+    });
+    const byKind = stateRowsArr.reduce<Record<string, number>>((acc, r) => {
+      acc[r.kind] = (acc[r.kind] ?? 0) + 1; return acc;
+    }, {});
+    for (const [kind, n] of Object.entries(byKind)) artifacts.push(`state:${kind} (${n})`);
+  }
+
+  logger.info(`[UAC] ${hostname}: ${totalEvents} events, ${stateRows} state rows — ${artifacts.length} sources`);
+  return {
+    events: totalEvents, hostname, os_info: 'Linux (UAC)',
+    collection_time: collectionTime.toISOString(), artifacts, unreadable, failures,
+    state_rows: stateRows, fs_filter: fsFilter.scanned > 0 ? fsFilter : null,
+  };
+}
+
+
 export async function parseCatScale(
   catscaleRoot: string,
   caseId: string,
@@ -1384,6 +1745,12 @@ export async function parseCatScale(
   const unreadable = unreadableDirs(catscaleRoot);
   if (unreadable.length) {
     logger.warn(`[CatScale] ${unreadable.length} directory(ies) unreadable (permissions): ${unreadable.slice(0, 5).join(', ')}`);
+  }
+
+  // UAC collection (Unix-like Artifacts Collector): different tree, same parsers.
+  // Route it before the Cat-Scale-specific discovery below.
+  if (isUacRoot(catscaleRoot)) {
+    return parseUacCollection(catscaleRoot, caseId, pool, collectionTime, emitProgress, link, { exhaustiveFsTimeline: options.exhaustiveFsTimeline === true }, failures, unreadable);
   }
 
   const emit = (step: string) =>

@@ -1,10 +1,11 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Globe, Hash, FileText, User, Server, HelpCircle,
-  AlertTriangle, ExternalLink, ChevronDown, ChevronRight, Loader2,
+  AlertTriangle, ExternalLink, ChevronDown, ChevronRight, Loader2, Pencil,
 } from 'lucide-react';
-import { collectionAPI } from '../utils/api';
+import { collectionAPI, iocsAPI } from '../utils/api';
+import IocNotesCell from '../components/iocs/IocNotesCell';
 
 const MONO = 'var(--f-mono, "JetBrains Mono", monospace)';
 
@@ -49,23 +50,36 @@ function fmtDate(ts, lang) {
 }
 
 // ── Vertical time ruler + density histogram on top, chronological rows below ──
-export default function IocTimelineView({ iocs }) {
+// `onUpdateIoc(id, patch)` is optional: it lets the parent refresh its own IOC
+// list after a note is saved (the API call itself happens here).
+export default function IocTimelineView({ iocs, onUpdateIoc }) {
   const { t, i18n } = useTranslation();
   const [selectedId, setSelectedId] = useState(null);
   const [matches, setMatches] = useState([]);
   const [matchTotal, setMatchTotal] = useState(0);
   const [matchLoading, setMatchLoading] = useState(false);
   const [matchErr, setMatchErr] = useState('');
+  const [items, setItems] = useState(iocs);
+  const [editingNoteId, setEditingNoteId] = useState(null);
+
+  // Keep the local copy in sync when the parent refreshes the IOC list.
+  useEffect(() => { setItems(iocs); }, [iocs]);
+
+  const saveNote = async (ioc, notes) => {
+    await iocsAPI.update(ioc.id, { notes });
+    setItems(prev => prev.map(i => i.id === ioc.id ? { ...i, notes } : i));
+    if (onUpdateIoc) onUpdateIoc(ioc.id, { notes });
+  };
 
   const rows = useMemo(() => {
-    return [...iocs]
+    return [...items]
       .filter(i => anchorTs(i))
       .sort((a, b) => new Date(anchorTs(a)) - new Date(anchorTs(b)));
-  }, [iocs]);
+  }, [items]);
 
   const range = useMemo(() => {
     let min = Infinity, max = -Infinity;
-    for (const i of [...iocs, ...matches]) {
+    for (const i of [...items, ...matches]) {
       const tv = [anchorTs(i), i.first_seen, i.last_seen].filter(Boolean);
       for (const ts of tv) {
         const ms = new Date(ts).getTime();
@@ -77,7 +91,7 @@ export default function IocTimelineView({ iocs }) {
     if (!isFinite(min)) return null;
     if (min === max) { max = min + 86400000; }
     return { min, max, span: max - min };
-  }, [iocs, matches]);
+  }, [items, matches]);
 
   // Density histogram by UTC-day bucket, stacked by verdict.
   const histo = useMemo(() => {
@@ -216,6 +230,38 @@ export default function IocTimelineView({ iocs }) {
                   </div>
                 )}
               </div>
+
+              {/* Analyst note — editable inline */}
+              {editingNoteId === ioc.id ? (
+                <div style={{ padding: '0 20px 8px 120px' }}>
+                  <IocNotesCell
+                    value={ioc.notes || ''}
+                    onSave={notes => saveNote(ioc, notes)}
+                    onClose={() => setEditingNoteId(null)}
+                  />
+                </div>
+              ) : ioc.notes ? (
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6, padding: '0 20px 8px 120px' }}>
+                  <span style={{ flex: 1, minWidth: 0, fontSize: 11, color: 'var(--fl-gold)', fontFamily: MONO, lineHeight: 1.45, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                    ✎ {ioc.notes}
+                  </span>
+                  <button onClick={() => setEditingNoteId(ioc.id)} title="Modifier la note"
+                    style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, padding: 2, borderRadius: 4, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--fl-subtle)' }}
+                    onMouseEnter={e => e.currentTarget.style.color = 'var(--fl-gold)'}
+                    onMouseLeave={e => e.currentTarget.style.color = 'var(--fl-subtle)'}>
+                    <Pencil size={10} />
+                  </button>
+                </div>
+              ) : (
+                <div style={{ padding: '0 20px 8px 120px' }}>
+                  <button onClick={() => setEditingNoteId(ioc.id)} title="Ajouter une note"
+                    style={{ fontSize: 10, fontFamily: MONO, color: 'var(--fl-subtle)', border: '1px dashed var(--fl-border2)', borderRadius: 4, padding: '1px 8px', background: 'none', cursor: 'pointer' }}
+                    onMouseEnter={e => { e.currentTarget.style.color = 'var(--fl-gold)'; e.currentTarget.style.borderColor = 'color-mix(in srgb, var(--fl-gold) 40%, transparent)'; }}
+                    onMouseLeave={e => { e.currentTarget.style.color = 'var(--fl-subtle)'; e.currentTarget.style.borderColor = 'var(--fl-border2)'; }}>
+                    ✎ Note
+                  </button>
+                </div>
+              )}
 
               {/* Matched events (Part 2) */}
               {expanded && (

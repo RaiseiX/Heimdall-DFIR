@@ -35,10 +35,11 @@ async function rebuildEsFromPg(caseId) {
   let indexed = 0;
   for (;;) {
     const { rows } = await pool.query(
-      `SELECT case_id, result_id, evidence_id, timestamp, artifact_type, artifact_name,
+      `SELECT id, case_id, result_id, evidence_id, timestamp, artifact_type, artifact_name,
               description, source, raw,
-              host_name, user_name, process_name,
+              host_name, user_name, process_name, tool, event_id, "path", ext, tags, sha1,
               mitre_technique_id, mitre_technique_name, mitre_tactic,
+              timestamp_kind, file_size, src_ip, dst_ip, detections,
               details, dedupe_hash
          FROM collection_timeline
         WHERE case_id = $1 AND id > $2
@@ -57,9 +58,31 @@ async function rebuildEsFromPg(caseId) {
 // Boot sweep: every case with timeline rows gets its ES index checked and, if
 // needed, rebuilt. Runs in the background — a large rebuild must never delay
 // startup.
+//
+// Module-level in-flight guard: reconcileAllCases can be triggered from several
+// places (boot sweep, parse finalization, admin ops) and the DISTINCT case_id
+// scan used to run 2-3× concurrently at boot, thrashing Postgres for minutes
+// before the first rebuild even started. One sweep at a time — a concurrent
+// caller just observes the running sweep's work.
+let _reconcileRunning = false;
 async function reconcileAllCases() {
+  if (_reconcileRunning) return;
+  _reconcileRunning = true;
   try {
-    const { rows } = await pool.query(`SELECT DISTINCT case_id FROM collection_timeline`);
+    // Recursive CTE walking idx_ct_case_id_only: case_id is a UUID (no min()/
+    // max() aggregate), and a plain `SELECT DISTINCT case_id` makes the planner
+    // seq-scan the whole wide table (GBs of raw JSONB) for a handful of values
+    // — the boot reconcile used to stall for minutes. The CTE does one
+    // index-only probe per distinct case (O(log n) each, heap fetches 0).
+    const { rows } = await pool.query(`
+      WITH RECURSIVE cases AS (
+        (SELECT case_id FROM collection_timeline ORDER BY case_id LIMIT 1)
+        UNION ALL
+        (SELECT (SELECT case_id FROM collection_timeline
+                  WHERE case_id > cases.case_id ORDER BY case_id LIMIT 1)
+           FROM cases WHERE cases.case_id IS NOT NULL)
+      )
+      SELECT case_id FROM cases WHERE case_id IS NOT NULL`);
     for (const r of rows) {
       try {
         await rebuildEsFromPg(r.case_id);
@@ -69,6 +92,8 @@ async function reconcileAllCases() {
     }
   } catch (e) {
     logger().warn(`[ES] reconcileAllCases failed (best-effort): ${String(e.message).substring(0, 150)}`);
+  } finally {
+    _reconcileRunning = false;
   }
 }
 

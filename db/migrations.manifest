@@ -96,3 +96,9 @@ db/migrations/20260810000000_sigma_rule_metadata.sql
 # while still serving the key-existence predicates the network map and the
 # Amcache/LOLDrivers scan rely on.
 db/migrations/20260819000000_ct_raw_keys_gin.sql
+# --- IOC analyst notes (free text per IOC, editable in the IOC tables) ---
+db/migrations/20260824000000_ioc_notes.sql
+# --- Boot reconcile speedup: dedicated (case_id) index + partial unlinked index ---
+db/migrations/20260824010000_boot_reconcile_indexes.sql
+# --- Artifact browser: covering indexes for summary (artifact_name) + rows (timestamp) ---
+db/migrations/20260824020000_artifact_browser_indexes.sql

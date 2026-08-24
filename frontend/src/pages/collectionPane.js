@@ -12,11 +12,11 @@
 // redirects to `evidence` — it can only mean a static child route matched.
 
 /** Panes CollectionLayout renders itself rather than delegating to the outlet. */
-const SELF_RENDERED = new Set(['network', 'hayabusa', 'cyberchef', 'threathunt']);
+const SELF_RENDERED = new Set(['network', 'auth', 'hayabusa', 'cyberchef', 'threathunt']);
 
 /**
  * @param {string|undefined} tab the `:tab` route param, absent on static child routes
- * @returns {'overview'|'network'|'hayabusa'|'cyberchef'|'threathunt'|'outlet'}
+ * @returns {'overview'|'network'|'auth'|'hayabusa'|'cyberchef'|'threathunt'|'outlet'}
  */
 export function resolveCollectionPane(tab) {
   if (tab === 'evidence') return 'overview';

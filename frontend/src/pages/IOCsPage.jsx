@@ -9,6 +9,7 @@ import { iocsAPI, casesAPI, networkAPI } from '../utils/api';
 import { Button, Modal, Badge, EmptyState, Spinner } from '../components/ui';
 import { downloadCSV } from '../utils/csvExport';
 import IocTimelineView from './IocTimelineView';
+import IocNotesCell from '../components/iocs/IocNotesCell';
 
 const TYPE_ICON = {
   ip: Globe, domain: Globe, url: Server,
@@ -495,7 +496,7 @@ export default function IOCsPage() {
           }
         />
       ) : view === 'timeline' ? (
-        <IocTimelineView iocs={visibleIocs} />
+        <IocTimelineView iocs={visibleIocs} onUpdateIoc={(id, { notes }) => setIocs(prev => prev.map(i => i.id === id ? { ...i, notes } : i))} />
       ) : (
         <div className="fl-card" style={{ overflow: 'hidden' }}>
           <table className="fl-table">
@@ -507,6 +508,7 @@ export default function IOCsPage() {
                 <th>{t('iocs.enrichment')}</th>
                 <th>{t('iocs.case_label')}</th>
                 <th>Tags</th>
+                <th style={{ width: 180 }}>Notes</th>
                 <th style={{ width: 80 }}></th>
               </tr>
             </thead>
@@ -587,6 +589,16 @@ export default function IOCsPage() {
                       <div className="flex flex-wrap gap-1">
                         {(ioc.tags || []).map(t => <span key={t} className="fl-tag">{t}</span>)}
                       </div>
+                    </td>
+
+                    <td style={{ maxWidth: 180 }}>
+                      <IocNotesCell
+                        value={ioc.notes || ''}
+                        onSave={async notes => {
+                          await iocsAPI.update(ioc.id, { notes });
+                          setIocs(prev => prev.map(i => i.id === ioc.id ? { ...i, notes } : i));
+                        }}
+                      />
                     </td>
 
                     <td>

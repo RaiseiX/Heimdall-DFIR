@@ -604,6 +604,16 @@ async function reconcileEvidenceLinks() {
     const client = await pool.connect();
     try {
       await client.query(`SET statement_timeout = 1800000`); // 30 min, one-time
+      // Fast no-op check: once every timeline row has an evidence_id, both
+      // UPDATEs below have nothing to do — skip them entirely instead of
+      // re-scanning the whole (multi-million row) table on every boot. The
+      // partial index idx_ct_unlinked_result makes this check instant.
+      const unlinked = await client.query(
+        `SELECT 1 FROM collection_timeline WHERE evidence_id IS NULL LIMIT 1`);
+      if (unlinked.rowCount === 0) {
+        logger.info('[boot] evidence reconciliation: nothing to link (all rows already bound)');
+        return;
+      }
       const r1 = await client.query(
         `UPDATE collection_timeline ct
             SET evidence_id = pr.evidence_id
@@ -683,14 +693,17 @@ async function start() {
       logger.warn('[boot] buildSearchIndexes failed: ' + String(e.message).substring(0, 200)));
 
     // Bind orphaned timeline rows to an evidence so the per-evidence menu and
-    // the SuperTimeline totals agree (background, one-time, best-effort).
-    reconcileEvidenceLinks();
-
-    // ES ↔ PG consistency sweep: rebuild case indexes whose document count
-    // diverges from PG (stale duplicates from the pre-dedupe indexing path
-    // made the SuperTimeline count drift above the per-evidence menu).
-    const { reconcileAllCases } = require('./services/esRebuild');
-    reconcileAllCases();
+    // the SuperTimeline totals agree (background, one-time, best-effort), then
+    // run the ES ↔ PG consistency sweep. Serialized on purpose: both jobs scan
+    // the whole timeline table at boot and used to run concurrently, competing
+    // for IO and delaying the ES index rebuild by minutes.
+    reconcileEvidenceLinks().finally(() => {
+      // ES ↔ PG consistency sweep: rebuild case indexes whose document count
+      // diverges from PG (stale duplicates from the pre-dedupe indexing path
+      // made the SuperTimeline count drift above the per-evidence menu).
+      const { reconcileAllCases } = require('./services/esRebuild');
+      reconcileAllCases();
+    });
 
     // Daily retention purge tick (no-op unless explicitly enabled in Settings).
     // Runs every 6h; the service itself re-checks the policy on each tick.

@@ -28,6 +28,7 @@ import ReportAiEditor from '../components/reports/ReportAiEditor';
 import { createReportCollabProvider } from '../components/reports/collab/reportCollabProvider';
 import GlobalNetworkMapPage from './GlobalNetworkMapPage';
 import IocTimelineView from './IocTimelineView';
+import IocNotesCell from '../components/iocs/IocNotesCell';
 import NotebookPanel from '../components/notebook/NotebookPanel';
 import InvestigationWorkspace from '../components/investigation/InvestigationWorkspace';
 
@@ -1328,7 +1329,7 @@ export default function CaseDetailPage({ user }) {
 
             {/* ── table / timeline ── */}
             {caseIocView === 'timeline' ? (
-              <IocTimelineView iocs={visibleIOCs} />
+              <IocTimelineView iocs={visibleIOCs} onUpdateIoc={() => refetchIOCs()} />
             ) : caseIOCs.length === 0 ? (
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '64px 16px', gap: 12 }}>
                 <div style={{
@@ -1350,6 +1351,7 @@ export default function CaseDetailPage({ user }) {
                       <th>Description</th>
                       <th style={{ width: 170 }}>{t('iocs.enrichment')}</th>
                       <th style={{ width: 160 }}>Tags</th>
+                      <th style={{ width: 180 }}>Notes</th>
                       <th style={{ width: 112 }}></th>
                     </tr>
                   </thead>
@@ -1423,6 +1425,17 @@ export default function CaseDetailPage({ user }) {
                                   <span key={tag} style={{ fontSize: 9.5, fontFamily: 'var(--f-mono, monospace)', padding: '2px 7px', borderRadius: 4, background: 'var(--fl-raised)', border: '1px solid var(--fl-border)', color: 'var(--fl-dim)' }}>{tag}</span>
                                 ))}
                             </div>
+                          </td>
+
+                          {/* NOTES — analyst free text, editable inline */}
+                          <td>
+                            <IocNotesCell
+                              value={ioc.notes || ''}
+                              onSave={async notes => {
+                                await iocsAPI.update(ioc.id, { notes });
+                                refetchIOCs();
+                              }}
+                            />
                           </td>
 
                           {/* ACTIONS */}
@@ -1839,7 +1852,7 @@ export default function CaseDetailPage({ user }) {
                               e.target.value = '';
                               setPcapState(prev => ({ ...prev, [ev.id]: { loading: true, result: null, error: null } }));
                               try {
-                                const res = await pcapAPI.upload(id, file);
+                                const res = await pcapAPI.upload(id, file, undefined, ev.id);
                                 setPcapState(prev => ({ ...prev, [ev.id]: { loading: false, result: res.data, error: null } }));
                               } catch (err) {
                                 const msg = err.response?.data?.error || err.message || t('casedetail.pcap_error');
@@ -1863,6 +1876,11 @@ export default function CaseDetailPage({ user }) {
                             {ps.loading ? <Loader2 size={11} style={{ animation: 'spin 1s linear infinite' }} /> : <Wifi size={11} />}
                             {ps.loading ? t('casedetail.pcap_loading') : ps.result ? t('casedetail.pcap_done', { count: ps.result.inserted }) : t('casedetail.import_pcap')}
                           </button>
+                          {ps.error && (
+                            <span style={{ fontSize: 10, color: 'var(--fl-danger)', maxWidth: 220, whiteSpace: 'normal', lineHeight: 1.35, flexBasis: '100%' }}>
+                              {ps.error}
+                            </span>
+                          )}
                         </>
                       );
                     })()}
@@ -2633,3 +2651,5 @@ export default function CaseDetailPage({ user }) {
     </div>
   );
 }
+
+

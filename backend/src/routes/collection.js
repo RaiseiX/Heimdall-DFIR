@@ -2813,11 +2813,22 @@ router.post('/:caseId/parse', authenticate, async (req, res) => {
     // ES is indexed fire-and-forget during the parse; if its document count
     // drifted from PG (duplicates, a timed-out delete, an interrupted bulk),
     // rebuild the case index from PG so the SuperTimeline and the per-evidence
-    // menu always show the same total.
+    // menu always show the same total. Also drop the cached ES-completeness
+    // verdict and artifact summary/facets so the next reads re-compute.
     try {
       const { rebuildEsFromPg } = require('../services/esRebuild');
       rebuildEsFromPg(caseId).catch(e =>
         logger.warn(`[ES] rebuild after parse failed (${caseId}): ${String(e.message).substring(0, 150)}`));
+      invalidateCaseCaches(caseId).catch(() => {});
+      // Pre-warm the network views (graph-data / beacons / global-graph /
+      // analytics) in the background right after invalidation so the first
+      // visit post-parse is instant instead of a ~30s synchronous recompute.
+      try {
+        const { prewarmNetworkCaches } = require('./network');
+        prewarmNetworkCaches(caseId);
+      } catch (e) {
+        logger.warn(`[network] prewarm failed (${caseId}): ${String(e.message).substring(0, 120)}`);
+      }
     } catch (e) {
       logger.warn('[ES] rebuild require error:', e.message);
     }
@@ -3050,6 +3061,18 @@ router.get('/:caseId/artifacts', authenticate, async (req, res) => {
   try {
     const { caseId } = req.params;
     const { evidence_id } = req.query;
+    // Cached 60s — the browser fires this on every mount/filter change; the
+    // GROUP BY over a multi-million-row case is expensive. Invalidated at parse
+    // finalization (invalidateCaseCaches) so counts converge after a parse.
+    const cacheKey = `artifact:summary:${caseId}:${evidence_id || ''}`;
+    try {
+      const redis = getRedis();
+      if (redis) {
+        const raw = await redis.get(cacheKey);
+        if (raw) return res.json(JSON.parse(raw));
+      }
+    } catch (_e) {}
+
     const params = [caseId];
     let evidenceFilter = '';
     if (evidence_id) {
@@ -3065,7 +3088,12 @@ router.get('/:caseId/artifacts', authenticate, async (req, res) => {
         WHERE case_id = $1 ${evidenceFilter}
         GROUP BY artifact_type
         ORDER BY cnt DESC, artifact_type`, params);
-    res.json({ artifacts: rows });
+    const payload = { artifacts: rows };
+    try {
+      const redis = getRedis();
+      if (redis) await redis.setex(cacheKey, 60, JSON.stringify(payload));
+    } catch (_e) {}
+    res.json(payload);
   } catch (err) {
     logger.error('Artifact summary error:', err);
     res.status(500).json({ error: "Erreur récupération des types d'artefacts" });
@@ -3080,6 +3108,15 @@ router.get('/:caseId/artifacts', authenticate, async (req, res) => {
 router.get('/:caseId/evidence-counts', authenticate, async (req, res) => {
   try {
     const { caseId } = req.params;
+    // Cached 60s — full GROUP BY per case on every evidence tab visit.
+    const cacheKey = `evidence-counts:${caseId}`;
+    try {
+      const redis = getRedis();
+      if (redis) {
+        const raw = await redis.get(cacheKey);
+        if (raw) return res.json(JSON.parse(raw));
+      }
+    } catch (_e) {}
     const { rows } = await pool.query(
       `SELECT evidence_id, COUNT(*)::int AS cnt
          FROM collection_timeline
@@ -3087,7 +3124,12 @@ router.get('/:caseId/evidence-counts', authenticate, async (req, res) => {
         GROUP BY evidence_id`, [caseId]);
     const counts = {};
     for (const r of rows) counts[r.evidence_id] = r.cnt;
-    res.json({ counts });
+    const payload = { counts };
+    try {
+      const redis = getRedis();
+      if (redis) await redis.setex(cacheKey, 60, JSON.stringify(payload));
+    } catch (_e) {}
+    res.json(payload);
   } catch (err) {
     logger.error('Evidence counts error:', err);
     res.status(500).json({ error: 'Erreur comptage evidences' });
@@ -3123,6 +3165,38 @@ router.get('/:caseId/artifacts/search', authenticate, async (req, res) => {
     // AND semantics, quoted phrases kept whole). Regex stays single-pattern.
     pi = pushSearchFilter(query, isRegex ? 'regex' : 'contains', pi, conditions, params);
     const where = conditions.join(' AND ');
+
+    // ES fast path for keyword search (not regex): multi-term AND across all
+    // searchable columns, per-type counts come from the terms agg. The PG
+    // semantics (terms AND'd, each term OR'd across columns) are mirrored by
+    // the ES multi_match per term.
+    if (!isRegex) {
+      try {
+        if (await isEsComplete(caseId)) {
+          const esResult = await esService.searchTimeline(caseId, {
+            page: 1, limit: 200, sort_dir: 'desc', sort_col: 'timestamp',
+            search: query,
+            start_time, end_time,
+            ...(evidence_id ? { evidence_id } : {}),
+          });
+          if (esResult.total > 0) {
+            const types = Object.entries(esResult.artifact_types_counts || {})
+              .map(([artifact_type, cnt]) => ({ artifact_type, cnt }))
+              .sort((a, b) => b.cnt - a.cnt);
+            return res.json({
+              query,
+              regex: false,
+              total: esResult.total,
+              truncated: esResult.total > 200,
+              types,
+              records: esResult.records,
+            });
+          }
+        }
+      } catch (esErr) {
+        logger.warn(`[artifacts/search] ES error, falling back to PG: ${String(esErr.message).substring(0, 100)}`);
+      }
+    }
 
     const countsRes = await pool.query(
       `SELECT artifact_type, COUNT(*)::int AS cnt
@@ -3204,6 +3278,44 @@ router.get('/:caseId/artifacts/:type', authenticate, async (req, res) => {
         }
       }
     }
+
+    // ES fast path: plain 'contains' browse/search with no raw-field filters.
+    // ES cannot evaluate raw->>'col' predicates (raw is stored enabled:false),
+    // nor regex/empty/not_empty ops — those stay on PG. The case-level
+    // completeness gate (isEsComplete) guarantees the index holds every PG row.
+    if (!filters && search_op !== 'regex' && search_op !== 'empty' && search_op !== 'not_empty') {
+      try {
+        if (await isEsComplete(caseId)) {
+          const esResult = await esService.searchTimeline(caseId, {
+            page: pg, limit: lim, sort_dir, sort_col: 'timestamp',
+            artifact_types: type,
+            search: search || undefined,
+            start_time, end_time,
+            skipAggs: true,
+            ...(evidence_id ? { evidence_id } : {}),
+          });
+          if (esResult.total > 0) {
+            const colSet = new Set();
+            for (const r of esResult.records) {
+              if (r.raw && typeof r.raw === 'object') {
+                for (const k of Object.keys(r.raw)) colSet.add(k);
+              }
+            }
+            return res.json({
+              records: esResult.records,
+              total: esResult.total,
+              page: pg,
+              limit: lim,
+              total_pages: esResult.total_pages,
+              columns: [...colSet],
+            });
+          }
+        }
+      } catch (esErr) {
+        logger.warn(`[artifacts] ES error, falling back to PG: ${String(esErr.message).substring(0, 100)}`);
+      }
+    }
+
     const where = conditions.join(' AND ');
 
     const totalRes = await pool.query(
@@ -3256,6 +3368,17 @@ router.get('/:caseId/artifacts/:type/facets', authenticate, async (req, res) => 
     if (cols.length === 0) return res.json({ facets: {} });
 
     const { evidence_id } = req.query;
+    // Cached 120s — each facet column is a full GROUP BY over the case/type
+    // (up to a dozen scans per load). Invalidated at parse finalization.
+    const cacheKey = `artifact:facets:${caseId}:${type}:${evidence_id || ''}`;
+    try {
+      const redis = getRedis();
+      if (redis) {
+        const raw = await redis.get(cacheKey);
+        if (raw) return res.json(JSON.parse(raw));
+      }
+    } catch (_e) {}
+
     const params = [caseId, type];
     let ev = '';
     if (evidence_id) {
@@ -3275,7 +3398,12 @@ router.get('/:caseId/artifacts/:type/facets', authenticate, async (req, res) => 
           GROUP BY 1 ORDER BY cnt DESC, value LIMIT 60`, params);
       facets[col] = rows;
     }
-    res.json({ facets });
+    const payload = { facets };
+    try {
+      const redis = getRedis();
+      if (redis) await redis.setex(cacheKey, 120, JSON.stringify(payload));
+    } catch (_e) {}
+    res.json(payload);
   } catch (err) {
     logger.error('Artifact facets error:', err);
     res.status(500).json({ error: 'Erreur récupération des facettes' });
@@ -3442,6 +3570,62 @@ router.get('/:caseId/artifacts/:type/tree', authenticate, async (req, res) => {
 });
 
 
+// Case-level ES↔PG completeness gate, cached in Redis (10 min). Serving the ES
+// fast path is only safe when the case index holds every PG row — a partial
+// index (the historical 2000-doc rebuild bug, a mid-parse sweep) must never
+// shadow the complete PG data. The old per-request `COUNT(*)` comparison is
+// replaced by this cached verdict so the fast path stays fast.
+async function isEsComplete(caseId) {
+  try {
+    const redis = getRedis();
+    if (redis) {
+      const raw = await redis.get(`timeline:esok:${caseId}`);
+      if (raw) {
+        const cached = JSON.parse(raw);
+        if (cached && cached.es === cached.pg) return true;
+      }
+    }
+  } catch (_e) {}
+
+  let pg = null, es = null;
+  try {
+    const [pgRes, esRes] = await Promise.all([
+      pool.query(`SELECT COUNT(*)::int AS c FROM collection_timeline WHERE case_id = $1`, [caseId]),
+      esService.countDocuments(caseId),
+    ]);
+    pg = pgRes.rows[0]?.c ?? 0;
+    es = esRes;
+  } catch (_e) {
+    return false;
+  }
+
+  try {
+    const redis = getRedis();
+    if (redis) await redis.setex(`timeline:esok:${caseId}`, 600, JSON.stringify({ pg, es }));
+  } catch (_e) {}
+  return es === pg;
+}
+
+// Drop the cached ES-completeness verdict + artifact caches for a case (called
+// at parse finalization — the index is about to be rebuilt, counts will move).
+async function invalidateCaseCaches(caseId) {
+  try {
+    const redis = getRedis();
+    if (redis) {
+      await redis.del(
+        `timeline:esok:${caseId}`,
+        `artifact:summary:${caseId}`,
+        `artifact:facets:${caseId}`,
+        `evidence-counts:${caseId}`
+      );
+      // Network graph caches (graph-data / beacons / graph) — keys are
+      // netc:{caseId}:* with varying suffixes (view/evidence/time filters).
+      const netKeys = await redis.keys(`netc:${caseId}:*`);
+      if (netKeys.length) await redis.del(netKeys);
+    }
+  } catch (_e) {}
+}
+
 router.get('/:caseId/timeline', authenticate, async (req, res) => {
   try {
     const { caseId } = req.params;
@@ -3588,43 +3772,39 @@ router.get('/:caseId/timeline', authenticate, async (req, res) => {
 
     const where = conditions.join(' AND ');
 
-    // The ES fast path is served only for filter browsing (no free-text search).
-    // PG's search now covers event_id/host/user/tool/path (ES does not), and ES
-    // multi_match cannot evaluate search_op (empty/not_empty/regex), so a total
-    // comparison can never guarantee equal result sets once a search is active.
-    const esSearchEligible = !search && !(search_op === 'empty' || search_op === 'not_empty' || search_op === 'regex');
+    // ES fast path: plain 'contains' browsing AND free-text search (multi-term,
+    // AND semantics — the ES multi_match mirrors PG's SEARCH_COLS). Ops that ES
+    // cannot evaluate (empty/not_empty/regex/equals/starts_with…) and advanced
+    // filters (detections, dedupe, hunt, tool/ext lists) stay on PG.
+    const esSearchEligible = search_op === 'contains';
     if (!host_name && !user_name && !hasAdvancedFilters && esSearchEligible) {
       try {
         const hasIndex = await esService.indexExists(caseId);
-        if (hasIndex) {
+        if (hasIndex && await isEsComplete(caseId)) {
           const esResult = await esService.searchTimeline(caseId, {
             page: pg, limit: lim, sort_dir, sort_col: safeCol,
             ...(safeSortMulti ? { sort_multi: safeSortMulti } : {}),
             artifact_types, search, start_time, end_time, result_id, evidence_id,
             evidence_ids: validatedEvidenceIds,
           });
+          // An empty ES result while the case index is complete usually means a
+          // genuinely empty filter — but analyzer drift (ES tokenization vs PG
+          // ILIKE) can also hide rows, so fall through to PG rather than serve
+          // an empty page PG would have populated.
           if (esResult.total > 0) {
-            // ES is indexed fire-and-forget during parsing and can silently lag
-            // behind PG (or a bulk batch can fail). A partial ES index must never
-            // shadow the complete PG data — that's how EVTX events "disappear"
-            // from the SuperTimeline. Only serve ES when it is at least as
-            // complete as PG for the same filters; otherwise fall through to PG.
-            const pgCount = (await pool.query(
-              `SELECT COUNT(*)::int AS total FROM collection_timeline WHERE ${where}`,
-              params
-            ).catch(() => ({ rows: [{ total: null }] }))).rows[0]?.total;
-            // Strict equality, BOTH directions: an ES index can also hold MORE
-            // documents than PG (the pre-dedupe indexing path bulk-indexed rows
-            // Postgres skipped via ON CONFLICT). `ES < PG` was caught before;
-            // `ES > PG` silently inflated the SuperTimeline count. Either way
-            // serve PG (correct) and let the esRebuild sweep fix the index.
-            if (pgCount !== null && esResult.total !== pgCount) {
-              logger.warn(`[timeline] ES count mismatch (${esResult.total}/${pgCount}) — serving PG (caseId=${caseId})`);
-            } else {
-              logger.info(`[timeline] ES hit: ${esResult.total} records (caseId=${caseId})`);
-              if (Array.isArray(esResult.records)) esResult.records.forEach(hydrateTimelineRow);
-              return res.json(esResult);
-            }
+            logger.info(`[timeline] ES hit: ${esResult.total} records (caseId=${caseId})`);
+            if (Array.isArray(esResult.records)) esResult.records.forEach(hydrateTimelineRow);
+            return res.json({
+              records:                   esResult.records,
+              total:                     esResult.total,
+              page:                      esResult.page,
+              limit:                     esResult.limit,
+              total_pages:               esResult.total_pages,
+              artifact_types_available:  esResult.artifact_types_available || [],
+              artifact_types_counts:     esResult.artifact_types_counts || {},
+              hosts_available:           esResult.hosts_available || [],
+              users_available:           esResult.users_available || [],
+            });
           }
         }
       } catch (esErr) {
@@ -5710,26 +5890,55 @@ router.post('/:caseId/pcap', authenticate, (req, res) => {
 
       const client = await pool.connect();
       let inserted = 0;
+      let insertedRows = [];
       try {
         await client.query('BEGIN');
-        const copyStream = client.query(pgCopyFrom(
-          'COPY collection_timeline (case_id, evidence_id, timestamp, artifact_type, source, description, raw, host_name) FROM STDIN'
-        ));
-        for (const r of allRows) {
-          copyStream.write(
-            [pgEsc(caseId), pgEsc(pcapEvidenceId), pgEsc(r.timestamp),
-             pgEsc(r.artifact_type), pgEsc(r.source), pgEsc(r.description),
-             pgEsc(JSON.stringify(r.raw)), pgEsc(r.host_name)].join('\t') + '\n'
-          );
-        }
-        await new Promise((resolve, reject) => {
-          copyStream.on('finish', resolve);
-          copyStream.on('error', reject);
-          copyStream.end();
-        });
-        inserted = allRows.length;
+        // INSERT ... RETURNING id so the inserted rows can be indexed in ES
+        // (the COPY path cannot return ids — ES documents would have id:null
+        // and the frontend bookmarks/pins would break on them).
+        const insertRes = await client.query(
+          `INSERT INTO collection_timeline
+             (case_id, evidence_id, timestamp, artifact_type, source, description, raw, host_name)
+           SELECT u.case_id, u.evidence_id, u.ts, u.art_type, u.src, u.descr, u.rw, u.hn
+           FROM UNNEST(
+             $1::uuid[], $2::uuid[], $3::timestamptz[], $4::text[], $5::text[], $6::text[], $7::jsonb[], $8::text[]
+           ) AS u(case_id, evidence_id, ts, art_type, src, descr, rw, hn)
+           RETURNING id, timestamp, artifact_type, source, description, raw, host_name, evidence_id`,
+          [
+            allRows.map(() => caseId),
+            allRows.map(() => pcapEvidenceId),
+            allRows.map(r => r.timestamp),
+            allRows.map(r => r.artifact_type),
+            allRows.map(r => r.source),
+            allRows.map(r => r.description),
+            allRows.map(r => JSON.stringify(r.raw)),
+            allRows.map(r => r.host_name),
+          ]
+        );
+        insertedRows = insertRes.rows;
+        inserted = insertedRows.length;
         await client.query('COMMIT');
         invalidateDetectionCache(caseId).catch(() => {});
+        // Index in ES so the pcap events appear in the SuperTimeline fast path.
+        if (insertedRows.length) {
+          esService.bulkIndex(
+            caseId,
+            insertedRows.map(r => ({
+              id:             r.id,
+              timestamp:      r.timestamp,
+              artifact_type:  r.artifact_type,
+              artifact_name:  r.artifact_type,
+              description:    r.description,
+              source:         r.source,
+              raw:            r.raw,
+              host_name:      r.host_name,
+              evidence_id:    r.evidence_id,
+            })),
+            null,
+            pcapEvidenceId || null,
+          ).catch(e =>
+            logger.warn(`[pcap] ES index warn (${caseId}): ${String(e.message).substring(0, 100)}`));
+        }
       } catch (insertErr) {
         await client.query('ROLLBACK');
         throw insertErr;

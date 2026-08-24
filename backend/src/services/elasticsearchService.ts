@@ -1,6 +1,7 @@
 
 import { Client } from '@elastic/elasticsearch';
 import logger from '../config/logger';
+import { splitSearchTerms } from '../utils/textFilter';
 
 const ES_URL = process.env.ELASTICSEARCH_URL || 'http://elasticsearch:9200';
 
@@ -52,9 +53,51 @@ const FORENSIC_MAPPING = {
     mitre_technique_id:   { type: 'keyword' },
     mitre_technique_name: { type: 'keyword' },
     mitre_tactic:         { type: 'keyword' },
-    host_name:            { type: 'keyword', ignore_above: 256 },
-    user_name:            { type: 'keyword', ignore_above: 256 },
-    process_name:         { type: 'keyword', ignore_above: 512 },
+    // Searchable text fields mirror the PG free-text search columns
+    // (description/source/host/user/tool/path/ext/process/tags…). Each keeps a
+    // `.keyword` sub-field so the terms aggregations (type/host/user pills) and
+    // exact filters keep working on the raw value.
+    host_name: {
+      type:     'text',
+      analyzer: 'standard',
+      fields:   { keyword: { type: 'keyword', ignore_above: 256 } },
+    },
+    user_name: {
+      type:     'text',
+      analyzer: 'standard',
+      fields:   { keyword: { type: 'keyword', ignore_above: 256 } },
+    },
+    process_name: {
+      type:     'text',
+      analyzer: 'standard',
+      fields:   { keyword: { type: 'keyword', ignore_above: 512 } },
+    },
+    tool: {
+      type:     'text',
+      analyzer: 'standard',
+      fields:   { keyword: { type: 'keyword', ignore_above: 256 } },
+    },
+    path: {
+      type:     'text',
+      analyzer: 'standard',
+      fields:   { keyword: { type: 'keyword', ignore_above: 512 } },
+    },
+    event_id: { type: 'keyword' },
+    ext:      { type: 'keyword', ignore_above: 64 },
+    tags:     { type: 'keyword' },
+    // Analyzed copy of tags for free-text search: PG matches tags::text with
+    // case-insensitive ILIKE ("PowerShell Remoting" is found by "powershell"),
+    // which a keyword field cannot do. Standard analyzer lowercases and
+    // tokenizes, closing that gap for the multi-column search.
+    tags_text: { type: 'text', analyzer: 'standard' },
+    // Concatenation of every searchable column (description, host, user, tool,
+    // path, tags… — see buildSearchText) analyzed with a FIXED trigram tokenizer.
+    // PG free-text search is ILIKE '%term%' (case-insensitive substring); the
+    // standard analyzer only matches whole tokens. Fixed 3-grams keep the index
+    // small (≈1 term per char, vs N× with 2..15-gram ranges) while a
+    // `match_phrase` over consecutive grams gives true substring semantics.
+    search_text: { type: 'text', analyzer: 'trigram_analyzer' },
+    sha1:     { type: 'keyword', ignore_above: 128 },
   },
 } as const;
 
@@ -63,6 +106,25 @@ const INDEX_SETTINGS = {
   number_of_replicas: 0,
   refresh_interval:   '10s',
   max_result_window:  2_147_483_647,
+  analysis: {
+    analyzer: {
+      trigram_analyzer: {
+        tokenizer: 'trigram_tokenizer',
+        filter:    ['lowercase'],
+      },
+    },
+    tokenizer: {
+      // Fixed 3-grams (not a range): the count of grams per token stays ≈ the
+      // token length instead of (max-min+1)×length. token_chars letter+digit+
+      // punctuation keeps paths like C:\Windows searchable as a substring.
+      trigram_tokenizer: {
+        type:        'ngram',
+        min_gram:    3,
+        max_gram:    3,
+        token_chars: ['letter', 'digit', 'punctuation'],
+      },
+    },
+  },
 } as const;
 
 async function withRetry<T>(fn: () => Promise<T>, maxRetries = 5, baseDelayMs = 2000): Promise<T> {
@@ -246,15 +308,55 @@ export interface TimelineRecord {
 
   result_id?:    string | null;
 
+  id?:                    number | null;
   mitre_technique_id?:   string | null;
   mitre_technique_name?: string | null;
   mitre_tactic?:         string | null;
   host_name?:            string | null;
   user_name?:            string | null;
   process_name?:         string | null;
+  tool?:                 string | null;
+  event_id?:             number | string | null;
+  path?:                 string | null;
+  ext?:                  string | null;
+  tags?:                 string[] | null;
+  sha1?:                 string | null;
+  timestamp_kind?:       string | null;
+  file_size?:            number | string | null;
+  src_ip?:               string | null;
+  dst_ip?:               string | null;
+  detections?:           unknown[] | null;
 
   evidence_id?:          string | null;
   dedupe_hash?:          string | null;
+}
+
+// Columns mirrored from utils/textFilter.ts SEARCH_COLS (PG's free-text search).
+// Separator is a control char — not letter/digit/punctuation — so the ngram
+// tokenizer never builds a gram that bridges two columns (no false positives
+// across column boundaries, matching PG's per-column ILIKE).
+const SEARCH_COL_SEP = '\u0001';
+
+function buildSearchText(rec: TimelineRecord): string | null {
+  const parts = [
+    rec.description,
+    rec.source,
+    rec.artifact_type,
+    rec.event_id != null ? String(rec.event_id) : null,
+    rec.host_name,
+    rec.user_name,
+    rec.tool,
+    rec.details,
+    rec.path,
+    rec.ext,
+    rec.process_name,
+    Array.isArray(rec.tags) ? rec.tags.join(' ') : rec.tags,
+  ];
+  const joined = parts
+    .filter(p => p != null && String(p).length > 0)
+    .map(p => String(p))
+    .join(SEARCH_COL_SEP);
+  return joined.length ? joined : null;
 }
 
 export async function bulkIndex(
@@ -291,9 +393,23 @@ export async function bulkIndex(
       mitre_technique_id:   rec.mitre_technique_id   ?? null,
       mitre_technique_name: rec.mitre_technique_name ?? null,
       mitre_tactic:         rec.mitre_tactic         ?? null,
+      id:           rec.id           ?? null,
       host_name:    rec.host_name    ?? null,
       user_name:    rec.user_name    ?? null,
       process_name: rec.process_name ?? null,
+      tool:         rec.tool         ?? null,
+      event_id:     rec.event_id     ?? null,
+      path:         rec.path         ?? null,
+      ext:          rec.ext          ?? null,
+      tags:         rec.tags         ?? null,
+      tags_text:    rec.tags         ?? null,
+      search_text:  buildSearchText(rec),
+      sha1:         rec.sha1         ?? null,
+      timestamp_kind: rec.timestamp_kind ?? null,
+      file_size:    rec.file_size    ?? null,
+      src_ip:       rec.src_ip       ?? null,
+      dst_ip:       rec.dst_ip       ?? null,
+      detections:   rec.detections   ?? null,
     });
   }
 
@@ -322,6 +438,10 @@ export interface SearchParams {
   result_id?:      string;
   evidence_id?:    string;
   evidence_ids?:   string[];
+  // Skip the filter-context terms aggs (types/hosts/users). The artifact
+  // browser pays for them yet only uses records/total/columns; on a big
+  // filtered set the aggs dominate the latency (observed 2.9s vs 150ms).
+  skipAggs?:       boolean;
 }
 
 export interface SearchResult {
@@ -331,7 +451,13 @@ export interface SearchResult {
   limit:                    number;
   total_pages:              number;
   artifact_types_available: string[];
+  artifact_types_counts?:   Record<string, number>;
+  hosts_available?:         string[];
+  users_available?:         string[];
 }
+
+// Free-text search now runs on the single `search_text` field (see
+// buildSearchText) which mirrors the SEARCH_COLS list in utils/textFilter.ts.
 
 const ES_SORT_FIELDS: Record<string, string> = {
   timestamp:     'timestamp',
@@ -403,15 +529,16 @@ export async function searchTimeline(
   }
 
   if (params.search?.trim()) {
-
-    mustClauses.push({
-      multi_match: {
-        query:    params.search.trim(),
-        fields:   ['description', 'source', 'artifact_type'],
-        operator: 'and',
-        type:     'best_fields',
-      },
-    });
+    // PG free-text search is ILIKE '%term%' (case-insensitive substring) across
+    // SEARCH_COLS. `search_text` is indexed with a fixed trigram analyzer, so a
+    // `match_phrase` over the term's consecutive 3-grams == substring match in
+    // any column. Terms shorter than 3 chars have no gram and are skipped (a
+    // pathological 1-2 char ILIKE would match half the table anyway).
+    for (const term of splitSearchTerms(params.search.trim())) {
+      if (term.length >= 3) {
+        mustClauses.push({ match_phrase: { search_text: { query: term } } });
+      }
+    }
   }
 
   const query = {
@@ -444,7 +571,7 @@ export async function searchTimeline(
     sort:             buildEsSortArray(params, '_seq_no') as any,
 
     track_total_hits: true,
-    aggs: {
+    ...(params.skipAggs ? {} : { aggs: {
 
       artifact_types_ctx: {
         filter: { bool: { filter: filtersForTypeAgg } },
@@ -452,10 +579,23 @@ export async function searchTimeline(
           types: { terms: { field: 'artifact_type', size: 50 } },
         },
       },
-    },
-    _source: ['timestamp', 'artifact_type', 'artifact_name', 'description', 'details', 'source', 'raw',
+      hosts_ctx: {
+        filter: { bool: { filter: filtersForTypeAgg } },
+        aggs: {
+          hosts: { terms: { field: 'host_name.keyword', size: 100 } },
+        },
+      },
+      users_ctx: {
+        filter: { bool: { filter: filtersForTypeAgg } },
+        aggs: {
+          users: { terms: { field: 'user_name.keyword', size: 100 } },
+        },
+      },
+    } }),
+    _source: ['id', 'timestamp', 'artifact_type', 'artifact_name', 'description', 'details', 'source', 'raw',
                'mitre_technique_id', 'mitre_technique_name', 'mitre_tactic',
-               'host_name', 'user_name', 'process_name'],
+               'host_name', 'user_name', 'process_name', 'tool', 'event_id', 'path', 'ext', 'tags',
+               'sha1', 'timestamp_kind', 'file_size', 'src_ip', 'dst_ip', 'detections'],
   } as any);
 
   const total = typeof result.hits.total === 'number'
@@ -464,9 +604,12 @@ export async function searchTimeline(
 
   const records = (result.hits.hits as any[]).map(h => h._source);
 
-  const buckets: Array<{ key: string }> =
+  const buckets: Array<{ key: string; doc_count?: number }> =
     ((result.aggregations?.artifact_types_ctx as any)?.types?.buckets ?? []);
-  const artifact_types_available = buckets.map(b => b.key);
+  const hostBuckets: Array<{ key: string }> =
+    ((result.aggregations?.hosts_ctx as any)?.hosts?.buckets ?? []);
+  const userBuckets: Array<{ key: string }> =
+    ((result.aggregations?.users_ctx as any)?.users?.buckets ?? []);
 
   return {
     records,
@@ -474,7 +617,10 @@ export async function searchTimeline(
     page:                     pg,
     limit:                    lim,
     total_pages:              Math.ceil(total / lim),
-    artifact_types_available,
+    artifact_types_available: buckets.map(b => b.key),
+    artifact_types_counts:    Object.fromEntries(buckets.map(b => [b.key, b.doc_count ?? 0])),
+    hosts_available:          hostBuckets.map(b => b.key),
+    users_available:          userBuckets.map(b => b.key),
   };
 }
 
@@ -533,12 +679,11 @@ export async function searchTimelineWithPIT(
   if (params.evidence_id) filters.push({ term: { evidence_id: params.evidence_id } });
 
   if (params.search?.trim()) {
-    mustClauses.push({
-      multi_match: {
-        query: params.search.trim(), fields: ['description', 'source', 'artifact_type'],
-        operator: 'and', type: 'best_fields',
-      },
-    });
+    for (const term of splitSearchTerms(params.search.trim())) {
+      if (term.length >= 3) {
+        mustClauses.push({ match_phrase: { search_text: { query: term } } });
+      }
+    }
   }
 
   const query = { bool: { filter: filters, must: mustClauses } };
