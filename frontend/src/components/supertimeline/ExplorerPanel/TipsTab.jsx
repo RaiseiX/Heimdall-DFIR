@@ -14,11 +14,11 @@ const S = {
   row: { display: 'flex', alignItems: 'flex-start', gap: 7, marginBottom: 7 },
   badge: {
     flexShrink: 0, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 9, fontWeight: 700,
-    padding: '1px 5px', borderRadius: 3, whiteSpace: 'nowrap', marginTop: 1,
+    whiteSpace: 'nowrap', marginTop: 1,
   },
-  desc: { fontSize: 10, color: '#7a8ba0', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', lineHeight: 1.5 },
+  desc: { fontSize: 10, color: 'var(--fl-muted)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', lineHeight: 1.5 },
   code: {
-    display: 'inline-block', background: 'var(--fl-panel)', color: '#6aabdb',
+    display: 'inline-block', background: 'var(--fl-panel)', color: 'var(--fl-purple)',
     border: '1px solid var(--fl-raised)', borderRadius: 3,
     fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 9, padding: '0px 4px', marginTop: 2,
   },
@@ -44,10 +44,10 @@ function Section({ title, defaultOpen = false, children }) {
   );
 }
 
-function Row({ badge, badgeColor = 'var(--fl-accent)', badgeBg = 'var(--fl-card)', badgeBorder = 'var(--fl-raised)', children }) {
+function Row({ badge, badgeColor = 'var(--fl-accent)', children }) {
   return (
     <div style={S.row}>
-      <span style={{ ...S.badge, color: badgeColor, background: badgeBg, border: `1px solid ${badgeBorder}` }}>
+      <span style={{ ...S.badge, color: badgeColor }}>
         {badge}
       </span>
       <span style={S.desc}>{children}</span>
@@ -56,28 +56,28 @@ function Row({ badge, badgeColor = 'var(--fl-accent)', badgeBg = 'var(--fl-card)
 }
 
 const OPS = [
-  { op: 'contains',     color: 'var(--fl-accent)', bg: 'var(--fl-card)', border: 'var(--fl-raised)', desc: 'The value appears anywhere in the field.' },
-  { op: 'not contains', color: 'var(--fl-purple)', bg: '#1a1030', border: '#2a1a50', desc: 'Excludes rows containing the value.' },
-  { op: 'equals',       color: 'var(--fl-ok)', bg: '#0e2218', border: '#1a3520', desc: 'Exact match, case-insensitive.' },
-  { op: 'not equals',   color: 'var(--fl-danger)', bg: '#2a0f0f', border: '#3a1818', desc: 'Excludes the exact match.' },
-  { op: 'starts with',  color: 'var(--fl-gold)', bg: '#1a1808', border: '#3a3010', desc: 'The field starts with the value.' },
-  { op: 'ends with',    color: 'var(--fl-gold)', bg: '#1a1808', border: '#3a3010', desc: 'The field ends with the value.' },
-  { op: 'regex',        color: 'var(--fl-purple)', bg: 'var(--fl-card)', border: 'var(--fl-raised)', desc: <>PostgreSQL regex. Ex: <span style={S.code}>^cmd\.exe$</span></> },
-  { op: 'is empty',     color: 'var(--fl-muted)', bg: 'var(--fl-bg)', border: 'var(--fl-raised)', desc: 'Field empty or NULL. No value required.' },
-  { op: 'is not empty', color: 'var(--fl-dim)', bg: 'var(--fl-bg)', border: 'var(--fl-raised)', desc: 'Non-empty field.' },
+  { op: 'contains',     color: 'var(--fl-accent)', desc: 'The value appears anywhere in the field.' },
+  { op: 'not contains', color: 'var(--fl-purple)', desc: 'Excludes rows containing the value.' },
+  { op: 'equals',       color: 'var(--fl-ok)', desc: 'Exact match, case-insensitive.' },
+  { op: 'not equals',   color: 'var(--fl-danger)', desc: 'Excludes the exact match.' },
+  { op: 'starts with',  color: 'var(--fl-gold)', desc: 'The field starts with the value.' },
+  { op: 'ends with',    color: 'var(--fl-gold)', desc: 'The field ends with the value.' },
+  { op: 'regex',        color: 'var(--fl-purple)', desc: <>PostgreSQL regex. Ex: <span style={S.code}>^cmd\.exe$</span></> },
+  { op: 'is empty',     color: 'var(--fl-muted)', desc: 'Field empty or NULL. No value required.' },
+  { op: 'is not empty', color: 'var(--fl-dim)', desc: 'Non-empty field.' },
 ];
 
 const PREFIXES = [
-  { prefix: 'host:',   color: 'var(--fl-purple)', bg: '#1a1030', border: '#2a1a50', desc: <>Filter by machine. Ex: <span style={S.code}>host:DC01</span></> },
-  { prefix: 'user:',   color: 'var(--fl-pink)', bg: '#1a1030', border: '#2a1a50', desc: <>Filter by user. Ex: <span style={S.code}>user:Administrator</span></> },
-  { prefix: 'type:',   color: 'var(--fl-ok)', bg: '#0e2218', border: '#1a3520', desc: <>Artifact type. Ex: <span style={S.code}>type:evtx</span></> },
-  { prefix: 'tool:',   color: 'var(--fl-accent)', bg: 'var(--fl-card)', border: 'var(--fl-raised)', desc: <>Parsing tool. Ex: <span style={S.code}>tool:Hayabusa</span></> },
-  { prefix: 'eid:',    color: 'var(--fl-dim)', bg: 'var(--fl-card)', border: 'var(--fl-raised)', desc: <>Event ID. Ex: <span style={S.code}>eid:4624</span></> },
-  { prefix: 'ext:',    color: 'var(--fl-dim)', bg: 'var(--fl-card)', border: 'var(--fl-raised)', desc: <>Extension. Ex: <span style={S.code}>ext:ps1</span></> },
-  { prefix: 'tag:',    color: 'var(--fl-purple)', bg: 'var(--fl-card)', border: 'var(--fl-raised)', desc: <>YARA/detection tag. Ex: <span style={S.code}>tag:T1059</span></> },
-  { prefix: 'sev:',    color: 'var(--fl-danger)', bg: '#2a0f0f', border: '#3a1818', desc: <>Severity. Ex: <span style={S.code}>sev:critical</span></> },
-  { prefix: 'after:',  color: 'var(--fl-gold)', bg: '#1a1808', border: '#3a3010', desc: <>Start date. Ex: <span style={S.code}>after:2024-01-15</span></> },
-  { prefix: 'before:', color: 'var(--fl-gold)', bg: '#1a1808', border: '#3a3010', desc: <>End date. Ex: <span style={S.code}>before:2024-06-01</span></> },
+  { prefix: 'host:',   color: 'var(--fl-purple)', desc: <>Filter by machine. Ex: <span style={S.code}>host:DC01</span></> },
+  { prefix: 'user:',   color: 'var(--fl-pink)', desc: <>Filter by user. Ex: <span style={S.code}>user:Administrator</span></> },
+  { prefix: 'type:',   color: 'var(--fl-ok)', desc: <>Artifact type. Ex: <span style={S.code}>type:evtx</span></> },
+  { prefix: 'tool:',   color: 'var(--fl-accent)', desc: <>Parsing tool. Ex: <span style={S.code}>tool:Hayabusa</span></> },
+  { prefix: 'eid:',    color: 'var(--fl-dim)', desc: <>Event ID. Ex: <span style={S.code}>eid:4624</span></> },
+  { prefix: 'ext:',    color: 'var(--fl-dim)', desc: <>Extension. Ex: <span style={S.code}>ext:ps1</span></> },
+  { prefix: 'tag:',    color: 'var(--fl-purple)', desc: <>YARA/detection tag. Ex: <span style={S.code}>tag:T1059</span></> },
+  { prefix: 'sev:',    color: 'var(--fl-danger)', desc: <>Severity. Ex: <span style={S.code}>sev:critical</span></> },
+  { prefix: 'after:',  color: 'var(--fl-gold)', desc: <>Start date. Ex: <span style={S.code}>after:2024-01-15</span></> },
+  { prefix: 'before:', color: 'var(--fl-gold)', desc: <>End date. Ex: <span style={S.code}>before:2024-06-01</span></> },
 ];
 
 export default function TipsTab() {
@@ -121,7 +121,7 @@ export default function TipsTab() {
           Type a prefix directly in the search bar to target a specific field.
         </div>
         {PREFIXES.map(p => (
-          <Row key={p.prefix} badge={p.prefix} badgeColor={p.color} badgeBg={p.bg} badgeBorder={p.border}>
+          <Row key={p.prefix} badge={p.prefix} badgeColor={p.color}>
             {p.desc}
           </Row>
         ))}
@@ -129,7 +129,7 @@ export default function TipsTab() {
 
       <Section title="Column filters" defaultOpen>
         <div style={{ ...S.desc, marginBottom: 8 }}>
-          Hover a column header, then click the filter icon (⊟) to open the popover.
+          Hover a column header, then click the filter icon to open the popover.
           The blue dot indicates an active filter on that column.
         </div>
         <div style={{ fontSize: 9, color: 'var(--fl-muted)', textTransform: 'uppercase',
@@ -148,7 +148,7 @@ export default function TipsTab() {
           Available operators
         </div>
         {OPS.map(o => (
-          <Row key={o.op} badge={o.op} badgeColor={o.color} badgeBg={o.bg} badgeBorder={o.border}>
+          <Row key={o.op} badge={o.op} badgeColor={o.color}>
             {o.desc}
           </Row>
         ))}

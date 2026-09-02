@@ -41,7 +41,7 @@ export default function SchemaTab({ record }) {
         localStorage.setItem(storageKey, JSON.stringify([...existing, rawKey]));
         useTimelineStore.getState().bumpDynamicCols();
       }
-    } catch { /**/ }
+    } catch { }
   }
 
   if (!record?.raw || Object.keys(record.raw).length === 0) {
@@ -54,7 +54,6 @@ export default function SchemaTab({ record }) {
 
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-      {/* Search */}
       <div style={{ padding: '8px 12px', borderBottom: '1px solid var(--fl-card)', flexShrink: 0 }}>
         <input
           value={search}
@@ -71,7 +70,6 @@ export default function SchemaTab({ record }) {
         )}
       </div>
 
-      {/* Field list */}
       <div style={{ flex: 1, overflowY: 'auto' }}>
         {filtered.map(({ key, value }) => {
           const isActive   = activeDynamicKeys.has(key);
@@ -87,11 +85,11 @@ export default function SchemaTab({ record }) {
                   {key}
                   {isActive && (
                     <span style={{ fontSize: 8, padding: '0 4px', borderRadius: 2,
-                      background: 'var(--fl-card)', color: 'var(--fl-accent)', border: '1px solid color-mix(in srgb, var(--fl-accent) 25%, transparent)' }}>⊞ visible</span>
+                      background: 'var(--fl-card)', color: 'var(--fl-accent)', border: '1px solid color-mix(in srgb, var(--fl-accent) 25%, transparent)' }}>visible</span>
                   )}
                 </div>
                 <div
-                  onClick={() => { try { navigator.clipboard.writeText(displayVal); } catch { /**/ } }}
+                  onClick={() => { try { navigator.clipboard.writeText(displayVal); } catch { } }}
                   title="Click to copy"
                   style={{ fontSize: 10, color: 'var(--fl-dim)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', cursor: 'copy',
                     wordBreak: 'break-all', lineHeight: 1.4, maxHeight: 60, overflow: 'hidden' }}>
@@ -116,9 +114,8 @@ export default function SchemaTab({ record }) {
         )}
       </div>
 
-      {/* Footer */}
       <div style={{ padding: '4px 12px', borderTop: '1px solid var(--fl-card)', flexShrink: 0,
-        fontSize: 8, color: 'var(--fl-raised)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}>
+        fontSize: 8, color: 'var(--fl-dim)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}>
         {rawFields.length} fields · {filtered.length} shown
       </div>
     </div>

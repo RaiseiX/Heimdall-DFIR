@@ -4,10 +4,13 @@ import { artifactColor } from '../../../constants/artifactColors';
 import { evaluateColorRules } from '../../../utils/colorRulesEngine';
 import {
   fmtDesc, fmtSrc, CONFIDENCE_MAP, FORENSIC_TAGS,
-  topDetectionSeverity, DETECTION_SEV_COLOR,
+  topDetectionSeverity, DETECTION_SEV_COLOR, readRawPath,
+  isInventoryRow, tsTypeLabel, timestampPlausibility, splitPathTail,
 } from '../utils/timelineUtils';
 
 const FORENSIC_TAG_MAP = Object.fromEntries(FORENSIC_TAGS.map(t => [t.key, t]));
+
+const EMPTY_TS_LABELS = Object.freeze({ inventory: 'inventory', inventoryTitle: '', undatedCell: '' });
 
 function Highlight({ text, term }) {
   const str = String(text ?? '');
@@ -25,9 +28,6 @@ function Highlight({ text, term }) {
   );
 }
 
-// Color = signal: the left tick is coloured ONLY for flagged rows (detection,
-// hayabusa level, colour rule, selection). Plain rows get no coloured strip —
-// the artifact type is already shown by the badge in the ARTIFACT column.
 function accentColor({ detSev, lvl, colorMatch, isSelected }) {
   if (detSev)     return DETECTION_SEV_COLOR[detSev] || 'var(--fl-danger)';
   if (lvl)        return lvl.color;
@@ -54,7 +54,12 @@ export const EventRow = memo(function EventRow({
   tagEntry, colorRules, searchTerm,
   onClick, onCellContextMenu,
   pinnedCols, pinnedOffsets, scrollLeftRef,
+  tsLabels = EMPTY_TS_LABELS,
+  stacked = true,
+  nowMs,
 }) {
+  const isInventory = isInventoryRow(r);
+  const plaus       = timestampPlausibility(r.timestamp, nowMs);
   const acol       = artifactColor(r.artifact_type);
   const td         = tagEntry || {};
   const lvl        = td.level ? CONFIDENCE_MAP[td.level] : null;
@@ -70,37 +75,51 @@ export const EventRow = memo(function EventRow({
       style={{ gridTemplateColumns: gridTemplate, background: bg }}
       onClick={onClick}
     >
-      {/* Accent bar — 4px left stripe */}
       <div className="tl-accent" style={{ background: accent }} />
 
       {visibleCols.map(col => {
-        const val = col.meta?.dynamic ? r.raw?.[col.meta.rawKey] : r[col.key];
+        const val = col.meta?.dynamic ? readRawPath(r.raw, col.meta.rawKey) : r[col.key];
         let content;
 
         if (col.key === 'timestamp') {
-          const ts  = fmtTs(r.timestamp);
-          const sep = ts.indexOf(' ');
-          const d   = sep > 0 ? ts.slice(0, sep) : ts;
-          const t   = sep > 0 ? ts.slice(sep + 1) : '';
-          content = (
-            <span style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
-              <span style={{ color: 'var(--fl-dim)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10, whiteSpace: 'nowrap', lineHeight: '14px' }}>{d}</span>
-              {t && <span style={{ color: 'var(--fl-subtle)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 8,  whiteSpace: 'nowrap', lineHeight: '13px' }}>{t}</span>}
-            </span>
-          );
+          if (isInventory) {
+            content = <span title={tsLabels.undatedCell} style={{ display: 'block', width: '100%', height: '100%' }} />;
+          } else {
+            const ts  = fmtTs(r.timestamp);
+            const sep = ts.indexOf(' ');
+            const d   = sep > 0 ? ts.slice(0, sep) : ts;
+            const t   = sep > 0 ? ts.slice(sep + 1) : '';
+            const dateColor = plaus === 'ok' ? 'var(--fl-dim)' : 'var(--fl-warn)';
+            const dateDeco  = plaus === 'ok' ? undefined : 'underline dotted';
+            const dateTitle = plaus === 'ok' ? undefined
+              : plaus === 'future' ? tsLabels.future : tsLabels.ancient;
+            content = stacked ? (
+              <span title={dateTitle} style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+                <span style={{ color: dateColor, textDecoration: dateDeco, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10, whiteSpace: 'nowrap', lineHeight: '14px' }}>{d}</span>
+                {t && <span style={{ color: 'var(--fl-subtle)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 8,  whiteSpace: 'nowrap', lineHeight: '13px' }}>{t}</span>}
+              </span>
+            ) : (
+              <span title={dateTitle} style={{ color: dateColor, textDecoration: dateDeco, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10, whiteSpace: 'nowrap' }}>
+                {d}{t ? ` ${t}` : ''}
+              </span>
+            );
+          }
 
         } else if (col.key === 'timestamp_kind') {
           const kind = r.timestamp_kind || '';
           content = kind
-            ? <span style={{ color: 'var(--fl-muted)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 9, whiteSpace: 'nowrap', padding: '1px 5px', borderRadius: 3, background: 'var(--fl-panel)', border: '1px solid var(--fl-border)' }}>{kind}</span>
+            ? <span
+                title={isInventory ? tsLabels.inventoryTitle : kind}
+                style={{ color: isInventory ? 'var(--fl-subtle)' : 'var(--fl-muted)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 9, whiteSpace: 'nowrap', fontStyle: isInventory ? 'italic' : 'normal' }}
+              >{tsTypeLabel(r, tsLabels)}</span>
             : <span style={{ color: 'var(--fl-border)' }}>—</span>;
 
         } else if (col.key === 'artifact_type') {
-          content = <span style={{ padding: '1px 6px', borderRadius: 3, fontSize: 9, fontWeight: 700, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', background: `color-mix(in srgb, ${acol} 9%, transparent)`, color: acol, border: `1px solid color-mix(in srgb, ${acol} 19%, transparent)`, whiteSpace: 'nowrap' }}>{r.artifact_type}</span>;
+          content = <span style={{ fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: acol, whiteSpace: 'nowrap' }}>{r.artifact_type}</span>;
 
         } else if (col.key === 'tool') {
           content = val
-            ? <span title={String(val)} style={{ color: 'var(--fl-muted)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 9, whiteSpace: 'nowrap', padding: '1px 5px', borderRadius: 3, background: 'var(--fl-panel)', border: '1px solid var(--fl-border)' }}>{String(val)}</span>
+            ? <span title={String(val)} style={{ color: 'var(--fl-muted)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10, whiteSpace: 'nowrap' }}>{String(val)}</span>
             : <span style={{ color: 'var(--fl-border)' }}>—</span>;
 
         } else if (col.key === 'description') {
@@ -110,7 +129,7 @@ export const EventRow = memo(function EventRow({
               {searchTerm ? <Highlight text={desc} term={searchTerm} /> : desc}
               {td.tags?.length > 0 && td.tags.map(key => {
                 const ft = FORENSIC_TAG_MAP[key];
-                return ft ? <span key={key} style={{ marginLeft: 5, padding: '0 5px', borderRadius: 8, fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontWeight: 600, background: `color-mix(in srgb, ${ft.color} 13%, transparent)`, color: ft.color, border: `1px solid color-mix(in srgb, ${ft.color} 19%, transparent)`, verticalAlign: 'middle' }}>{ft.label}</span> : null;
+                return ft ? <span key={key} style={{ marginLeft: 6, fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: ft.color, verticalAlign: 'middle' }}>{ft.label}</span> : null;
               })}
               {hasNote && <span style={{ marginLeft: 5, display: 'inline-block', width: 6, height: 6, borderRadius: 2, background: 'var(--fl-accent)', verticalAlign: 'middle' }} />}
             </span>
@@ -118,8 +137,12 @@ export const EventRow = memo(function EventRow({
 
         } else if (col.key === '_source') {
           const src = fmtSrc(r);
+          const { head, tail } = splitPathTail(src);
           content = src
-            ? <span title={src} style={{ color: 'var(--fl-muted)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10 }}>{src}</span>
+            ? <span title={src} style={{ display: 'flex', minWidth: 0, alignItems: 'baseline', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10 }}>
+                <span style={{ color: 'var(--fl-subtle)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{head}</span>
+                <span style={{ color: 'var(--fl-dim)', flexShrink: 0, whiteSpace: 'nowrap' }}>{tail}</span>
+              </span>
             : <span style={{ color: 'var(--fl-border)' }}>—</span>;
 
         } else if (col.key === 'user_name') {
@@ -136,9 +159,9 @@ export const EventRow = memo(function EventRow({
 
         } else if (col.key === '_verdict') {
           const chip = lvl
-            ? { label: lvl.label, bg: lvl.bg, color: lvl.color, border: `1px solid color-mix(in srgb, ${lvl.color} 25%, transparent)` }
+            ? { label: lvl.label, bg: lvl.bg, color: lvl.color, border: `1px solid color-mix(in srgb, ${lvl.color} 30%, transparent)` }
             : detSev
-              ? { label: detSev, bg: `color-mix(in srgb, ${DETECTION_SEV_COLOR[detSev]} 9%, transparent)`, color: DETECTION_SEV_COLOR[detSev], border: `1px solid color-mix(in srgb, ${DETECTION_SEV_COLOR[detSev]} 25%, transparent)` }
+              ? { label: detSev, bg: `color-mix(in srgb, ${DETECTION_SEV_COLOR[detSev]} 12%, transparent)`, color: DETECTION_SEV_COLOR[detSev], border: `1px solid color-mix(in srgb, ${DETECTION_SEV_COLOR[detSev]} 30%, transparent)` }
               : null;
           content = chip
             ? <span style={{ padding: '1px 6px', borderRadius: 3, fontSize: 9, fontWeight: 700, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', background: chip.bg, color: chip.color, border: chip.border, whiteSpace: 'nowrap' }}>{chip.label}</span>

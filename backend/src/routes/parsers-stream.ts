@@ -102,6 +102,92 @@ router.get('/status/:caseId/:evidenceId', async (req: AuthRequest, res: Response
   }
 });
 
+// The coverage ledger, file by file.
+//
+// `/status/:caseId/:evidenceId` above answers "how many of each status"; this one
+// answers "which file, and why". That distinction is the point: an analyst who
+// asks "did we miss anything" needs the 5 unsupported paths, not the number 5.
+//
+// The ledger holds one row per collected file and one per expanded archive member,
+// so its total is the only checkable statement about completeness — row counts in
+// the timeline rise with every parser improvement and prove nothing.
+router.get('/coverage/:caseId', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const pool = getPool(res);
+    const { caseId } = req.params;
+    const { status, search, evidence_id: evidenceId } = req.query;
+    // Floored as well as capped. Math.min alone let `?limit=-3` through as
+    // `LIMIT -3`, which Postgres rejects outright ("LIMIT must not be negative"),
+    // so a malformed page request reached the analyst as a bare 500 instead of a
+    // short page. The offset line below already floors; these two only looked symmetric.
+    const limit = Math.min(Math.max(Number(req.query.limit) || 200, 1), 1000);
+    const offset = Math.max(Number(req.query.offset) || 0, 0);
+
+    const where: string[] = ['case_id = $1'];
+    const params: unknown[] = [caseId];
+    if (status) { params.push(String(status).split(',')); where.push(`status = ANY($${params.length})`); }
+    if (evidenceId) { params.push(evidenceId); where.push(`evidence_id = $${params.length}`); }
+    if (search) { params.push(`%${String(search)}%`); where.push(`relative_path ILIKE $${params.length}`); }
+    const clause = where.join(' AND ');
+
+    // Counts describe the perimeter under examination, never the filtered page.
+    //
+    // `status` and `search` are reading filters: they change what the analyst is
+    // looking *through*, not what was collected, so they must stay out of this query.
+    // A filter that shrank the totals would answer "did we miss anything?" with a
+    // number that depends on what the analyst happened to type.
+    //
+    // `evidence_id` is different in kind — it selects *which collection* is under
+    // examination, so it does belong here. Left out, a header claiming the case's
+    // 531 files above a list of one evidence's files would overstate that evidence's
+    // coverage: the mirror image of the failure this ledger exists to prevent.
+    const scope: string[] = ['case_id = $1'];
+    const scopeParams: unknown[] = [caseId];
+    if (evidenceId) { scopeParams.push(evidenceId); scope.push(`evidence_id = $${scopeParams.length}`); }
+    const counts = await pool.query(
+      `SELECT status, COUNT(*)::int n
+         FROM ingestion_files
+        WHERE ${scope.join(' AND ')}
+        GROUP BY status`,
+      scopeParams,
+    );
+    // Ordered by path, tie-broken by id. relative_path carries no unique constraint,
+    // and two collections in one case both hold System_Info/deb-packages.txt: ordering
+    // on the path alone leaves equal keys in an order Postgres may vary between
+    // queries, so a paginated walk can show one row twice and another never. A ledger
+    // that answers "did we miss anything" cannot itself drop rows while paging. The
+    // timeline route carries the same tie-breaker, for the same reason.
+    const page = await pool.query(
+      `SELECT relative_path, status, status_detail, file_size, sha256, evidence_id
+         FROM ingestion_files
+        WHERE ${clause}
+        ORDER BY relative_path, id
+        LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+      [...params, limit, offset],
+    );
+    const filtered = await pool.query(
+      `SELECT COUNT(*)::int n FROM ingestion_files WHERE ${clause}`, params,
+    );
+
+    const byStatus = rollupCounts(counts.rows);
+    res.json({
+      case_id: caseId,
+      // What `counts` and `total` are counted over, stated rather than inferred:
+      // the screen must be able to label "531 files" as the case's or this
+      // evidence's without re-deriving it from which query parameters it sent.
+      counts_scope: evidenceId ? 'evidence' : 'case',
+      counts: byStatus,
+      total: Object.values(byStatus).reduce((a, b) => a + b, 0),
+      filtered_total: filtered.rows[0]?.n ?? 0,
+      limit,
+      offset,
+      files: page.rows,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.get('/results/:caseId', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const pool = getPool(res);
@@ -130,21 +216,24 @@ router.get('/results/:caseId', async (req: AuthRequest, res: Response, next: Nex
 router.get('/result/:resultId/types', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const pool = getPool(res);
+    // Counted from the rows that were actually written, not from output_data.
+    //
+    // The previous query exploded `output_data` as a JSON array. It is an object
+    // — keys `parse_results`, `total_records`, `artifact_types` — so the CASE
+    // fell through to '[]' and every collection reported zero artifact types
+    // while showing its real record count beside it. Measured on a CatScale
+    // collection of 335,666 events across 10 types (2026-08-13).
+    //
+    // `output_data.artifact_types` is not the answer either: it lists the types
+    // *requested* of the parser, which for a Linux collection is the whole
+    // Windows roster. Only collection_timeline knows what came out.
     const result = await pool.query(
-      `SELECT elem->>'artifact_type' AS artifact_type,
-              COUNT(*)::int           AS count
-       FROM parser_results,
-            jsonb_array_elements(
-              CASE
-                WHEN output_data ? 'unified_timeline' THEN output_data->'unified_timeline'
-                WHEN jsonb_typeof(output_data) = 'array' THEN output_data
-                ELSE '[]'::jsonb
-              END
-            ) AS elem
-       WHERE id = $1
-         AND elem->>'artifact_type' IS NOT NULL
-       GROUP BY 1
-       ORDER BY 2 DESC`,
+      `SELECT artifact_type, COUNT(*)::int AS count
+         FROM collection_timeline
+        WHERE result_id = $1
+          AND artifact_type <> ''
+        GROUP BY 1
+        ORDER BY 2 DESC`,
       [req.params.resultId]
     );
     res.json({ types: result.rows });

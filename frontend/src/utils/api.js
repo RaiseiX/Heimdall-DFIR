@@ -26,7 +26,6 @@ api.interceptors.response.use(
   (response) => response,
   async (error) => {
     const orig = error.config;
-    // Skip interceptor for auth/refresh calls to prevent recursive refresh loops
     if (orig?.url?.includes('/auth/refresh') || orig?.url?.includes('/auth/logout')) {
       if (error.response?.status === 401) _forceLogout();
       return Promise.reject(error);
@@ -174,6 +173,7 @@ export const networkAPI = {
   saveAnnotations:       (caseId, data) => api.put(`/network/${caseId}/annotations`, data),
   saveGlobalAnnotations: (caseId, data) => api.put(`/network/${caseId}/annotations/global`, data),
   globalGraph:           (caseId)       => api.get(`/network/${caseId}/global-graph`),
+  register:              (caseId)       => api.get(`/network/${caseId}/register`),
 };
 
 export const parsersAPI = {
@@ -184,12 +184,11 @@ export const parsersAPI = {
   resultTypes: (resultId) => api.get(`/parsers/result/${resultId}/types`),
   deleteResult: (resultId) => api.delete(`/parsers/results/${resultId}`),
   exportResultCsv: (resultId) => api.get(`/parsers/result/${resultId}/export/csv`, { responseType: 'blob' }),
-  // Honest per-status rollup (all 11 ingestion_files states) for one evidence.
   status: (caseId, evidenceId) => api.get(`/parsers/status/${caseId}/${evidenceId}`),
+  coverage: (caseId, params) => api.get(`/parsers/coverage/${caseId}`, { params }),
 };
 
 export const reportsAPI = {
-  // opts: { templateId } | { sections: string[], notes: string, ... }. A bare string is treated as templateId (back-compat).
   generate: (caseId, opts = {}) => api.post(`/reports/${caseId}/generate`, typeof opts === 'string' ? { templateId: opts } : (opts || {})),
   aiDraft: (caseId, opts = {}) => api.post(`/reports/${caseId}/ai-draft`, opts || {}),
   list: (caseId) => api.get(`/reports/${caseId}`),
@@ -479,7 +478,6 @@ export const settingsAPI = {
 
 export const triageAPI = {
   queue: () => api.get('/triage'),
-  // Persistent alert inbox
   alerts:       (params)   => api.get('/triage/alerts', { params }),
   alertStats:   ()         => api.get('/triage/alerts/stats'),
   createAlert:  (data)     => api.post('/triage/alerts', data),

@@ -25,11 +25,16 @@ import path from 'node:path';
 const root = path.resolve(import.meta.dirname, '..');
 const srcDir = path.join(root, 'src');
 
-/** Maxima mesurés le 2026-08-04 sur `frontend/src`. À BAISSER, jamais à monter. */
+/**
+ * Maxima mesurés le 2026-08-04 sur `frontend/src`. À BAISSER, jamais à monter.
+ * 2026-08-13, lot « login photo nue » : les styles inline et les tailles littérales de la
+ * carte de connexion sont passés en classes CSS. Mesures réelles 4759 -> 4734 et 1965 -> 1960.
+ * Les plafonds sont abaissés du même montant, la marge existante est conservée telle quelle.
+ */
 export const CEILINGS = {
-  inlineStyle: 4894,
+  inlineStyle: 4869,
   halfPixel: 203,
-  literalFontSize: 2014,
+  literalFontSize: 2009,
   pictogramCode: 377,
 };
 
@@ -611,8 +616,8 @@ export function importantMotionOverridesOutsideReducedMotion(css) {
  * REDUCED MOTION (durées neutralisées à `0.01ms`, pas supprimées — un
  * `animation: none` empêcherait `animationend` de se déclencher, ce dont
  * plusieurs composants dépendent pour enchaîner un état), son imbrication
- * sous `@media (prefers-reduced-motion: reduce)`, l'intégrité des trois blocs
- * login existants (ni supprimés ni fusionnés), et — au-delà de la simple
+ * sous `@media (prefers-reduced-motion: reduce)`, la présence d'au moins un bloc
+ * `prefers-reduced-motion`, et — au-delà de la simple
  * présence du bloc — que rien ailleurs dans la feuille ne peut le
  * court-circuiter dans la cascade (voir
  * `importantMotionOverridesOutsideReducedMotion`). Retourne des messages de
@@ -664,23 +669,25 @@ export function checkReducedMotion() {
     );
   }
 
+  // 2026-08-13 — Trois assertions ont été retirées ici : un seuil de 4 blocs
+  // @media (prefers-reduced-motion) et deux `css.includes()` exigeant la survie de
+  // `.login-blob` et `.login-aurora`. Elles dataient de l'audit du 2026-07-29 et étaient
+  // rédigées « must remain untouched by this task » — une contrainte de portée temporaire,
+  // gelée par erreur en garde permanente. Le lot « login photo nue » supprime ces calques
+  // décoratifs, décision du propriétaire du projet : une animation qui n'existe plus ne peut
+  // pas mal gérer le mouvement réduit, donc ces assertions protégeaient des noms de classe,
+  // plus une propriété. Les deux protections réelles restent en place et suffisent : la
+  // vérification complète du bloc global ci-dessus, et l'interdiction des `!important` de
+  // mouvement hors bloc `prefers-reduced-motion` ci-dessous.
+  //
+  // NE PAS réintroduire d'assertion citant une classe CSS nommée. Si le besoin réapparaît,
+  // écrire un invariant général — par exemple : toute règle `animation: … infinite` doit être
+  // couverte par le bloc global de mouvement réduit.
   const blocsPrefersReducedMotion = css.match(/@media \(prefers-reduced-motion: reduce\)/g) ?? [];
-  if (blocsPrefersReducedMotion.length < 4) {
+  if (blocsPrefersReducedMotion.length < 1) {
     failures.push(
-      `Expected at least 4 @media (prefers-reduced-motion: reduce) blocks (3 pre-existing ` +
-      `login blocks + 1 global block), found ${blocsPrefersReducedMotion.length} in src/index.css.`,
-    );
-  }
-  if (!css.includes('.login-blob')) {
-    failures.push(
-      '.login-blob rule missing from src/index.css — the pre-existing login reduced-motion ' +
-      'blocks must remain untouched by this task.',
-    );
-  }
-  if (!css.includes('.login-aurora')) {
-    failures.push(
-      '.login-aurora rule missing from src/index.css — the pre-existing login reduced-motion ' +
-      'blocks must remain untouched by this task.',
+      `Expected at least 1 @media (prefers-reduced-motion: reduce) block (the global one), ` +
+      `found ${blocsPrefersReducedMotion.length} in src/index.css.`,
     );
   }
 

@@ -1,4 +1,3 @@
-// frontend/src/pages/NetworkMapPage.jsx
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { networkAPI } from '../utils/api';
@@ -7,7 +6,6 @@ import NetworkExplorer      from '../components/networkmap/NetworkExplorer';
 import InvestigationDrawer  from '../components/networkmap/InvestigationDrawer';
 import Toolbar              from '../components/networkmap/Toolbar';
 import StatusBar            from '../components/networkmap/StatusBar';
-import ZonePanel            from '../components/networkmap/ZonePanel';
 import { useTranslation } from 'react-i18next';
 
 export default function NetworkMapPage() {
@@ -16,12 +14,12 @@ export default function NetworkMapPage() {
   const [searchParams]  = useSearchParams();
   const evidenceId      = searchParams.get('evidence_id');
 
-  const [graphData,      setGraphData]      = useState(null);  // raw API response
-  const [elements,       setElements]       = useState([]);    // Cytoscape elements
-  const [allEdges,       setAllEdges]       = useState([]);    // for drawer tabs
+  const [graphData,      setGraphData]      = useState(null);
+  const [elements,       setElements]       = useState([]);
+  const [allEdges,       setAllEdges]       = useState([]);
   const [loading,        setLoading]        = useState(false);
   const [error,          setError]          = useState(null);
-  const [selectedNode,   setSelectedNode]   = useState(null);  // Cytoscape nodeData
+  const [selectedNode,   setSelectedNode]   = useState(null);
   const [view,           setView]           = useState('network');
   const [filters,        setFilters]        = useState({ hiddenTypes: new Set(), suspiciousOnly: false, search: '' });
   const [zoom,           setZoom]           = useState(1);
@@ -58,7 +56,6 @@ export default function NetworkMapPage() {
     });
   }
 
-  // Load graph data + annotations together
   useEffect(() => {
     if (!caseId) return;
     setLoading(true);
@@ -83,7 +80,6 @@ export default function NetworkMapPage() {
       .finally(() => setLoading(false));
   }, [caseId, evidenceId]);
 
-  // Re-apply filters + overrides when they change
   useEffect(() => {
     if (!graphData) return;
     const overrides = annotations?.node_overrides ?? {};
@@ -184,18 +180,6 @@ export default function NetworkMapPage() {
         view={view}
       />
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
-        <ZonePanel
-          zones={annotations.zones}
-          drawingZoneType={drawingZoneType}
-          onStartDraw={type => setDrawingZoneType(type)}
-          onCancelDraw={() => setDrawingZoneType(null)}
-          onDeleteZone={handleZoneDelete}
-          colorblindMode={colorblindMode}
-          onToggleColorblind={toggleColorblind}
-          nodeColorOverrides={nodeColorOverrides}
-          onNodeColorChange={handleNodeColorChange}
-          onNodeColorReset={handleNodeColorReset}
-        />
         <NetworkExplorer
           elements={elements}
           onNodeSelect={setSelectedNode}

@@ -6,7 +6,6 @@ import { useTranslation } from 'react-i18next';
 
 const SERVICES = ['virustotal', 'abuseipdb', 'shodan', 'greynoise', 'urlhaus', 'malwarebazaar', 'hibp'];
 
-/* ── API-key based services (VirusTotal / AbuseIPDB / Shodan) ───────────── */
 function ApiKeys() {
   const { t } = useTranslation();
   const [state, setState]   = useState(null);
@@ -79,14 +78,13 @@ const Row = ({ children }) => (
   <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: '10px 0', borderBottom: '1px solid var(--fl-border2)' }}>{children}</div>
 );
 
-/* ── TAXII / OpenCTI feeds ──────────────────────────────────────────────── */
 const EMPTY_FEED = { name: '', url: '', api_root: '', collection_id: '', auth_type: 'none', auth_value: '' };
 
 function TaxiiFeeds() {
   const { t } = useTranslation();
   const [feeds, setFeeds] = useState(null);
-  const [form, setForm]   = useState(null);          // null = closed, object = open
-  const [busy, setBusy]   = useState('');            // id being synced/deleted
+  const [form, setForm]   = useState(null);
+  const [busy, setBusy]   = useState('');
   const [msg, setMsg]     = useState('');
 
   const load = () => threatIntelAPI.feeds().then(r => setFeeds(Array.isArray(r.data) ? r.data : [])).catch(() => setFeeds([]));
@@ -107,7 +105,7 @@ function TaxiiFeeds() {
   const del = async (id) => {
     if (!confirm(t('settings.integrations.taxii.delete_confirm'))) return;
     setBusy(id);
-    try { await threatIntelAPI.deleteFeed(id); load(); } catch { /* ignore */ } finally { setBusy(''); }
+    try { await threatIntelAPI.deleteFeed(id); load(); } catch { } finally { setBusy(''); }
   };
   const sync = async (id) => {
     setBusy(id); setMsg('');
@@ -167,7 +165,6 @@ function TaxiiFeeds() {
   );
 }
 
-/* ── MISP instances ─────────────────────────────────────────────────────── */
 const EMPTY_MISP = { name: '', url: '', api_key: '', verify_ssl: true };
 
 function MispInstances() {
@@ -188,7 +185,7 @@ function MispInstances() {
   };
   const del = async (id) => {
     if (!confirm(t('settings.integrations.misp.delete_confirm'))) return;
-    setBusy(id); try { await mispAPI.deleteInstance(id); load(); } catch { /* ignore */ } finally { setBusy(''); }
+    setBusy(id); try { await mispAPI.deleteInstance(id); load(); } catch { } finally { setBusy(''); }
   };
   const test = async (id) => {
     setBusy(id); setMsg('');

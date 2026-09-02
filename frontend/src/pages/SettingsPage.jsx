@@ -17,7 +17,6 @@ import { useTranslation } from 'react-i18next';
 
 const CHAT_COLORS = ['var(--fl-accent)', 'var(--fl-ok)', 'var(--fl-warn)', 'var(--fl-danger)', 'var(--fl-purple)', 'var(--fl-pink)', 'var(--fl-gold)'];
 
-// ── Section catalogue (admin-gated groups flagged) ───────────────────────────
 const buildGroups = (t) => [
   { id: 'account', label: t('settings.groups.account'), admin: false, items: [
     { id: 'profile',       label: t('settings.nav.profile') },
@@ -43,7 +42,6 @@ const buildGroups = (t) => [
   ]},
 ];
 
-// ── SLA (system_settings via settingsAPI) ────────────────────────────────────
 function SlaSection() {
   const { t } = useTranslation();
   const [sla, setSla]   = useState({ urgentH: 24, warningH: 72, upcomingH: 168 });
@@ -79,8 +77,6 @@ function SlaSection() {
   );
 }
 
-// ── Roles capability matrix (informational) ──────────────────────────────────
-// [capability, analyst, team_lead, admin]
 const ROLE_COLS = [
   { key: 'analyst',   label: 'analyst' },
   { key: 'team_lead', label: 'team lead' },
@@ -134,7 +130,6 @@ function RolesSection() {
   );
 }
 
-// ── Keyboard shortcuts reference ─────────────────────────────────────────────
 function ShortcutsSection() {
   const { t } = useTranslation();
   const shortcuts = [
@@ -252,7 +247,6 @@ export default function SettingsPage() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'var(--fl-bg)' }}>
-      {/* Breadcrumb */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '14px 22px', borderBottom: '1px solid var(--fl-border)', flexShrink: 0 }}>
         <span style={{ fontSize: 11, fontFamily: MONO, color: 'var(--fl-muted)' }}>{t('settings.breadcrumb.system')}</span>
         <ChevronRight size={12} style={{ color: 'var(--fl-subtle)' }} />
@@ -260,7 +254,6 @@ export default function SettingsPage() {
       </div>
 
       <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
-        {/* Sub-nav */}
         <div style={{ width: 230, flexShrink: 0, borderRight: '1px solid var(--fl-border)', overflowY: 'auto', padding: '16px 12px' }}>
           {groups.map(g => (
             <div key={g.id} style={{ marginBottom: 16 }}>
@@ -286,7 +279,6 @@ export default function SettingsPage() {
           ))}
         </div>
 
-        {/* Content */}
         <div key={active} style={{ flex: 1, overflowY: 'auto', padding: '28px 40px', animation: 'fl-fade 120ms ease' }}>
           <div style={{ maxWidth: 760 }}>
             {renderSection()}

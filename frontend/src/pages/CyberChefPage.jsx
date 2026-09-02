@@ -10,8 +10,6 @@ import {
 const tr = (key, options) => i18n.t(`cyberchef.${key}`, options);
 const resolveText = value => (typeof value === 'string' && value.startsWith('cyberchef.')) ? i18n.t(value) : value;
 
-// ─── Hash helpers ────────────────────────────────────────────────────────────
-
 function md5(str) {
   const s = unescape(encodeURIComponent(str));
   const add = (a,b) => { const l=(a&0xFFFF)+(b&0xFFFF); return (((a>>>16)+(b>>>16)+(l>>>16))<<16)|(l&0xFFFF); };
@@ -90,8 +88,6 @@ function ntlm(str) {
   }
   return [a,b,c,d].map(n=>Array.from({length:4},(_,i)=>((n>>>(i*8))&0xFF).toString(16).padStart(2,'0')).join('')).join('');
 }
-
-// ─── Other helpers ────────────────────────────────────────────────────────────
 
 function shannonEntropy(str) {
   if (!str || !str.length) return 0;
@@ -327,10 +323,6 @@ function prettifyXml(input) {
   return out.trim();
 }
 
-// ─── Compression (native browser DecompressionStream) ─────────────────────────
-// Attacker payloads (esp. PowerShell `IO.Compression.DeflateStream` / `GzipStream`)
-// are almost always Base64 → compressed bytes. Pipe fromBase64 → one of these.
-
 async function decompress(input, format) {
   if (typeof DecompressionStream === 'undefined')
     throw new Error('DecompressionStream non supporté par ce navigateur');
@@ -340,8 +332,6 @@ async function decompress(input, format) {
   return new TextDecoder('utf-8', { fatal: false }).decode(buf);
 }
 
-// ─── Symmetric crypto (native Web Crypto) ─────────────────────────────────────
-
 function hexToBytes(h) {
   const clean = h.replace(/[^0-9a-fA-F]/g, '');
   if (clean.length % 2) throw new Error('Hex de longueur impaire');
@@ -349,7 +339,6 @@ function hexToBytes(h) {
   for (let i = 0; i < a.length; i++) a[i] = parseInt(clean.substr(i * 2, 2), 16);
   return a;
 }
-// Keys/IVs are accepted as hex (even-length hex string) or raw UTF-8 text.
 function parseKeyMaterial(v) {
   const t = (v || '').trim();
   if (/^[0-9a-fA-F\s]+$/.test(t) && t.replace(/\s/g, '').length % 2 === 0 && t.length)
@@ -376,9 +365,6 @@ async function aesDecrypt(input, { key = '', iv = '', mode = 'CBC', inputFormat 
   return new TextDecoder('utf-8', { fatal: false }).decode(pt);
 }
 
-// ─── Brute-force helpers ──────────────────────────────────────────────────────
-
-// Try all 256 single-byte XOR keys, rank by the same quality scorer used by Magic.
 function xorBruteForce(input) {
   const bytes = Array.from(input, c => c.charCodeAt(0) & 0xFF);
   if (!bytes.length) return '';
@@ -394,7 +380,6 @@ function xorBruteForce(input) {
     .join('\n\n');
 }
 
-// Show every Caesar/ROT shift so the analyst can eyeball the readable one.
 function caesarBrute(input) {
   const out = [];
   for (let sh = 1; sh < 26; sh++) {
@@ -406,8 +391,6 @@ function caesarBrute(input) {
   }
   return out.join('\n');
 }
-
-// ─── Ascii85 / Base85 ─────────────────────────────────────────────────────────
 
 function fromAscii85(input) {
   let s = input.trim().replace(/^<~/, '').replace(/~>$/, '').replace(/\s/g, '');
@@ -433,8 +416,6 @@ function fromAscii85(input) {
   return out;
 }
 
-// ─── Octal escapes ────────────────────────────────────────────────────────────
-// Common in bash/python obfuscation: \101\102 or space/comma separated octal.
 function fromOctal(input) {
   const s = input.trim();
   if (/\\[0-7]{1,3}/.test(s))
@@ -444,9 +425,6 @@ function fromOctal(input) {
   return parts.map(p => String.fromCharCode(parseInt(p, 8))).join('');
 }
 
-// ─── Microsoft Script Encoder (JScript.Encode / VBScript.Encode — .jse/.vbe) ──
-// Verified against the CyberChef "Microsoft Script Decoder" reference (Didier
-// Stevens' algorithm) and its #@~^…^#~@ test vector. Tables are exact.
 const MS_D_DECODE = [
   '','','','','','','','','',
   '\x57\x6E\x7B','\x4A\x4C\x41','\x0B\x0B\x0B','\x0C\x0C\x0C','\x4A\x4C\x41','\x0E\x0E\x0E','\x0F\x0F\x0F',
@@ -470,8 +448,6 @@ const MS_D_COMBINATION = [0,1,2,0,1,2,1,2,2,1,2,1,0,2,1,2,0,2,1,2,0,0,1,2,2,1,0,
 function decodeMsScript(input) {
   const m = /#@~\^.{6}==([\s\S]+)==\^#~@/.exec(input.trim());
   if (!m && !/[@^]/.test(input)) throw new Error('Aucun bloc encodé #@~^…^#~@ détecté');
-  // Body lies between the leading length token (……==) and the trailing 6-char
-  // checksum + ==^#~@. Strip the plain-base64 checksum before decoding.
   let data = m ? m[1].slice(0, -6) : input;
   data = data.replace(/@&/g, '\n').replace(/@#/g, '\r').replace(/@\*/g, '>').replace(/@!/g, '<').replace(/@\$/g, '@');
   const result = [];
@@ -487,20 +463,15 @@ function decodeMsScript(input) {
   return result.join('');
 }
 
-// ─── Hexdump → bytes (xxd / hexdump -C / PowerShell Format-Hex) ────────────────
 function fromHexdump(input) {
   const out = input.split('\n').map(line => {
-    // Drop a leading offset column (hex digits, optional ':').
     let l = line.replace(/^\s*[0-9A-Fa-f]{4,}:?\s+/, '');
-    // Cut the ASCII gutter (a '|' or a run of 2+ spaces separating it).
     l = l.split(/\s{2,}|\|/)[0];
     return (l.match(/[0-9A-Fa-f]{2}/g) || []).map(h => String.fromCharCode(parseInt(h, 16))).join('');
   }).join('');
   if (!out) throw new Error('Aucun octet hex trouvé dans le hexdump');
   return out;
 }
-
-// ─── Operations ──────────────────────────────────────────────────────────────
 
 const OPS = {
   psCommandDecode: {
@@ -902,7 +873,6 @@ const OPS = {
     fn: (input) => { const d=new Date(input.trim()); if (isNaN(d)) throw new Error(tr('errors.invalid_iso_date')); const ft=(BigInt(d.getTime())+11644473600000n)*10000n; return `${tr('output_filetime_dec')} : ${ft.toString()}\n${tr('output_filetime_hex')} : ${ft.toString(16).toUpperCase().padStart(16,'0')}`; },
   },
 
-  // ─── Compression (PowerShell DeflateStream / GzipStream payloads) ───────────
   gunzip: {
     label: 'Gunzip', category: 'encoding',
     desc: 'Décompresse des octets Gzip (magic 1f 8b). Chaîner après "From Base64".',
@@ -922,7 +892,6 @@ const OPS = {
     fn: async (input) => decompress(input, 'deflate'),
   },
 
-  // ─── Symmetric crypto ───────────────────────────────────────────────────────
   aesDecrypt: {
     label: 'AES Decrypt', category: 'cipher',
     desc: 'Déchiffre AES (CBC/GCM/CTR). Clé et IV en hex ou texte UTF-8. Entrée Base64 ou Hex.',
@@ -952,7 +921,6 @@ const OPS = {
     fn: (input) => caesarBrute(input),
   },
 
-  // ─── Encodings ──────────────────────────────────────────────────────────────
   fromBase85: {
     label: 'From Base85 (Ascii85)', category: 'encoding',
     desc: 'Décode Ascii85 / Base85 (avec ou sans délimiteurs <~ ~>).',
@@ -972,7 +940,6 @@ const OPS = {
     fn: (input) => fromHexdump(input),
   },
 
-  // ─── Microsoft Script Encoder ───────────────────────────────────────────────
   jscriptDecode: {
     label: 'JScript.Encode / VBE Decode', category: 'specialized',
     desc: 'Décode les scripts encodés Microsoft (#@~^…^#~@) — fichiers .jse / .vbe.',
@@ -999,9 +966,6 @@ const CAT_COLOR = {
   formatting: 'var(--fl-purple)', info: 'var(--fl-dim)',
 };
 
-// ─── Auto-detect ──────────────────────────────────────────────────────────────
-
-// Score how "clean" a decoded string looks — higher = more likely a true decode.
 const QUALITY_KEYWORDS = /\b(https?|www|cmd|powershell|invoke|iex|function|select|insert|update|user|password|admin|token|true|false|null|var|const|return|the|and|for|with|system|windows|microsoft|program|file|path|script|host|error|enable|disable)\b/gi;
 function decodeQuality(s) {
   if (!s || !s.length) return 0;
@@ -1010,8 +974,8 @@ function decodeQuality(s) {
   const ent = shannonEntropy(s);
   let q = printable * 68;
   q += Math.min(kw, 6) * 4.5;
-  if (ent < 4.5) q += 6;            // structured / low-entropy text bonus
-  if (printable < 0.7) q *= 0.5;    // mostly binary → probably a wrong decode
+  if (ent < 4.5) q += 6;
+  if (printable < 0.7) q *= 0.5;
   return Math.max(0, Math.min(100, q));
 }
 
@@ -1019,9 +983,8 @@ function detectObfuscation(input) {
   if (!input || input.trim().length < 4) return [];
   const s = input.trim();
   const b64 = s.replace(/\s/g,'');
-  const cand = [];   // { ops, label, color, base }
+  const cand = [];
 
-  // High-signal exact formats first.
   if (/^eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+(\.[A-Za-z0-9_-]*)?$/.test(s))
     cand.push({ ops:['jwtDecode'], label:'JSON Web Token (JWT)', color:'var(--fl-danger)', base:96 });
   if (/hxxps?|\[\.\]|\[:\/\/\]|\[@\]|\(dot\)|\(at\)/i.test(s))
@@ -1029,7 +992,6 @@ function detectObfuscation(input) {
   if (/#@~\^.{6}==[\s\S]+==\^#~@/.test(s))
     cand.push({ ops:['jscriptDecode'], label:'Microsoft Script Encoder (.jse/.vbe)', color:'var(--fl-danger)', base:97 });
 
-  // Base64 family.
   if (/^[A-Za-z0-9+/_-]{16,}={0,2}$/.test(b64)) {
     try {
       const raw = atob(b64.replace(/-/g,'+').replace(/_/g,'/').padEnd(b64.length + ((4 - b64.length%4)%4), '='));
@@ -1041,13 +1003,11 @@ function detectObfuscation(input) {
   if (/^[A-Z2-7]+=*$/.test(b64) && b64.length >= 8) cand.push({ ops:['fromBase32'], label:'Base32', color:'var(--fl-accent)', base:70 });
   if (/^[1-9A-HJ-NP-Za-km-z]{16,}$/.test(b64)) cand.push({ ops:['fromBase58'], label:'Base58 (BTC / key)', color:'var(--fl-purple)', base:60 });
 
-  // Hex / escapes.
   if (/(?:\\x[0-9a-fA-F]{2}){3,}/.test(s)) cand.push({ ops:['fromHex'], label:'\\xAB sequences', color:'var(--fl-gold)', base:90 });
   const hexOnly = s.replace(/[\s,]/g,'');
   if (/^[0-9a-fA-F]+$/.test(hexOnly) && hexOnly.length%2===0 && hexOnly.length>=10) cand.push({ ops:['fromHex'], label:'Hex pur', color:'var(--fl-purple)', base:66 });
   if (/\\u[0-9a-fA-F]{4}/.test(s)) cand.push({ ops:['fromUnicodeEscape'], label:'Unicode \\uXXXX', color:'var(--fl-accent)', base:84 });
 
-  // URL / HTML / char codes / binary / morse / quoted-printable.
   const urlCount = (s.match(/%[0-9A-Fa-f]{2}/g)||[]).length;
   if (urlCount>2 || (urlCount>0 && urlCount/s.length>0.05)) cand.push({ ops:['urlDecode'], label:'URL (%XX)', color:'var(--fl-accent)', base:85 });
   if (/&(?:#\d+|#x[0-9a-fA-F]+|[a-zA-Z]+);/.test(s)) cand.push({ ops:['fromHtmlEntity'], label:'HTML entities', color:'var(--fl-purple)', base:85 });
@@ -1058,12 +1018,10 @@ function detectObfuscation(input) {
   if (/^<~/.test(s) || /[!-u]{20,}~>$/.test(s)) cand.push({ ops:['fromBase85'], label:'Ascii85 / Base85', color:'var(--fl-accent)', base:72 });
   if (/(?:\\[0-7]{2,3}){3,}/.test(s)) cand.push({ ops:['fromOctal'], label:'Échappements octaux \\NNN', color:'var(--fl-gold)', base:80 });
 
-  // Compressed bytes pasted raw (magic header). Async ops — won't auto-chain via Magic.
   if (s.charCodeAt(0) === 0x1f && s.charCodeAt(1) === 0x8b) cand.push({ ops:['gunzip'], label:'Gzip (magic 1f 8b)', color:'var(--fl-danger)', base:88 });
   if (s.charCodeAt(0) === 0x78 && [0x01,0x9c,0xda].includes(s.charCodeAt(1))) cand.push({ ops:['zlibInflate'], label:'Zlib (en-tête 78)', color:'var(--fl-purple)', base:82 });
   if (/^\d{8,10}$/.test(s) && Number(s)>=16777216 && Number(s)<=4294967295) cand.push({ ops:['decimalToIp'], label:'Decimal IP', color:'var(--fl-ok)', base:50 });
 
-  // Re-rank by the quality of the ACTUAL decode output (CyberChef "Magic" style).
   const results = [];
   for (const c of cand) {
     let out = s, ok = true;
@@ -1079,7 +1037,7 @@ function detectObfuscation(input) {
       const q = decodeQuality(out);
       conf = Math.round(c.base*0.4 + q*0.6);
       const structural = ['refangIoc','decimalToIp','jwtDecode'].includes(c.ops[0]);
-      if (q < 28 && !structural) conf = Math.round(conf*0.45);   // garbage decode → demote
+      if (q < 28 && !structural) conf = Math.round(conf*0.45);
     } else {
       conf = Math.round(c.base*0.5);
     }
@@ -1089,7 +1047,6 @@ function detectObfuscation(input) {
   const e = shannonEntropy(s);
   if (e > 5.5 && results.every(r=>r.confidence<50)) results.push({ confidence:45, ops:['extractStrings'], label:`High entropy (${e.toFixed(2)} bits) — string extraction recommended`, color:'var(--fl-dim)' });
 
-  // De-dup identical op-chains, keep the highest confidence.
   const seen = new Map();
   for (const r of results.sort((a,b)=>b.confidence-a.confidence)) {
     const key = r.ops.join('>'); if (!seen.has(key)) seen.set(key, r);
@@ -1097,8 +1054,6 @@ function detectObfuscation(input) {
   return [...seen.values()].sort((a,b)=>b.confidence-a.confidence);
 }
 
-// Magic: greedily peel decoding layers — apply the highest-confidence detection,
-// re-detect on the result, repeat until nothing left or the output stabilises.
 function magicChain(input) {
   const chain = [];
   const seen = new Set([input]);
@@ -1123,8 +1078,6 @@ function magicChain(input) {
   return chain;
 }
 
-// ─── Pipeline ────────────────────────────────────────────────────────────────
-
 async function applyRecipe(input, recipe) {
   let current = input;
   const steps = [];
@@ -1142,8 +1095,6 @@ async function applyRecipe(input, recipe) {
   }
   return { final:current, steps };
 }
-
-// ─── React components ────────────────────────────────────────────────────────
 
 const mono = { fontFamily:'var(--f-mono, "JetBrains Mono", monospace)' };
 
@@ -1262,14 +1213,12 @@ export default function CyberChefPage() {
     setSuggestions([]);
   }, []);
 
-  // Magic — recursively peel decoding layers and load the resulting chain.
   const handleMagic = useCallback(() => {
     const chain = magicChain(input);
     if (chain.length) applySuggestion(chain);
     else setSuggestions([{ confidence:0, label:'Magic: no decodable layer detected', color:'var(--fl-dim)', ops:[] }]);
   }, [input, applySuggestion]);
 
-  // Drag-to-reorder recipe steps.
   const onStepDragStart = useCallback((e, i) => { setDragIndex(i); e.dataTransfer.effectAllowed = 'move'; }, []);
   const onStepDragOver  = useCallback((e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; }, []);
   const onStepDrop = useCallback((e, i) => {

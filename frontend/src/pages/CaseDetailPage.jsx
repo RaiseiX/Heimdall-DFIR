@@ -30,12 +30,8 @@ import GlobalNetworkMapPage from './GlobalNetworkMapPage';
 import NotebookPanel from '../components/notebook/NotebookPanel';
 import InvestigationWorkspace from '../components/investigation/InvestigationWorkspace';
 
-// The six AI narrative sections shared with ReportAiEditor's collab Y.Doc (one Y.Text per key).
 const AI_FIELDS_KEYS = ['executive_summary', 'key_findings', 'ioc_analysis', 'mitre_analysis', 'timeline_narrative', 'recommendations'];
 
-// Seed the report Y.Doc's six Y.Texts from an AI draft response. Only overwrites
-// sections that are still empty unless `force` is set (explicit Regenerate),
-// so it never clobbers a co-author's in-progress edits.
 function seedDocFromAiDraft(doc, ai, { force } = {}) {
   if (!doc) return;
   for (const key of AI_FIELDS_KEYS) {
@@ -113,7 +109,7 @@ function HexStringsPreview({ evId }) {
     return () => { cancelled = true; };
   }, [activeTab, evId]);
   return (
-    <div style={{ borderRadius: 7, border: '1px solid color-mix(in srgb, var(--fl-danger) 19%, transparent)', background: '#1a0f0f', overflow: 'hidden' }}>
+    <div style={{ borderRadius: 3, border: '1px solid color-mix(in srgb, var(--fl-danger) 19%, transparent)', background: '#1a0f0f', overflow: 'hidden' }}>
       <div style={{ display: 'flex', borderBottom: '1px solid color-mix(in srgb, var(--fl-danger) 15%, transparent)' }}>
         {[['hex', 'Hex'], ['strings', 'Strings']].map(([key, label]) => (
           <button key={key} onClick={() => setActiveTab(key)} style={{ padding: '5px 14px', fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', background: 'none', border: 'none', outline: 'none', cursor: 'pointer', borderBottom: `2px solid ${activeTab === key ? 'var(--fl-danger)' : 'transparent'}`, color: activeTab === key ? 'var(--fl-danger)' : 'var(--fl-muted)', marginBottom: -1, transition: 'color 0.1s' }}>{label}</button>
@@ -138,25 +134,33 @@ function HexStringsPreview({ evId }) {
   );
 }
 
-function TopNavBtn({ onClick, isActive, icon: Icon, label, padding = '0 12px' }) {
-  const inactiveColor = 'var(--fl-subtle)';
+function TopNavBtn({ onClick, isActive, label, padding = '0 10px' }) {
   return (
     <button
       onClick={onClick}
+      aria-current={isActive ? 'page' : undefined}
       style={{
         display: 'flex', alignItems: 'center', gap: 5, padding,
-        height: 24, alignSelf: 'center', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11,
-        outline: 'none', flexShrink: 0, borderRadius: 6,
-        background: isActive ? 'color-mix(in srgb, var(--fl-accent) 13%, transparent)' : 'transparent',
-        border: `1px solid ${isActive ? 'color-mix(in srgb, var(--fl-accent) 26%, transparent)' : 'transparent'}`,
-        color: isActive ? 'var(--fl-accent)' : inactiveColor,
-        cursor: 'pointer', whiteSpace: 'nowrap', transition: 'all 0.12s',
+        height: 24, alignSelf: 'center', flexShrink: 0,
+        fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11,
+        background: 'none', border: 0, outline: 'none',
+        borderBottom: `1px solid ${isActive ? 'var(--fl-accent)' : 'transparent'}`,
+        color: isActive ? 'var(--fl-text)' : 'var(--fl-muted)',
+        cursor: 'pointer', whiteSpace: 'nowrap',
       }}
-      onMouseEnter={e => { if (!isActive) { e.currentTarget.style.color = 'var(--fl-dim)'; e.currentTarget.style.background = 'var(--fl-card)'; } }}
-      onMouseLeave={e => { if (!isActive) { e.currentTarget.style.color = inactiveColor; e.currentTarget.style.background = 'transparent'; } }}
+      onMouseEnter={e => { if (!isActive) e.currentTarget.style.color = 'var(--fl-dim)'; }}
+      onMouseLeave={e => { if (!isActive) e.currentTarget.style.color = 'var(--fl-muted)'; }}
     >
-      <Icon size={11} /> {label}
+      {label}
     </button>
+  );
+}
+
+function TabCount({ children, color = 'var(--fl-muted)' }) {
+  return (
+    <span style={{ marginLeft: 5, fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color }}>
+      {children}
+    </span>
   );
 }
 
@@ -189,7 +193,7 @@ export default function CaseDetailPage({ user }) {
   const [caseData, setCaseData] = useState(null);
   const [evidence, setEvidence] = useState([]);
   const [selEv, setSelEv] = useState(null);
-  const [drawerEv, setDrawerEv] = useState(null); // evidence metadata quick-peek drawer
+  const [drawerEv, setDrawerEv] = useState(null);
 
   const [generating, setGenerating] = useState(false);
   const [reportDone, setReportDone] = useState(false);
@@ -213,7 +217,7 @@ export default function CaseDetailPage({ user }) {
       setNewIoc({ ioc_type: 'ip', value: '', severity: 5, is_malicious: false, description: '' });
       setShowAddIoc(false);
       await refetchIOCs();
-    } catch (e) { /* surfaced inline via disabled/retry */ }
+    } catch (e) { }
     finally { setAddingIoc(false); }
   };
   const deleteIoc = async (iocId) => {
@@ -221,7 +225,7 @@ export default function CaseDetailPage({ user }) {
     try {
       await iocsAPI.remove(iocId);
       await refetchIOCs();
-    } catch (e) { /* non-fatal */ }
+    } catch (e) { }
   };
   const handleIocEnrich = async (ioc) => {
     setIocEnriching(p => ({ ...p, [ioc.id]: true }));
@@ -238,7 +242,7 @@ export default function CaseDetailPage({ user }) {
   const [reportGroups, setReportGroups] = useState(() => new Set(['mitre', 'killchain', 'findings', 'iocs', 'timeline', 'evidence']));
   const [reportNote, setReportNote] = useState('');
   const [aiEnabled, setAiEnabled] = useState(true);
-  const [aiDraft, setAiDraft] = useState(null);       // editable AI narrative
+  const [aiDraft, setAiDraft] = useState(null);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState('');
   const [showImportPanel, setShowImportPanel] = useState(false);
@@ -280,9 +284,6 @@ export default function CaseDetailPage({ user }) {
     if (!socket || !id) return;
     const join = () => socket.emit('case:join', { caseId: id });
     join();
-    // Re-join the case room after a socket reconnect — otherwise this client
-    // stops receiving room-scoped events (presence, chat, report:update) until
-    // a full remount, silently degrading real-time collaboration.
     socket.on('connect', join);
     return () => { socket.off('connect', join); socket.emit('case:leave', { caseId: id }); };
   }, [socket, id]);
@@ -291,8 +292,6 @@ export default function CaseDetailPage({ user }) {
     setPresenceUsers(Array.isArray(users) ? users : []);
   });
 
-  // Collaborative report narrative: a shared Y.Doc (one Y.Text per AI_FIELDS_KEYS
-  // section) synced over the existing case socket via the report:join/report:update relay.
   const reportDocRef = useRef(null);
   useEffect(() => {
     if (!socket || !id) return;
@@ -437,8 +436,6 @@ export default function CaseDetailPage({ user }) {
     return () => clearInterval(timer);
   }, [evidence, id]);
 
-  // Poll server-side parse progress so the monitor re-attaches after navigation
-  // (the parse itself runs detached server-side and survives leaving the page).
   useEffect(() => {
     if (!id || tab !== 'evidence') { setParseProg(null); return; }
     let alive = true;
@@ -450,7 +447,6 @@ export default function CaseDetailPage({ user }) {
     return () => { alive = false; clearInterval(timer); };
   }, [id, tab]);
 
-  // Case audit log — fetched when the Audit tab is opened.
   useEffect(() => {
     if (tab !== 'audit' || !id) return;
     let alive = true;
@@ -461,7 +457,6 @@ export default function CaseDetailPage({ user }) {
       .finally(() => { if (alive) setAuditLoading(false); });
     return () => { alive = false; };
   }, [id, tab]);
-
 
   useEffect(() => {
     let cancelled = false;
@@ -512,7 +507,6 @@ export default function CaseDetailPage({ user }) {
     };
 
     loadCase();
-    // Load time stats silently
     casesAPI.timeStats(id).then(r => setCaseTimeStats(r.data)).catch(() => {});
     return () => { cancelled = true; };
   }, [id, refreshEvResultMap]);
@@ -527,13 +521,12 @@ export default function CaseDetailPage({ user }) {
     if (ev) setSelEv(ev);
   }, [collectionId, evidence]);
 
-
   const c = caseData;
 
   if (loading) return (
     <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 10 }}>
       {[0,1,2,3].map(i => (
-        <div key={i} className="fl-skeleton" style={{ height: 56, borderRadius: 8, background: 'var(--fl-card)' }} />
+        <div key={i} className="fl-skeleton" style={{ height: 56, borderRadius: 3, background: 'var(--fl-card)' }} />
       ))}
     </div>
   );
@@ -655,11 +648,6 @@ export default function CaseDetailPage({ user }) {
   const toggleHL = (eid) => setEvidence(prev => prev.map(e => e.id === eid ? { ...e, is_highlighted: !e.is_highlighted } : e));
   const highlighted = evidence.filter(e => e.is_highlighted);
 
-
-
-
-
-
   const GROUP_SECTIONS = {
     mitre: ['mitre'],
     killchain: ['killchain', 'workflow'],
@@ -674,12 +662,8 @@ export default function CaseDetailPage({ user }) {
     setAiLoading(true); setAiError('');
     try {
       const { reportsAPI: rAPI } = await import('../utils/api');
-      // Pass the analyst's note so the AI grounds its analysis on it (+ the case's
-      // bookmarks/pins/notes are pulled server-side).
       const { data } = await rAPI.aiDraft(c.id, reportNote.trim() ? { notes: reportNote.trim() } : {});
       const narrative = data.narrative || {};
-      // Seed the shared Y.Doc: an explicit Regenerate replaces all six sections;
-      // the first generation only fills sections still empty (co-author-safe).
       seedDocFromAiDraft(reportDocRef.current, narrative, { force: isRegenerate });
       setAiDraft(narrative);
     } catch (e) {
@@ -696,14 +680,10 @@ export default function CaseDetailPage({ user }) {
       if (selectedTemplate?.id) {
         opts = { templateId: selectedTemplate.id };
       } else {
-        // Analyst-chosen sections (executive summary is always included) — not defaulted to "everything".
         opts = { sections: ['summary', ...[...reportGroups].flatMap(g => GROUP_SECTIONS[g] || [])] };
       }
       if (reportNote.trim()) opts.notes = reportNote.trim();
-      // AI: use the analyst-edited draft if present; otherwise let the backend generate it (or disable).
       opts.use_ai = aiEnabled;
-      // Read the live collaborative text (not the local aiDraft snapshot) so the PDF
-      // reflects any co-author edits made through the shared Y.Doc.
       if (aiEnabled && aiDraft) {
         const narrative = {};
         for (const key of AI_FIELDS_KEYS) narrative[key] = reportDocRef.current?.getText(key).toString() || '';
@@ -764,22 +744,19 @@ export default function CaseDetailPage({ user }) {
       {!shellCtx.insideCollectionLayout && (
       <div style={{ position: 'sticky', top: 36, zIndex: 100, flexShrink: 0 }}>
 
-        {/* ── Tier 1 — Cockpit state strip: status chip + SLA / metadata ─── */}
         <div style={{
           display: 'flex', alignItems: 'center', gap: 8,
           padding: '0 14px', height: 30,
           background: 'var(--fl-panel)', borderBottom: '1px solid var(--fl-sep)',
           fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
         }}>
-          {/* Status — single clickable source of truth (no longer duplicated in the CaseShell strip) */}
-          <button onClick={() => setStatusModal('_pick')} title={t('casedetail.change_status')} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '2px 9px', borderRadius: 5, cursor: 'pointer', background: `color-mix(in srgb, ${SM[c.status]?.c || 'var(--fl-dim)'} 11%, transparent)`, color: SM[c.status]?.c || 'var(--fl-dim)', border: `1px solid color-mix(in srgb, ${SM[c.status]?.c || 'var(--fl-dim)'} 26%, transparent)`, fontSize: 10.5, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontWeight: 600, flexShrink: 0 }}>
+          <button onClick={() => setStatusModal('_pick')} title={t('casedetail.change_status')} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '2px 9px', borderRadius: 3, cursor: 'pointer', background: `color-mix(in srgb, ${SM[c.status]?.c || 'var(--fl-dim)'} 11%, transparent)`, color: SM[c.status]?.c || 'var(--fl-dim)', border: `1px solid color-mix(in srgb, ${SM[c.status]?.c || 'var(--fl-dim)'} 26%, transparent)`, fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontWeight: 600, flexShrink: 0 }}>
             <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'currentColor', flexShrink: 0 }} />
-            {SM[c.status]?.l || c.status}<span style={{ fontSize: 8, opacity: 0.6 }}>▾</span>
+            {SM[c.status]?.l || c.status}<span style={{ fontSize: 9, opacity: 0.6 }}>▾</span>
           </button>
 
           <span style={{ width: 1, height: 14, background: 'var(--fl-sep)', flexShrink: 0 }} />
 
-          {/* Metadata: opened · investigator · deadline · time — separated by hairline dots */}
           <Clock size={10} style={{ color: 'var(--fl-subtle)', flexShrink: 0 }} />
           <span style={{ fontSize: 10, color: 'var(--fl-subtle)', whiteSpace: 'nowrap', flexShrink: 0 }}>{t('casedetail.opened_on', { date: new Date(c.created_at).toLocaleDateString(i18n.language) })}</span>
           {c.investigator_name && (
@@ -807,7 +784,7 @@ export default function CaseDetailPage({ user }) {
                 <TimePill totalSeconds={caseTimeStats.grand_total_seconds} analystCount={caseTimeStats.analysts?.length || 0} />
               </button>
               {showTimeTooltip && caseTimeStats.analysts?.length > 0 && (
-                <div style={{ position: 'absolute', left: 0, top: '100%', marginTop: 6, zIndex: 500, background: 'var(--fl-panel)', border: '1px solid var(--fl-border)', borderRadius: 8, padding: '8px 12px', minWidth: 200, boxShadow: 'var(--fl-shadow-lg)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}>
+                <div style={{ position: 'absolute', left: 0, top: '100%', marginTop: 6, zIndex: 500, background: 'var(--fl-panel)', border: '1px solid var(--fl-border)', borderRadius: 3, padding: '8px 12px', minWidth: 200, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}>
                   <div style={{ fontSize: 9, color: 'var(--fl-subtle)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>{t('casedetail.analytic_time')}</div>
                   {caseTimeStats.analysts.map(a => (
                     <div key={a.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, fontSize: 11, padding: '2px 0', color: 'var(--fl-dim)' }}>
@@ -826,25 +803,23 @@ export default function CaseDetailPage({ user }) {
 
           <span style={{ flex: 1, minWidth: 8 }} />
 
-          {/* Live analyst presence — pushed to the right edge of the cockpit strip */}
           {presenceUsers.length > 0 && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 2, flexShrink: 0 }} title={presenceUsers.map(u => u.full_name || u.username).join(', ')}>
               {presenceUsers.slice(0, 4).map((u, i) => {
                 const col = ['var(--fl-accent)', 'var(--fl-ok)', 'var(--fl-warn)', 'var(--fl-purple)'][i % 4];
                 const ini = u.full_name ? u.full_name.split(' ').map(p => p[0]).join('').substring(0, 2).toUpperCase() : u.username?.substring(0, 2).toUpperCase() || '?';
                 return (
-                  <div key={u.id + i} title={u.full_name || u.username} style={{ width: 18, height: 18, borderRadius: '50%', background: `color-mix(in srgb, ${col} 13%, transparent)`, border: `1px solid color-mix(in srgb, ${col} 38%, transparent)`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 7, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontWeight: 700, color: col, marginLeft: i > 0 ? -5 : 0, zIndex: 4 - i }}>
+                  <div key={u.id + i} title={u.full_name || u.username} style={{ width: 18, height: 18, borderRadius: '50%', background: `color-mix(in srgb, ${col} 13%, transparent)`, border: `1px solid color-mix(in srgb, ${col} 38%, transparent)`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontWeight: 700, color: col, marginLeft: i > 0 ? -5 : 0, zIndex: 4 - i }}>
                     {ini}
                   </div>
                 );
               })}
-              {presenceUsers.length > 4 && <div style={{ width: 18, height: 18, borderRadius: '50%', background: 'var(--fl-card)', border: '1px solid var(--fl-sep)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 7, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-subtle)', marginLeft: -5 }}>+{presenceUsers.length - 4}</div>}
+              {presenceUsers.length > 4 && <div style={{ width: 18, height: 18, borderRadius: '50%', background: 'var(--fl-card)', border: '1px solid var(--fl-sep)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-subtle)', marginLeft: -5 }}>+{presenceUsers.length - 4}</div>}
               <div style={{ width: 5, height: 5, borderRadius: '50%', background: 'var(--fl-ok)', marginLeft: 3 }} title={t('casedetail.online')} />
             </div>
           )}
         </div>
 
-        {/* ── Row 2 — Navigation tabs + compact action buttons ─── */}
         <div style={{
           display: 'flex', alignItems: 'stretch', height: 32, padding: '0 14px',
           background: 'var(--fl-bg)',
@@ -852,28 +827,23 @@ export default function CaseDetailPage({ user }) {
         }}>
         <div style={{ display: 'flex', alignItems: 'stretch', flex: 1, overflow: 'auto', scrollbarWidth: 'none' }}>
 
-          <TopNavBtn onClick={() => navigate(`/cases/${id}/evidence`)} padding="0 12px"
-            isActive={tab === 'evidence' && !selEv} icon={FolderOpen}
+          <TopNavBtn onClick={() => navigate(`/cases/${id}/evidence`)} padding="0 10px"
+            isActive={tab === 'evidence' && !selEv}
             label={<>
               {t('casedetail.tab_evidence')}
-              {evidence.length > 0 && (
-                <span style={{ marginLeft: 4, padding: '0px 5px', borderRadius: 8, fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontWeight: 700, background: 'var(--fl-card)', color: 'var(--fl-accent)', border: '1px solid var(--fl-border)' }}>
-                  {evidence.length}
-                </span>
-              )}
+              {evidence.length > 0 && <TabCount>{evidence.length}</TabCount>}
             </>}
           />
 
-          {/* Evidence breadcrumb — only when evidence is expanded */}
           {selEv && !shellCtx.insideCollectionLayout && (
             <>
-              <span style={{ color: 'var(--fl-border)', fontSize: 13, alignSelf: 'center', margin: '0 1px', flexShrink: 0 }}>›</span>
+              <span style={{ color: 'var(--fl-border)', fontSize: 11, alignSelf: 'center', margin: '0 1px', flexShrink: 0 }}>›</span>
               <div style={{
                 display: 'flex', alignItems: 'center', gap: 5, padding: '0 8px',
                 fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10, color: 'var(--fl-dim)',
                 whiteSpace: 'nowrap', maxWidth: 180, overflow: 'hidden',
                 textOverflow: 'ellipsis', flexShrink: 0, alignSelf: 'center',
-                height: 24, borderRadius: 6,
+                height: 24, borderRadius: 3,
                 background: tab === 'evidence' ? 'color-mix(in srgb, var(--fl-accent) 8%, transparent)' : 'transparent',
               }}>
                 <FolderOpen size={9} style={{ flexShrink: 0 }} />
@@ -882,7 +852,6 @@ export default function CaseDetailPage({ user }) {
             </>
           )}
 
-          {/* All case tabs — always visible */}
           {!shellCtx.insideCollectionLayout && (() => {
             const evResult = selEv ? evResultMap[selEv.name] : null;
             const resultId = evResult?.resultId;
@@ -892,38 +861,29 @@ export default function CaseDetailPage({ user }) {
             );
             return (
               <>
-                <span style={{ color: 'var(--fl-border)', fontSize: 13, alignSelf: 'center', margin: '0 1px', flexShrink: 0 }}>›</span>
+                <span style={{ color: 'var(--fl-border)', fontSize: 11, alignSelf: 'center', margin: '0 1px', flexShrink: 0 }}>›</span>
                 {TABS.filter(tb => {
                   if (tb.id === 'evidence') return false;
                   if (isMemory) return ['cyberchef', 'audit'].includes(tb.id);
                   return true;
                 }).map(tb => {
-                  const Icon = tb.icon;
                   const isActive = tab === tb.id;
-                  const isTimeline = tb.id === 'timeline';
-                  const hasResult = isTimeline && Boolean(resultId);
+                  const hasResult = tb.id === 'timeline' && Boolean(resultId);
+                  const iocCount = tb.id === 'iocs' ? caseIOCs.length : 0;
                   return (
-                    <button key={tb.id}
-                      title={!isActive ? tb.label : undefined}
+                    <TopNavBtn key={tb.id}
                       onClick={() => navigate(`${base}/${tb.id}`)}
-                      style={{
-                        display: 'flex', alignItems: 'center', gap: isActive ? 4 : 5,
-                        padding: '0 10px', height: 24, alignSelf: 'center', flexShrink: 0,
-                        fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10,
-                        outline: 'none', borderRadius: 6,
-                        background: isActive ? 'color-mix(in srgb, var(--fl-accent) 13%, transparent)' : 'transparent',
-                        border: `1px solid ${isActive ? 'color-mix(in srgb, var(--fl-accent) 26%, transparent)' : 'transparent'}`,
-                        color: isActive ? 'var(--fl-accent)' : hasResult ? 'var(--fl-accent)' : 'var(--fl-muted)',
-                        cursor: 'pointer', whiteSpace: 'nowrap', transition: 'all 0.12s',
-                      }}
-                      onMouseEnter={e => { if (!isActive) { e.currentTarget.style.color = hasResult ? 'var(--fl-accent)' : 'var(--fl-dim)'; e.currentTarget.style.background = 'var(--fl-card)'; }}}
-                      onMouseLeave={e => { if (!isActive) { e.currentTarget.style.color = hasResult ? 'var(--fl-accent)' : 'var(--fl-muted)'; e.currentTarget.style.background = 'transparent'; }}}>
-                      <Icon size={isActive ? 10 : 11} />
-                      {isActive && tb.label}
-                      {isActive && tb.id === 'iocs' && caseIOCs.length > 0 && <span style={{ marginLeft: 3, padding: '0 4px', borderRadius: 8, fontSize: 9, fontWeight: 700, background: 'var(--fl-card)', color: caseIOCs.some(i => i.is_malicious) ? 'var(--fl-warn)' : 'var(--fl-dim)', border: '1px solid var(--fl-border)' }}>{caseIOCs.length}</span>}
-                      {!isActive && tb.id === 'iocs' && caseIOCs.length > 0 && <span style={{ width: 4, height: 4, borderRadius: '50%', background: caseIOCs.some(i => i.is_malicious) ? 'var(--fl-warn)' : 'var(--fl-accent)', display: 'inline-block', marginLeft: 2 }} />}
-                      {hasResult && <span style={{ width: 4, height: 4, borderRadius: '50%', background: 'var(--fl-ok)', display: 'inline-block', marginLeft: isActive ? 1 : 2 }} />}
-                    </button>
+                      isActive={isActive}
+                      label={<>
+                        {tb.label}
+                        {iocCount > 0 && (
+                          <TabCount color={caseIOCs.some(i => i.is_malicious) ? 'var(--fl-warn)' : 'var(--fl-muted)'}>
+                            {iocCount}
+                          </TabCount>
+                        )}
+                        {hasResult && <span style={{ width: 4, height: 4, borderRadius: '50%', background: 'var(--fl-ok)', display: 'inline-block', marginLeft: 5 }} />}
+                      </>}
+                    />
                   );
                 })}
               </>
@@ -931,7 +891,6 @@ export default function CaseDetailPage({ user }) {
           })()}
         </div>
 
-        {/* Compact action buttons */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 3, flexShrink: 0, paddingLeft: 8, borderLeft: '1px solid var(--fl-sep)', marginLeft: 4 }}>
           <Button
             variant="ghost" size="xs"
@@ -972,23 +931,23 @@ export default function CaseDetailPage({ user }) {
             <button
               onClick={() => setShowActionsMenu(v => !v)}
               title={t('casedetail.more_actions')}
-              style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 26, height: 26, borderRadius: 3, background: showActionsMenu ? 'var(--fl-card)' : 'transparent', border: `1px solid ${showActionsMenu ? 'var(--fl-border)' : 'var(--fl-sep)'}`, color: 'var(--fl-muted)', cursor: 'pointer', fontSize: 14, letterSpacing: 1 }}
+              style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 26, height: 26, borderRadius: 3, background: showActionsMenu ? 'var(--fl-card)' : 'transparent', border: `1px solid ${showActionsMenu ? 'var(--fl-border)' : 'var(--fl-sep)'}`, color: 'var(--fl-muted)', cursor: 'pointer', fontSize: 15, letterSpacing: 1 }}
             >···</button>
             {showActionsMenu && (
-              <div style={{ position: 'absolute', right: 0, top: '100%', marginTop: 4, zIndex: 600, background: 'var(--fl-panel)', border: '1px solid var(--fl-border)', borderRadius: 8, padding: 4, minWidth: 180, boxShadow: 'var(--fl-shadow-lg)' }}>
+              <div style={{ position: 'absolute', right: 0, top: '100%', marginTop: 4, zIndex: 600, background: 'var(--fl-panel)', border: '1px solid var(--fl-border)', borderRadius: 3, padding: 4, minWidth: 180 }}>
                 {user?.role === 'admin' && (c.legal_hold ? (
                   <>
-                    <button onClick={() => { setShowActionsMenu(false); downloadManifest(); }} style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%', padding: '5px 10px', background: 'none', border: 'none', borderRadius: 4, cursor: 'pointer', fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-purple)' }}><FileJson size={11} />{t('casedetail.manifest')}</button>
-                    <button onClick={() => { setShowActionsMenu(false); setLegalHoldModal('disable'); }} style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%', padding: '5px 10px', background: 'none', border: 'none', borderRadius: 4, cursor: 'pointer', fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-warn)' }}><Lock size={11} />{t('casedetail.lift_hold')}</button>
+                    <button onClick={() => { setShowActionsMenu(false); downloadManifest(); }} style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%', padding: '5px 10px', background: 'none', border: 'none', borderRadius: 3, cursor: 'pointer', fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-purple)' }}><FileJson size={11} />{t('casedetail.manifest')}</button>
+                    <button onClick={() => { setShowActionsMenu(false); setLegalHoldModal('disable'); }} style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%', padding: '5px 10px', background: 'none', border: 'none', borderRadius: 3, cursor: 'pointer', fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-warn)' }}><Lock size={11} />{t('casedetail.lift_hold')}</button>
                   </>
                 ) : (
-                  <button onClick={() => { setShowActionsMenu(false); setLegalHoldModal('enable'); }} style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%', padding: '5px 10px', background: 'none', border: 'none', borderRadius: 4, cursor: 'pointer', fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-dim)' }}><Lock size={11} />{t('casedetail.legal_hold')}</button>
+                  <button onClick={() => { setShowActionsMenu(false); setLegalHoldModal('enable'); }} style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%', padding: '5px 10px', background: 'none', border: 'none', borderRadius: 3, cursor: 'pointer', fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-dim)' }}><Lock size={11} />{t('casedetail.legal_hold')}</button>
                 ))}
-                <button onClick={() => { setShowActionsMenu(false); exportRGPD(); }} style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%', padding: '5px 10px', background: 'none', border: 'none', borderRadius: 4, cursor: 'pointer', fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-dim)' }}><Lock size={11} />{t('casedetail.export_rgpd')}</button>
+                <button onClick={() => { setShowActionsMenu(false); exportRGPD(); }} style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%', padding: '5px 10px', background: 'none', border: 'none', borderRadius: 3, cursor: 'pointer', fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-dim)' }}><Lock size={11} />{t('casedetail.export_rgpd')}</button>
                 {user?.role === 'admin' && (
                   <>
                     <div style={{ height: 1, background: 'var(--fl-sep)', margin: '3px 6px' }} />
-                    <button onClick={() => { setShowActionsMenu(false); setShowHardDelete(true); setHardDeleteConfirm(''); }} style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%', padding: '5px 10px', background: 'none', border: 'none', borderRadius: 4, cursor: 'pointer', fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-danger)' }}><Trash2 size={11} />{t('casedetail.destroy')}</button>
+                    <button onClick={() => { setShowActionsMenu(false); setShowHardDelete(true); setHardDeleteConfirm(''); }} style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%', padding: '5px 10px', background: 'none', border: 'none', borderRadius: 3, cursor: 'pointer', fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-danger)' }}><Trash2 size={11} />{t('casedetail.destroy')}</button>
                   </>
                 )}
               </div>
@@ -1023,24 +982,24 @@ export default function CaseDetailPage({ user }) {
           <div className="flex items-center mb-4" style={{ gap: 8 }}>
             <Icon name="ScrollText" size={14} style={{ color: 'var(--fl-accent)' }} />
             <span style={{ fontSize: 11, fontFamily: 'var(--f-mono, monospace)', textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--fl-dim)' }}>{t('casedetail.audit_log')}</span>
-            {auditRows.length > 0 && <span style={{ fontSize: 10, fontFamily: 'var(--f-mono, monospace)', padding: '1px 6px', borderRadius: 4, background: 'color-mix(in srgb, var(--fl-accent) 9%, transparent)', color: 'var(--fl-accent)', border: '1px solid color-mix(in srgb, var(--fl-accent) 19%, transparent)' }}>{auditRows.length}</span>}
+            {auditRows.length > 0 && <span style={{ fontSize: 10, fontFamily: 'var(--f-mono, monospace)', padding: '1px 6px', borderRadius: 3, background: 'color-mix(in srgb, var(--fl-accent) 9%, transparent)', color: 'var(--fl-accent)', border: '1px solid color-mix(in srgb, var(--fl-accent) 19%, transparent)' }}>{auditRows.length}</span>}
           </div>
           {auditLoading ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {[0,1,2,3,4].map(i => <div key={i} className="fl-skeleton" style={{ height: 40, borderRadius: 6, background: 'var(--fl-card)' }} />)}
+              {[0,1,2,3,4].map(i => <div key={i} className="fl-skeleton" style={{ height: 40, borderRadius: 3, background: 'var(--fl-card)' }} />)}
             </div>
           ) : auditRows.length === 0 ? (
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '48px 16px', gap: 8 }}>
               <Icon name="ScrollText" size={22} style={{ color: 'var(--fl-border)' }} />
-              <span style={{ fontSize: 12, fontFamily: 'var(--f-mono, monospace)', color: 'var(--fl-muted)' }}>{t('casedetail.audit_empty')}</span>
+              <span style={{ fontSize: 11, fontFamily: 'var(--f-mono, monospace)', color: 'var(--fl-muted)' }}>{t('casedetail.audit_empty')}</span>
             </div>
           ) : (
-            <div style={{ border: '1px solid var(--fl-border)', borderRadius: 8, overflow: 'hidden' }}>
+            <div style={{ border: '1px solid var(--fl-border)', borderRadius: 3, overflow: 'hidden' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: 'var(--f-ui, sans-serif)' }}>
                 <thead>
                   <tr style={{ background: 'var(--fl-bg)', borderBottom: '1px solid var(--fl-border)' }}>
                     {[[t('casedetail.col_date'), 150], [t('casedetail.col_actor'), 150], [t('casedetail.col_action'), null], [t('casedetail.col_entity'), 120], ['IP', 120]].map(([l, w]) => (
-                      <th key={l} style={{ textAlign: 'left', padding: '7px 10px', width: w || undefined, fontSize: 9.5, fontFamily: 'var(--f-mono, monospace)', textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--fl-muted)', fontWeight: 600, whiteSpace: 'nowrap' }}>{l}</th>
+                      <th key={l} style={{ textAlign: 'left', padding: '7px 10px', width: w || undefined, fontSize: 9, fontFamily: 'var(--f-mono, monospace)', textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--fl-muted)', fontWeight: 600, whiteSpace: 'nowrap' }}>{l}</th>
                     ))}
                   </tr>
                 </thead>
@@ -1049,11 +1008,11 @@ export default function CaseDetailPage({ user }) {
                     const td = { padding: '0 10px', height: 38, borderBottom: '1px solid var(--fl-border2)', verticalAlign: 'middle' };
                     return (
                       <tr key={r.id || i}>
-                        <td style={{ ...td, fontSize: 10.5, fontFamily: 'var(--f-mono, monospace)', color: 'var(--fl-dim)', whiteSpace: 'nowrap' }}>{r.created_at ? new Date(r.created_at).toLocaleString(i18n.language) : '—'}</td>
+                        <td style={{ ...td, fontSize: 10, fontFamily: 'var(--f-mono, monospace)', color: 'var(--fl-dim)', whiteSpace: 'nowrap' }}>{r.created_at ? new Date(r.created_at).toLocaleString(i18n.language) : '—'}</td>
                         <td style={{ ...td, fontSize: 11, color: 'var(--fl-text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 150 }}>{r.user_name || r.username || t('dashboard.system_actor')}</td>
                         <td style={{ ...td, fontSize: 11, fontFamily: 'var(--f-mono, monospace)', color: 'var(--fl-accent)' }}>{(r.action || '').replace(/_/g, ' ')}</td>
                         <td style={{ ...td, fontSize: 11, fontFamily: 'var(--f-mono, monospace)', color: 'var(--fl-muted)' }}>{(r.entity_type || '').replace(/_/g, ' ') || '—'}</td>
-                        <td style={{ ...td, fontSize: 10.5, fontFamily: 'var(--f-mono, monospace)', color: 'var(--fl-subtle)', whiteSpace: 'nowrap' }}>{r.ip_address || '—'}</td>
+                        <td style={{ ...td, fontSize: 10, fontFamily: 'var(--f-mono, monospace)', color: 'var(--fl-subtle)', whiteSpace: 'nowrap' }}>{r.ip_address || '—'}</td>
                       </tr>
                     );
                   })}
@@ -1086,59 +1045,56 @@ export default function CaseDetailPage({ user }) {
         return (
           <div style={{ maxWidth: 1200, margin: '0 auto' }}>
 
-            {/* ── header row ── */}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, gap: 12 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <span style={{ fontSize: 11, fontFamily: 'var(--f-mono, monospace)', textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--fl-dim)', fontWeight: 700 }}>IOCs</span>
-                <span style={{ fontSize: 10.5, fontFamily: 'var(--f-mono, monospace)', padding: '1px 7px', borderRadius: 4, background: 'color-mix(in srgb, var(--fl-accent) 9%, transparent)', color: 'var(--fl-accent)', border: '1px solid color-mix(in srgb, var(--fl-accent) 19%, transparent)' }}>{caseIOCs.length}</span>
+                <span style={{ fontSize: 10, fontFamily: 'var(--f-mono, monospace)', padding: '1px 7px', borderRadius: 3, background: 'color-mix(in srgb, var(--fl-accent) 9%, transparent)', color: 'var(--fl-accent)', border: '1px solid color-mix(in srgb, var(--fl-accent) 19%, transparent)' }}>{caseIOCs.length}</span>
               </div>
               <button onClick={() => setShowAddIoc(v => !v)}
-                style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 12px', borderRadius: 6, cursor: 'pointer', fontFamily: 'var(--f-mono, monospace)', fontSize: 11, fontWeight: 600,
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 12px', borderRadius: 3, cursor: 'pointer', fontFamily: 'var(--f-mono, monospace)', fontSize: 11, fontWeight: 600,
                   background: showAddIoc ? 'var(--fl-card)' : 'var(--fl-accent)', color: showAddIoc ? 'var(--fl-dim)' : '#fff', border: `1px solid ${showAddIoc ? 'var(--fl-border)' : 'var(--fl-accent)'}` }}>
                 {showAddIoc ? <><X size={12} /> {t('common.cancel')}</> : <><Plus size={12} /> {t('casedetail.add_ioc_long')}</>}
               </button>
             </div>
 
-            {/* ── add form ── */}
             {showAddIoc && (
-              <div style={{ marginBottom: 16, padding: 14, border: '1px solid var(--fl-border)', borderRadius: 8, background: 'var(--fl-panel)', display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+              <div style={{ marginBottom: 16, padding: 14, border: '1px solid var(--fl-border)', borderRadius: 3, background: 'var(--fl-panel)', display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
                 <select value={newIoc.ioc_type} onChange={e => setNewIoc(s => ({ ...s, ioc_type: e.target.value }))}
-                  style={{ padding: '7px 9px', borderRadius: 6, background: 'var(--fl-input-bg)', border: '1px solid var(--fl-border)', color: 'var(--fl-text)', fontFamily: 'var(--f-mono, monospace)', fontSize: 11.5, cursor: 'pointer' }}>
+                  style={{ padding: '7px 9px', borderRadius: 3, background: 'var(--fl-input-bg)', border: '1px solid var(--fl-border)', color: 'var(--fl-text)', fontFamily: 'var(--f-mono, monospace)', fontSize: 11, cursor: 'pointer' }}>
                   {['ip', 'domain', 'url', 'email', 'md5', 'sha1', 'sha256', 'filename', 'registry', 'other'].map(o => <option key={o} value={o}>{o}</option>)}
                 </select>
                 <input autoFocus value={newIoc.value} onChange={e => setNewIoc(s => ({ ...s, value: e.target.value }))} placeholder={t('casedetail.ioc_value_ph')}
                   onKeyDown={e => { if (e.key === 'Enter') addIoc(); }}
-                  style={{ flex: '1 1 240px', minWidth: 200, padding: '7px 10px', borderRadius: 6, background: 'var(--fl-input-bg)', border: '1px solid var(--fl-border)', color: 'var(--fl-text)', fontFamily: 'var(--f-mono, monospace)', fontSize: 12, outline: 'none' }} />
+                  style={{ flex: '1 1 240px', minWidth: 200, padding: '7px 10px', borderRadius: 3, background: 'var(--fl-input-bg)', border: '1px solid var(--fl-border)', color: 'var(--fl-text)', fontFamily: 'var(--f-mono, monospace)', fontSize: 11, outline: 'none' }} />
                 <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                  <span style={{ fontSize: 10.5, fontFamily: 'var(--f-mono, monospace)', color: 'var(--fl-muted)' }}>{t('casedetail.severity_abbr')}</span>
+                  <span style={{ fontSize: 10, fontFamily: 'var(--f-mono, monospace)', color: 'var(--fl-muted)' }}>{t('casedetail.severity_abbr')}</span>
                   <input type="number" min="1" max="10" value={newIoc.severity} onChange={e => setNewIoc(s => ({ ...s, severity: e.target.value }))}
-                    style={{ width: 54, padding: '7px 8px', borderRadius: 6, textAlign: 'right', background: 'var(--fl-input-bg)', border: '1px solid var(--fl-border)', color: 'var(--fl-text)', fontFamily: 'var(--f-mono, monospace)', fontSize: 12 }} />
+                    style={{ width: 54, padding: '7px 8px', borderRadius: 3, textAlign: 'right', background: 'var(--fl-input-bg)', border: '1px solid var(--fl-border)', color: 'var(--fl-text)', fontFamily: 'var(--f-mono, monospace)', fontSize: 11 }} />
                 </div>
-                <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11.5, fontFamily: 'var(--f-mono, monospace)', color: 'var(--fl-dim)', cursor: 'pointer' }}>
+                <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, fontFamily: 'var(--f-mono, monospace)', color: 'var(--fl-dim)', cursor: 'pointer' }}>
                   <input type="checkbox" checked={newIoc.is_malicious} onChange={e => setNewIoc(s => ({ ...s, is_malicious: e.target.checked }))} style={{ accentColor: 'var(--fl-danger)' }} />
                   {t('casedetail.malicious')}
                 </label>
                 <input value={newIoc.description} onChange={e => setNewIoc(s => ({ ...s, description: e.target.value }))} placeholder={t('casedetail.description_optional_ph')}
-                  style={{ flex: '1 1 180px', minWidth: 140, padding: '7px 10px', borderRadius: 6, background: 'var(--fl-input-bg)', border: '1px solid var(--fl-border)', color: 'var(--fl-text)', fontFamily: 'var(--f-ui, sans-serif)', fontSize: 12, outline: 'none' }} />
+                  style={{ flex: '1 1 180px', minWidth: 140, padding: '7px 10px', borderRadius: 3, background: 'var(--fl-input-bg)', border: '1px solid var(--fl-border)', color: 'var(--fl-text)', fontFamily: 'var(--f-ui, sans-serif)', fontSize: 11, outline: 'none' }} />
                 <button onClick={addIoc} disabled={!newIoc.value.trim() || addingIoc}
-                  style={{ padding: '7px 14px', borderRadius: 6, cursor: !newIoc.value.trim() || addingIoc ? 'not-allowed' : 'pointer', fontFamily: 'var(--f-mono, monospace)', fontSize: 11.5, fontWeight: 600,
+                  style={{ padding: '7px 14px', borderRadius: 3, cursor: !newIoc.value.trim() || addingIoc ? 'not-allowed' : 'pointer', fontFamily: 'var(--f-mono, monospace)', fontSize: 11, fontWeight: 600,
                     background: !newIoc.value.trim() ? 'var(--fl-card)' : 'color-mix(in srgb, var(--fl-ok) 12%, transparent)', color: !newIoc.value.trim() ? 'var(--fl-muted)' : 'var(--fl-ok)', border: `1px solid ${!newIoc.value.trim() ? 'var(--fl-border)' : 'color-mix(in srgb, var(--fl-ok) 25%, transparent)'}` }}>
                   {addingIoc ? t('casedetail.adding') : t('common.add')}
                 </button>
               </div>
             )}
 
-            {/* ── verdict tabs ── */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 2, marginBottom: 10, borderBottom: '1px solid var(--fl-border2)' }}>
               {VERDICT_TABS.map(tb => {
                 const active = iocVerdictFilter === tb.key;
                 return (
                   <button key={tb.key} onClick={() => setIocVerdictFilter(tb.key)}
                     style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 11px', background: 'none', border: 'none', cursor: 'pointer',
-                      fontFamily: 'var(--f-mono, monospace)', fontSize: 11.5, fontWeight: 600,
+                      fontFamily: 'var(--f-mono, monospace)', fontSize: 11, fontWeight: 600,
                       color: active ? 'var(--fl-text)' : 'var(--fl-muted)',
                       borderBottom: `2px solid ${active ? 'var(--fl-accent)' : 'transparent'}`, marginBottom: -1 }}>
-                    {tb.color && <span style={{ width: 6, height: 6, borderRadius: 2, background: tb.color, flexShrink: 0 }} />}
+                    {tb.color && <span style={{ width: 6, height: 6, borderRadius: 3, background: tb.color, flexShrink: 0 }} />}
                     {tb.label}
                     <span style={{ fontSize: 10, color: active ? 'var(--fl-dim)' : 'var(--fl-subtle)', fontFeatureSettings: '"tnum"' }}>{tb.count}</span>
                   </button>
@@ -1146,23 +1102,21 @@ export default function CaseDetailPage({ user }) {
               })}
             </div>
 
-            {/* ── enrichment hint ── */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 14, fontSize: 11, fontFamily: 'var(--f-mono, monospace)', color: 'var(--fl-muted)' }}>
               <Info size={11} style={{ flexShrink: 0, color: 'var(--fl-subtle)' }} />
               {t('iocs.enrichment_hint')} <code style={{ color: 'var(--fl-dim)' }}>.env</code>
             </div>
 
-            {/* ── table ── */}
             {caseIOCs.length === 0 ? (
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '64px 16px', gap: 12 }}>
                 <div style={{
-                  width: 44, height: 44, borderRadius: 12,
+                  width: 44, height: 44, borderRadius: 3,
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                   background: 'var(--fl-raised)', border: '1px solid var(--fl-border)',
                 }}>
                   <Crosshair size={20} style={{ color: 'var(--fl-muted)' }} strokeWidth={1.5} />
                 </div>
-                <span style={{ fontFamily: 'var(--f-display, var(--f-sans))', fontSize: 14, fontWeight: 700, color: 'var(--fl-text)', letterSpacing: '-0.01em' }}>{t('casedetail.no_iocs')}</span>
+                <span style={{ fontFamily: 'var(--f-display, var(--f-sans))', fontSize: 15, fontWeight: 700, color: 'var(--fl-text)', letterSpacing: '-0.01em' }}>{t('casedetail.no_iocs')}</span>
               </div>
             ) : (
               <div className="fl-card" style={{ overflow: 'hidden', padding: 0 }}>
@@ -1184,76 +1138,70 @@ export default function CaseDetailPage({ user }) {
                       const isEnriching = iocEnriching[ioc.id];
                       return (
                         <tr key={ioc.id}>
-                          {/* SEV — square badge + severity gauge (severity is a signal) */}
                           <td>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 5, width: 36 }}>
-                              <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 36, height: 28, borderRadius: 6, fontFamily: 'var(--f-mono, monospace)', fontSize: 13, fontWeight: 700, fontFeatureSettings: '"tnum"', background: `color-mix(in srgb, ${sevColor} 12%, transparent)`, color: sevColor, border: `1px solid color-mix(in srgb, ${sevColor} 28%, transparent)` }}>
+                              <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 36, height: 28, borderRadius: 3, fontFamily: 'var(--f-mono, monospace)', fontSize: 11, fontWeight: 700, fontFeatureSettings: '"tnum"', background: `color-mix(in srgb, ${sevColor} 12%, transparent)`, color: sevColor, border: `1px solid color-mix(in srgb, ${sevColor} 28%, transparent)` }}>
                                 {sev}
                               </span>
-                              <div style={{ height: 3, borderRadius: 2, background: 'var(--fl-border2)', overflow: 'hidden' }}>
+                              <div style={{ height: 3, borderRadius: 3, background: 'var(--fl-border2)', overflow: 'hidden' }}>
                                 <div style={{ width: `${Math.min(100, sev * 10)}%`, height: '100%', background: sevColor }} />
                               </div>
                             </div>
                           </td>
 
-                          {/* TYPE + VALUE */}
                           <td>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 5, flexWrap: 'wrap' }}>
-                              <span style={{ fontSize: 10, fontFamily: 'var(--f-mono, monospace)', padding: '1px 7px', borderRadius: 4, background: 'color-mix(in srgb, var(--fl-purple) 10%, transparent)', color: 'var(--fl-purple)', border: '1px solid color-mix(in srgb, var(--fl-purple) 22%, transparent)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                              <span style={{ fontSize: 10, fontFamily: 'var(--f-mono, monospace)', padding: '1px 7px', borderRadius: 3, background: 'color-mix(in srgb, var(--fl-purple) 10%, transparent)', color: 'var(--fl-purple)', border: '1px solid color-mix(in srgb, var(--fl-purple) 22%, transparent)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
                                 {TYPE_LABEL[ioc.ioc_type] || ioc.ioc_type}
                               </span>
                               {ioc.is_malicious && (
-                                <span style={{ fontSize: 10, fontFamily: 'var(--f-mono, monospace)', padding: '1px 7px', borderRadius: 4, background: 'color-mix(in srgb, var(--fl-danger) 10%, transparent)', color: 'var(--fl-danger)', border: '1px solid color-mix(in srgb, var(--fl-danger) 22%, transparent)', textTransform: 'uppercase', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                                <span style={{ fontSize: 10, fontFamily: 'var(--f-mono, monospace)', padding: '1px 7px', borderRadius: 3, background: 'color-mix(in srgb, var(--fl-danger) 10%, transparent)', color: 'var(--fl-danger)', border: '1px solid color-mix(in srgb, var(--fl-danger) 22%, transparent)', textTransform: 'uppercase', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                                   <AlertTriangle size={9} />{t('iocs.malicious_badge')}
                                 </span>
                               )}
                             </div>
                             <div onClick={() => navigator.clipboard?.writeText(ioc.value)} title={t('casedetail.copy_value_title', { value: ioc.value })}
-                              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontFamily: 'var(--f-mono, monospace)', fontSize: 11.5, fontWeight: 600, cursor: 'pointer', wordBreak: 'break-all',
+                              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontFamily: 'var(--f-mono, monospace)', fontSize: 11, fontWeight: 600, cursor: 'pointer', wordBreak: 'break-all',
                                 color: ioc.is_malicious ? 'var(--fl-danger)' : 'var(--fl-text)' }}>
                               {ioc.value}
                               <Copy className="ioc-copy" size={11} style={{ color: 'var(--fl-muted)', flexShrink: 0 }} />
                             </div>
                           </td>
 
-                          {/* DESCRIPTION */}
-                          <td style={{ color: 'var(--fl-dim)', fontSize: 12, maxWidth: 240, lineHeight: 1.45 }} title={ioc.description || ''}>
+                          <td style={{ color: 'var(--fl-dim)', fontSize: 11, maxWidth: 240, lineHeight: 1.45 }} title={ioc.description || ''}>
                             {ioc.description
                               ? <span style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{ioc.description}</span>
                               : <span style={{ color: 'var(--fl-subtle)' }}>—</span>}
                           </td>
 
-                          {/* ENRICHMENT */}
                           <td>
                             {ioc.enriched_at ? (
-                              <span style={{ fontSize: 10.5, fontFamily: 'var(--f-mono, monospace)', color: 'var(--fl-ok)', display: 'inline-flex', alignItems: 'center', gap: 5, padding: '2px 8px', borderRadius: 5, background: 'color-mix(in srgb, var(--fl-ok) 9%, transparent)', border: '1px solid color-mix(in srgb, var(--fl-ok) 20%, transparent)' }}>
-                                <span style={{ width: 6, height: 6, borderRadius: 2, background: 'var(--fl-ok)', flexShrink: 0 }} />
+                              <span style={{ fontSize: 10, fontFamily: 'var(--f-mono, monospace)', color: 'var(--fl-ok)', display: 'inline-flex', alignItems: 'center', gap: 5, padding: '2px 8px', borderRadius: 3, background: 'color-mix(in srgb, var(--fl-ok) 9%, transparent)', border: '1px solid color-mix(in srgb, var(--fl-ok) 20%, transparent)' }}>
+                                <span style={{ width: 6, height: 6, borderRadius: 3, background: 'var(--fl-ok)', flexShrink: 0 }} />
                                 {ioc.vt_verdict || (ioc.vt_malicious != null ? `VT ${ioc.vt_malicious}/${ioc.vt_total}` : t('iocs.enriched'))}
                               </span>
                             ) : (
-                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 10.5, fontFamily: 'var(--f-mono, monospace)', color: 'var(--fl-subtle)' }}>
-                                <span style={{ width: 6, height: 6, borderRadius: 2, background: 'var(--fl-border3)', flexShrink: 0 }} />
+                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 10, fontFamily: 'var(--f-mono, monospace)', color: 'var(--fl-subtle)' }}>
+                                <span style={{ width: 6, height: 6, borderRadius: 3, background: 'var(--fl-border3)', flexShrink: 0 }} />
                                 {t('iocs.not_enriched')}
                               </span>
                             )}
                           </td>
 
-                          {/* TAGS */}
                           <td>
                             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
                               {(ioc.tags || []).length === 0
                                 ? <span style={{ color: 'var(--fl-subtle)', fontSize: 11 }}>—</span>
                                 : (ioc.tags || []).map(tag => (
-                                  <span key={tag} style={{ fontSize: 9.5, fontFamily: 'var(--f-mono, monospace)', padding: '2px 7px', borderRadius: 4, background: 'var(--fl-raised)', border: '1px solid var(--fl-border)', color: 'var(--fl-dim)' }}>{tag}</span>
+                                  <span key={tag} style={{ fontSize: 9, fontFamily: 'var(--f-mono, monospace)', padding: '2px 7px', borderRadius: 3, background: 'var(--fl-raised)', border: '1px solid var(--fl-border)', color: 'var(--fl-dim)' }}>{tag}</span>
                                 ))}
                             </div>
                           </td>
 
-                          {/* ACTIONS */}
                           <td>
                             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 4 }}>
                               <button onClick={() => handleIocEnrich(ioc)} disabled={isEnriching} title={t('iocs.enrich_title')}
-                                style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 10px', borderRadius: 6, cursor: isEnriching ? 'wait' : 'pointer', fontFamily: 'var(--f-mono, monospace)', fontSize: 10.5, fontWeight: 600,
+                                style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 10px', borderRadius: 3, cursor: isEnriching ? 'wait' : 'pointer', fontFamily: 'var(--f-mono, monospace)', fontSize: 10, fontWeight: 600,
                                   background: 'transparent', color: 'var(--fl-dim)', border: '1px solid var(--fl-border)', transition: 'color 0.12s, border-color 0.12s' }}
                                 onMouseEnter={e => { e.currentTarget.style.color = 'var(--fl-accent)'; e.currentTarget.style.borderColor = 'color-mix(in srgb, var(--fl-accent) 35%, transparent)'; }}
                                 onMouseLeave={e => { e.currentTarget.style.color = 'var(--fl-dim)'; e.currentTarget.style.borderColor = 'var(--fl-border)'; }}>
@@ -1261,7 +1209,7 @@ export default function CaseDetailPage({ user }) {
                                 {ioc.enriched_at ? t('iocs.reenrich') : t('iocs.enrich')}
                               </button>
                               <button onClick={() => deleteIoc(ioc.id)} title={t('common.delete')}
-                                style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 28, height: 28, borderRadius: 6, cursor: 'pointer',
+                                style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 28, height: 28, borderRadius: 3, cursor: 'pointer',
                                   background: 'transparent', color: 'var(--fl-subtle)', border: '1px solid transparent', transition: 'color 0.12s, border-color 0.12s' }}
                                 onMouseEnter={e => { e.currentTarget.style.color = 'var(--fl-danger)'; e.currentTarget.style.borderColor = 'color-mix(in srgb, var(--fl-danger) 30%, transparent)'; }}
                                 onMouseLeave={e => { e.currentTarget.style.color = 'var(--fl-subtle)'; e.currentTarget.style.borderColor = 'transparent'; }}>
@@ -1303,8 +1251,8 @@ export default function CaseDetailPage({ user }) {
                     ['Scan', drawerEv.scan_status || '—'],
                   ].map(([l, v]) => (
                     <div key={l} style={{ display: 'contents' }}>
-                      <span style={{ fontSize: 10.5, fontFamily: 'var(--f-mono, monospace)', textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--fl-muted)', whiteSpace: 'nowrap' }}>{l}</span>
-                      <span style={{ fontSize: 12, color: 'var(--fl-text)', fontFamily: 'var(--f-mono, monospace)', wordBreak: 'break-word' }}>{v}</span>
+                      <span style={{ fontSize: 10, fontFamily: 'var(--f-mono, monospace)', textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--fl-muted)', whiteSpace: 'nowrap' }}>{l}</span>
+                      <span style={{ fontSize: 11, color: 'var(--fl-text)', fontFamily: 'var(--f-mono, monospace)', wordBreak: 'break-word' }}>{v}</span>
                     </div>
                   ))}
                 </div>
@@ -1313,9 +1261,9 @@ export default function CaseDetailPage({ user }) {
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                     {[['MD5', drawerEv.hash_md5], ['SHA-1', drawerEv.hash_sha1], ['SHA-256', drawerEv.hash_sha256]].filter(([, v]) => v).map(([l, v]) => (
                       <div key={l} onClick={() => navigator.clipboard?.writeText(v)} title={t('common.copy')}
-                        style={{ cursor: 'pointer', padding: '6px 8px', borderRadius: 6, background: 'var(--fl-card)', border: '1px solid var(--fl-border)' }}>
+                        style={{ cursor: 'pointer', padding: '6px 8px', borderRadius: 3, background: 'var(--fl-card)', border: '1px solid var(--fl-border)' }}>
                         <div style={{ fontSize: 9, fontFamily: 'var(--f-mono, monospace)', color: 'var(--fl-muted)', marginBottom: 2 }}>{l}</div>
-                        <div style={{ fontSize: 10.5, fontFamily: 'var(--f-mono, monospace)', color: 'var(--fl-dim)', wordBreak: 'break-all' }}>{v}</div>
+                        <div style={{ fontSize: 10, fontFamily: 'var(--f-mono, monospace)', color: 'var(--fl-dim)', wordBreak: 'break-all' }}>{v}</div>
                       </div>
                     ))}
                     {![drawerEv.hash_md5, drawerEv.hash_sha1, drawerEv.hash_sha256].some(Boolean) && (
@@ -1324,7 +1272,7 @@ export default function CaseDetailPage({ user }) {
                   </div>
                 </div>
                 {drawerEv.notes && (
-                  <p style={{ fontSize: 11, fontStyle: 'italic', color: 'var(--fl-dim)', padding: '6px 8px', background: 'var(--fl-card)', borderRadius: 6, margin: 0 }}>{drawerEv.notes}</p>
+                  <p style={{ fontSize: 11, fontStyle: 'italic', color: 'var(--fl-dim)', padding: '6px 8px', background: 'var(--fl-card)', borderRadius: 3, margin: 0 }}>{drawerEv.notes}</p>
                 )}
                 {drawerEv.additional_files?.length > 0 && (
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
@@ -1338,14 +1286,14 @@ export default function CaseDetailPage({ user }) {
                 {(drawerEv.scan_status === 'alert' || drawerEv.scan_status === 'quarantined' || drawerEv.is_suspicious === true) ? (
                   <HexStringsPreview evId={drawerEv.id} />
                 ) : (
-                  <div style={{ borderRadius: 8, padding: 12, textAlign: 'center', background: 'color-mix(in srgb, var(--fl-ok) 7%, transparent)', border: '1px solid color-mix(in srgb, var(--fl-ok) 22%, transparent)' }}>
-                    <div style={{ color: 'var(--fl-ok)', fontSize: 12 }}>{t('casedetail.clean_file')}</div>
+                  <div style={{ borderRadius: 3, padding: 12, textAlign: 'center', background: 'color-mix(in srgb, var(--fl-ok) 7%, transparent)', border: '1px solid color-mix(in srgb, var(--fl-ok) 22%, transparent)' }}>
+                    <div style={{ color: 'var(--fl-ok)', fontSize: 11 }}>{t('casedetail.clean_file')}</div>
                     <div style={{ color: 'var(--fl-muted)', fontSize: 11, marginTop: 4 }}>{t('casedetail.clean_file_sub')}</div>
                   </div>
                 )}
                 <button
                   onClick={() => { const tid = drawerEv.id; setDrawerEv(null); navigate(`/cases/${id}/collections/${tid}`); }}
-                  style={{ marginTop: 'auto', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '8px 12px', borderRadius: 6, cursor: 'pointer', background: 'var(--fl-accent)', color: '#fff', border: 'none', fontFamily: 'var(--f-mono, monospace)', fontSize: 12, fontWeight: 600 }}>
+                  style={{ marginTop: 'auto', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '8px 12px', borderRadius: 3, cursor: 'pointer', background: 'var(--fl-accent)', color: '#fff', border: 'none', fontFamily: 'var(--f-mono, monospace)', fontSize: 11, fontWeight: 600 }}>
                   {t('casedetail.open_collection_arrow')}
                 </button>
               </div>
@@ -1358,7 +1306,7 @@ export default function CaseDetailPage({ user }) {
               <span style={{ fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--fl-dim)' }}>
                 {t('casedetail.evidence_header')}
               </span>
-              <span style={{ fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', padding: '1px 6px', borderRadius: 4, background: 'color-mix(in srgb, var(--fl-accent) 9%, transparent)', color: 'var(--fl-accent)', border: '1px solid color-mix(in srgb, var(--fl-accent) 19%, transparent)' }}>
+              <span style={{ fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', padding: '1px 6px', borderRadius: 3, background: 'color-mix(in srgb, var(--fl-accent) 9%, transparent)', color: 'var(--fl-accent)', border: '1px solid color-mix(in srgb, var(--fl-accent) 19%, transparent)' }}>
                 {evidence.length}
               </span>
             </div>
@@ -1441,9 +1389,6 @@ export default function CaseDetailPage({ user }) {
               const evResult = evResultMap[ev.name];
               const resultId = evResult?.resultId;
               const recordCount = evResult?.recordCount ?? 0;
-              // "Analyzed" reflects ACTUAL parse completion (real records written at the
-              // end of the job), not the mere existence of a parser_results row — that row
-              // is created at import/start, which made the badge flip to "analyzed" too early.
               const isParsed = recordCount > 0;
               const isAnalyzing = !isParsed && Boolean(parseProg?.active);
               const isExpanded = selEv?.id === ev.id;
@@ -1452,7 +1397,7 @@ export default function CaseDetailPage({ user }) {
 
               return (
                 <div key={ev.id} style={{
-                  borderRadius: 8, overflow: 'hidden',
+                  borderRadius: 3, overflow: 'hidden',
                   border: `1px solid ${isExpanded ? 'color-mix(in srgb, var(--fl-accent) 25%, transparent)' : 'var(--fl-border)'}`,
                   background: 'var(--fl-panel)',
                   transition: 'border-color 0.15s',
@@ -1461,7 +1406,7 @@ export default function CaseDetailPage({ user }) {
                     onClick={() => { if (isExpanded) navigate(`/cases/${id}`); else navigate(`/cases/${id}/collections/${ev.id}`); }}>
                     <FolderOpen size={13} style={{ color: isParsed ? 'var(--fl-ok)' : 'var(--fl-muted)', flexShrink: 0 }} />
                     <div style={{ flex: 1, overflow: 'hidden', minWidth: 0 }}>
-                      <span style={{ fontWeight: 600, fontSize: 13, color: 'var(--fl-text)', display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      <span style={{ fontWeight: 600, fontSize: 11, color: 'var(--fl-text)', display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {ev.name}
                       </span>
                       {ev.additional_files?.length > 0 && (
@@ -1481,21 +1426,21 @@ export default function CaseDetailPage({ user }) {
                       )}
                     </div>
                     {isParsed ? (
-                      <span style={{ fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', padding: '2px 7px', borderRadius: 4, background: 'color-mix(in srgb, var(--fl-ok) 9%, transparent)', color: 'var(--fl-ok)', border: '1px solid color-mix(in srgb, var(--fl-ok) 19%, transparent)', flexShrink: 0 }}>
+                      <span style={{ fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', padding: '2px 7px', borderRadius: 3, background: 'color-mix(in srgb, var(--fl-ok) 9%, transparent)', color: 'var(--fl-ok)', border: '1px solid color-mix(in srgb, var(--fl-ok) 19%, transparent)', flexShrink: 0 }}>
                         ✓ {recordCount.toLocaleString()} {t('casedetail.records_short')}
                       </span>
                     ) : isAnalyzing ? (
-                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', padding: '2px 7px', borderRadius: 4, background: 'color-mix(in srgb, var(--fl-accent) 9%, transparent)', color: 'var(--fl-accent)', border: '1px solid color-mix(in srgb, var(--fl-accent) 22%, transparent)', flexShrink: 0 }}>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', padding: '2px 7px', borderRadius: 3, background: 'color-mix(in srgb, var(--fl-accent) 9%, transparent)', color: 'var(--fl-accent)', border: '1px solid color-mix(in srgb, var(--fl-accent) 22%, transparent)', flexShrink: 0 }}>
                         <Loader2 size={9} style={{ animation: 'fl-spin 0.9s linear infinite' }} /> {t('casedetail.analyzing')}
                       </span>
                     ) : (
-                      <span style={{ fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', padding: '2px 7px', borderRadius: 4, background: 'color-mix(in srgb, var(--fl-muted) 9%, transparent)', color: 'var(--fl-muted)', border: '1px solid var(--fl-border)', flexShrink: 0 }}>
+                      <span style={{ fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', padding: '2px 7px', borderRadius: 3, background: 'color-mix(in srgb, var(--fl-muted) 9%, transparent)', color: 'var(--fl-muted)', border: '1px solid var(--fl-border)', flexShrink: 0 }}>
                         {t('casedetail.not_analyzed')}
                       </span>
                     )}
                     <ColorBadge color="var(--fl-accent)">{ev.evidence_type}</ColorBadge>
                     {ev.scan_status === 'quarantined' && (
-                      <span style={{ fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', padding: '2px 6px', borderRadius: 4, background: 'rgba(218,54,51,0.15)', color: 'var(--fl-danger)', border: '1px solid rgba(218,54,51,0.3)', flexShrink: 0 }}>
+                      <span style={{ fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', padding: '2px 6px', borderRadius: 3, background: 'rgba(218,54,51,0.15)', color: 'var(--fl-danger)', border: '1px solid rgba(218,54,51,0.3)', flexShrink: 0 }}>
                         <AlertTriangle size={9} style={{ display: 'inline', marginRight: 3 }} />{t('casedetail.quarantine')}
                       </span>
                     )}
@@ -1506,7 +1451,7 @@ export default function CaseDetailPage({ user }) {
                     <button
                       onClick={e => { e.stopPropagation(); setDrawerEv(ev); }}
                       title={t('casedetail.details_title')}
-                      style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 26, height: 26, borderRadius: 5, cursor: 'pointer', background: 'transparent', color: 'var(--fl-muted)', border: '1px solid var(--fl-border)', flexShrink: 0 }}
+                      style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 26, height: 26, borderRadius: 3, cursor: 'pointer', background: 'transparent', color: 'var(--fl-muted)', border: '1px solid var(--fl-border)', flexShrink: 0 }}
                       onMouseEnter={e => { e.currentTarget.style.color = 'var(--fl-accent)'; e.currentTarget.style.borderColor = 'var(--fl-border3)'; }}
                       onMouseLeave={e => { e.currentTarget.style.color = 'var(--fl-muted)'; e.currentTarget.style.borderColor = 'var(--fl-border)'; }}>
                       <Icon name="Info" size={13} />
@@ -1514,7 +1459,7 @@ export default function CaseDetailPage({ user }) {
                     <button
                       onClick={e => { e.stopPropagation(); collectionAPI.parse(id, { evidence_id: ev.id, socketId }).catch(() => {}); }}
                       title={t('casedetail.reparse_title')}
-                      style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 9px', borderRadius: 5, fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', cursor: 'pointer', background: 'transparent', color: 'var(--fl-muted)', border: '1px solid var(--fl-border)', flexShrink: 0 }}
+                      style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 9px', borderRadius: 3, fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', cursor: 'pointer', background: 'transparent', color: 'var(--fl-muted)', border: '1px solid var(--fl-border)', flexShrink: 0 }}
                       onMouseEnter={e => { e.currentTarget.style.color = 'var(--fl-accent)'; e.currentTarget.style.borderColor = 'var(--fl-border3)'; }}
                       onMouseLeave={e => { e.currentTarget.style.color = 'var(--fl-muted)'; e.currentTarget.style.borderColor = 'var(--fl-border)'; }}>
                       <RefreshCw size={11} /> {t('casedetail.reparse')}
@@ -1522,7 +1467,7 @@ export default function CaseDetailPage({ user }) {
                     {isParsed && (
                       <button
                         onClick={e => { e.stopPropagation(); navigate(`/cases/${id}/collections/${ev.id}/timeline`, { state: { evidenceName: ev.name, caseTitle: caseData?.title, caseNumber: caseData?.case_number } }); }}
-                        style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 10px', borderRadius: 5, fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', cursor: 'pointer', background: 'color-mix(in srgb, var(--fl-accent) 13%, transparent)', color: 'var(--fl-accent)', border: '1px solid color-mix(in srgb, var(--fl-accent) 31%, transparent)', flexShrink: 0, fontWeight: 700 }}
+                        style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 10px', borderRadius: 3, fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', cursor: 'pointer', background: 'color-mix(in srgb, var(--fl-accent) 13%, transparent)', color: 'var(--fl-accent)', border: '1px solid color-mix(in srgb, var(--fl-accent) 31%, transparent)', flexShrink: 0, fontWeight: 700 }}
                         title={t('casedetail.tooltip_isolated_timeline')}>
                         <Clock size={11} /> Timeline →
                       </button>
@@ -1554,7 +1499,7 @@ export default function CaseDetailPage({ user }) {
                             onClick={e => { e.stopPropagation(); document.getElementById(`pcap-input-${ev.id}`).click(); }}
                             disabled={ps.loading}
                             style={{
-                              display: 'flex', alignItems: 'center', gap: 4, padding: '4px 10px', borderRadius: 5,
+                              display: 'flex', alignItems: 'center', gap: 4, padding: '4px 10px', borderRadius: 3,
                               fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', cursor: ps.loading ? 'wait' : 'pointer',
                               background: ps.result ? 'color-mix(in srgb, var(--fl-ok) 8%, transparent)' : ps.error ? 'color-mix(in srgb, var(--fl-danger) 8%, transparent)' : 'color-mix(in srgb, var(--fl-accent) 6%, transparent)',
                               color: ps.result ? 'var(--fl-ok)' : ps.error ? 'var(--fl-danger)' : 'color-mix(in srgb, var(--fl-accent) 50%, transparent)',
@@ -1577,7 +1522,6 @@ export default function CaseDetailPage({ user }) {
                     </button>
                   </div>
 
-                  {/* VolWeb strip — separate row so it never crowds the name/metadata line */}
                   {isMemory && (() => {
                     const p       = volwebProgress[ev.id];
                     const stepMsg = volwebSteps[ev.id];
@@ -1607,7 +1551,7 @@ export default function CaseDetailPage({ user }) {
                           disabled={volwebLoading}
                           style={{
                             display: 'flex', alignItems: 'center', gap: 4, padding: '3px 9px',
-                            borderRadius: 5, fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
+                            borderRadius: 3, fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
                             cursor: volwebLoading ? 'not-allowed' : 'pointer',
                             background: vw.bg, color: vw.fg, border: `1px solid ${vw.bd}`,
                             flexShrink: 0, fontWeight: 700,
@@ -1622,11 +1566,11 @@ export default function CaseDetailPage({ user }) {
                         </button>
                         {showBar && (
                           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 2, minWidth: 60, maxWidth: 220 }}>
-                            <div style={{ height: 3, background: 'var(--fl-card)', borderRadius: 2, overflow: 'hidden' }}>
+                            <div style={{ height: 3, background: 'var(--fl-card)', borderRadius: 3, overflow: 'hidden' }}>
                               {(uploading || initializing) ? (
-                                <div style={{ height: '100%', borderRadius: 2, width: '40%', background: 'linear-gradient(90deg, var(--fl-accent), var(--fl-purple))', animation: 'volweb-slide 1.4s ease-in-out infinite' }} />
+                                <div style={{ height: '100%', borderRadius: 3, width: '40%', background: 'var(--fl-accent)', animation: 'volweb-slide 1.4s ease-in-out infinite' }} />
                               ) : (
-                                <div style={{ height: '100%', borderRadius: 2, width: `${pct}%`, background: pct === 100 ? 'var(--fl-ok)' : 'linear-gradient(90deg, var(--fl-accent), var(--fl-purple))', transition: 'width 0.4s ease' }} />
+                                <div style={{ height: '100%', borderRadius: 3, width: `${pct}%`, background: pct === 100 ? 'var(--fl-ok)' : 'var(--fl-accent)', transition: 'width 0.4s ease' }} />
                               )}
                             </div>
                             <span style={{ fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: pct === 100 ? 'var(--fl-ok)' : 'var(--fl-dim)' }}>
@@ -1644,7 +1588,7 @@ export default function CaseDetailPage({ user }) {
                             disabled={volwebRetrying === ev.id}
                             style={{
                               display: 'flex', alignItems: 'center', gap: 4, padding: '3px 8px',
-                              borderRadius: 5, fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
+                              borderRadius: 3, fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
                               cursor: volwebRetrying === ev.id ? 'wait' : 'pointer',
                               background: 'rgba(77,130,192,0.10)', color: 'var(--fl-accent)',
                               border: '1px solid rgba(77,130,192,0.30)', flexShrink: 0,
@@ -1665,15 +1609,12 @@ export default function CaseDetailPage({ user }) {
           </div>
 
           {evidence.length > 0 && (() => {
-            // Count only over the collections actually displayed — an orphan evidence_name
-            // (from a deleted/re-imported collection) must not inflate the count past evidence.length.
             const recsFor = (ev) => evResultMap[ev.name]?.recordCount || 0;
             const totalRecords = evidence.reduce((s, ev) => s + recsFor(ev), 0);
             const parsedCount  = evidence.filter(ev => recsFor(ev) > 0).length;
             const parsedEvNames = evidence.filter(ev => recsFor(ev) > 0).map(ev => ev.name);
             return (
-              <div style={{ marginTop: 20, background: 'var(--fl-panel)', border: '1px solid var(--fl-border)', borderRadius: 8, overflow: 'hidden' }}>
-                {/* Unified Summary & Report card */}
+              <div style={{ marginTop: 20, background: 'var(--fl-panel)', border: '1px solid var(--fl-border)', borderRadius: 3, overflow: 'hidden' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 16px', borderBottom: '1px solid var(--fl-border2)' }}>
                   <FileDown size={13} style={{ color: 'var(--fl-accent)' }} />
                   <span style={{ fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--fl-dim)' }}>
@@ -1695,7 +1636,7 @@ export default function CaseDetailPage({ user }) {
                       <div key={label} style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
                         {i > 0 && <span style={{ color: 'var(--fl-subtle)', marginRight: 10 }}>·</span>}
                         <span style={{ fontSize: 15, fontWeight: 700, color, fontFeatureSettings: '"tnum"' }}>{value}</span>
-                        <span style={{ fontSize: 10.5, color: 'var(--fl-muted)' }}>{label}</span>
+                        <span style={{ fontSize: 10, color: 'var(--fl-muted)' }}>{label}</span>
                       </div>
                     ))}
                   </div>
@@ -1704,12 +1645,12 @@ export default function CaseDetailPage({ user }) {
                       <div style={{ fontSize: 10, color: 'var(--fl-subtle)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', marginBottom: 6 }}>{t('casedetail.included_collections')}</div>
                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
                         {parsedEvNames.map(name => (
-                          <span key={name} style={{ fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', padding: '2px 7px', borderRadius: 4, background: 'color-mix(in srgb, var(--fl-ok) 7%, transparent)', color: 'var(--fl-ok)', border: '1px solid color-mix(in srgb, var(--fl-ok) 15%, transparent)' }}>
+                          <span key={name} style={{ fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', padding: '2px 7px', borderRadius: 3, background: 'color-mix(in srgb, var(--fl-ok) 7%, transparent)', color: 'var(--fl-ok)', border: '1px solid color-mix(in srgb, var(--fl-ok) 15%, transparent)' }}>
                             ✓ {name}
                           </span>
                         ))}
                         {evidence.filter(ev => !parsedEvNames.includes(ev.name)).map(ev => (
-                          <span key={ev.id} style={{ fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', padding: '2px 7px', borderRadius: 4, background: 'color-mix(in srgb, var(--fl-border) 9%, transparent)', color: 'var(--fl-muted)', border: '1px solid var(--fl-border)' }}>
+                          <span key={ev.id} style={{ fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', padding: '2px 7px', borderRadius: 3, background: 'color-mix(in srgb, var(--fl-border) 9%, transparent)', color: 'var(--fl-muted)', border: '1px solid var(--fl-border)' }}>
                             ○ {ev.name}
                           </span>
                         ))}
@@ -1720,7 +1661,7 @@ export default function CaseDetailPage({ user }) {
                   <div style={{ borderTop: '1px solid var(--fl-border2)', margin: '14px 0' }} />
 
                   {parsedCount === 0 && (
-                    <div style={{ fontSize: 12, color: 'var(--fl-dim)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', padding: '0 0 10px', textAlign: 'center', fontStyle: 'italic' }}>
+                    <div style={{ fontSize: 11, color: 'var(--fl-dim)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', padding: '0 0 10px', textAlign: 'center', fontStyle: 'italic' }}>
                       {t('casedetail.parse_first')}
                     </div>
                   )}
@@ -1728,7 +1669,7 @@ export default function CaseDetailPage({ user }) {
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                   <div style={{
                     flex: 1, display: 'flex', alignItems: 'center', gap: 6,
-                    padding: '5px 10px', borderRadius: 6,
+                    padding: '5px 10px', borderRadius: 3,
                     background: selectedTemplate ? 'color-mix(in srgb, var(--fl-accent) 6%, transparent)' : 'var(--fl-bg)',
                     border: `1px solid ${selectedTemplate ? 'color-mix(in srgb, var(--fl-accent) 21%, transparent)' : 'var(--fl-card)'}`,
                   }}>
@@ -1746,7 +1687,7 @@ export default function CaseDetailPage({ user }) {
                     onClick={() => setShowComposer(v => !v)}
                     style={{
                       display: 'flex', alignItems: 'center', gap: 5,
-                      padding: '5px 10px', borderRadius: 6, fontSize: 11,
+                      padding: '5px 10px', borderRadius: 3, fontSize: 11,
                       fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', cursor: 'pointer',
                       background: showComposer ? 'color-mix(in srgb, var(--fl-accent) 12%, transparent)' : 'var(--fl-card)',
                       border: `1px solid ${showComposer ? 'color-mix(in srgb, var(--fl-accent) 30%, transparent)' : 'var(--fl-card)'}`,
@@ -1758,7 +1699,7 @@ export default function CaseDetailPage({ user }) {
                   <button
                     onClick={() => setShowTemplateModal(true)}
                     style={{
-                      padding: '5px 10px', borderRadius: 6, fontSize: 11,
+                      padding: '5px 10px', borderRadius: 3, fontSize: 11,
                       fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', cursor: 'pointer',
                       background: 'var(--fl-card)', border: '1px solid var(--fl-card)', color: 'var(--fl-dim)',
                     }}
@@ -1768,7 +1709,7 @@ export default function CaseDetailPage({ user }) {
                 </div>
 
                 {showComposer && !selectedTemplate && (
-                  <div style={{ marginBottom: 12, padding: '12px 14px', borderRadius: 8, background: 'var(--fl-bg)', border: '1px solid var(--fl-border2)' }}>
+                  <div style={{ marginBottom: 12, padding: '12px 14px', borderRadius: 3, background: 'var(--fl-bg)', border: '1px solid var(--fl-border2)' }}>
                     <div style={{ fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--fl-subtle)', marginBottom: 8 }}>{t('casedetail.sections_to_include')}</div>
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 12 }}>
                       {[['mitre', 'MITRE ATT&CK'], ['killchain', t('casedetail.report_section_killchain')], ['findings', t('casedetail.report_section_detections')], ['iocs', 'IOCs'], ['timeline', t('casedetail.report_section_timeline')], ['evidence', t('casedetail.report_section_evidence')]].map(([key, label]) => {
@@ -1776,11 +1717,11 @@ export default function CaseDetailPage({ user }) {
                         return (
                           <button key={key}
                             onClick={() => setReportGroups(prev => { const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n; })}
-                            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 10px', borderRadius: 6, cursor: 'pointer', fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
+                            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 10px', borderRadius: 3, cursor: 'pointer', fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
                               background: on ? 'color-mix(in srgb, var(--fl-accent) 10%, transparent)' : 'transparent',
                               border: `1px solid ${on ? 'color-mix(in srgb, var(--fl-accent) 30%, transparent)' : 'var(--fl-border)'}`,
                               color: on ? 'var(--fl-accent)' : 'var(--fl-muted)' }}>
-                            <span style={{ width: 14, height: 14, borderRadius: 4, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            <span style={{ width: 14, height: 14, borderRadius: 3, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
                               border: `1.5px solid ${on ? 'var(--fl-accent)' : 'var(--fl-border3)'}`, background: on ? 'var(--fl-accent)' : 'transparent' }}>
                               {on && <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="4"><polyline points="20 6 9 17 4 12" /></svg>}
                             </span>
@@ -1792,15 +1733,15 @@ export default function CaseDetailPage({ user }) {
                     <div style={{ fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--fl-subtle)', marginBottom: 6 }}>{t('casedetail.analyst_note_optional')}</div>
                     <textarea value={reportNote} onChange={e => setReportNote(e.target.value)}
                       placeholder={t('casedetail.analyst_note_ph')} rows={3}
-                      style={{ width: '100%', boxSizing: 'border-box', resize: 'vertical', background: 'var(--fl-panel)', color: 'var(--fl-text)', border: '1px solid var(--fl-border)', borderRadius: 6, padding: '8px 10px', fontSize: 12, fontFamily: 'var(--f-ui, Inter, sans-serif)', outline: 'none', lineHeight: 1.5 }} />
-                    <div style={{ fontSize: 9.5, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-subtle)', marginTop: 6 }}>
+                      style={{ width: '100%', boxSizing: 'border-box', resize: 'vertical', background: 'var(--fl-panel)', color: 'var(--fl-text)', border: '1px solid var(--fl-border)', borderRadius: 3, padding: '8px 10px', fontSize: 11, fontFamily: 'var(--f-ui, Inter, sans-serif)', outline: 'none', lineHeight: 1.5 }} />
+                    <div style={{ fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-subtle)', marginTop: 6 }}>
                       {t('casedetail.executive_summary_included')}{reportGroups.size === 0 ? <span style={{ color: 'var(--fl-warn)' }}>{' '}{t('casedetail.no_optional_section')}</span> : ''}
                     </div>
 
                     <div style={{ borderTop: '1px solid var(--fl-border2)', margin: '14px 0 12px' }} />
                     <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
                       <button onClick={() => setAiEnabled(v => !v)} style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
-                        <span style={{ width: 14, height: 14, borderRadius: 4, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        <span style={{ width: 14, height: 14, borderRadius: 3, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
                           border: `1.5px solid ${aiEnabled ? 'var(--fl-accent)' : 'var(--fl-border3)'}`, background: aiEnabled ? 'var(--fl-accent)' : 'transparent' }}>
                           {aiEnabled && <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="4"><polyline points="20 6 9 17 4 12" /></svg>}
                         </span>
@@ -1809,7 +1750,7 @@ export default function CaseDetailPage({ user }) {
                       {aiEnabled && (
                         <button onClick={generateAiDraft} disabled={aiLoading || parsedCount === 0}
                           title={t('casedetail.ai_draft_title')}
-                          style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 11px', borderRadius: 6, fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', cursor: aiLoading ? 'wait' : 'pointer',
+                          style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 11px', borderRadius: 3, fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', cursor: aiLoading ? 'wait' : 'pointer',
                             background: 'color-mix(in srgb, var(--fl-accent) 12%, transparent)', border: '1px solid color-mix(in srgb, var(--fl-accent) 30%, transparent)', color: 'var(--fl-accent)' }}>
                           {aiLoading ? <Loader2 size={11} style={{ animation: 'fl-spin 0.9s linear infinite' }} /> : <Sparkles size={11} />}
                           {aiDraft ? t('casedetail.regenerate_draft') : t('casedetail.generate_ai_draft')}
@@ -1818,7 +1759,7 @@ export default function CaseDetailPage({ user }) {
                       {aiError && <span style={{ fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-danger)' }}>{aiError}</span>}
                     </div>
                     {aiEnabled && !aiDraft && !aiLoading && (
-                      <div style={{ fontSize: 9.5, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-subtle)', marginTop: 6 }}>
+                      <div style={{ fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-subtle)', marginTop: 6 }}>
                         {t('casedetail.ai_auto_generate_hint')}
                       </div>
                     )}
@@ -1831,7 +1772,7 @@ export default function CaseDetailPage({ user }) {
                   </div>
                 )}
                 {showComposer && selectedTemplate && (
-                  <div style={{ marginBottom: 12, padding: '10px 12px', borderRadius: 8, background: 'color-mix(in srgb, var(--fl-warn) 6%, transparent)', border: '1px solid color-mix(in srgb, var(--fl-warn) 20%, transparent)', fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-warn)' }}>
+                  <div style={{ marginBottom: 12, padding: '10px 12px', borderRadius: 3, background: 'color-mix(in srgb, var(--fl-warn) 6%, transparent)', border: '1px solid color-mix(in srgb, var(--fl-warn) 20%, transparent)', fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-warn)' }}>
                     {t('casedetail.template_selected_hint')}
                   </div>
                 )}
@@ -1842,7 +1783,7 @@ export default function CaseDetailPage({ user }) {
                     disabled={generating || parsedCount === 0}
                     style={{
                       display: 'flex', alignItems: 'center', gap: 6,
-                      padding: '8px 16px', borderRadius: 7, fontSize: 12,
+                      padding: '8px 16px', borderRadius: 3, fontSize: 11,
                       fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontWeight: 600, cursor: parsedCount === 0 ? 'not-allowed' : 'pointer',
                       background: parsedCount === 0 ? 'var(--fl-card)' : 'var(--fl-accent)',
                       border: `1px solid ${parsedCount === 0 ? 'var(--fl-border)' : 'var(--fl-accent)'}`,
@@ -1857,7 +1798,7 @@ export default function CaseDetailPage({ user }) {
                       onClick={downloadReport}
                       style={{
                         display: 'flex', alignItems: 'center', gap: 6,
-                        padding: '8px 14px', borderRadius: 7, fontSize: 12,
+                        padding: '8px 14px', borderRadius: 3, fontSize: 11,
                         fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontWeight: 600, cursor: 'pointer',
                         background: 'color-mix(in srgb, var(--fl-ok) 8%, transparent)', border: '1px solid color-mix(in srgb, var(--fl-ok) 21%, transparent)', color: 'var(--fl-ok)',
                       }}>
@@ -1866,7 +1807,7 @@ export default function CaseDetailPage({ user }) {
                   )}
                 </div>
                 {reportDone && (
-                  <div style={{ marginTop: 10, padding: '8px 12px', borderRadius: 7, background: 'color-mix(in srgb, var(--fl-ok) 3%, transparent)', border: '1px solid color-mix(in srgb, var(--fl-ok) 15%, transparent)', fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-ok)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <div style={{ marginTop: 10, padding: '8px 12px', borderRadius: 3, background: 'color-mix(in srgb, var(--fl-ok) 3%, transparent)', border: '1px solid color-mix(in srgb, var(--fl-ok) 15%, transparent)', fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-ok)', display: 'flex', alignItems: 'center', gap: 6 }}>
                     {t('casedetail.report_done', { n: parsedCount, records: totalRecords.toLocaleString(), iocs: caseIOCs.length })}
                   </div>
                 )}
@@ -1944,7 +1885,7 @@ export default function CaseDetailPage({ user }) {
 
           {!hardDeleting && !hardDeleteResult && (
             <>
-              <div style={{ marginBottom: 16, padding: '10px 14px', borderRadius: 8, background: 'rgba(218,54,51,0.06)', border: '1px solid rgba(218,54,51,0.18)', fontSize: 12, color: 'var(--fl-muted)', lineHeight: 1.7 }}>
+              <div style={{ marginBottom: 16, padding: '10px 14px', borderRadius: 3, background: 'rgba(218,54,51,0.06)', border: '1px solid rgba(218,54,51,0.18)', fontSize: 11, color: 'var(--fl-muted)', lineHeight: 1.7 }}>
                 {t('casedetail.hard_delete_intro', { caseNumber: caseData?.case_number })}{' '}
                 (<code style={{ color: 'var(--fl-danger)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}>DoD 5220.22-M</code>), {t('casedetail.hard_delete_scope')}<br />
                 <span style={{ color: 'var(--fl-warn)', fontSize: 11 }}>{t('casedetail.audit_record_kept')}</span>
@@ -1966,7 +1907,7 @@ export default function CaseDetailPage({ user }) {
           {hardDeleting && (
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '32px 0', gap: 14 }}>
               <Spinner size={32} color="var(--fl-danger)" />
-              <div style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 13, color: 'var(--fl-muted)' }}>{t('casedetail.secure_delete_running')}</div>
+              <div style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11, color: 'var(--fl-muted)' }}>{t('casedetail.secure_delete_running')}</div>
               <div style={{ fontSize: 11, color: 'var(--fl-dim)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}>DoD 5220.22-M · cascade delete · audit log</div>
             </div>
           )}
@@ -1974,26 +1915,22 @@ export default function CaseDetailPage({ user }) {
           {hardDeleteResult && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               <div style={{
-                padding: '12px 14px', borderRadius: 8,
-                background: hardDeleteResult.ok && hardDeleteResult.verified ? 'rgba(63,185,80,0.05)' : 'rgba(218,54,51,0.05)',
-                border: `1px solid ${hardDeleteResult.ok && hardDeleteResult.verified ? 'rgba(63,185,80,0.25)' : 'rgba(218,54,51,0.25)'}`,
+                padding: '12px 14px', borderRadius: 3,
+                background: hardDeleteResult.ok && hardDeleteResult.verified ? 'color-mix(in srgb, var(--fl-ok) 5%, transparent)' : 'color-mix(in srgb, var(--fl-danger) 5%, transparent)',
+                border: `1px solid ${hardDeleteResult.ok && hardDeleteResult.verified ? 'color-mix(in srgb, var(--fl-ok) 25%, transparent)' : 'color-mix(in srgb, var(--fl-danger) 25%, transparent)'}`,
               }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                  {hardDeleteResult.ok
-                    ? <span style={{ fontSize: 18 }}>✅</span>
-                    : <span style={{ fontSize: 18 }}>❌</span>
-                  }
-                  <span style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 12, fontWeight: 700, color: hardDeleteResult.ok ? 'var(--fl-ok)' : 'var(--fl-danger)' }}>
+                  <span style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11, fontWeight: 700, color: hardDeleteResult.ok ? 'var(--fl-ok)' : 'var(--fl-danger)' }}>
                     {hardDeleteResult.ok ? t('casedetail.hard_delete_success') : t('casedetail.hard_delete_failed')}
                   </span>
                 </div>
 
                 {hardDeleteResult.ok && (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginLeft: 26 }}>
-                    <div style={{ fontSize: 12, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-ok)' }}>
+                    <div style={{ fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-ok)' }}>
                       {t(hardDeleteResult.files_destroyed === 1 ? 'casedetail.file_destroyed' : 'casedetail.files_destroyed', { count: hardDeleteResult.files_destroyed })}
                     </div>
-                    <div style={{ fontSize: 12, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: hardDeleteResult.verified ? 'var(--fl-ok)' : 'var(--fl-danger)' }}>
+                    <div style={{ fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: hardDeleteResult.verified ? 'var(--fl-ok)' : 'var(--fl-danger)' }}>
                       {hardDeleteResult.verified
                         ? t('casedetail.db_absence_confirmed')
                         : t('casedetail.db_still_accessible')}
@@ -2007,13 +1944,13 @@ export default function CaseDetailPage({ user }) {
                 )}
 
                 {!hardDeleteResult.ok && (
-                  <div style={{ marginLeft: 26, fontSize: 12, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-danger)' }}>
+                  <div style={{ marginLeft: 26, fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-danger)' }}>
                     {hardDeleteResult.error}
                   </div>
                 )}
               </div>
 
-              <div style={{ padding: '8px 12px', borderRadius: 6, background: 'var(--fl-bg)', border: '1px solid var(--fl-border)', fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-dim)' }}>
+              <div style={{ padding: '8px 12px', borderRadius: 3, background: 'var(--fl-bg)', border: '1px solid var(--fl-border)', fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-dim)' }}>
                 {t('casedetail.gdpr_audit_kept')}
               </div>
             </div>
@@ -2076,13 +2013,13 @@ export default function CaseDetailPage({ user }) {
         size="sm"
       >
         <Modal.Body>
-          <div style={{ fontSize: 12, color: 'var(--fl-dim)', marginBottom: 16, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}>
+          <div style={{ fontSize: 11, color: 'var(--fl-dim)', marginBottom: 16, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}>
             {c?.case_number} · {c?.title}
           </div>
 
           {statusModal === '_pick' ? (
             <>
-              <div style={{ fontSize: 12, color: 'var(--fl-muted)', marginBottom: 12 }}>
+              <div style={{ fontSize: 11, color: 'var(--fl-muted)', marginBottom: 12 }}>
                 {t('casedetail.current_status')} <span style={{ color: SM[c?.status]?.c, fontWeight: 600 }}>{SM[c?.status]?.l}</span>
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -2090,21 +2027,21 @@ export default function CaseDetailPage({ user }) {
                   <button key={key} onClick={() => setStatusModal(key)}
                     style={{
                       display: 'flex', alignItems: 'center', gap: 10, padding: '11px 14px',
-                      background: `color-mix(in srgb, ${col} 6%, transparent)`, border: `1px solid color-mix(in srgb, ${col} 19%, transparent)`, borderRadius: 8,
+                      background: `color-mix(in srgb, ${col} 6%, transparent)`, border: `1px solid color-mix(in srgb, ${col} 19%, transparent)`, borderRadius: 3,
                       cursor: 'pointer', textAlign: 'left',
                     }}>
                     <span style={{ width: 8, height: 8, borderRadius: '50%', background: col, flexShrink: 0 }} />
-                    <span style={{ fontSize: 13, fontWeight: 600, color: col }}>{l}</span>
+                    <span style={{ fontSize: 11, fontWeight: 600, color: col }}>{l}</span>
                   </button>
                 ))}
               </div>
             </>
           ) : (
             <>
-              <div style={{ padding: '12px 14px', borderRadius: 8, marginBottom: 18,
+              <div style={{ padding: '12px 14px', borderRadius: 3, marginBottom: 18,
                 background: statusModal === 'closed' ? 'rgba(218,54,51,0.07)' : 'rgba(77,130,192,0.07)',
                 border: `1px solid ${statusModal === 'closed' ? 'rgba(218,54,51,0.2)' : 'rgba(77,130,192,0.2)'}`,
-                fontSize: 13, color: 'var(--fl-text)', lineHeight: 1.6,
+                fontSize: 11, color: 'var(--fl-text)', lineHeight: 1.6,
               }}>
                 {statusModal === 'closed' ? (
                   <>
@@ -2117,7 +2054,7 @@ export default function CaseDetailPage({ user }) {
                   <>{t('casedetail.reopen_case_prefix')} <strong style={{ color: 'var(--fl-accent)' }}>{t('casedetail.in_progress')}</strong>.</>
                 )}
               </div>
-              <div style={{ fontSize: 12, color: 'var(--fl-muted)', marginBottom: 4 }}>
+              <div style={{ fontSize: 11, color: 'var(--fl-muted)', marginBottom: 4 }}>
                 {t('casedetail.new_status')} <span style={{ color: SM[statusModal]?.c, fontWeight: 700 }}>{SM[statusModal]?.l}</span>
                 {user && <span style={{ color: 'var(--fl-border)' }}> · {t('casedetail.by_user', { user: user.full_name || user.username })}</span>}
               </div>
@@ -2158,7 +2095,7 @@ export default function CaseDetailPage({ user }) {
           {triageRunning && (
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '32px 0', gap: 14 }}>
               <Spinner size={28} color="var(--fl-gold)" />
-              <div style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 13, color: 'var(--fl-dim)' }}>
+              <div style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11, color: 'var(--fl-dim)' }}>
                 {t('casedetail.triage_running')}
               </div>
               <div style={{ fontSize: 11, color: 'var(--fl-muted)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}>
@@ -2177,7 +2114,7 @@ export default function CaseDetailPage({ user }) {
                     [t('casedetail.malicious_iocs'), triageData.case_indicators.malicious_iocs, 'var(--fl-gold)'],
                   ].map(([label, val, color]) => val > 0 ? (
                     <span key={label} style={{ fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', padding: '3px 10px',
-                      borderRadius: 4, background: `color-mix(in srgb, ${color} 9%, transparent)`, color, border: `1px solid color-mix(in srgb, ${color} 19%, transparent)` }}>
+                      borderRadius: 3, background: `color-mix(in srgb, ${color} 9%, transparent)`, color, border: `1px solid color-mix(in srgb, ${color} 19%, transparent)` }}>
                       {val} {label}
                     </span>
                   ) : null)}
@@ -2186,14 +2123,14 @@ export default function CaseDetailPage({ user }) {
 
               {triageData.scores?.length === 0 && (
                 <div style={{ padding: '24px', textAlign: 'center', color: 'var(--fl-muted)',
-                  fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11, borderRadius: 8,
+                  fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11, borderRadius: 3,
                   background: 'var(--fl-bg)', border: '1px solid var(--fl-border)' }}>
                   {t('casedetail.no_collection_timeline')}<br />
                   {t('casedetail.import_parse_before_triage')}
                 </div>
               )}
               {triageData.scores?.length > 0 && (
-                <div style={{ borderRadius: 8, border: '1px solid var(--fl-border)', background: 'var(--fl-bg)', overflow: 'hidden' }}>
+                <div style={{ borderRadius: 3, border: '1px solid var(--fl-border)', background: 'var(--fl-bg)', overflow: 'hidden' }}>
                   {triageData.scores.map(m => {
                     const riskKey = (m.risk_level || '').normalize('NFD').replace(/\p{Diacritic}/gu, '').toUpperCase();
                     const riskColors = { CRITIQUE: 'var(--fl-danger)', ELEVE: 'var(--fl-warn)', MOYEN: 'var(--fl-gold)', FAIBLE: 'var(--fl-ok)' };
@@ -2202,16 +2139,16 @@ export default function CaseDetailPage({ user }) {
                     return (
                       <div key={m.hostname} style={{ padding: '10px 14px', borderBottom: '1px solid #1c2a3a' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
-                          <span style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 12, color: 'var(--fl-text)', flex: 1 }}>{m.hostname}</span>
+                          <span style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11, color: 'var(--fl-text)', flex: 1 }}>{m.hostname}</span>
                           <span style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10, color: 'var(--fl-muted)' }}>{m.event_count?.toLocaleString()} {t('casedetail.event_abbr')}</span>
-                          <span style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 14, fontWeight: 700, color, width: 30, textAlign: 'right' }}>{m.score}</span>
+                          <span style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 15, fontWeight: 700, color, width: 30, textAlign: 'right' }}>{m.score}</span>
                           <span style={{ fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', padding: '1px 6px', borderRadius: 3,
                             background: `color-mix(in srgb, ${color} 9%, transparent)`, color, border: `1px solid color-mix(in srgb, ${color} 21%, transparent)`, minWidth: 55, textAlign: 'center' }}>
                             {m.risk_level}
                           </span>
                         </div>
-                        <div style={{ height: 4, borderRadius: 2, background: '#1c2a3a', overflow: 'hidden', marginBottom: 6 }}>
-                          <div style={{ height: '100%', width: `${Math.min(m.score, 100)}%`, background: color, borderRadius: 2 }} />
+                        <div style={{ height: 4, borderRadius: 3, background: '#1c2a3a', overflow: 'hidden', marginBottom: 6 }}>
+                          <div style={{ height: '100%', width: `${Math.min(m.score, 100)}%`, background: color, borderRadius: 3 }} />
                         </div>
                         {Object.keys(breakdown).length > 0 && (
                           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
@@ -2258,9 +2195,9 @@ export default function CaseDetailPage({ user }) {
         accentColor="var(--fl-danger)"
       >
         <Modal.Body>
-          <div style={{ marginBottom: 14, padding: '10px 14px', borderRadius: 8,
+          <div style={{ marginBottom: 14, padding: '10px 14px', borderRadius: 3,
             background: 'rgba(218,54,51,0.06)', border: '1px solid rgba(218,54,51,0.18)',
-            fontSize: 12, color: 'var(--fl-muted)', lineHeight: 1.7 }}>
+            fontSize: 11, color: 'var(--fl-muted)', lineHeight: 1.7 }}>
             {t('casedetail.legal_enable_body_prefix')} <strong style={{ color: 'var(--fl-text)' }}>{c?.case_number}</strong> {t('casedetail.legal_enable_body_suffix')}
           </div>
           <label className="fl-label">{t('casedetail.reason_optional')}</label>
@@ -2292,9 +2229,9 @@ export default function CaseDetailPage({ user }) {
         accentColor="var(--fl-warn)"
       >
         <Modal.Body>
-          <div style={{ marginBottom: 14, padding: '10px 14px', borderRadius: 8,
+          <div style={{ marginBottom: 14, padding: '10px 14px', borderRadius: 3,
             background: 'rgba(217,124,32,0.06)', border: '1px solid rgba(217,124,32,0.18)',
-            fontSize: 12, color: 'var(--fl-muted)', lineHeight: 1.7 }}>
+            fontSize: 11, color: 'var(--fl-muted)', lineHeight: 1.7 }}>
             {t('casedetail.legal_disable_body_prefix')}{' '}
             <strong style={{ color: 'var(--fl-text)' }}>{c?.case_number}</strong> ?<br />
             <span style={{ fontSize: 11, color: 'var(--fl-dim)' }}>

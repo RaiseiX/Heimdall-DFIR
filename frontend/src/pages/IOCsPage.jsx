@@ -555,7 +555,6 @@ export default function IOCsPage() {
 
                     <td>
                       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 5 }}>
-                        {/* Enrich */}
                         <button onClick={() => handleEnrich(ioc)} disabled={isEnriching} title={t('iocs.enrich_title')}
                           style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 8px', borderRadius: 4, cursor: isEnriching ? 'wait' : 'pointer', fontFamily: 'var(--f-mono, monospace)', fontSize: 10.5, background: 'none', color: 'var(--fl-muted)', border: 'none', whiteSpace: 'nowrap' }}
                           onMouseEnter={e => e.currentTarget.style.color = 'var(--fl-text)'}
@@ -563,14 +562,12 @@ export default function IOCsPage() {
                           {isEnriching ? <Loader2 size={11} style={{ animation: 'spin 1s linear infinite' }} /> : <Shield size={11} />}
                           {ioc.enriched_at ? t('iocs.reenrich') : t('iocs.enrich')}
                         </button>
-                        {/* Cross-case */}
                         <button onClick={() => handleCrossCase(ioc)} title={t('iocs.search_all')}
                           style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: '3px 6px', borderRadius: 4, cursor: 'pointer', background: 'none', color: 'var(--fl-subtle)', border: 'none' }}
                           onMouseEnter={e => e.currentTarget.style.color = 'var(--fl-accent)'}
                           onMouseLeave={e => e.currentTarget.style.color = 'var(--fl-subtle)'}>
                           <GitBranch size={12} />
                         </button>
-                        {/* Confirm */}
                         {confirmedIds.has(ioc.id) ? (
                           <span style={{ fontSize: 10, padding: '2px 8px', background: 'color-mix(in srgb, var(--fl-ok) 13%, transparent)', color: 'var(--fl-ok)', borderRadius: 4, border: '1px solid color-mix(in srgb, var(--fl-ok) 25%, transparent)', fontWeight: 700 }}>
                             {t('iocs.confirmed_badge')}
@@ -598,7 +595,6 @@ export default function IOCsPage() {
                             {t('common.confirm')}
                           </button>
                         )}
-                        {/* Delete */}
                         <button onClick={() => handleDelete(ioc)} disabled={deletingId === ioc.id} title={t('iocs.delete_title')}
                           style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: '3px 6px', background: 'none', color: 'var(--fl-subtle)', border: 'none', borderRadius: 4, cursor: deletingId === ioc.id ? 'wait' : 'pointer', opacity: deletingId === ioc.id ? 0.5 : 1 }}
                           onMouseEnter={e => e.currentTarget.style.color = 'var(--fl-danger)'}

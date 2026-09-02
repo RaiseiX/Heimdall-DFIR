@@ -74,7 +74,6 @@ const BASE_LINK_OP = 0.5;
 
 export default function LateralMovementD3({ svgRef: externalSvgRef, nodes, edges, totalEvents, chains = [], theme }) {
   const bgColor    = theme?.bg    || 'var(--fl-bg)';
-  // `#ffffff` en dur rendait ces libellés invisibles en thème clair.
   const textColor  = 'var(--fl-text)';
   const dimColor   = theme?.dim   || 'var(--fl-dim)';
   const panelColor = 'var(--fl-panel)';
@@ -87,11 +86,9 @@ export default function LateralMovementD3({ svgRef: externalSvgRef, nodes, edges
   const [selectedNode, setSelectedNode] = useState(null);
   const [selectedNodeEdges, setSelectedNodeEdges] = useState([]);
 
-  // Chain panel state
   const [showChainsPanel, setShowChainsPanel] = useState(false);
   const [selectedChainIdx, setSelectedChainIdx] = useState(null);
 
-  // Refs for imperative D3 highlighting from chain selection effect
   const nodeSelRef = useRef(null);
   const linkSelRef = useRef(null);
   const haloSelRef = useRef(null);
@@ -112,7 +109,6 @@ export default function LateralMovementD3({ svgRef: externalSvgRef, nodes, edges
 
   const sortedNodes = [...nodes].sort((a, b) => effectiveScore(b) - effectiveScore(a));
 
-  // ── Chain highlight effect: runs when selected chain changes, mutates D3 DOM directly ──
   useEffect(() => {
     const node = nodeSelRef.current;
     const link = linkSelRef.current;
@@ -250,7 +246,6 @@ export default function LateralMovementD3({ svgRef: externalSvgRef, nodes, edges
         });
         setSelectedNode({ ...d });
         setSelectedNodeEdges(nodeEdges);
-        // Clear chain highlight when a node is selected
         setSelectedChainIdx(null);
         focusLock = d.id; applyFocus(d.id);
       })
@@ -281,7 +276,6 @@ export default function LateralMovementD3({ svgRef: externalSvgRef, nodes, edges
       `${d.id}\nTotal: ${d.total_events} events | Outbound: ${d.as_source} | Inbound: ${d.as_target}\nRisk: ${nodeRiskLabel(d).label}`
     );
 
-    // Save selections for chain highlight effect (imperative bridge)
     nodeSelRef.current = node;
     linkSelRef.current = link;
     haloSelRef.current = halo;
@@ -347,7 +341,6 @@ export default function LateralMovementD3({ svgRef: externalSvgRef, nodes, edges
     return () => { clearTimeout(fitTimer); simulation.stop(); };
   }, [nodes, edges, dims]);
 
-  // Sort chains: longest first, then by total hop count (more events = more significant)
   const sortedChains = [...chains].sort((a, b) => {
     if (b.path.length !== a.path.length) return b.path.length - a.path.length;
     return b.timestamps.length - a.timestamps.length;
@@ -358,7 +351,6 @@ export default function LateralMovementD3({ svgRef: externalSvgRef, nodes, edges
   return (
     <div ref={containerRef} style={{ display: 'flex', flex: 1, width: '100%', height: '100%', position: 'relative' }}>
 
-      {/* ── Left overlay: legend + stats + risky machines ── */}
       <div style={{
         position: 'absolute', top: 12, left: 12, zIndex: 20,
         display: 'flex', flexDirection: 'column', gap: 8,
@@ -438,7 +430,6 @@ export default function LateralMovementD3({ svgRef: externalSvgRef, nodes, edges
         )}
       </div>
 
-      {/* ── Chains toggle button (top-right, only when chains exist) ── */}
       {chains.length > 0 && (
         <button
           onClick={() => {
@@ -494,7 +485,6 @@ export default function LateralMovementD3({ svgRef: externalSvgRef, nodes, edges
         </div>
       )}
 
-      {/* ── Right panel: node detail takes priority over chains panel ── */}
       {showRightPanel && (
         <div
           style={{
@@ -506,7 +496,6 @@ export default function LateralMovementD3({ svgRef: externalSvgRef, nodes, edges
           onClick={e => e.stopPropagation()}
         >
           {selectedNode ? (
-            /* ── Node detail panel ── */
             <>
               <div style={{ padding: '10px 14px', borderBottom: `1px solid ${borderColor}`, flexShrink: 0 }}>
                 <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
@@ -614,7 +603,6 @@ export default function LateralMovementD3({ svgRef: externalSvgRef, nodes, edges
               </div>
             </>
           ) : (
-            /* ── Chains panel ── */
             <>
               <div style={{
                 padding: '10px 14px', borderBottom: `1px solid ${borderColor}`, flexShrink: 0,
@@ -660,7 +648,6 @@ export default function LateralMovementD3({ svgRef: externalSvgRef, nodes, edges
                         cursor: 'pointer', transition: 'all 0.12s',
                       }}
                     >
-                      {/* Hop path */}
                       <div style={{
                         display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 3,
                         marginBottom: 6, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
@@ -683,7 +670,6 @@ export default function LateralMovementD3({ svgRef: externalSvgRef, nodes, edges
                         ))}
                       </div>
 
-                      {/* Meta row */}
                       <div style={{
                         display: 'flex', alignItems: 'center', gap: 8,
                         fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 9,
@@ -710,7 +696,6 @@ export default function LateralMovementD3({ svgRef: externalSvgRef, nodes, edges
                         )}
                       </div>
 
-                      {/* Entry point label */}
                       {chain.entryPoint && (
                         <div style={{ marginTop: 4, fontSize: 9, color: 'var(--fl-muted)' }}>
                           Entry: <span style={{ color: 'var(--fl-danger)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}>{chain.entryPoint}</span>

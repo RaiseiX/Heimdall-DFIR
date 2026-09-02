@@ -14,7 +14,6 @@ export default function ContextPanel() {
     <div style={{ position: 'fixed', top: 0, right: 0, width: 520, height: '100%', zIndex: 600,
       background: 'var(--fl-bg)', borderLeft: '1px solid var(--fl-raised)', boxShadow: '-8px 0 28px rgba(0,0,0,0.6)',
       display: 'flex', flexDirection: 'column', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}>
-      {/* header + controls */}
       <div style={{ padding: 12, borderBottom: '1px solid var(--fl-raised)', display: 'flex', flexDirection: 'column', gap: 8 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <span style={{ fontSize: 12, color: 'var(--fl-on-dark)' }}>
@@ -37,7 +36,6 @@ export default function ContextPanel() {
           </label>
         </div>
       </div>
-      {/* neighbor list */}
       <div style={{ flex: 1, overflowY: 'auto' }}>
         {contextLoading && <div style={{ padding: 12, color: 'var(--fl-muted)', fontSize: 11 }}>Chargement…</div>}
         {!contextLoading && contextRows.length === 0 && <div style={{ padding: 12, color: 'var(--fl-muted)', fontSize: 11 }}>Aucun voisin.</div>}

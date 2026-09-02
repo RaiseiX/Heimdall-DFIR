@@ -33,7 +33,13 @@ function defaultDetect(file) {
     const buf = Buffer.alloc(HEADER_PEEK_BYTES);
     const n = fs.readSync(fd, buf, 0, HEADER_PEEK_BYTES, 0);
     const firstLine = buf.slice(0, n).toString('utf8').replace(/^﻿/, '').split(/\r?\n/)[0] || '';
-    headers = parse(firstLine + '\n', { columns: false, skip_empty_lines: true, relax_column_count: true })[0] || [];
+    // relax_quotes here too, so header detection cannot reject a file the importer
+    // below would have read. A header column carrying a quote is rare, but the two
+    // parsers disagreeing about the same file is the kind of split that ends with
+    // "no mapping found" standing in for "we refused to look".
+    headers = parse(firstLine + '\n', {
+      columns: false, skip_empty_lines: true, relax_column_count: true, relax_quotes: true,
+    })[0] || [];
   } catch (_e) {
     /* unreadable header — filename/folder detection strategies still apply */
   } finally {

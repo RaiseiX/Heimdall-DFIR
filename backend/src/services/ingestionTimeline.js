@@ -3,6 +3,7 @@ const readline = require('readline');
 const { parse: csvParseSync } = require('csv-parse/sync');
 const { buildSlimRaw } = require('./timelineFieldExtract');
 const { stripNullBytes, extractTimestamp, extractDescription, computeDedupeHash, TIMELINE_FIELD_CONFIG } = require('./timelineNormalizeCore');
+const { resolveArtifactType } = require('./artifactSubtype');
 
 const BATCH_SIZE = 500;
 
@@ -12,7 +13,8 @@ function firstNonEmpty(record, cols) {
 }
 
 async function importCsvToTimeline(csvPath, { pool, caseId, resultId, evidenceId, artifactType }) {
-  const cfg = TIMELINE_FIELD_CONFIG[artifactType];
+  const rowType = resolveArtifactType(artifactType, csvPath);
+  const cfg = TIMELINE_FIELD_CONFIG[rowType] || TIMELINE_FIELD_CONFIG[artifactType];
   if (!cfg) return 0;                          // unmapped type: no-op
   try { fs.statSync(csvPath); } catch { return 0; }
 
@@ -31,7 +33,7 @@ async function importCsvToTimeline(csvPath, { pool, caseId, resultId, evidenceId
          FROM UNNEST($6::timestamptz[], $7::text[], $8::text[], $9::text[], $10::jsonb[], $11::text[])
               AS u(ts, descr, src, hn, rw, dh)
        ON CONFLICT DO NOTHING`,
-      [caseId, resultId, evidenceId, artifactType, artifactType,
+      [caseId, resultId, evidenceId, rowType, artifactType,
        rows.map(r => r.ts), rows.map(r => r.descr), rows.map(r => r.src),
        rows.map(r => r.hn), rows.map(r => JSON.stringify(r.raw)), rows.map(r => r.dh)]
     );

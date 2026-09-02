@@ -30,10 +30,8 @@ export default function AdminPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { tab = 'health' } = useParams();
-  const [users, setUsers] = useState([]);   // for the Logs tab user filter
+  const [users, setUsers] = useState([]);
 
-  // Operations-focused tabs (monitoring & maintenance). Account / Audit / RGPD / SLA
-  // moved to Settings — legacy /admin URLs are redirected at the router level (App.jsx).
   const ADMIN_TABS = useMemo(() => [
     { id: 'health',   label: t('admin.tabs_health'),   icon: Activity,      to: '/admin/health' },
     { id: 'jobs',     label: t('admin.tabs_jobs'),     icon: Cpu,           to: '/admin/jobs' },
@@ -58,7 +56,6 @@ export default function AdminPage() {
         </div>
       </div>
 
-      {/* Segmented control nav (Operations-specific) */}
       <div style={{ display: 'inline-flex', gap: 2, padding: 3, marginBottom: 22, borderRadius: 9,
         background: 'var(--fl-bg)', border: '1px solid var(--fl-border)', maxWidth: '100%', overflowX: 'auto' }}>
         {ADMIN_TABS.map(it => {
@@ -126,7 +123,6 @@ function HealthTab() {
 
   return (
     <div>
-      {/* Header */}
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, marginBottom: 14 }}>
         <h3 style={{ fontSize: 18, fontWeight: 600, margin: 0, color: 'var(--fl-text)', fontFamily: 'var(--f-display, var(--f-ui))', letterSpacing: '-0.01em' }}>{t('admin.health.title')}</h3>
         <span style={{ flex: 1 }} />
@@ -142,7 +138,6 @@ function HealthTab() {
         </button>
       </div>
 
-      {/* Editorial status line + segmented strip (status-page style) */}
       {total > 0 && (
         <div style={{ marginBottom: 22 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 8 }}>
@@ -165,7 +160,6 @@ function HealthTab() {
         </div>
       )}
 
-      {/* Service cards — uniform hairline, no colored side bar */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 12 }}>
         {services.map(([key, svc]) => {
           const ok = !!svc?.ok;
@@ -492,7 +486,6 @@ function DockerTab() {
 
   const MONO = 'var(--f-mono, "JetBrains Mono", monospace)';
   function fmtMem(b) { if (!b) return t('admin.units.mb', { value: 0 }); if (b >= 1073741824) return t('admin.units.gb', { value: (b/1073741824).toFixed(1) }); return t('admin.units.mb', { value: (b/1048576).toFixed(0) }); }
-  // Usage colour = signal only: calm steel under load, warn/danger when elevated.
   const usageColor = (pct, warnAt) => pct > 80 ? 'var(--fl-danger)' : pct > warnAt ? 'var(--fl-warn)' : 'var(--fl-purple)';
   const STATE = { running: ['var(--fl-ok)', t('admin.docker.state_running')], exited: ['var(--fl-danger)', t('admin.docker.state_exited')], paused: ['var(--fl-warn)', t('admin.docker.state_paused')], restarting: ['var(--fl-warn)', t('admin.docker.state_restarting')] };
   const TOOLTIP_STYLE = { background: 'var(--fl-card)', border: '1px solid var(--fl-border)', borderRadius: 6, fontSize: 12, color: 'var(--fl-text)' };
@@ -655,7 +648,6 @@ function AiSettingsTab() {
   useEffect(() => {
     load();
     loadOllamaStatus();
-    // Server-side active model is the source of truth (shared across analysts).
     fetch('/api/settings/ai', { headers: { Authorization: `Bearer ${token}` } })
       .then(r => r.json())
       .then(d => { if (d?.active_model) { setActiveModel(d.active_model); localStorage.setItem(ACTIVE_MODEL_KEY, d.active_model); } })
@@ -890,14 +882,13 @@ function AiSettingsTab() {
                 const chosen = activeModel || [...installed][0] || '';
                 localStorage.setItem(ACTIVE_MODEL_KEY, chosen);
                 setActiveModel(chosen);
-                // Persist server-side so the whole AI stack (chat de case, rapport, agentique) uses it.
                 try {
                   await fetch('/api/settings/ai', {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
                     body: JSON.stringify({ active_model: chosen }),
                   });
-                } catch (_e) { /* localStorage still set */ }
+                } catch (_e) { }
                 setActiveSaved(true);
                 setTimeout(() => setActiveSaved(false), 2500);
               }}
@@ -1019,22 +1010,21 @@ const OPEN_SOURCE_CREDITS = [
   },
 ];
 
-const ACCESS_FETCH_SIZE = 10000; // rows per cursor-page
+const ACCESS_FETCH_SIZE = 10000;
 const ACCESS_ROW_H      = 34;
 const LOG_ROW_H         = 28;
 const VIRT_OVERSCAN     = 15;
-const TABLE_HEIGHT      = 620; // px — virtualizer container height
+const TABLE_HEIGHT      = 620;
 
 function LogsTab({ users }) {
   const { t, i18n } = useTranslation();
   const [subTab, setSubTab] = useState('access');
 
-  // ── Access log state ──
   const [accessRows,     setAccessRows]     = useState([]);
   const [accessTotal,    setAccessTotal]    = useState(0);
   const [accessLoading,  setAccessLoading]  = useState(false);
   const [loadingAll,     setLoadingAll]     = useState(false);
-  const [loadProgress,   setLoadProgress]   = useState(0);   // loaded so far during "Tout charger"
+  const [loadProgress,   setLoadProgress]   = useState(0);
   const [nextCursor,     setNextCursor]     = useState(null);
   const [accessMethod,   setAccessMethod]   = useState('');
   const [accessUser,     setAccessUser]     = useState('');
@@ -1043,7 +1033,6 @@ function LogsTab({ users }) {
   const [accessPath,     setAccessPath]     = useState('');
   const abortRef = useRef(false);
 
-  // ── Server log state ──
   const [logLines,  setLogLines]  = useState([]);
   const [logTotal,  setLogTotal]  = useState(0);
   const [logLoading, setLogLoading] = useState(false);
@@ -1051,11 +1040,9 @@ function LogsTab({ users }) {
   const [logLevel,  setLogLevel]  = useState('');
   const [logNote,   setLogNote]   = useState('');
 
-  // ── Scroll containers for virtualizers ──
   const accessScrollRef = useRef(null);
   const logScrollRef    = useRef(null);
 
-  // ── Virtualizers ──
   const accessVirt = useVirtualizer({
     count:            accessRows.length,
     getScrollElement: () => accessScrollRef.current,
@@ -1079,7 +1066,6 @@ function LogsTab({ users }) {
     return p;
   }, [accessMethod, accessUser, accessFrom, accessTo, accessPath]);
 
-  // Initial load: first page only
   const loadAccess = useCallback(async () => {
     setAccessLoading(true);
     setAccessRows([]);
@@ -1096,7 +1082,6 @@ function LogsTab({ users }) {
     setAccessLoading(false);
   }, [buildAccessParams]);
 
-  // Load ALL rows in cursor-batches of ACCESS_FETCH_SIZE
   const loadAll = useCallback(async () => {
     setLoadingAll(true);
     abortRef.current = false;
@@ -1116,13 +1101,11 @@ function LogsTab({ users }) {
         setLoadProgress(accumulated.length);
       } while (cursor && !abortRef.current);
     } catch {
-      // keep what we have
     }
     setLoadingAll(false);
     setLoadProgress(0);
   }, [accessRows, buildAccessParams]);
 
-  // Load more (one page, append)
   const loadMore = useCallback(async () => {
     if (!nextCursor || accessLoading) return;
     setAccessLoading(true);
@@ -1168,12 +1151,10 @@ function LogsTab({ users }) {
     http: 'var(--fl-dim)', raw: 'var(--fl-dim)',
   };
 
-  // ── Column widths (px) ──
-  const A_COLS = [148, 100, 68, null, 56, 72, 100]; // last null = flex
+  const A_COLS = [148, 100, 68, null, 56, 72, 100];
 
   return (
     <div>
-      {/* Sub-tab switcher */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
         {[
           { id: 'access', label: t('admin.logs.access_tab') },
@@ -1194,10 +1175,8 @@ function LogsTab({ users }) {
         ))}
       </div>
 
-      {/* ══ ACCESS LOG ══ */}
       {subTab === 'access' && (
         <div>
-          {/* Filters */}
           <div className="rounded-xl p-4 mb-4 border" style={{ background: 'var(--fl-panel)', borderColor: 'var(--fl-border)' }}>
             <div className="grid gap-3 mb-3" style={{ gridTemplateColumns: '1fr 1fr 1fr 1fr 1fr' }}>
               <div>
@@ -1267,7 +1246,6 @@ function LogsTab({ users }) {
             <EmptyState icon={FileText} title={t('admin.logs.no_requests')} subtitle={t('admin.logs.no_requests_sub')} />
           ) : (
             <div style={{ borderRadius: 8, border: '1px solid var(--fl-border)', overflow: 'hidden', background: 'var(--fl-panel)' }}>
-              {/* Sticky header */}
               <table style={{ tableLayout: 'fixed', width: '100%', borderCollapse: 'collapse' }}>
                 <colgroup>
                   <col style={{ width: A_COLS[0] }} />
@@ -1287,7 +1265,6 @@ function LogsTab({ users }) {
                 </thead>
               </table>
 
-              {/* Virtualized body */}
               <div
                 ref={accessScrollRef}
                 style={{ height: TABLE_HEIGHT, overflow: 'auto' }}
@@ -1350,7 +1327,6 @@ function LogsTab({ users }) {
                 </div>
               </div>
 
-              {/* Footer: load-more sentinel */}
               {nextCursor && (
                 <div style={{ padding: '8px 14px', borderTop: '1px solid var(--fl-border)', display: 'flex', alignItems: 'center', gap: 10 }}>
                   <span style={{ fontSize: 11, color: 'var(--fl-muted)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}>
@@ -1365,7 +1341,6 @@ function LogsTab({ users }) {
         </div>
       )}
 
-      {/* ══ SERVER / APP LOGS ══ */}
       {subTab === 'server' && (
         <div>
           <div className="rounded-xl p-4 mb-4 border" style={{ background: 'var(--fl-panel)', borderColor: 'var(--fl-border)' }}>

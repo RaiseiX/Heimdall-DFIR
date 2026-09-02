@@ -49,7 +49,7 @@ export default function AlertInbox() {
 
   useEffect(() => { load(); }, [load]);
   useEffect(() => { loadStats(); }, [loadStats]);
-  useEffect(() => { const id = setTimeout(load, 350); return () => clearTimeout(id); }, [q]); // debounce search
+  useEffect(() => { const id = setTimeout(load, 350); return () => clearTimeout(id); }, [q]);
 
   const after = () => { load(); loadStats(); };
 
@@ -69,7 +69,6 @@ export default function AlertInbox() {
 
   return (
     <div>
-      {/* Status tabs */}
       <div style={{ display: 'flex', gap: 6, marginBottom: 14, flexWrap: 'wrap' }}>
         {STATUSES.map(s => {
           const active = status === s;

@@ -9,9 +9,8 @@ export default function KanbanBoard({ caseId }) {
   const [steps, setSteps]       = useState([]);
   const [findings, setFindings] = useState([]);
   const [loading, setLoading]   = useState(false);
-  const [dragOver, setDragOver] = useState(null); // status column currently hovered during a drag
+  const [dragOver, setDragOver] = useState(null);
 
-  // Same load-with-seed-fallback pattern as WorkflowTracker (load-on-mount, no live updates in v1).
   const load = useCallback(async () => {
     if (!caseId) return;
     setLoading(true);
@@ -35,15 +34,12 @@ export default function KanbanBoard({ caseId }) {
     e.preventDefault();
     setDragOver(null);
     const draggedId = e.dataTransfer.getData('text/plain');
-    if (!draggedId) return; // non-card / empty drop
+    if (!draggedId) return;
     const { steps: next, changed } = applyDrop(steps, draggedId, targetStatus);
-    if (!changed) return;   // unknown id or same-column drop -> no API call
+    if (!changed) return;
     const dragged = steps.find(s => String(s.id) === String(changed.id));
-    setSteps(next);         // optimistic
+    setSteps(next);
     try {
-      // The backend PUT /steps/:id does NOT COALESCE finding_ref/assignee_id, so any
-      // omitted field is overwritten with NULL. Forward the dragged step's current
-      // values to keep its finding link (and assignee) intact across a status move.
       await investigationAPI.updateStep(caseId, changed.id, {
         status: changed.status,
         position: changed.position,
@@ -51,7 +47,7 @@ export default function KanbanBoard({ caseId }) {
         assignee_id: dragged?.assignee_id ?? null,
       });
     } catch {
-      load();               // revert to server truth so the board never lies
+      load();
     }
   }
 

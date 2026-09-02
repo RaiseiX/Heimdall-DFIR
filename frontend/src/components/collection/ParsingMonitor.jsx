@@ -14,7 +14,6 @@ const STATUS = {
   error:   { icon: XCircle,      color: 'var(--fl-danger)', k: 'collection.pm_error' },
 };
 
-// artifact key → ATT&CK tactic (mirrors backend ARTIFACT_MITRE) for the live coverage strip.
 const PARSER_TACTIC = {
   registry: 'persistence', lnk: 'persistence', jumplist: 'persistence', bits: 'persistence', schtasks: 'persistence', wmi: 'persistence',
   amcache: 'execution', appcompat: 'execution', prefetch: 'execution', srum: 'execution', pwsh: 'execution', userassist: 'execution',
@@ -89,15 +88,11 @@ function fmtEta(sec) {
 export default function ParsingMonitor({ fileName, parsers, states, globalPct, live, caseId }) {
   const { t } = useTranslation();
 
-  // Live event-density sparkline — polls the timeline histogram while parsing.
   const [hist, setHist] = useState([]);
   useEffect(() => {
     if (!caseId || !live) return;
     let alive = true;
     let inFlight = false;
-    // Guard against overlapping polls: this aggregates the whole case timeline
-    // (can be millions of rows), so never issue a new request until the prior
-    // one resolves — otherwise slow scans stack up and exhaust the DB pool.
     const poll = () => {
       if (inFlight) return;
       inFlight = true;
@@ -115,7 +110,6 @@ export default function ParsingMonitor({ fileName, parsers, states, globalPct, l
   const totalRecords = useMemo(
     () => Object.values(states || {}).reduce((s, v) => s + (Number(v?.records) || 0), 0), [states]);
 
-  // Live throughput + ETA from successive polls (15 s window).
   const samplesRef = useRef([]);
   const [rate, setRate] = useState(0);
   const [eta, setEta] = useState(0);
@@ -135,7 +129,6 @@ export default function ParsingMonitor({ fileName, parsers, states, globalPct, l
     }
   }, [totalRecords, globalPct]);
 
-  // Track which tiles just transitioned to "done" → brief pulse.
   const prevStatus = useRef({});
   const justDone = {};
   for (const p of parsers || []) {
@@ -144,7 +137,6 @@ export default function ParsingMonitor({ fileName, parsers, states, globalPct, l
     if (cur) prevStatus.current[p.key] = cur;
   }
 
-  // Tactics covered = a tactic whose parser reached done.
   const covered = useMemo(() => {
     const set = new Set();
     for (const p of parsers || []) {
@@ -157,7 +149,6 @@ export default function ParsingMonitor({ fileName, parsers, states, globalPct, l
 
   return (
     <div style={{ border: '1px solid var(--fl-border)', borderRadius: 8, background: 'var(--fl-panel)', padding: 14, marginBottom: 12 }}>
-      {/* Cockpit header: radial + title + throughput/ETA */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 14 }}>
         <Radial pct={globalPct || 0} />
         <div style={{ flex: 1, minWidth: 0 }}>
@@ -178,7 +169,6 @@ export default function ParsingMonitor({ fileName, parsers, states, globalPct, l
         </div>
       </div>
 
-      {/* Live ATT&CK coverage strip */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 14 }}>
         {TACTICS.map(([key, label]) => {
           const on = covered.has(key);
@@ -193,12 +183,10 @@ export default function ParsingMonitor({ fileName, parsers, states, globalPct, l
         })}
       </div>
 
-      {/* Live event-density sparkline (builds as the timeline fills) */}
       {hist.some(v => v > 0) && (
         <div style={{ marginBottom: 14 }}>
           <div style={{ display: 'flex', alignItems: 'flex-end', gap: 2, height: 40 }}>
             {hist.map((v, i) => {
-              // Log scale: one huge bucket would otherwise flatten all the others to a dash.
               const h = v > 0 ? Math.max(8, (Math.log(v + 1) / Math.log(histMax + 1)) * 100) : 0;
               return (
                 <div key={i} title={`${v.toLocaleString('fr-FR')} events`} style={{ flex: 1, alignSelf: 'flex-end',

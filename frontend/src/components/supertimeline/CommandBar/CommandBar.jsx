@@ -1,7 +1,8 @@
-// frontend/src/components/supertimeline/CommandBar/CommandBar.jsx
 import { useRef, useState, useEffect, useCallback } from 'react';
-import { Search, X, ChevronDown, Save, Share2, Trash2, Pencil } from 'lucide-react';
+import { Search, X, ChevronDown, Save, Share2, Trash2, Pencil, Crosshair } from 'lucide-react';
 import { useTimelineStore } from '../store/useTimelineStore';
+import { useTranslation } from 'react-i18next';
+import { rankTypes } from '../utils/timelineUtils';
 import { tabColor } from '../utils/timelineUtils';
 import { currentUser } from '../../../utils/auth';
 
@@ -61,6 +62,8 @@ export default function CommandBar() {
   const inputRef = useRef(null);
   const [inputVal, setInputVal] = useState('');
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [showAllTypes, setShowAllTypes] = useState(false);
+  const { t: tr, i18n } = useTranslation();
   const advancedRef = useRef(null);
   const [showSearches, setShowSearches] = useState(false);
   const searchesRef = useRef(null);
@@ -123,7 +126,6 @@ export default function CommandBar() {
 
   const chips = [
     ...(search ? [{ kind: 'search', label: search, remove: () => { setFilter('search', ''); applyFilters(); } }] : []),
-    // artifactTypes are shown via the pills row below — no chips here to avoid overflow
     ...(hostFilter  ? [{ kind: 'host',    label: `host:${hostFilter}`,  remove: () => { setFilter('hostFilter', '');  applyFilters(); } }] : []),
     ...(userFilter  ? [{ kind: 'user',    label: `user:${userFilter}`,  remove: () => { setFilter('userFilter', '');  applyFilters(); } }] : []),
     ...(startTime   ? [{ kind: 'after',   label: `after:${startTime.slice(0, 10)}`,  remove: () => { setFilter('startTime', '');  applyFilters(); } }] : []),
@@ -147,14 +149,12 @@ export default function CommandBar() {
       await saveCurrentSearch(name, saveShared ? 'case' : 'personal');
       setSaveName(''); setSaveShared(false);
     } catch (e) {
-      // 409 duplicate name is the common case — surface minimally, keep the field open.
       alert(e?.response?.data?.error || 'Échec de la sauvegarde');
     }
   };
 
   return (
     <div style={{ background: 'var(--fl-bg)', borderBottom: '1px solid var(--fl-raised)', padding: '7px 14px', flexShrink: 0 }}>
-      {/* Input row */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'var(--fl-panel)',
         border: '1px solid var(--fl-subtle)', borderRadius: 6, padding: '0 10px', height: 34 }}>
         <Search size={13} style={{ color: 'var(--fl-muted)', flexShrink: 0 }} />
@@ -191,10 +191,10 @@ export default function CommandBar() {
               fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11, color: 'var(--fl-on-dark)',
               display: 'flex', flexDirection: 'column', gap: 10 }}>
 
-              {/* Save current search */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                <span style={{ fontSize: 9, color: 'var(--fl-dim)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-                  💾 Sauvegarder la recherche actuelle
+                <span style={{ fontSize: 9, color: 'var(--fl-dim)', textTransform: 'uppercase', letterSpacing: '0.06em',
+                  display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <Save size={11} strokeWidth={1.6} />{tr('timeline.save_current_search')}
                 </span>
                 <div style={{ display: 'flex', gap: 6 }}>
                   <input value={saveName} placeholder="Nom de la recherche…"
@@ -212,10 +212,9 @@ export default function CommandBar() {
                 </label>
               </div>
 
-              {/* Mes recherches */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: 4, borderTop: '1px solid var(--fl-card)', paddingTop: 8 }}>
                 <span style={{ fontSize: 9, color: 'var(--fl-dim)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Mes recherches</span>
-                {mine.length === 0 && <span style={{ fontSize: 10, color: 'var(--fl-muted)' }}>Aucune</span>}
+                {mine.length === 0 && <span style={{ fontSize: 10, color: 'var(--fl-muted)' }}>{tr('timeline.no_saved_search')}</span>}
                 {mine.map(s => (
                   <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                     <button onClick={() => { applySavedSearch(s.query); setShowSearches(false); }}
@@ -246,7 +245,6 @@ export default function CommandBar() {
                 ))}
               </div>
 
-              {/* Partagées au cas (des autres) */}
               {shared.length > 0 && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 4, borderTop: '1px solid var(--fl-card)', paddingTop: 8 }}>
                   <span style={{ fontSize: 9, color: 'var(--fl-dim)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Partagées au cas</span>
@@ -296,9 +294,11 @@ export default function CommandBar() {
                     style={{ background: 'var(--fl-panel)', color: 'var(--fl-on-dark)', border: '1px solid var(--fl-raised)', borderRadius: 5, padding: '5px 8px', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11, outline: 'none' }} />
                 </label>
               ))}
-              <label style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', borderRadius: 5, border: '1px solid #1a3020', background: '#0a1810', cursor: 'pointer' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', borderRadius: 5, border: '1px solid var(--fl-raised)', background: 'var(--fl-panel)', cursor: 'pointer' }}>
                 <input type="checkbox" checked={hitsOnly} onChange={e => setFilter('hitsOnly', e.target.checked)} style={{ accentColor: 'var(--fl-warn)' }} />
-                <span style={{ color: 'var(--fl-warn)' }}>🎯 Detections only (hits)</span>
+                <span style={{ color: hitsOnly ? 'var(--fl-warn)' : 'var(--fl-dim)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <Crosshair size={12} strokeWidth={1.6} />Detections only (hits)
+                </span>
               </label>
               <label style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', borderRadius: 5, border: '1px solid var(--fl-raised)', background: 'var(--fl-panel)', cursor: 'pointer' }}>
                 <input type="checkbox" checked={dedupe} onChange={e => setFilter('dedupe', e.target.checked)} />
@@ -324,47 +324,64 @@ export default function CommandBar() {
         </div>
       </div>
 
-      {/* Artifact type pills */}
       {availTypes.length > 0 && (
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3, marginTop: 5, alignItems: 'center' }}>
-          <button onClick={() => { useTimelineStore.getState().setFilter('artifactTypes', []); useTimelineStore.getState().applyFilters(); }}
-            style={{ padding: '2px 8px', borderRadius: 10, fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', cursor: 'pointer',
-              background: artifactTypes.length === 0 ? 'color-mix(in srgb, var(--fl-accent) 9%, transparent)' : 'transparent',
-              color: artifactTypes.length === 0 ? 'var(--fl-accent)' : 'var(--fl-dim)',
-              border: `1px solid ${artifactTypes.length === 0 ? 'color-mix(in srgb, var(--fl-accent) 21%, transparent)' : 'var(--fl-border)'}` }}>All</button>
-          {artifactTypes[0] !== '__NONE__' && (
-            <button
-              onClick={() => useTimelineStore.getState().clearArtifactTypes()}
-              title="Deselect all artifacts"
-              style={{ padding: '2px 6px', borderRadius: 10, fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', cursor: 'pointer',
-                background: 'transparent', color: 'var(--fl-muted)',
-                border: '1px solid var(--fl-border)', display: 'flex', alignItems: 'center', gap: 3 }}
-              onMouseEnter={e => { e.currentTarget.style.color = 'var(--fl-danger)'; e.currentTarget.style.borderColor = 'color-mix(in srgb, var(--fl-danger) 25%, transparent)'; }}
-              onMouseLeave={e => { e.currentTarget.style.color = 'var(--fl-muted)'; e.currentTarget.style.borderColor = 'var(--fl-border)'; }}>
-              <X size={8} /> clear
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, marginTop: 6, alignItems: 'baseline' }}>
+          <span style={{ display: 'flex', alignItems: 'baseline', gap: 9, paddingRight: 12,
+            borderRight: '1px solid var(--fl-border2)' }}>
+            <button onClick={() => { useTimelineStore.getState().setFilter('artifactTypes', []); useTimelineStore.getState().applyFilters(); }}
+              style={{ padding: 0, background: 'transparent', border: 'none', cursor: 'pointer',
+                fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
+                color: artifactTypes.length === 0 ? 'var(--fl-accent)' : 'var(--fl-muted)' }}>
+              {tr('timeline.type_all')}
             </button>
-          )}
-          {availTypes.map(t => {
+            {artifactTypes[0] !== '__NONE__' && (
+              <button
+                onClick={() => useTimelineStore.getState().clearArtifactTypes()}
+                title={tr('timeline.type_clear_hint')}
+                style={{ padding: 0, background: 'transparent', border: 'none', cursor: 'pointer',
+                  fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-muted)' }}
+                onMouseEnter={e => { e.currentTarget.style.color = 'var(--fl-danger)'; }}
+                onMouseLeave={e => { e.currentTarget.style.color = 'var(--fl-muted)'; }}>
+                {tr('timeline.type_clear')}
+              </button>
+            )}
+          </span>
+          {(() => {
+            const { shown, hidden } = rankTypes(availTypes, typeCounts, 12, artifactTypes);
+            const visible = showAllTypes ? [...shown, ...hidden] : shown;
+            return (<>
+          {visible.map(t => {
             const col    = tabColor(t);
             const active = artifactTypes.length === 0 || artifactTypes.includes(t);
             const solo   = artifactTypes.length === 1 && artifactTypes[0] === t;
             const count  = typeCounts[t];
             return (
-              <button key={t} onClick={e => e.ctrlKey || e.metaKey ? soloArtifactType(t) : toggleArtifactType(t)} title="Click to toggle · Ctrl+click to isolate (shows schema columns)" style={{
-                padding: '3px 9px', borderRadius: 6, fontSize: 9.5, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', cursor: 'pointer',
-                display: 'flex', alignItems: 'center', gap: 5,
-                background: solo ? `color-mix(in srgb, ${col} 10%, transparent)` : active ? 'var(--fl-card)' : 'transparent',
-                color:      active ? 'var(--fl-dim)' : 'var(--fl-subtle)',
-                border:     `1px solid ${solo ? `color-mix(in srgb, ${col} 35%, transparent)` : active ? 'var(--fl-border)' : 'transparent'}`,
+              <button key={t} onClick={e => e.ctrlKey || e.metaKey ? soloArtifactType(t) : toggleArtifactType(t)} title={tr('timeline.type_toggle_hint')} style={{
+                padding: '2px 0', fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', cursor: 'pointer',
+                display: 'flex', alignItems: 'baseline', gap: 5,
+                background: 'transparent', border: 'none',
+                borderBottom: `1px solid ${solo ? col : 'transparent'}`,
+                color: active ? col : 'var(--fl-subtle)',
+                opacity: active ? 1 : 0.55,
                 textDecoration: active ? 'none' : 'line-through',
-                transition: 'all 0.1s',
               }}>
-                <span style={{ width: 7, height: 7, borderRadius: 2, flexShrink: 0,
-                  background: active ? col : `color-mix(in srgb, ${col} 30%, transparent)`, display: 'inline-block' }} />
-                {t} {count != null && <span style={{ fontSize: 8, color: 'var(--fl-muted)' }}>({count.toLocaleString('fr-FR')})</span>}
+                {t}
+                {count != null && <span style={{ fontSize: 9, color: 'var(--fl-muted)' }}>{count.toLocaleString(i18n.language)}</span>}
               </button>
             );
           })}
+          {hidden.length > 0 && (
+            <button onClick={() => setShowAllTypes(v => !v)}
+              title={showAllTypes ? undefined : hidden.slice(0, 12).join(', ')}
+              style={{ padding: '2px 0', fontSize: 10, cursor: 'pointer',
+                fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', background: 'transparent',
+                color: 'var(--fl-muted)', border: 'none', textDecoration: 'underline',
+                textUnderlineOffset: 3 }}>
+              {showAllTypes ? tr('timeline.types.collapse') : tr('timeline.types.more', { count: hidden.length })}
+            </button>
+          )}
+            </>);
+          })()}
         </div>
       )}
     </div>

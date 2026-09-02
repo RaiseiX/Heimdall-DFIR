@@ -521,7 +521,6 @@ function ToolCard({ tool, search, compact }) {
 
       {open && (
         <div style={{ background: 'var(--fl-bg)', padding: '14px 16px', borderTop: '1px solid var(--fl-border)' }}>
-          {/* Install */}
           <div style={{ marginBottom: 14 }}>
             <div style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--fl-accent)', marginBottom: 7 }}>Installation / Référence</div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 9px', borderRadius: 4, background: T.panel, border: '1px solid var(--fl-border)' }}>
@@ -530,7 +529,6 @@ function ToolCard({ tool, search, compact }) {
             </div>
           </div>
 
-          {/* Section tabs */}
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 12 }}>
             {tool.sections.map((s, i) => (
               <button key={i} onClick={() => setActiveSection(i)}
@@ -546,7 +544,6 @@ function ToolCard({ tool, search, compact }) {
             ))}
           </div>
 
-          {/* Active section commands */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
             {tool.sections[activeSection].cmds.map((cmd, i) => (
               <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '5px 9px', borderRadius: 4,

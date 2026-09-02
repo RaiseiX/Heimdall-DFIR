@@ -70,29 +70,6 @@ function SectionHeader({ label }) {
   );
 }
 
-/**
- * `CommandPalette` doubles as two things: the global Cmd/Ctrl+K navigation
- * palette mounted once in `Layout.jsx` (its original and default behaviour,
- * unchanged below when `items` is omitted), and — since the Sigma hunt tab
- * needed a searchable picker to replace a 3999-option `<select>` — a generic
- * searchable-list modal any caller can drive with its own data.
- *
- * Passing `items` switches the palette into that generic mode: the nav/case/
- * IOC sections and the `casesAPI` fetch are skipped entirely (no point
- * fetching cases to build a rule picker), `items` is filtered client-side
- * against `label`/`sub`, and selecting one calls `onSelect(item)` instead of
- * `navigate(item.path)` — the caller decides what a selection means. Every
- * other behaviour (search-as-you-type, arrow-key navigation, Enter/Escape,
- * autofocus) is shared, unmodified, between both modes.
- *
- * @param {object} props
- * @param {boolean} props.open
- * @param {() => void} props.onClose
- * @param {Array<{ label: string, sub?: string, icon?: React.ComponentType }>} [props.items] — generic mode when present.
- * @param {(item: object) => void} [props.onSelect] — generic mode's selection handler. Ignored (nav mode's own `navigate(item.path)` applies) when `items` is absent.
- * @param {string} [props.placeholder] — overrides the default search placeholder.
- * @param {string} [props.title] — overrides the dialog's accessible name (aria-label) and, in generic mode, its single section header.
- */
 export default function CommandPalette({ open, onClose, items, onSelect, placeholder, title }) {
   const { t } = useTranslation();
   const navigate = useNavigate();

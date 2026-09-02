@@ -11,7 +11,7 @@ export default function WorkflowTracker({ caseId }) {
   const [steps, setSteps]   = useState([]);
   const [findings, setFindings] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [addingTo, setAddingTo] = useState(null);   // phase id we're adding a task to
+  const [addingTo, setAddingTo] = useState(null);
   const [draft, setDraft]   = useState('');
   const [err, setErr]       = useState('');
 
@@ -54,7 +54,6 @@ export default function WorkflowTracker({ caseId }) {
       setDraft(''); setAddingTo(null); setErr('');
       await load();
     } catch (e) {
-      // Keep the input open + preserve the draft so nothing is lost; surface why.
       const status = e?.response?.status;
       setErr(status === 404
         ? 'API investigation introuvable (404) — backend à reconstruire ?'

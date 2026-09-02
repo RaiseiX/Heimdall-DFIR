@@ -12,8 +12,6 @@ function fromB64(b64) {
   return u8;
 }
 
-// Sync a Y.Doc over an existing socket.io connection using the case room relay.
-// origin 'remote' on applied updates prevents an echo loop.
 export function createReportCollabProvider(socket, caseId, doc) {
   const onLocalUpdate = (update, origin) => {
     if (origin === 'remote') return;
@@ -32,7 +30,6 @@ export function createReportCollabProvider(socket, caseId, doc) {
   socket.on('report:state', onState);
   socket.on('report:update', onRemoteUpdate);
   socket.emit('report:join', { caseId });
-  // re-join on reconnect so state re-syncs
   const onConnect = () => socket.emit('report:join', { caseId });
   socket.on('connect', onConnect);
 

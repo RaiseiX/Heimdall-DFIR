@@ -196,7 +196,6 @@ function ActivityFeed({ items, t }) {
     <div style={{ padding: '8px 0' }}>
       {shown.map((item, i) => {
         const def = ACTION_ICON[item.action] || ACTION_ICON.default;
-        // Strict aggregate: show actor + action + entity type only — never case titles or values.
         const entity = (item.entity_type || '').replace(/_/g, ' ');
         return (
           <div key={i} style={{ display: 'grid', gridTemplateColumns: '24px 1fr auto', gap: 12, padding: '10px 16px', position: 'relative' }}>
@@ -285,10 +284,7 @@ function MyTasks({ items, navigate, t }) {
   );
 }
 
-// ── Shared triage-widget primitives (Observatory: hairlines, square state dots) ─
 function SqDot({ color, halo }) {
-  // Square dot = state (charter §13), distinct from round info dots.
-  // halo = solid ring (no blur) reserved for critical — not a glow.
   return (
     <span style={{
       width: 8, height: 8, borderRadius: 2, background: color, flexShrink: 0,
@@ -321,7 +317,6 @@ function EmptyMini({ icon: Icon, label }) {
   );
 }
 
-// ── SLA / deadlines (aggregate buckets only — no case titles) ────────────────
 function SlaWidget({ deadlines, sla, t }) {
   const counts = { urgent: 0, warning: 0, upcoming: 0 };
   for (const d of deadlines || []) {
@@ -350,7 +345,6 @@ function SlaWidget({ deadlines, sla, t }) {
   );
 }
 
-// ── Scan & parse health (aggregate evidence states + parse coverage) ─────────
 function ScanHealthWidget({ data, t }) {
   const rows = [
     { key: 'clean',       label: t('dashboard.scan_clean'),       color: C.ok },
@@ -440,7 +434,6 @@ export default function DashboardPage() {
   const lastActivity = (s.recent_activity || [])[0];
   const lastActivityDesc = (() => {
     if (!lastActivity) return null;
-    // Strict aggregate: actor + action + time only — no case titles or values.
     const who = lastActivity.full_name || t('dashboard.system_actor');
     const action = (lastActivity.action || '').replace(/_/g, ' ');
     return `${who} — ${action} · ${fmtRelTime(lastActivity.created_at)}`;
@@ -457,7 +450,6 @@ export default function DashboardPage() {
   return (
     <div style={{ padding: '18px 22px', background: C.bg, minHeight: '100%', display: 'flex', flexDirection: 'column', gap: 20 }}>
 
-      {/* Hero */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 320px', gap: 20, alignItems: 'start' }}>
         <div style={{ minWidth: 0 }}>
           <h1 style={{ fontSize: 26, fontWeight: 600, margin: '0 0 6px', color: C.text, fontFamily: DISPLAY, letterSpacing: '-0.02em' }}>
@@ -484,7 +476,6 @@ export default function DashboardPage() {
         <ThreatLevelCard s={s} tl={tl} t={t} />
       </div>
 
-      {/* KPI strip */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14 }}>
         <KpiCard
           label={t('dashboard.kpi_active')}
@@ -511,10 +502,8 @@ export default function DashboardPage() {
         />
       </div>
 
-      {/* Bento body — two interlocking columns that stretch to equal height */}
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.5fr) minmax(0, 1fr)', gap: 20, alignItems: 'stretch', flex: 1, minHeight: 0 }}>
 
-        {/* Left column — SLA on top, recent activity filling the rest */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 20, minWidth: 0 }}>
           <DashCard title={t('dashboard.sla_title')}>
             <SlaWidget deadlines={deadlines} sla={slaConfig} t={t} />
@@ -537,7 +526,6 @@ export default function DashboardPage() {
           </DashCard>
         </div>
 
-        {/* Right column — scan health, quick actions, my tasks filling the rest */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 20, minWidth: 0 }}>
           <DashCard title={t('dashboard.scan_title')}>
             <ScanHealthWidget data={s.scan_health || {}} t={t} />

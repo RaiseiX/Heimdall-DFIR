@@ -9,7 +9,7 @@ export default function ApiKeysSection() {
   const [tokens, setTokens]   = useState([]);
   const [loading, setLoading] = useState(true);
   const [name, setName]       = useState('');
-  const [fresh, setFresh]     = useState(null);   // raw token shown once
+  const [fresh, setFresh]     = useState(null);
   const [msg, setMsg]         = useState('');
   const [confirmDel, setConfirmDel] = useState(null);
 

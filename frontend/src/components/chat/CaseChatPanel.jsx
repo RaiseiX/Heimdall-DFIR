@@ -246,9 +246,8 @@ function Bubble({ msg, currentUserId, onDelete, onReact, onPin, onReply,
                    hideHeader, groupEnd = true, reactionMap, onScrollTo, canPin, searchQuery, ownColor }) {
   const isOwn = msg.author_id === currentUserId;
   const username = msg.username || msg.full_name || '?';
-  // Connected-cluster radius: the corner facing an adjacent same-author message is flattened.
-  const grpTop = hideHeader ? 4 : 12;   // a message sits above (continuation) → flat top
-  const grpBot = groupEnd ? 12 : 4;     // a message follows in the group → flat bottom
+  const grpTop = hideHeader ? 4 : 12;
+  const grpBot = groupEnd ? 12 : 4;
   const bubbleRadius = isOwn ? `12px ${grpTop}px ${grpBot}px 12px` : `${grpTop}px 12px 12px ${grpBot}px`;
   const [showActions, setShowActions] = useState(false);
   const [showTimestamp, setShowTimestamp] = useState(false);
@@ -482,7 +481,6 @@ export default function CaseChatPanel({ caseId, socket, currentUser, presenceUse
   const { position: panelPos, getDragHandleProps } = useDraggable('fl_chat_pos');
   const [fullscreen, setFullscreen] = useState(false);
 
-  // Draggable launcher bubble — grab to move (position persisted), click to open.
   const [btnPos, setBtnPos] = useState(() => {
     try { const s = localStorage.getItem('fl_chat_btn_pos'); if (s) return JSON.parse(s); } catch (_e) {}
     return null;
@@ -890,7 +888,7 @@ export default function CaseChatPanel({ caseId, socket, currentUser, presenceUse
 
   const items = [];
   let lastDay = null;
-  const GROUP_MS = 4 * 60 * 1000;   // same-author messages within this window cluster together
+  const GROUP_MS = 4 * 60 * 1000;
   for (let i = 0; i < filtered.length; i++) {
     const msg = filtered[i];
     const day = fmtDate(msg.created_at, locale);
@@ -971,8 +969,6 @@ export default function CaseChatPanel({ caseId, socket, currentUser, presenceUse
     <>
       <style>{GLOBAL_STYLE}</style>
 
-      {/* Launcher shows only when the panel is closed — otherwise it overlaps the
-          composer / send button (esp. in fullscreen). Closing is done via the header ✕. */}
       {!open && (
       <button
         onMouseDown={startBtnDrag}
@@ -1510,7 +1506,7 @@ export default function CaseChatPanel({ caseId, socket, currentUser, presenceUse
             </button>
           </div>
 
-          </> /* end chatMode === 'team' */}
+          </>}
         </div>
       )}
     </>

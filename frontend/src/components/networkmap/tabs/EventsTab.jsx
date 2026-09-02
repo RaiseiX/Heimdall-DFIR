@@ -1,4 +1,3 @@
-// frontend/src/components/networkmap/tabs/EventsTab.jsx
 import { useEffect, useState } from 'react';
 import { networkAPI } from '../../../utils/api';
 import { useTranslation } from 'react-i18next';
@@ -24,7 +23,6 @@ function fmtTs(ts, locale) {
   } catch { return String(ts).slice(0, 19).replace('T', ' '); }
 }
 
-// Extract readable search query from Bing/Google search URLs
 function extractSearchQuery(url) {
   if (!url) return null;
   try {
@@ -34,7 +32,6 @@ function extractSearchQuery(url) {
   } catch { return null; }
 }
 
-// Shorten a URL for display: keep scheme + host + first 60 chars of path
 function shortUrl(url) {
   if (!url) return '';
   try {
@@ -89,13 +86,11 @@ export default function EventsTab({ caseId, nodeId }) {
         const typeLabel = ARTIFACT_LABEL[type] || type;
         const isOpen   = expanded === i;
 
-        // Build the best possible "title" for this event
         const searchQ  = ev.artifact_type === 'sqle' ? extractSearchQuery(ev.url) : null;
         const title    = searchQ
           ? `🔍 ${searchQ}`
           : ev.description?.slice(0, 100) || t('networkMap.event_fallback', { id: ev.event_id || '?' });
 
-        // Build subtitle: process or remote host or URL
         const subtitle = ev.process_name
           ? ev.process_name.split(/[/\\]/).pop()
           : ev.remote_host
@@ -106,7 +101,6 @@ export default function EventsTab({ caseId, nodeId }) {
 
         return (
           <div key={i} style={{ marginBottom: 2 }}>
-            {/* Event row */}
             <div
               onClick={() => setExpanded(isOpen ? null : i)}
               style={{
@@ -118,31 +112,26 @@ export default function EventsTab({ caseId, nodeId }) {
               onMouseLeave={e => { e.currentTarget.style.background = isOpen ? '#131722' : '#0a0f18'; }}
             >
               <div style={{ display: 'flex', gap: 5, alignItems: 'flex-start', marginBottom: subtitle ? 2 : 0 }}>
-                {/* Artifact type badge */}
                 <span style={{ fontSize: 7, padding: '1px 4px', borderRadius: 2,
                   background: `color-mix(in srgb, ${color} 9%, transparent)`, color, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
                   flexShrink: 0, border: `1px solid color-mix(in srgb, ${color} 19%, transparent)` }}>
                   {typeLabel}
                 </span>
-                {/* Event ID for EVTX */}
                 {ev.event_id && (
                   <span style={{ fontSize: 7, color: color, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', flexShrink: 0 }}>
                     {ev.event_id}
                   </span>
                 )}
-                {/* Title — wraps so long URLs stay fully readable without expanding */}
                 <span style={{ fontSize: 9, color: '#a0b8d0', flex: 1, minWidth: 0,
                   whiteSpace: 'normal', wordBreak: 'break-all', lineHeight: 1.4,
                   fontFamily: ev.artifact_type === 'sqle' ? 'sans-serif' : 'var(--f-mono, "JetBrains Mono", monospace)' }}>
                   {title}
                 </span>
-                {/* Timestamp */}
                 <span style={{ fontSize: 7, color: 'var(--fl-muted)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
                   flexShrink: 0, whiteSpace: 'nowrap' }}>
                   {fmtTs(ev.timestamp, i18n.language)}
                 </span>
               </div>
-              {/* Subtitle */}
               {subtitle && (
                 <div style={{ fontSize: 7, color: '#3a5878', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
                   paddingLeft: 2, whiteSpace: 'normal', wordBreak: 'break-all', lineHeight: 1.4 }}>
@@ -151,12 +140,10 @@ export default function EventsTab({ caseId, nodeId }) {
               )}
             </div>
 
-            {/* Expanded detail */}
             {isOpen && (
               <div style={{ background: '#0a0c11', border: '1px solid #131722',
                 borderTop: 'none', borderRadius: '0 0 3px 3px', padding: '8px 10px' }}>
 
-                {/* Full URL */}
                 {ev.url && (
                   <div style={{ marginBottom: 6 }}>
                     <div style={{ fontSize: 7, color: 'var(--fl-subtle)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
@@ -168,7 +155,6 @@ export default function EventsTab({ caseId, nodeId }) {
                   </div>
                 )}
 
-                {/* Key fields grid */}
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 6 }}>
                   {[
                     [t('networkMap.fields.date'),      fmtTs(ev.timestamp, i18n.language)],
@@ -192,7 +178,6 @@ export default function EventsTab({ caseId, nodeId }) {
                   ))}
                 </div>
 
-                {/* Full description */}
                 {ev.description && ev.description !== ev.url && (
                   <div>
                     <div style={{ fontSize: 7, color: 'var(--fl-subtle)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',

@@ -43,10 +43,39 @@ function nativeTriedAndFailed(entry) {
   return !!entry && entry.status !== 'skipped' && rowCount(entry) === 0;
 }
 
+// CSVs a native parser already consumes, matched on the filename suffix because
+// Cat-Scale prefixes every output with `<host>-<DTG>-`.
+//
+// Precedence by artifact type cannot cover these. `full-timeline.csv` detects to no
+// artifact type at all, so `results[undefined]` is undefined and the planner fell
+// through to "no raw parse attempted for this type" — import. That stayed invisible
+// only because the CSV parser rejected the file over a quote in a filename; with
+// relax_quotes the import would succeed and write up to 8,587,252 raw rows on top of
+// the 332,108 that catscaleService.ts:1114 already produced from the same file, after
+// deliberately filtering 8,255,144 entries (containers, rebuildable, packages, not
+// relevant). The same evidence counted twice, once curated and once not.
+//
+// Skipped as redundant rather than dropped from the plan: `skipped_redundant` is
+// tallied into the `[csv] N CSV: {...}` line, so a file we chose not to import stays
+// visible and counted.
+const CLAIMED_BY_NATIVE = [
+  { suffix: 'full-timeline.csv', by: 'the CatScale filesystem-timeline parser' },
+];
+
+function claimedByNative(file) {
+  const name = String(file || '').toLowerCase();
+  return CLAIMED_BY_NATIVE.find(c => name.endsWith(c.suffix)) || null;
+}
+
 function planCsvIngestion({ csvFiles, nativeResults, detect }) {
   const files = csvFiles || [];
   const results = nativeResults || {};
   return files.map((file) => {
+    const claim = claimedByNative(file);
+    if (claim) {
+      return { file, artifactType: null, decision: 'skipped_redundant', reason: `claimed by ${claim.by}` };
+    }
+
     const mapping = detect(file);
     if (!mapping) {
       return { file, artifactType: null, decision: 'skipped_no_mapping', reason: 'no mapping matched' };
@@ -65,4 +94,4 @@ function planCsvIngestion({ csvFiles, nativeResults, detect }) {
   });
 }
 
-module.exports = { planCsvIngestion };
+module.exports = { planCsvIngestion, CLAIMED_BY_NATIVE };

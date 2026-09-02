@@ -1,18 +1,16 @@
-// frontend/src/components/supertimeline/store/useTimelineStore.js
 import { create } from 'zustand';
 import { collectionAPI, artifactsAPI, bookmarksAPI, savedSearchesAPI } from '../../../utils/api';
-import { computeRef } from '../utils/timelineUtils';
+import { computeRef, DENSITIES, DEFAULT_DENSITY, initialExplorerOpen } from '../utils/timelineUtils';
 
 const DEBOUNCE_MS = 150;
 let _debounceTimer = null;
-let _loadSeq = 0; // B8: stale request guard
+let _loadSeq = 0;
 
 const DEFAULT_GROUPS = [
   { key: 'artifact_type', label: 'Artifact Type' },
   { key: 'host_name',     label: 'Host' },
 ];
 
-// The exact subset of filter state persisted in a saved search (server whitelists too).
 const QUERY_KEYS = [
   'search', 'searchOp', 'startTime', 'endTime', 'artifactTypes',
   'hostFilter', 'hostFilterOp', 'userFilter', 'userFilterOp',
@@ -21,7 +19,6 @@ const QUERY_KEYS = [
   'multiSort', 'groupByFields',
 ];
 
-// Fresh default filter state (new array instances each call — never share mutable refs).
 const filterDefaults = () => ({
   search: '', searchOp: 'contains', startTime: '', endTime: '',
   artifactTypes: [],
@@ -38,7 +35,6 @@ const filterDefaults = () => ({
   appendMode: false,
 });
 
-// B2: encode confidence level as a _conf: tag prefix so it persists in the DB tags array
 function encodeTagsWithLevel(tags, level) {
   const clean = (tags || []).filter(t => !t.startsWith('_conf:'));
   if (level) clean.push(`_conf:${level}`);
@@ -57,6 +53,7 @@ function decodeTagsAndLevel(rawTags) {
 function buildQueryParams(s) {
   const p = { page: s.page, limit: s.pageSize, sort_dir: s.sortDir, sort_col: s.sortCol };
   if (s.multiSort.length > 1) p.sort_multi = s.multiSort.map(x => `${x.col}:${x.dir}`).join(',');
+  if (s.nature === 'dated' || s.nature === 'undated') p.nature = s.nature;
   if (s.search || s.searchOp === 'empty' || s.searchOp === 'not_empty')
     { p.search = s.search; p.search_op = s.searchOp; }
   if (s.artifactTypes.length)  p.artifact_types = s.artifactTypes.join(',');
@@ -83,7 +80,6 @@ function buildQueryParams(s) {
 }
 
 export const useTimelineStore = create((set, get) => ({
-  // ── Filter state ──
   search: '', searchOp: 'contains',
   startTime: '', endTime: '',
   artifactTypes: [],
@@ -96,41 +92,46 @@ export const useTimelineStore = create((set, get) => ({
   huntMessage: null,
   hitsOnly: false, detSeverity: '', dedupe: false,
 
-  // ── Sort ──
   sortCol: 'timestamp', sortDir: 'desc',
   multiSort: [{ col: 'timestamp', dir: 'desc' }],
 
-  // ── Pagination / data ──
   page: 1, pageSize: (() => { try { return parseInt(localStorage.getItem('supertl.pageSize'), 10) || 500; } catch { return 500; } })(),
-  total: 0, totalPages: 0,
+  total: 0, undated: 0, totalPages: 0,
   records: [], loading: false,
   appendMode: false,
   dynamicColsRev: 0,
   availTypes: [], typeCounts: {},
+  bounds: null,
+  nature: 'all',
   hostsAvail: [], usersAvail: [],
   caseId: null,
 
-  // ── Timeline context view state ──
   contextOpen: false, contextAnchorId: null, contextRows: [], contextHostName: null,
   contextAllHosts: false, contextN: 25, contextLoading: false,
 
-  // ── UI state ──
   selectedRowId: null,
-  tagData: new Map(),       // Map<row.id, { level: string|null, tags: string[] }>
-  notedRefs: new Set(),     // C6: artifact_ref strings that have analyst notes
+  tagData: new Map(),
+  notedRefs: new Set(),
   bookmarks: [],
   savedSearches: [],
   detailTab: 'details',
-  explorerOpen: (() => { try { return localStorage.getItem('supertl.explorerOpen') !== 'false'; } catch { return true; } })(),
+  explorerOpen: (() => { try { return initialExplorerOpen(localStorage.getItem('supertl.explorerOpen')); } catch { return false; } })(),
+  density: (() => {
+    try {
+      const v = localStorage.getItem('supertl.density');
+      return DENSITIES.includes(v) ? v : DEFAULT_DENSITY;
+    } catch { return DEFAULT_DENSITY; }
+  })(),
   detailOpen: false,
-  groupByFields: [],  // No group-by by default — events visible immediately (Timeline Explorer style)
+  groupByFields: [],
   colorRules: [],
 
-  // ── Actions ──
   setCaseId(caseId, evidenceId = null) {
-    set({ caseId, evidenceId, page: 1, records: [], total: 0,
+    set({ caseId, evidenceId, page: 1, records: [], total: 0, undated: 0,
           selectedRowId: null, detailOpen: false, availTypes: [], typeCounts: {},
+          bounds: null,
           tagData: new Map(), notedRefs: new Set(), bookmarks: [], savedSearches: [] });
+    get().loadBounds();
     artifactsAPI.refsWithNotes(caseId)
       .then(res => set({ notedRefs: new Set(res.data?.refs || []) }))
       .catch(() => set({ notedRefs: new Set() }));
@@ -167,15 +168,13 @@ export const useTimelineStore = create((set, get) => ({
   async loadTimeline() {
     const s = get();
     if (!s.caseId) return;
-    const seq = ++_loadSeq; // B8: stamp this request
+    const seq = ++_loadSeq;
     set({ loading: true });
     try {
       const res = await collectionAPI.timeline(s.caseId, buildQueryParams(s));
-      if (seq !== _loadSeq) { set({ appendMode: false }); return; } // B8: discard stale response
+      if (seq !== _loadSeq) { set({ appendMode: false }); return; }
       if (!res?.data) return;
       const recs = res.data.records || [];
-      // Legacy records (fallback parser_results) have no id field — synthesize negative IDs.
-      // Negative IDs never exist in the DB, so setTag will not call the API for them.
       if (recs.length > 0 && recs[0].id == null) {
         const base = get().appendMode ? get().records.length : 0;
         recs.forEach((r, i) => { if (r.id == null) r.id = -(base + i + 1); });
@@ -183,7 +182,6 @@ export const useTimelineStore = create((set, get) => ({
       const newTagData = new Map(get().tagData);
       recs.forEach(r => {
         if (r.id == null) return;
-        // B2: decode _conf: prefix from server tags to restore confidence level
         const { tags, level } = decodeTagsAndLevel(r.tags);
         const existing = newTagData.get(r.id);
         newTagData.set(r.id, {
@@ -195,9 +193,8 @@ export const useTimelineStore = create((set, get) => ({
         records:     get().appendMode ? [...get().records, ...recs] : recs,
         appendMode:  false,
         total:       res.data.total         || 0,
+        undated:     res.data.undated       || 0,
         totalPages:  res.data.total_pages   || 0,
-        // Only update the master list when no type filter is active — otherwise filtered
-        // responses would remove pills for excluded types from the UI
         availTypes:  s.artifactTypes.length === 0
           ? (res.data.artifact_types_available || get().availTypes)
           : get().availTypes,
@@ -205,13 +202,9 @@ export const useTimelineStore = create((set, get) => ({
         hostsAvail:  res.data.hosts_available?.length  ? res.data.hosts_available  : get().hostsAvail,
         usersAvail:  res.data.users_available?.length  ? res.data.users_available  : get().usersAvail,
         tagData:     newTagData,
-        // A hunt-scoped fetch (huntId set) that comes back empty must say so
-        // explicitly (`hunt_empty` + `message`, from collection.js's /timeline
-        // route) — never render as an unexplained blank grid. Cleared once
-        // records come back non-empty or huntId is no longer set.
         huntMessage: s.huntId && res.data.hunt_empty ? (res.data.message || null) : null,
       });
-    } catch { if (seq === _loadSeq) set({ records: [], total: 0, appendMode: false }); }
+    } catch { if (seq === _loadSeq) set({ records: [], total: 0, undated: 0, appendMode: false }); }
     finally  { if (seq === _loadSeq) set({ loading: false }); }
   },
 
@@ -230,6 +223,35 @@ export const useTimelineStore = create((set, get) => ({
       set({ sortCol: col, sortDir: newDir, multiSort: [{ col, dir: newDir }], page: 1 });
     }
     get().loadTimeline();
+  },
+
+  async loadBounds() {
+    const { caseId } = get();
+    if (!caseId) return;
+    try {
+      const res = await collectionAPI.timelineHistogram(caseId, 48);
+      const d = res.data || {};
+      set({ bounds: {
+        lo: d.lo ?? null,
+        hi: d.hi ?? null,
+        beforeLo: d.before_lo || 0,
+        afterHi:  d.after_hi  || 0,
+      } });
+    } catch {
+      set({ bounds: null });
+    }
+  },
+
+  setNature(n) {
+    const next = ['all', 'dated', 'undated'].includes(n) ? n : 'all';
+    set({ nature: next, page: 1 });
+    get().loadTimeline();
+  },
+
+  setDensity(d) {
+    const next = DENSITIES.includes(d) ? d : DEFAULT_DENSITY;
+    try { localStorage.setItem('supertl.density', next); } catch {}
+    set({ density: next });
   },
 
   setPage(p) { set({ page: p }); get().loadTimeline(); },
@@ -260,7 +282,6 @@ export const useTimelineStore = create((set, get) => ({
     newTagData.set(rowId, data);
     set({ tagData: newTagData });
     if (rec?.id != null && rec.id > 0 && s.caseId) {
-      // B2: include level as _conf: prefix so it survives DB round-trip
       const tagsToSend = encodeTagsWithLevel(data.tags, data.level);
       try {
         const resp = await collectionAPI.updateTimelineTags(s.caseId, rec.id, tagsToSend);
@@ -283,20 +304,15 @@ export const useTimelineStore = create((set, get) => ({
     const s = get();
     let next;
     if (s.artifactTypes.length === 1 && s.artifactTypes[0] === '__NONE__') {
-      // "Nothing displayed" mode -> inclusion: add this type
       next = [type];
     } else if (s.artifactTypes.length === 0) {
-      // Everything displayed -> exclusion: remove this type
       next = s.availTypes.filter(t => t !== type);
     } else if (s.artifactTypes.includes(type)) {
-      // Included type -> remove it; if nothing remains -> fall back to __NONE__
       next = s.artifactTypes.filter(t => t !== type);
       if (next.length === 0) next = ['__NONE__'];
     } else {
-      // Missing type -> add it
       next = [...s.artifactTypes, type];
     }
-    // If all types are explicitly included -> reset to [] (= "All")
     const allBack = s.availTypes.length > 0 &&
                     s.availTypes.every(t => next.includes(t));
     set({ artifactTypes: allBack ? [] : next, page: 1 });
@@ -356,7 +372,7 @@ export const useTimelineStore = create((set, get) => ({
   openDetail(id)    { set({ selectedRowId: id, detailOpen: true }); },
 
   openContext(anchorId) {
-    if (!(anchorId > 0)) return;               // real DB rows only
+    if (!(anchorId > 0)) return;
     set({ contextOpen: true, contextAnchorId: anchorId });
     get().loadContext();
   },
@@ -403,7 +419,6 @@ export const useTimelineStore = create((set, get) => ({
   applySavedSearch(query) {
     const overlay = {};
     for (const k of QUERY_KEYS) if (query?.[k] !== undefined) overlay[k] = query[k];
-    // multiSort drives sort_col/sort_dir in buildQueryParams — keep the scalars in sync.
     const ms = Array.isArray(overlay.multiSort) && overlay.multiSort.length ? overlay.multiSort[0] : null;
     const derivedSort = ms ? { sortCol: ms.col, sortDir: ms.dir } : {};
     set({ ...filterDefaults(), ...overlay, ...derivedSort, page: 1 });
@@ -422,12 +437,12 @@ export const useTimelineStore = create((set, get) => ({
   async updateSavedSearch(id, patch) {
     const { caseId, savedSearches } = get();
     const prev = savedSearches;
-    set({ savedSearches: savedSearches.map(s => (s.id === id ? { ...s, ...patch } : s)) }); // optimistic
+    set({ savedSearches: savedSearches.map(s => (s.id === id ? { ...s, ...patch } : s)) });
     try {
       const res = await savedSearchesAPI.update(caseId, id, patch);
       set({ savedSearches: get().savedSearches.map(s => (s.id === id ? res.data : s)) });
     } catch (e) {
-      set({ savedSearches: prev }); // rollback
+      set({ savedSearches: prev });
       throw e;
     }
   },
@@ -437,11 +452,11 @@ export const useTimelineStore = create((set, get) => ({
   async deleteSavedSearch(id) {
     const { caseId, savedSearches } = get();
     const prev = savedSearches;
-    set({ savedSearches: savedSearches.filter(s => s.id !== id) }); // optimistic
+    set({ savedSearches: savedSearches.filter(s => s.id !== id) });
     try {
       await savedSearchesAPI.remove(caseId, id);
     } catch (e) {
-      set({ savedSearches: prev }); // rollback
+      set({ savedSearches: prev });
       throw e;
     }
   },

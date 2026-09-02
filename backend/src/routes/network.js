@@ -3,6 +3,13 @@ const multer = require('multer');
 const { pool, readPool, isStatementTimeout } = require('../config/database');
 const { authenticate, requireRole } = require('../middleware/auth');
 const { parse: parseCsv } = require('csv-parse/sync');
+const { resolveNodeIdentity, addUnlinkedMachines, resolveUrlSource, createIdentityResolver, composeHostAddress } = require('../services/networkIdentity');
+const { buildRegisterRows, registerTotals } = require('../services/networkRegister');
+const { serverScore } = require('../services/serverScore');
+const { analyticsAvailability } = require('../services/analyticsAvailability');
+const { linkType } = require('../services/linkType');
+const { caseTechniquesQuery, techniquesFromHunts } = require('../services/attackTechniques');
+const { collectionHost, establishedHostsQuery } = require('../services/collectionHost');
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
 
@@ -63,6 +70,9 @@ function extractParenIP(id) {
 const PRIVATE_TLD = /\.(lab|local|lan|corp|internal|intranet|home|localdomain|test|priv)$/i;
 
 function classifyType(id) {
+  // Une collecte n'est pas une machine : le type le dit, pour que la carte ne la
+  // dessine pas comme un hote et qu'aucun score de role ne s'y applique.
+  if (/^collecte:/.test(id)) return 'collection';
   if (/^https?:\/\//.test(id)) return 'url';
   if (id === 'local') return 'internal';
   if (/^::ffff:/i.test(id) || /^\d+\.\d+\.\d+\.\d+$/.test(id) || /^[0-9a-f:]+$/i.test(id)) {
@@ -126,7 +136,11 @@ function enrichNodes(nodeMap, edges) {
     n.ports        = ports;
     n.in_degree    = inDeg;
     n.out_degree   = outDeg;
-    n.server_score = total > 0 ? Math.round(inDeg / total * 100) / 100 : null;
+    // Voir services/serverScore.ts : une URL n'est jamais un client, et un ratio a
+    // besoin d'observations pour etre un ratio. Le calcul brut rendait > 0 sur
+    // 143 noeuds sur 151, dont 129 URL — 129 « serveurs » fabriques a partir d'un
+    // historique de navigation.
+    n.server_score = serverScore({ type: n.type, inDegree: inDeg, outDegree: outDeg });
     n.os_hint      = computeOsHint(ports);
     if (n.type === 'external') {
       const raw = String(id).replace(/^::ffff:/i, '').replace(/:\d+$/, '');
@@ -277,18 +291,26 @@ router.get('/:caseId/graph', authenticate, requireRole('admin', 'analyst'), asyn
         LIMIT 200
       `, [caseId]),
 
+      // La collecte d'origine remonte par `result_id`, pour que les URL cessent de
+      // pendre a un `host_name` de remplissage. La jointure est en LEFT : une ligne sans
+      // collecte identifiable ressort quand meme, et c'est le code qui decide de
+      // l'ecarter en le comptant plutot que la requete de la faire disparaitre.
       readPool.query(`
         SELECT
-          COALESCE(NULLIF(TRIM(host_name), ''), 'local') AS src_host,
-          raw->>'URL' AS dst_url,
-          COUNT(*) AS visit_count
-        FROM collection_timeline
-        WHERE case_id = $1
-          ${ctEvidenceFilter}
-          AND artifact_type = 'sqle'
-          AND raw->>'URL' IS NOT NULL AND raw->>'URL' <> ''
-          AND raw->>'URL' LIKE 'http%'
-        GROUP BY host_name, raw->>'URL'
+          ct.host_name           AS src_host,
+          pr.evidence_id::text   AS src_evidence_id,
+          ev.original_filename   AS src_evidence_name,
+          ct.raw->>'URL'         AS dst_url,
+          COUNT(*)               AS visit_count
+        FROM collection_timeline ct
+        LEFT JOIN parser_results pr ON pr.id = ct.result_id
+        LEFT JOIN evidence       ev ON ev.id = pr.evidence_id
+        WHERE ct.case_id = $1
+          ${ctEvidenceFilter.replace(/result_id/g, 'ct.result_id')}
+          AND ct.artifact_type = 'sqle'
+          AND ct.raw->>'URL' IS NOT NULL AND ct.raw->>'URL' <> ''
+          AND ct.raw->>'URL' LIKE 'http%'
+        GROUP BY ct.host_name, pr.evidence_id, ev.original_filename, ct.raw->>'URL'
         ORDER BY visit_count DESC
         LIMIT 100
       `, ctParams),
@@ -305,8 +327,43 @@ router.get('/:caseId/graph', authenticate, requireRole('admin', 'analyst'), asyn
       '27017':'MONGODB','5432':'POSTGRES',
     };
 
+    // Resolution d'identite, appliquee aux extremites AVANT la fusion des liens.
+    //
+    // Releve du 2026-08-25 : 34 identifiants pour 21 noeuds reels — 7 machines, 14
+    // adresses, 6 chaines sans referent ecartees et comptees. LAB-FORENSIC
+    // en portait trois — `Lab-Forensic`, `LAB-FORENSIC (127.0.0.1)`, `LAB-FORENSIC (-)` —
+    // donc son degre etait divise par trois, et avec lui toute mesure de centralite.
+    // Replier a l'affichage seulement laisserait ces degres faux : c'est ici que ca compte.
+    const identityDiscards = new Map();
+    const hostIdentity = new Map();
+    const canon = raw => {
+      // Un identifiant de collecte est deja canonique : il ne se replie pas et ne
+      // s'ecarte pas, il designe une collecte reelle et nommee.
+      if (typeof raw === 'string' && raw.startsWith('collecte:')) return raw;
+      const r = resolveNodeIdentity(raw);
+      if (r.kind === 'placeholder') {
+        const id = String(raw ?? '');
+        const d = identityDiscards.get(id) || { id, reason: r.reason, count: 0 };
+        d.count++;
+        identityDiscards.set(id, d);
+        return null;
+      }
+      if (r.kind === 'host') {
+        let h = hostIdentity.get(r.key);
+        if (!h) { h = { labels: new Map(), aliases: new Set(), addresses: new Set() }; hostIdentity.set(r.key, h); }
+        h.labels.set(r.label, (h.labels.get(r.label) || 0) + 1);
+        h.aliases.add(String(raw));
+        if (r.address) h.addresses.add(r.address);
+      }
+      return r.key;
+    };
+
     const edgeMap = new Map();
-    const mergeEdge = (src, dst, port, proto, count, bytes, suspicious, firstSeen, lastSeen) => {
+    const mergeEdge = (rawSrc, rawDst, port, proto, count, bytes, suspicious, firstSeen, lastSeen) => {
+      const src = canon(rawSrc);
+      const dst = canon(rawDst);
+      // `src === dst` apres repli attrape aussi les boucles qui ne paraissaient distinctes
+      // que par l'orthographe, comme LAB-FORENSIC vers LAB-FORENSIC (127.0.0.1).
       if (!src || !dst || src === dst) return;
       const key = `${src}||${dst}||${port || ''}||${proto || ''}`;
       if (edgeMap.has(key)) {
@@ -322,6 +379,10 @@ router.get('/:caseId/graph', authenticate, requireRole('admin', 'analyst'), asyn
         const label = portLabel || protoLabel || null;
         edgeMap.set(key, {
           source: src, target: dst,
+          // Les 116 aretes portaient toutes `type: undefined` : ni couleur par
+          // service ni score de role n'etaient possibles. `unknown` est un type a
+          // part entiere, que l'ecran peut nommer.
+          type: linkType(port, proto),
           connection_count: parseInt(count) || 1,
           total_bytes: parseInt(bytes) || 0,
           ports: port ? [String(port)] : [],
@@ -336,11 +397,24 @@ router.get('/:caseId/graph', authenticate, requireRole('admin', 'analyst'), asyn
 
     for (const r of r1.rows) mergeEdge(r.src_ip, r.dst_ip, r.dst_port, r.protocol, r.connection_count, r.total_bytes, r.is_suspicious, r.first_seen, r.last_seen);
     for (const r of r2.rows) mergeEdge(r.src_ip, r.dst_ip, r.dst_port, r.protocol, r.connection_count, r.total_bytes, false, r.first_seen, r.last_seen);
+    // Source des visites d'URL : la machine quand c'en est une, sinon la collecte
+    // d'origine, nommee. Ni l'une ni l'autre : l'arete est ecartee et comptee.
+    const urlSourceNodes = new Map();
+    const urlUnattributed = [];
     for (const r of r4.rows) {
-      if (r.dst_url && r.src_host) {
-        const proto = r.dst_url.startsWith('https') ? 'HTTPS' : 'HTTP';
-        mergeEdge(r.src_host, r.dst_url, null, proto, r.visit_count, 0, false);
+      if (!r.dst_url) continue;
+      const src = resolveUrlSource({
+        hostName: r.src_host,
+        evidenceId: r.src_evidence_id,
+        evidenceName: r.src_evidence_name,
+      });
+      if (src.kind === 'none') {
+        urlUnattributed.push({ url: r.dst_url, visits: parseInt(r.visit_count) || 1, reason: src.reason });
+        continue;
       }
+      if (src.kind === 'collection') urlSourceNodes.set(src.id, src.label);
+      const proto = r.dst_url.startsWith('https') ? 'HTTPS' : 'HTTP';
+      mergeEdge(src.id, r.dst_url, null, proto, r.visit_count, 0, false);
     }
 
     const edges = Array.from(edgeMap.values());
@@ -372,11 +446,63 @@ router.get('/:caseId/graph', authenticate, requireRole('admin', 'analyst'), asyn
       }
     }
 
+    // Chaque machine porte son libelle et les orthographes repliees. Rien n'est perdu :
+    // l'analyste peut voir sous quels noms elle a ete observee.
+    hostIdentity.forEach((h, key) => {
+      const n = nodeMap.get(key);
+      if (!n) return;
+      n.label = [...h.labels.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0][0];
+      n.aliases = [...h.aliases].sort();
+      if (h.addresses.size) n.addresses = [...h.addresses].sort();
+    });
+
+    urlSourceNodes.forEach((label, id) => {
+      const n = nodeMap.get(id);
+      if (n) { n.label = label; n.type = 'collection'; }
+    });
+
     enrichNodes(nodeMap, edges);
+
+    // Les machines collectees que le graphe ignore doivent rester visibles. Sans cela,
+    // ecarter la boucle locale efface aussi les machines dont c'etait la seule arete :
+    // trois sur cinq avaient disparu au deploiement precedent. Mesure a 239 ms sur le
+    // cas de reference — 12 valeurs distinctes servies par l'index sur case_id.
+    let unlinked = { added: [], skipped: [] };
+    try {
+      const hq = collectedHostsQuery(caseId, evidence_id ? [evidence_id] : []);
+      const hostRows = await readPool.query(hq.text, hq.values);
+      const merged = addUnlinkedMachines(
+        Array.from(nodeMap.values()),
+        hostRows.rows.map(r => r.host_name),
+      );
+      merged.nodes.forEach(n => { if (!nodeMap.has(n.id)) nodeMap.set(n.id, n); });
+      unlinked = { added: merged.added, skipped: merged.skipped };
+    } catch (e) {
+      // Une machine manquante vaut mieux qu'une carte absente : on continue sans, et la
+      // reponse dit que la couverture n'a pas pu etre completee.
+      unlinked = { added: [], skipped: [], unavailable: e.message };
+    }
+
+    const discarded = [...identityDiscards.values()].sort((a, b) => b.count - a.count);
     res.json({
       nodes: Array.from(nodeMap.values()),
       edges,
       total_records: edges.length,
+      // Ecarte et compte, jamais efface en silence : la carte doit pouvoir nommer en pied
+      // ce qu'elle a retire, et pourquoi.
+      identity: {
+        discarded,
+        discarded_occurrences: discarded.reduce((n, d) => n + d.count, 0),
+        machines_folded: [...hostIdentity.values()].filter(h => h.aliases.size > 1).length,
+        // Machines collectees sans liaison observee : presentes sur la carte et
+        // nommees comme telles, jamais effacees au motif qu'elles n'ont pas d'arete.
+        machines_without_link: unlinked.added,
+        hosts_skipped: unlinked.skipped,
+        coverage_unavailable: unlinked.unavailable || null,
+        // URL dont ni la machine ni la collecte n'ont pu etre etablies : comptees,
+        // jamais rattachees a un noeud invente.
+        urls_unattributed: urlUnattributed.length,
+      },
     });
   } catch (err) {
     return sendQueryError(res, err, 'GET /:caseId/graph');
@@ -490,6 +616,19 @@ router.post('/:caseId/import-csv', authenticate, upload.single('file'), async (r
   }
 });
 
+function collectedHostsQuery(caseId, evidenceIds = []) {
+  const scoped = (evidenceIds || []).length > 0;
+  const scopeFilter = scoped
+    ? `AND result_id IN (SELECT id FROM parser_results WHERE evidence_id = ANY($2::uuid[]))`
+    : '';
+  return {
+    text: `SELECT DISTINCT host_name FROM collection_timeline
+            WHERE case_id = $1 AND host_name IS NOT NULL AND host_name <> ''
+            ${scopeFilter}`,
+    values: scoped ? [caseId, evidenceIds] : [caseId],
+  };
+}
+
 // ── Network graph builder ──────────────────────────────────────────────────
 // fromTs / toTs are optional ISO strings to scope the timeline window.
 async function buildNetworkGraph(caseId, evidenceIdList, pool, fromTs, toTs) {
@@ -508,28 +647,49 @@ async function buildNetworkGraph(caseId, evidenceIdList, pool, fromTs, toTs) {
   if (fromTs) { ctParams.push(fromTs); timeFilter += ` AND timestamp >= $${ctParams.length}::timestamptz`; }
   if (toTs)   { ctParams.push(toTs);   timeFilter += ` AND timestamp <= $${ctParams.length}::timestamptz`; }
 
-  const ncParams = [caseId];
+  // `network_connections` doit etre scopee a la collecte comme l'est la timeline.
+  //
+  // Mesure du 2026-08-27 : la carte globale construit un graphe PAR collecte puis somme
+  // les comptes. Cette source repondait au cas entier a chaque appel, donc les trois
+  // collectes rendaient chacune la totalite des connexions et la fusion les
+  // additionnait. Toutes les valeurs etaient multipliees par le nombre de collectes :
+  // le registre comptait 14 connexions vers 2607:6bc0::10, la carte en affichait 42,
+  // et `NetworkManager :67` passait de 1 a 3.
+  //
+  // L'epaisseur des aretes, `connection_count` et tout classement de centralite en
+  // dependaient. La colonne `evidence_id` du lot 4 existe precisement pour cela.
+  const ncEvidenceFilter = hasFilter ? `AND evidence_id = ANY($2::uuid[])` : '';
+  const ncParams = hasFilter ? [caseId, evidenceIdList] : [caseId];
   let ncTimeFilter = '';
   if (fromTs) { ncParams.push(fromTs); ncTimeFilter += ` AND first_seen >= $${ncParams.length}::timestamptz`; }
   if (toTs)   { ncParams.push(toTs);   ncTimeFilter += ` AND last_seen  <= $${ncParams.length}::timestamptz`; }
 
   const LIMIT = 500; // raised from 300
 
-  const [r1, r2, r3, r4, r5] = await Promise.all([
+  const [r1, r2, r3, r4, r5, r6] = await Promise.all([
 
-    // ── Source 1: network_connections table (PCAP / CSV imports) ──
-    // network_connections has no evidence_id column, so always query by case_id.
-    // A collection-scoped view still shows all TCP flows for the case.
+    // ── Source 1: network_connections table (PCAP / CSV imports, projection CatScale) ──
+    //
+    // La requete reste scopee au cas : une vue par collecte montre quand meme tous les
+    // flux du cas. (`evidence_id` existe depuis le lot 4 et sert a la purge de la
+    // projection, pas a ce filtre.)
+    //
+    // `process` entre dans le GROUP BY comme `process_name` cote source 2 : mergeEdge
+    // agrege sur `src||dst||port||proto` et accumule les noms distincts, donc deux
+    // processus vers le meme pair donnent une arete qui les porte tous les deux, avec
+    // les comptes sommes. Sans lui, la source passait `null` en dur et la carte
+    // exposait une cle `processes` vide sur les seize aretes machines.
     readPool.query(`
-      SELECT src_ip, dst_ip, dst_port::text AS dst_port, protocol,
+      SELECT src_ip, dst_ip, dst_port::text AS dst_port, protocol, process, src_host,
              COUNT(*) AS connection_count,
              SUM(COALESCE(bytes_sent,0) + COALESCE(bytes_received,0)) AS total_bytes,
              bool_or(is_suspicious) AS is_suspicious
       FROM network_connections
       WHERE case_id = $1 AND src_ip IS NOT NULL AND dst_ip IS NOT NULL
         AND src_ip <> '' AND dst_ip <> ''
+        ${ncEvidenceFilter}
         ${ncTimeFilter}
-      GROUP BY src_ip, dst_ip, dst_port, protocol
+      GROUP BY src_ip, dst_ip, dst_port, protocol, process, src_host
       ORDER BY connection_count DESC LIMIT ${LIMIT}
     `, ncParams),
 
@@ -539,7 +699,7 @@ async function buildNetworkGraph(caseId, evidenceIdList, pool, fromTs, toTs) {
     //   dst: DestinationHostname (resolved name, best for display) > DestinationIp > legacy aliases
     //   process: Image field from Sysmon — which process made this connection
     readPool.query(`
-      SELECT src_ip, dst_ip, dst_port, protocol, process_name,
+      SELECT src_ip, dst_ip, dst_port, protocol, process_name, src_host,
              COUNT(*) AS connection_count, 0::bigint AS total_bytes, false AS is_suspicious
       FROM (
         SELECT
@@ -577,11 +737,23 @@ async function buildNetworkGraph(caseId, evidenceIdList, pool, fromTs, toTs) {
             NULLIF(TRIM(raw->>'Transport'), '')
           ) AS protocol,
           -- Extract the initiating process (Sysmon EID 3 "Image" field)
-          NULLIF(TRIM(raw->>'Image'), '') AS process_name
+          NULLIF(TRIM(raw->>'Image'), '') AS process_name,
+          -- Le nom de la machine collectee, ecrit par ss dans la cle host. Les deux
+          -- sources doivent s'accorder sur l'identite d'un noeud : sans cela la
+          -- source 1 emet DLINUX et celle-ci l'adresse brute, les aretes ne
+          -- fusionnent plus et chaque connexion Linux est dessinee deux fois.
+          -- Mesure du 2026-08-27 : 16 aretes machines devenues 31.
+          NULLIF(TRIM(raw->>'host'), '') AS src_host
         FROM collection_timeline
         WHERE case_id = $1
           ${ctEvidenceFilter}
           ${timeFilter}
+          -- La source 1 est la projection exacte de ces lignes. Les lire ici aussi
+          -- compterait deux fois la meme preuve : mesure du 2026-08-27, les comptes
+          -- doublaient des que les deux sources s'accordaient sur l'identite du noeud.
+          -- La projection est en outre la seule des deux a ecarter la boucle locale et
+          -- les sockets sans pair, avec leurs raisons — c'est elle qui fait foi.
+          AND artifact_type <> 'catscale_network'
           AND (
             ${rawHasAny([
               'SourceIp', 'DestinationIp', 'DestinationHostname', 'RemoteHost',
@@ -593,7 +765,7 @@ async function buildNetworkGraph(caseId, evidenceIdList, pool, fromTs, toTs) {
       WHERE dst_ip IS NOT NULL AND dst_ip <> '' AND dst_ip <> '-'
         AND dst_ip NOT IN ('0.0.0.0', '::', '255.255.255.255', 'localhost')
         AND src_ip <> dst_ip
-      GROUP BY src_ip, dst_ip, dst_port, protocol, process_name
+      GROUP BY src_ip, dst_ip, dst_port, protocol, process_name, src_host
       ORDER BY connection_count DESC LIMIT ${LIMIT}
     `, ctParams),
 
@@ -623,25 +795,49 @@ async function buildNetworkGraph(caseId, evidenceIdList, pool, fromTs, toTs) {
     // ── Source 5: browser history (SQLite via sqle parser) ──
     readPool.query(`
       SELECT
-        COALESCE(NULLIF(TRIM(host_name), ''), 'local') AS src_host,
-        raw->>'URL' AS dst_url,
-        COUNT(*) AS visit_count
-      FROM collection_timeline
-      WHERE case_id = $1
-        ${ctEvidenceFilter}
-        ${timeFilter}
-        AND artifact_type = 'sqle'
-        AND raw->>'URL' IS NOT NULL AND raw->>'URL' <> ''
-        AND raw->>'URL' LIKE 'http%'
-      GROUP BY host_name, raw->>'URL'
+        ct.host_name         AS src_host,
+        pr.evidence_id::text AS src_evidence_id,
+        ev.original_filename AS src_evidence_name,
+        ct.raw->>'URL'       AS dst_url,
+        COUNT(*)             AS visit_count
+      FROM collection_timeline ct
+      LEFT JOIN parser_results pr ON pr.id = ct.result_id
+      LEFT JOIN evidence       ev ON ev.id = pr.evidence_id
+      WHERE ct.case_id = $1
+        ${ctEvidenceFilter.replace(/result_id/g, 'ct.result_id')}
+        ${timeFilter.replace(/timestamp/g, 'ct.timestamp')}
+        AND ct.artifact_type = 'sqle'
+        AND ct.raw->>'URL' IS NOT NULL AND ct.raw->>'URL' <> ''
+        AND ct.raw->>'URL' LIKE 'http%'
+      GROUP BY ct.host_name, pr.evidence_id, ev.original_filename, ct.raw->>'URL'
       ORDER BY visit_count DESC
       LIMIT 100
     `, ctParams),
+
+    // ── Source 6: les connexions qu'aucune collecte ne reclame ──
+    //
+    // Le scope par collecte ci-dessus les exclut necessairement : elles ne peuvent
+    // etre rattachees a aucun des graphes fusionnes. Les compter est la condition pour
+    // que l'ecran puisse le dire, plutot que de les laisser disparaitre. Zero sur le
+    // cas de reference ; un import PCAP anterieur au lot 4 en produirait.
+    readPool.query(`
+      SELECT COUNT(*)::int AS n FROM network_connections
+       WHERE case_id = $1 AND evidence_id IS NULL
+    `, [caseId]),
   ]);
 
   // ── Merge edges from all sources ──
+  //
+  // C'est ce constructeur-la que la carte lit, pas `/graph`. Les corrections
+  // d'identite n'y avaient pas ete appliquees : COLLECTE degre 100, les identites
+  // dupliquees et 155 liens `undefined` s'affichaient encore alors que tout etait
+  // corrige a cote. Meme resolveur des deux cotes, pour que les deux chemins ne
+  // puissent plus deriver.
+  const identity = createIdentityResolver();
   const edgeMap = new Map();
-  const mergeEdge = (src, dst, port, proto, count, bytes, suspicious, processName) => {
+  const mergeEdge = (rawSrc, rawDst, port, proto, count, bytes, suspicious, processName) => {
+    const src = identity.canon(rawSrc);
+    const dst = identity.canon(rawDst);
     if (!src || !dst || src === dst) return;
     const key = `${src}||${dst}||${port || ''}||${proto || ''}`;
     if (edgeMap.has(key)) {
@@ -656,6 +852,9 @@ async function buildNetworkGraph(caseId, evidenceIdList, pool, fromTs, toTs) {
     } else {
       edgeMap.set(key, {
         source: src, target: dst,
+        // `unknown` est un type a part entiere, que l'ecran peut nommer — a la
+        // difference d'un `undefined`.
+        type: linkType(port, proto),
         connection_count: parseInt(count) || 1,
         total_bytes:      parseInt(bytes)  || 0,
         ports:     port        ? [String(port)]  : [],
@@ -666,13 +865,50 @@ async function buildNetworkGraph(caseId, evidenceIdList, pool, fromTs, toTs) {
     }
   };
 
-  for (const r of r1.rows) mergeEdge(r.src_ip, r.dst_ip, r.dst_port, r.protocol, r.connection_count, r.total_bytes, r.is_suspicious, null);
-  for (const r of r2.rows) mergeEdge(r.src_ip, r.dst_ip, r.dst_port, r.protocol, r.connection_count, r.total_bytes, false, r.process_name);
-  for (const r of r5.rows) {
-    if (r.dst_url && r.src_host) {
-      const proto = r.dst_url.startsWith('https') ? 'HTTPS' : 'HTTP';
-      mergeEdge(r.src_host, r.dst_url, null, proto, r.visit_count, 0, false, null);
+  // `composeHostAddress` rend `Hote (adresse)` quand la machine est connue, l'adresse
+  // seule sinon. Les plusieurs adresses d'une meme machine collectee tombent alors sur
+  // un seul noeud — mesure du 2026-08-26 : les 177 lignes du cas portent toutes
+  // `host = Dlinux`, et la carte en faisait deux etoiles.
+  for (const r of r1.rows) mergeEdge(composeHostAddress(r.src_host, r.src_ip), r.dst_ip, r.dst_port, r.protocol, r.connection_count, r.total_bytes, r.is_suspicious, r.process);
+  for (const r of r2.rows) mergeEdge(composeHostAddress(r.src_host, r.src_ip), r.dst_ip, r.dst_port, r.protocol, r.connection_count, r.total_bytes, false, r.process_name);
+  // Source d'une visite : la machine quand c'en est une, sinon la collecte d'origine,
+  // nommee. Ni l'une ni l'autre : l'arete est ecartee et comptee.
+  const parCollecte = new Map();
+  let hostsEtablis = new Set();
+  try {
+    const hq = establishedHostsQuery(caseId);
+    const hr = await readPool.query(hq.text, hq.values);
+    for (const row of hr.rows) {
+      if (!parCollecte.has(row.evidence_id)) parCollecte.set(row.evidence_id, []);
+      parCollecte.get(row.evidence_id).push({ host: row.host, events: row.events });
     }
+    hostsEtablis = new Set(hr.rows.map(row => String(row.host)));
+  } catch {
+    parCollecte.clear();
+    hostsEtablis = new Set();
+  }
+  const machineDeCollecte = new Map();
+  for (const [evId, obs] of parCollecte) {
+    const seule = collectionHost(obs);
+    if (seule) machineDeCollecte.set(evId, seule.host);
+  }
+
+  const urlSourceNodes = new Map();
+  let urlUnattributed = 0;
+  let urlRattachees = 0;
+  for (const r of r5.rows) {
+    if (!r.dst_url) continue;
+    const brut = r.src_host;
+    const machine = machineDeCollecte.get(r.src_evidence_id);
+    const hostName = (machine && brut && !hostsEtablis.has(String(brut))) ? machine : brut;
+    if (hostName !== brut) urlRattachees++;
+    const src = resolveUrlSource({
+      hostName, evidenceId: r.src_evidence_id, evidenceName: r.src_evidence_name,
+    });
+    if (src.kind === 'none') { urlUnattributed++; continue; }
+    if (src.kind === 'collection') urlSourceNodes.set(src.id, src.label);
+    const proto = r.dst_url.startsWith('https') ? 'HTTPS' : 'HTTP';
+    mergeEdge(src.id, r.dst_url, null, proto, r.visit_count, 0, false, null);
   }
 
   const edges = Array.from(edgeMap.values());
@@ -713,6 +949,27 @@ async function buildNetworkGraph(caseId, evidenceIdList, pool, fromTs, toTs) {
     }
   }
 
+  // Chaque collecte porte son nom et se declare comme telle : une collecte n'est pas
+  // une machine, et aucun score de role ne doit s'y appliquer.
+  urlSourceNodes.forEach((label, id) => {
+    const n = nodeMap.get(id);
+    if (n) { n.label = label; n.type = 'collection'; }
+  });
+
+  // Les machines collectees sans liaison observee restent visibles : sans cela,
+  // ecarter la boucle locale efface aussi celles dont c'etait la seule arete.
+  let unlinked = { added: [], skipped: [] };
+  try {
+    const hq = collectedHostsQuery(caseId, evidenceIdList);
+    const hostRows = await readPool.query(hq.text, hq.values);
+    const merged = addUnlinkedMachines(Array.from(nodeMap.values()), hostRows.rows.map(r => r.host_name));
+    merged.nodes.forEach(n => { if (!nodeMap.has(n.id)) nodeMap.set(n.id, n); });
+    unlinked = { added: merged.added, skipped: merged.skipped };
+  } catch (e) {
+    unlinked = { added: [], skipped: [], unavailable: e.message };
+  }
+
+  identity.applyLabels(nodeMap);
   enrichNodes(nodeMap, edges);
 
   // Warn the caller when the LIMIT was hit (data may be incomplete)
@@ -724,11 +981,23 @@ async function buildNetworkGraph(caseId, evidenceIdList, pool, fromTs, toTs) {
     evidence_sources: r4.rows.map(r => ({ id: r.id, name: r.name || r.original_filename || r.id })),
     truncated,
     limit:            LIMIT,
+    // Ecarte et compte, jamais efface en silence : la carte doit pouvoir nommer en
+    // pied ce qu'elle a retire, et pourquoi.
+    identity: {
+      ...identity.summary(),
+      machines_without_link: unlinked.added,
+      hosts_skipped: unlinked.skipped,
+      coverage_unavailable: unlinked.unavailable || null,
+      urls_unattributed: urlUnattributed,
+      urls_reattached: urlRattachees,
+      collection_machines: [...machineDeCollecte.entries()].map(([evidence_id, host]) => ({ evidence_id, host })),
+      // Ecartees par le scope a la collecte, donc nommees plutot que disparues.
+      connections_unattributed: r6.rows[0]?.n || 0,
+    },
   };
 }
 
 async function buildAttackPath(caseId, pool) {
-  const MITRE_TAG_RE = /attack\.(t\d{4}(?:\.\d{3})?)/gi;
 
   const [r1, r2, r3] = await Promise.all([
     readPool.query(`
@@ -743,10 +1012,7 @@ async function buildAttackPath(caseId, pool) {
       ORDER BY event_timestamp ASC
     `, [caseId]),
 
-    readPool.query(`
-      SELECT id, hunted_at AS created_at, rule_name, matched_events
-      FROM sigma_hunt_results WHERE case_id = $1 ORDER BY hunted_at ASC
-    `, [caseId]),
+    (() => { const q = caseTechniquesQuery(caseId); return readPool.query(q.text, q.values); })(),
   ]);
 
   const nodes = [];
@@ -781,33 +1047,26 @@ async function buildAttackPath(caseId, pool) {
     });
   }
 
-  for (const r of r3.rows) {
-    const events = Array.isArray(r.matched_events) ? r.matched_events : [];
-    const techSet = new Set();
-    for (const ev of events) {
-      const tags = Array.isArray(ev.Tags) ? ev.Tags : (Array.isArray(ev.tags) ? ev.tags : []);
-      for (const tag of tags) {
-        MITRE_TAG_RE.lastIndex = 0;
-        let m;
-        while ((m = MITRE_TAG_RE.exec(String(tag))) !== null) {
-          techSet.add(m[1].toUpperCase());
-        }
-      }
-    }
-    for (const techId of techSet) {
-      nodes.push({
-        id: `detection-${r.id}-${techId}`,
-        type: 'detection',
-        tactic: '',
-        technique_id: techId,
-        technique_name: techId,
-        title: r.rule_name || techId,
-        timestamp: r.created_at,
-        confidence: 'high',
-        source: 'detection',
-        rule_name: r.rule_name,
-      });
-    }
+  for (const tech of techniquesFromHunts(r3.rows)) {
+    nodes.push({
+      id: `technique-${tech.technique_id}`,
+      type: 'detection',
+      tactic: tech.tactic,
+      technique_id: tech.technique_id,
+      technique_name: tech.technique_id,
+      title: tech.rules[0] || tech.technique_id,
+      timestamp: tech.first_seen,
+      last_seen: tech.last_seen,
+      confidence: tech.level === 'critical' || tech.level === 'high' ? 'high' : 'medium',
+      source: 'detection',
+      level: tech.level,
+      hunts: tech.hunts,
+      widest_match: tech.widest_match,
+      narrowest_match: tech.narrowest_match,
+      rule_name: tech.rules[0] || null,
+      rules: tech.rules.slice(0, 5),
+      rule_count: tech.rules.length,
+    });
   }
 
   const TACTIC_ORDER = [
@@ -1167,11 +1426,15 @@ router.put('/:caseId/annotations', authenticate, requireRole('admin', 'analyst')
 router.put('/:caseId/annotations/global', authenticate, requireRole('admin', 'analyst'), async (req, res) => {
   try {
     const { caseId } = req.params;
-    const { zones = [], node_overrides = {}, manual_nodes = [], subnet_rules = [] } = req.body;
-    if (!Array.isArray(zones) || typeof node_overrides !== 'object' || !Array.isArray(manual_nodes) || !Array.isArray(subnet_rules)) {
+    const { zones = [], node_overrides = {}, manual_nodes = [], subnet_rules = [], zone_declarations = {} } = req.body;
+    if (!Array.isArray(zones) || typeof node_overrides !== 'object' || !Array.isArray(manual_nodes) || !Array.isArray(subnet_rules)
+        || typeof zone_declarations !== 'object' || zone_declarations === null || Array.isArray(zone_declarations)) {
       return res.status(400).json({ error: 'Invalid global annotations shape' });
     }
-    const patch = JSON.stringify({ global_zones: zones, global_node_overrides: node_overrides, global_manual_nodes: manual_nodes, global_subnet_rules: subnet_rules });
+    // `zone_declarations` n'est pas prefixe `global_` a dessein : la zone d'un noeud ne
+    // depend pas de la carte qu'on regarde. Une DMZ declaree depuis la carte de cas se
+    // lit depuis la carte globale — il n'y a qu'une verite, montree deux fois.
+    const patch = JSON.stringify({ global_zones: zones, global_node_overrides: node_overrides, global_manual_nodes: manual_nodes, global_subnet_rules: subnet_rules, zone_declarations });
     await pool.query(
       `INSERT INTO network_annotations (case_id, data, updated_at)
        VALUES ($1, $2::jsonb || '{"zones":[],"node_overrides":{}}'::jsonb, NOW())
@@ -1241,11 +1504,72 @@ function mergeGlobalGraph(results, evidences) {
     }
   });
 
+  // Le bloc `identity` de chaque collecte se perdait a la fusion : la carte ne pouvait
+  // donc pas nommer ce qu'elle avait retire, alors que chaque construction le savait.
+  // Les raisons sont agregees par identifiant, les occurrences additionnees — c'est le
+  // nombre d'occurrences qui dit l'ampleur, pas le nombre de valeurs distinctes.
+  const discardMap = new Map();
+  const withoutLink = new Set();
+  const hostsSkipped = new Map();
+  let machinesFolded = 0;
+  let urlsUnattributed = 0;
+  let coverageUnavailable = null;
+  // Valeur DU CAS, rendue a l'identique par chaque graphe par collecte : on retient,
+  // on n'additionne pas. La sommer reproduirait le defaut qu'on vient de corriger.
+  let connectionsUnattributed = 0;
+
+  for (const r of results) {
+    const id = r.identity;
+    if (!id) continue;
+    for (const d of id.discarded || []) {
+      const cur = discardMap.get(d.id) || { id: d.id, reason: d.reason, count: 0 };
+      cur.count += d.count || 1;
+      discardMap.set(d.id, cur);
+    }
+    for (const m of id.machines_without_link || []) withoutLink.add(m);
+    for (const h of id.hosts_skipped || []) hostsSkipped.set(h.id, h);
+    machinesFolded   += id.machines_folded   || 0;
+    urlsUnattributed += id.urls_unattributed || 0;
+    connectionsUnattributed = Math.max(connectionsUnattributed, id.connections_unattributed || 0);
+    if (id.coverage_unavailable) coverageUnavailable = id.coverage_unavailable;
+  }
+
+  // « Sans liaison » est une propriete du graphe fusionne, pas de chacune de ses parties.
+  //
+  // Constate en production le 2026-08-26 : le pied de carte annoncait « 6 machines sans
+  // liaison » pendant que la carte en dessinait deux reliees —
+  // `DESKTOP-57GPUQF -> WIN-BR2DIUCC8CK`, cc=4. Deux causes, la meme erreur de
+  // raisonnement : la fusion des noeuds copie le PREMIER vu (`{...node}`) et ne
+  // reevalue jamais le drapeau, donc la collecte ou la machine n'a pas de lien gagne
+  // sur celle ou elle en a un ; et `machines_without_link` est une union entre
+  // collectes, donc une machine sans lien dans l'une y figure meme si une autre la relie.
+  //
+  // Le drapeau se leve, il ne se pose jamais : on ne declare pas sans liaison un noeud
+  // qui ne l'avait pas dit, sous peine d'inventer une absence la ou il n'y en a pas.
+  // Une machine que rien ne relie, elle, reste visible et le dit — c'est le defaut
+  // inverse, deja paye une fois.
+  const touched = new Set();
+  for (const e of edgeMap.values()) { touched.add(e.source); touched.add(e.target); }
+  nodeMap.forEach((n, id) => { if (n.no_observed_link && touched.has(id)) delete n.no_observed_link; });
+  for (const id of [...withoutLink]) if (touched.has(id)) withoutLink.delete(id);
+
+  const discarded = [...discardMap.values()].sort((a, b) => b.count - a.count);
+
   return {
     nodes:            Array.from(nodeMap.values()),
     edges:            Array.from(edgeMap.values()),
     evidence_sources: evidenceSources,
     truncated:        results.some(r => r.truncated),
+    identity: {
+      discarded,
+      discarded_occurrences: discarded.reduce((n, d) => n + d.count, 0),
+      machines_folded:       machinesFolded,
+      machines_without_link: [...withoutLink].sort(),
+      hosts_skipped:         [...hostsSkipped.values()],
+      urls_unattributed:     urlsUnattributed,
+      connections_unattributed: connectionsUnattributed,
+      coverage_unavailable:  coverageUnavailable,
+    },
   };
 }
 
@@ -1271,6 +1595,65 @@ router.get('/:caseId/global-graph', authenticate, requireRole('admin', 'analyst'
     res.json(graph);
   } catch (err) {
     return sendQueryError(res, err, 'GET /:caseId/global-graph');
+  }
+});
+
+// ── Le registre des liaisons ─────────────────────────────────────────────────
+//
+// Une machine et quatorze pairs, ce n'est pas un reseau, c'est une etoile — et une
+// etoile est une liste. Ce point d'acces rend les connexions groupees au plus fin que
+// le registre demande : processus, etat de socket, pair, port, protocole. Les trois
+// vues de l'ecran — par processus, par pair, par port — sont des regroupements de ces
+// memes lignes, donc une seule requete les sert toutes les trois et le regroupement
+// reste une fonction pure, lisible et testable sans base.
+//
+// La source est `network_connections`, pas `collection_timeline` : c'est la projection
+// qui fait foi, la seule des deux a ecarter la boucle locale et les sockets sans pair
+// avec leurs raisons.
+router.get('/:caseId/register', authenticate, requireRole('admin', 'analyst'), async (req, res) => {
+  try {
+    const { caseId } = req.params;
+
+    const [rowsRes, seenRes, hostRes] = await Promise.all([
+      readPool.query(`
+        SELECT process, socket_state, dst_ip::text AS peer, dst_port AS port, protocol,
+               COUNT(*)::int AS connections
+          FROM network_connections
+         WHERE case_id = $1 AND dst_ip IS NOT NULL
+         GROUP BY process, socket_state, dst_ip, dst_port, protocol
+      `, [caseId]),
+
+      // Les instants distincts, pas seulement les bornes : c'est leur NOMBRE qui dit
+      // qu'une capture decrit une seconde et non une periode, et donc pourquoi
+      // l'analyse de balises est indisponible.
+      readPool.query(`
+        SELECT DISTINCT first_seen FROM network_connections
+         WHERE case_id = $1 AND first_seen IS NOT NULL
+      `, [caseId]),
+
+      // La ou les machines qui initient, nommees quand la collecte les nomme.
+      readPool.query(`
+        SELECT DISTINCT COALESCE(NULLIF(TRIM(src_host), ''), src_ip) AS machine
+          FROM network_connections
+         WHERE case_id = $1 AND src_ip IS NOT NULL
+         ORDER BY 1
+      `, [caseId]),
+    ]);
+
+    const rows = buildRegisterRows(rowsRes.rows, (peer) => (
+      classifyType(peer) === 'internal' ? 'internal' : 'external'
+    ));
+    const totals = registerTotals(rows, seenRes.rows.map(r => (
+      r.first_seen instanceof Date ? r.first_seen.toISOString() : r.first_seen
+    )));
+
+    res.json({
+      rows,
+      totals,
+      machines: hostRes.rows.map(r => r.machine).filter(Boolean),
+    });
+  } catch (err) {
+    return sendQueryError(res, err, 'GET /:caseId/register');
   }
 });
 
@@ -1355,10 +1738,33 @@ router.get('/:caseId/analytics', authenticate, async (req, res) => {
            FROM network_connections WHERE case_id=$1
        ) u`, [cid])).rows[0] || {};
 
+    // « Indisponible parce que », jamais « 0 ». Quatre des six comptes ci-dessus sont
+    // des faux negatifs sur une collecte comme celle de reference : ils se lisent « on a
+    // cherche et il n'y a rien » alors qu'ils veulent dire « ca n'a pas pu etre mesure ».
+    // Les faits qui le prouvent sont comptes ici, l'etat en est deduit dans
+    // services/analyticsAvailability.ts, et l'ecran choisit ses mots.
+    const f = (await readPool.query(
+      `SELECT COUNT(*)::int AS rows,
+              COUNT(DISTINCT first_seen)::int AS instants,
+              COUNT(*) FILTER (WHERE bytes_sent IS NOT NULL OR bytes_received IS NOT NULL)::int AS with_bytes,
+              COUNT(*) FILTER (WHERE COALESCE(geo_dst->>'country','') <> '')::int AS with_geo
+         FROM network_connections WHERE case_id = $1`, [cid])).rows[0] || {};
+    // Le DGA lit la table `iocs`, pas les connexions : sa disponibilite se mesure la.
+    const di = (await readPool.query(
+      `SELECT COUNT(*)::int AS n FROM iocs WHERE case_id = $1 AND ioc_type = 'domain'`, [cid])).rows[0] || {};
+
     res.json({
       findings, nodeFlags,
       counts: { exfil: exfil.length, scan: scan.length, lateral: lateral.length, pivot: pivot.length, rare: rare.length, knownBad: ti.length },
       geo, zones,
+      availability: analyticsAvailability({
+        rows: f.rows, instants: f.instants, withBytes: f.with_bytes, withGeo: f.with_geo, domainIocs: di.n,
+      }),
+      // Les deux ecrans comptaient « internal » sans compter la meme chose : ici des
+      // adresses IP distinctes de network_connections, sur la carte des noeuds du
+      // graphe. Chacun est juste pour ce qu'il compte — le dire evite qu'ils se
+      // contredisent en apparence.
+      zones_unit: 'ip',
     });
   } catch (err) {
     return sendQueryError(res, err, 'GET /:caseId/analytics');
@@ -1367,3 +1773,4 @@ router.get('/:caseId/analytics', authenticate, async (req, res) => {
 
 module.exports = router;
 module.exports.mergeGlobalGraph = mergeGlobalGraph;
+module.exports.collectedHostsQuery = collectedHostsQuery;

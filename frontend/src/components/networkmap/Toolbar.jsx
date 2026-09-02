@@ -1,4 +1,3 @@
-// frontend/src/components/networkmap/Toolbar.jsx
 import { useState } from 'react';
 import { Search } from 'lucide-react';
 import { NODE_TYPES } from '../../constants/nodeTypes';
@@ -17,7 +16,6 @@ export default function Toolbar({ graphData, filters, onFilterChange, onSearch, 
 
   return (
     <div style={{ background: 'var(--fl-bg)', borderBottom: '1px solid var(--fl-raised)', padding: '5px 12px', flexShrink: 0, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', minHeight: 36 }}>
-      {/* View toggle */}
       <div style={{ display: 'flex', gap: 2, flexShrink: 0 }}>
         {[['network', t('networkMap.views.network')], ['attack', t('networkMap.views.attack')], ['lateral', t('networkMap.views.lateral')]].map(([v, label]) => (
           <button key={v} onClick={() => onViewChange(v)} style={{
@@ -31,7 +29,6 @@ export default function Toolbar({ graphData, filters, onFilterChange, onSearch, 
 
       <div style={{ width: 1, height: 18, background: 'var(--fl-raised)', flexShrink: 0 }} />
 
-      {/* Search */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 5, background: 'var(--fl-panel)', border: '1px solid var(--fl-subtle)', borderRadius: 4, padding: '0 8px', height: 28, minWidth: 180 }}>
         <Search size={11} style={{ color: 'var(--fl-muted)', flexShrink: 0 }} />
         <input
@@ -42,7 +39,6 @@ export default function Toolbar({ graphData, filters, onFilterChange, onSearch, 
         />
       </div>
 
-      {/* Type filter chips */}
       <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
         {FILTER_TYPES.filter(t => NODE_TYPES[t]).slice(0, 6).map(typeId => {
           const type   = NODE_TYPES[typeId];
@@ -62,7 +58,6 @@ export default function Toolbar({ graphData, filters, onFilterChange, onSearch, 
 
       <div style={{ flex: 1 }} />
 
-      {/* Intelligence badges */}
       {iocCount > 0    && <span style={{ padding: '3px 9px', borderRadius: 4, fontSize: 12, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', background: 'color-mix(in srgb, var(--fl-danger) 6%, transparent)', color: 'var(--fl-danger)', border: '1px solid color-mix(in srgb, var(--fl-danger) 19%, transparent)', flexShrink: 0 }}>⚠ {iocCount} IOC</span>}
       {beaconCount > 0 && <span style={{ padding: '3px 9px', borderRadius: 4, fontSize: 12, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', background: 'color-mix(in srgb, var(--fl-warn) 6%, transparent)', color: 'var(--fl-warn)', border: '1px solid color-mix(in srgb, var(--fl-warn) 19%, transparent)', flexShrink: 0 }}>◎ {t('networkMap.beacons', { count: beaconCount })}</span>}
       {dgaCount > 0    && <span style={{ padding: '3px 9px', borderRadius: 4, fontSize: 12, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', background: 'color-mix(in srgb, var(--fl-accent) 6%, transparent)', color: 'var(--fl-accent)', border: '1px solid color-mix(in srgb, var(--fl-accent) 19%, transparent)', flexShrink: 0 }}>⁉ {dgaCount} DGA</span>}

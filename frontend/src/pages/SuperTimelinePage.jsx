@@ -1,7 +1,8 @@
-// frontend/src/pages/SuperTimelinePage.jsx
 import { useEffect, useState, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useParams, useSearchParams, useOutletContext } from 'react-router-dom';
 import { useTimelineStore } from '../components/supertimeline/store/useTimelineStore';
+import { splitCounts } from '../components/supertimeline/utils/timelineUtils';
 import { timelineRulesAPI } from '../utils/api';
 import { sortRules } from '../utils/colorRulesEngine';
 import CommandBar  from '../components/supertimeline/CommandBar/CommandBar';
@@ -33,7 +34,6 @@ export default function SuperTimelinePage() {
     if (initResultId) setFilter('resultId', initResultId);
     if (initHuntId)   setFilter('huntId', initHuntId);
 
-    // Load color rules first (fast DB query), then kick off timeline so first render has correct row colors
     timelineRulesAPI.list(caseId)
       .then(r => {
         const rules = r.data?.rules || r.data || [];
@@ -59,8 +59,12 @@ export default function SuperTimelinePage() {
   );
 }
 
+const fmtCount = (n, locale) => Number(n || 0).toLocaleString(locale || undefined);
+
 function HeaderStrip({ showDiff, setShowDiff }) {
-  const { total, caseId } = useTimelineStore();
+  const { t, i18n } = useTranslation();
+  const { total, undated, caseId, nature, setNature } = useTimelineStore();
+  const { dated } = splitCounts(total, undated);
   const [tipsOpen, setTipsOpen] = useState(false);
   const panelRef = useRef(null);
 
@@ -80,8 +84,35 @@ function HeaderStrip({ showDiff, setShowDiff }) {
       <span style={{ fontSize: 15, fontWeight: 600, fontFamily: 'var(--f-display, var(--f-ui))', letterSpacing: '-0.01em', color: 'var(--fl-text)' }}>Super Timeline</span>
       {caseId && total > 0 && (
         <span style={{ fontSize: 11.5, fontFamily: MONO, color: 'var(--fl-muted)', fontFeatureSettings: '"tnum"' }}>
-          {total.toLocaleString('en-US')} events
+          <span style={{ color: 'var(--fl-dim)' }}>{fmtCount(dated, i18n.language)}</span>{' '}
+          {t('timeline.header.events', { count: dated })}
+          {undated > 0 && (
+            <>
+              <span style={{ color: 'var(--fl-subtle)', margin: '0 6px' }}>·</span>
+              {fmtCount(undated, i18n.language)}{' '}
+              {t('timeline.header.inventory', { count: undated })}
+            </>
+          )}
         </span>
+      )}
+      {caseId && undated > 0 && (
+        <div style={{ display: 'flex', border: '1px solid var(--fl-border)', borderRadius: 6, overflow: 'hidden' }}
+          role="group" aria-label={t('timeline.nature_label')}>
+          {['all', 'dated', 'undated'].map(key => {
+            const on = (nature || 'all') === key;
+            return (
+              <button key={key} onClick={() => setNature(key)} aria-pressed={on}
+                style={{
+                  fontSize: 11, padding: '3px 11px', cursor: 'pointer', whiteSpace: 'nowrap',
+                  border: 'none', borderRight: key === 'undated' ? 'none' : '1px solid var(--fl-border)',
+                  background: on ? 'color-mix(in srgb, var(--fl-accent) 13%, transparent)' : 'transparent',
+                  color: on ? 'var(--fl-accent)' : 'var(--fl-dim)',
+                }}>
+                {t(`timeline.nature_${key}`)}
+              </button>
+            );
+          })}
+        </div>
       )}
       <div style={{ flex: 1 }} />
       <button

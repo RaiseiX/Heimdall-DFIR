@@ -1,10 +1,10 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Plus, X, Loader2, ChevronDown, ChevronRight } from 'lucide-react';
 import { useTimelineStore } from '../store/useTimelineStore';
+import { formatCount } from '../../../utils/formatCount';
 import { tabColor, GROUP_BY_FIELDS } from '../utils/timelineUtils';
 import { collectionAPI } from '../../../utils/api';
 
-// Detection summary severity rows
 const SEV_ROWS = [
   { key: 'critical', color: 'var(--fl-danger)', label: 'Critical' },
   { key: 'high',     color: 'var(--fl-warn)', label: 'High'     },
@@ -23,12 +23,6 @@ function buildGroupParams(store) {
   if (store.evidenceId)           p.evidence_id = store.evidenceId;
   if (store.evidenceIds?.length)  p.evidence_ids = store.evidenceIds.join(',');
   if (store.hitsOnly)             p.detections = 'hits_only';
-  // A Sigma hunt pivot (huntId, set from the ?huntId= URL param on landing —
-  // see SuperTimelinePage.jsx) must keep restricting the grouped counts the
-  // same way it restricts the flat row list, or switching to a group-by
-  // silently widens the scope back to the whole case with no sign anything
-  // changed. Mirrors collectionAPI.timeline's own hunt_id forwarding in
-  // store/useTimelineStore.js's buildQueryParams().
   if (store.huntId)               p.hunt_id    = store.huntId;
   return p;
 }
@@ -107,7 +101,7 @@ function GroupBySection({ field, label, onRemove }) {
               {String(g.value ?? '—')}
             </span>
             <span style={{ fontSize: 8, color: 'var(--fl-muted)', minWidth: 36, textAlign: 'right' }}>
-              {g.count.toLocaleString()}
+              {formatCount(g.count)}
             </span>
           </div>
         );
@@ -150,7 +144,6 @@ export default function ArtifactsTab() {
   return (
     <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
 
-      {/* Artifact list */}
       <div style={{ padding: '4px 0 2px' }}>
         <div style={{ padding: '2px 10px 4px', display: 'flex', alignItems: 'center' }}>
           <span style={{ flex: 1, fontSize: 8, fontWeight: 700, letterSpacing: '0.14em',
@@ -184,7 +177,7 @@ export default function ArtifactsTab() {
               <span style={{ flex: 1, fontSize: 10, color: active ? col : '#6a8ab0', fontWeight: active ? 700 : 400 }}>{t}</span>
               {count != null && (
                 <span style={{ fontSize: 9, color: 'var(--fl-muted)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}>
-                  {count.toLocaleString()}
+                  {formatCount(count)}
                 </span>
               )}
             </div>
@@ -192,12 +185,11 @@ export default function ArtifactsTab() {
         })}
       </div>
 
-      {/* Detection summary */}
       {totalDets > 0 && (
         <div style={{ borderTop: '1px solid var(--fl-card)', paddingTop: 4 }}>
           <div style={{ padding: '2px 10px 4px', fontSize: 8, fontWeight: 700, letterSpacing: '0.14em',
             textTransform: 'uppercase', color: 'var(--fl-subtle)' }}>
-            Detections · {totalDets.toLocaleString()}
+            Detections · {formatCount(totalDets)}
           </div>
           {SEV_ROWS.map(s => {
             const count = detSummary?.[s.key] || 0;
@@ -214,7 +206,7 @@ export default function ArtifactsTab() {
                   <div style={{ height: 3, width: `${pct}%`, background: s.color, borderRadius: 2 }} />
                 </div>
                 <span style={{ fontSize: 9, fontWeight: 700, color: s.color, minWidth: 28, textAlign: 'right' }}>
-                  {count.toLocaleString()}
+                  {formatCount(count)}
                 </span>
               </div>
             );
@@ -222,7 +214,6 @@ export default function ArtifactsTab() {
         </div>
       )}
 
-      {/* Group by accordion */}
       <div style={{ borderTop: '1px solid var(--fl-card)', paddingTop: 2 }}>
         <div onClick={() => setGroupsOpen(v => !v)}
           style={{ padding: '4px 10px', display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
@@ -260,7 +251,6 @@ export default function ArtifactsTab() {
         ))}
       </div>
 
-      {/* Bookmarks section */}
       {bookmarks.length > 0 && (
         <div style={{ borderTop: '1px solid var(--fl-card)', paddingTop: 2 }}>
           <div style={{ padding: '4px 10px', fontSize: 8, fontWeight: 700,

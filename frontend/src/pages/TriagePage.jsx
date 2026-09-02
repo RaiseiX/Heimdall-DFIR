@@ -28,7 +28,7 @@ const itemAction = (it, t) => it.type === 'detection' ? t('triage.action_detecti
 export default function TriagePage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const [tab, setTab]         = useState('inbox');   // 'inbox' = persistent alerts, 'queue' = live attention
+  const [tab, setTab]         = useState('inbox');
   const [items, setItems]     = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -45,7 +45,6 @@ export default function TriagePage() {
 
   return (
     <div style={{ padding: '18px 22px', background: 'var(--fl-bg)', minHeight: '100%' }}>
-      {/* Header */}
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, marginBottom: 4 }}>
         <h1 style={{ fontSize: 22, fontWeight: 600, margin: 0, color: 'var(--fl-text)', fontFamily: 'var(--f-display, var(--f-ui))', letterSpacing: '-0.02em' }}>
           {t('triage.title')}
@@ -60,7 +59,6 @@ export default function TriagePage() {
         )}
       </div>
 
-      {/* Inbox (persistent alerts) ⇆ Live queue (computed attention) */}
       <div style={{ display: 'flex', gap: 6, margin: '4px 0 18px' }}>
         {[['inbox', 'triage.inbox.tab'], ['queue', 'triage.queue_tab']].map(([k, lbl]) => (
           <button key={k} onClick={() => setTab(k)}

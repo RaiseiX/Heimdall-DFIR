@@ -2,7 +2,6 @@ import { useState, useMemo } from 'react';
 import { Copy, CheckCheck, ChevronDown, ChevronRight, Star, Sparkles, ArrowDownUp, Search } from 'lucide-react';
 import { useTheme } from '../../utils/theme';
 
-// Open the global AI chat pre-filled with a question about an artifact.
 function askAi(artifact) {
   const prompt = `Explique l'artefact forensique Windows « ${artifact.name} »`
     + (artifact.mitre?.length ? ` (MITRE ${artifact.mitre.join(', ')})` : '')
@@ -10,7 +9,6 @@ function askAi(artifact) {
   window.dispatchEvent(new CustomEvent('heimdall:ai-open', { detail: { prompt } }));
 }
 
-// MITRE technique → attack.mitre.org (handles sub-techniques like T1059.001).
 function mitreUrl(id) {
   const [base, sub] = id.split('.');
   return `https://attack.mitre.org/techniques/${base}${sub ? `/${sub}` : ''}/`;
@@ -401,7 +399,6 @@ function ArtifactCard({ artifact, search, defaultOpen, compact }) {
                 <Star size={9} fill="currentColor" /> Haute valeur
               </span>
             )}
-            {/* Ask AI — opens the global chat pre-filled */}
             <button
               onClick={(e) => { e.stopPropagation(); askAi(artifact); }}
               title="Demander à l'IA d'expliquer cet artefact"
@@ -533,7 +530,6 @@ export default function WindowsArtifactsDoc({ search }) {
     return n;
   });
 
-  // Premium toggle button used for density / sort controls.
   const Toggle = ({ active, onClick, icon: Icon, children, title }) => (
     <button onClick={onClick} title={title} style={{
       display: 'inline-flex', alignItems: 'center', gap: 6, padding: '5px 11px', borderRadius: 8, cursor: 'pointer',
@@ -549,7 +545,6 @@ export default function WindowsArtifactsDoc({ search }) {
   return (
     <div style={{ padding: '26px 34px', maxWidth: 920 }}>
 
-      {/* Editorial header */}
       <div style={{ marginBottom: 18 }}>
         <h1 style={{ fontFamily: 'var(--f-display, "Space Grotesk", "Inter", sans-serif)', fontSize: 26, fontWeight: 600, letterSpacing: '-0.02em', color: 'var(--fl-text)', margin: 0 }}>
           Artefacts Windows
@@ -563,7 +558,6 @@ export default function WindowsArtifactsDoc({ search }) {
         </p>
       </div>
 
-      {/* Controls: category chips + density + sort */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 22, paddingBottom: 16, borderBottom: '1px solid var(--fl-border)' }}>
         {catNames.map(cat => {
           const on = !hidden.has(cat);

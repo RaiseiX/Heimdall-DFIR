@@ -1,4 +1,3 @@
-// frontend/src/constants/nodeTypes.js
 export const NODE_TYPES = {
   server: {
     id: 'server', label: 'Server', color: '#6b8ccf',
@@ -131,7 +130,6 @@ export const NODE_BADGES = {
   dga:     { color: '#c489c4', label: '⁉' },
 };
 
-// Colorblind-safe palette (Wong 2011) mapped to node types
 export const NODE_COLORS_CB = {
   server:            '#0072B2',
   workstation:       '#56B4E9',
@@ -159,11 +157,9 @@ export function buildNodeSvg(typeId, colorOverride) {
   if (!typeId || typeof typeId !== 'string' || !NODE_TYPES[typeId]) typeId = 'server';
   const type = NODE_TYPES[typeId];
   const icon = type.svgPath.replace(/COLOR/g, '#ffffff');
-  // SVG size matches node size exactly (no browser default-size guessing).
-  // Icon (24×24 coords) is scaled, then offset to center inside the node box.
-  const S = 64;                       // node + svg size (must match cytoscapeConfig node width/height)
-  const scale = 1.75;                 // 24 × 1.75 = 42px icon
-  const off = ((S - 24 * scale) / 2).toFixed(1); // center the scaled icon
+  const S = 64;
+  const scale = 1.75;
+  const off = ((S - 24 * scale) / 2).toFixed(1);
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${S}" height="${S}" viewBox="0 0 ${S} ${S}"><g transform="translate(${off},${off}) scale(${scale})">${icon}</g></svg>`;
   return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
 }

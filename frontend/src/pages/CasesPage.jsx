@@ -46,9 +46,6 @@ export default function CasesPage({ user }) {
   const [selected, setSelected] = useState(new Set());
   const [showBulkDelete, setShowBulkDelete] = useState(false);
   const [bulkDeleting, setBulkDeleting] = useState(false);
-  // Destroying N cases must be at least as guarded as destroying one (which
-  // requires retyping the case number). The analyst retypes the count, which
-  // forces them to read how many cases the selection actually holds.
   const [bulkConfirm, setBulkConfirm] = useState('');
   const [deleteResults, setDeleteResults] = useState(null);
   const [timeStats, setTimeStats] = useState({});
@@ -71,7 +68,6 @@ export default function CasesPage({ user }) {
     try {
       const { data } = await casesAPI.list({ search, status: filterStatus, priority: filterPriority });
       setCases(data.cases);
-      // Load time stats for each case in parallel (silent)
       const stats = {};
       await Promise.all((data.cases || []).map(async c => {
         try {
@@ -82,17 +78,6 @@ export default function CasesPage({ user }) {
       setTimeStats(stats);
       setLoadError(false);
     } catch {
-      // Ne JAMAIS substituer de dossiers fabriqués ici.
-      //
-      // Cette branche affichait auparavant trois dossiers codés en dur
-      // (« Main Server Intrusion », « Agent Dupont », id: '1'|'2'|'3'). Pendant
-      // une indisponibilité de l'API, un analyste voyait donc des dossiers
-      // inventés strictement indiscernables des dossiers réels — et a agi
-      // dessus : une suppression définitive a été lancée sur ces identifiants
-      // fictifs (elle n'a échoué que parce que « 1 » n'est pas un UUID).
-      //
-      // Sur une plateforme de preuve numérique, la réponse à une erreur d'API
-      // est de déclarer la donnée indisponible, jamais d'en inventer une.
       setCases([]);
       setLoadError(true);
     }
@@ -155,8 +140,6 @@ export default function CasesPage({ user }) {
         <div style={{ flex: 1, minWidth: 0 }}>
           <h1 style={{ fontFamily: 'var(--f-display, "Space Grotesk", "Inter", sans-serif)', fontSize: 16, fontWeight: 600, color: 'var(--fl-text)', lineHeight: 1.2, letterSpacing: '-0.02em' }}>{t('cases.title')}</h1>
           <p style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11, color: 'var(--fl-dim)', marginTop: 4 }}>
-            {/* En erreur, ne pas annoncer « 0 cas » : ce serait affirmer un fait
-                sur une donnée qu'on n'a pas — même défaut que le repli fabriqué. */}
             {loadError ? '—' : t('cases.subtitle', { n: cases.length, m: activeCount })}
             {!loadError && criticalCount > 0 && (
               <span style={{ color: 'var(--fl-danger)' }}>
@@ -252,9 +235,6 @@ export default function CasesPage({ user }) {
       </div>
 
       {loadError ? (
-        // État d'erreur explicite : « la liste n'a pas pu être chargée » n'est pas
-        // « il n'y a aucun dossier ». Confondre les deux sur un outil forensique
-        // conduit l'analyste à tirer des conclusions sur des données absentes.
         <div className="fl-card" style={{ overflow: 'hidden', borderColor: 'color-mix(in srgb, var(--fl-danger) 35%, var(--fl-border))' }}>
           <EmptyState
             icon={AlertTriangle}

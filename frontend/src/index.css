@@ -5,10 +5,14 @@
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
 /* ── Timeline grid ───────────────────────────────────────── */
+/* La hauteur vient d'une variable parce qu'elle est lue à deux endroits qui doivent
+   rester d'accord : cette règle, et `estimateSize` du virtualiseur. Le repli 28px
+   garde le rendu d'origine si la variable n'est pas posée. Source unique :
+   rowHeightFor() dans supertimeline/utils/timelineUtils.js. */
 .tl-row {
   display: grid;
   align-items: center;
-  height: 28px;
+  height: var(--tl-row-h, 28px);
   width: 100%;
   cursor: pointer;
   border-bottom: 1px solid var(--fl-border2);
@@ -18,6 +22,15 @@
 .tl-row--sel   { background: color-mix(in srgb, var(--fl-accent) 8%, transparent); }
 .tl-accent     { width: 4px; align-self: stretch; flex-shrink: 0; }
 .tl-cell       { padding: 0 8px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; min-width: 0; }
+
+/* Panneau de détail : le bouton copier reste dans le DOM — donc atteignable au
+   clavier — mais ne se montre qu'au survol de sa ligne ou quand il reçoit le focus.
+   Un bouton par champ, visible en permanence, faisait treize objets pour treize
+   valeurs. */
+.dtl-row:hover      { background: var(--fl-hover-bg); }
+.dtl-copy           { opacity: 0; transition: opacity 90ms ease-out; }
+.dtl-row:hover .dtl-copy,
+.dtl-copy:focus-visible { opacity: 1; }
 
 
 /* ═══════════════════════════════════════════════════════════
@@ -70,6 +83,12 @@
   --fl-hover-bg: rgba(139, 127, 255, 0.05);
 
   /* ── Artifact color system ────────────────────────────── */
+  /* Ces teintes sont désormais des couleurs de TEXTE : la colonne « type » les porte
+     en monospace nu, sans le badge teinté qui les enveloppait. Elles doivent donc
+     tenir 4.5:1. Mesuré sur --fl-panel (#0e1118) : 13 familles sur 15 passaient,
+     jumplist (3.72) et bits (2.95) échouaient. Les deux sont relevées en luminosité,
+     teinte et saturation inchangées, pour rester reconnaissables.
+     Le thème clair portait cinq échecs, corrigés au même titre plus bas. */
   --fl-artifact-evtx:      #8b7fff;
   --fl-artifact-prefetch:  #6abf8e;
   --fl-artifact-mft:       #c96898;
@@ -77,14 +96,14 @@
   --fl-artifact-registry:  #5bb8d4;
   --fl-artifact-amcache:   #c9a86a;
   --fl-artifact-shellbags: #2ec4b6;
-  --fl-artifact-jumplist:  #7c5cbf;
+  --fl-artifact-jumplist:  #896cc5;  /* 3.72 -> 4.51 sur --fl-panel */
   --fl-artifact-srum:      #e0556d;
   --fl-artifact-recycle:   #5aaa68;
   --fl-artifact-sqle:      #3d9bd4;
   --fl-artifact-wer:       #b85cc8;
   --fl-artifact-catscale:  #6abf8e;
   --fl-artifact-appcompat: #c9a86a;
-  --fl-artifact-bits:      #4a6080;
+  --fl-artifact-bits:      #637da5;  /* 2.95 -> 4.50 sur --fl-panel */
 
   /* ── Radii ────────────────────────────────────────────── */
   --fl-radius-sm:  3px;
@@ -170,19 +189,22 @@ body.theme-light {
   --fl-pink:     #a63878;
   --fl-hover-bg: rgba(0, 0, 0, 0.04);
   --fl-artifact-evtx:      #6c5df5;
-  --fl-artifact-prefetch:  #2d9e6e;
+  /* Mêmes contraintes qu'en thème sombre, mesurées sur --fl-panel (#ffffff) :
+     prefetch et catscale 3.37, lnk 3.64, amcache et appcompat 4.04. Assombries
+     jusqu'au seuil, teinte et saturation inchangées. */
+  --fl-artifact-prefetch:  #26865d;  /* 3.37 -> 4.52 */
   --fl-artifact-mft:       #a63878;
-  --fl-artifact-lnk:       #c4721e;
+  --fl-artifact-lnk:       #ad651a;  /* 3.64 -> 4.51 */
   --fl-artifact-registry:  #1a7fa8;
-  --fl-artifact-amcache:   #9a7a30;
+  --fl-artifact-amcache:   #8f712d;  /* 4.04 -> 4.60 */
   --fl-artifact-shellbags: #1a7a70;
   --fl-artifact-jumplist:  #5430a8;
   --fl-artifact-srum:      #cc3355;
   --fl-artifact-recycle:   #2a7838;
   --fl-artifact-sqle:      #1860a0;
   --fl-artifact-wer:       #8830a0;
-  --fl-artifact-catscale:  #2d9e6e;
-  --fl-artifact-appcompat: #9a7a30;
+  --fl-artifact-catscale:  #26865d;  /* 3.37 -> 4.52 */
+  --fl-artifact-appcompat: #8f712d;  /* 4.04 -> 4.60 */
   --fl-artifact-bits:      #3a5868;
   --fl-shadow-sm: 0 1px 3px rgba(0,0,0,0.07), 0 0 0 1px rgba(0,0,0,0.03);
   --fl-shadow-md: 0 4px 12px rgba(0,0,0,0.09), 0 0 0 1px rgba(0,0,0,0.04);
@@ -1592,39 +1614,86 @@ svg.lucide { stroke-width: 1.6px; }
 /* Hero column: brand pinned top, headline centred, quote pinned bottom — the
    column breathes over the full height instead of clustering in the middle. */
 .login-herotext { flex: 1 1 0; min-width: 0; max-width: 600px; display: flex; flex-direction: column; justify-content: space-between; gap: 28px; padding: 4px 0; }
+
+/* Titre héros : 42px est hors échelle --fs-* (qui s'arrête à 26px / --fs-hero) —
+   dérogation assumée pour ce titre de couverture, seule dérogation du lot. */
+.login-hero-title {
+  font-size: 42px; line-height: 1.08; font-weight: var(--fw-label);
+  letter-spacing: -0.02em; color: var(--fl-text);
+}
+.login-hero-title .second { color: var(--fl-dim); }
+
+/* ── Carte d'accès ────────────────────────────────────────────────────── */
 .login-card {
-  flex: 0 0 auto; width: clamp(340px, 30vw, 410px); align-self: center;
-  /* Near-opaque so the bright beam + gold embers behind never bleed through and
-     create an uneven "stain". Glass feel kept via the subtle blur + top highlight. */
-  /* Posée, pas suspendue. La carte tient par son filet et sa matière : plus
-     d'ombre flottante de 80px, plus de faux biseau de verre en tête. Le blur
-     servait à garantir l'opacité face au faisceau — un fond plein le fait seul,
-     sans coûter de composition GPU. */
-  background: #0c0f16;
-  border: 1px solid rgba(255,255,255,0.10);
-  border-radius: var(--fl-radius-lg); padding: 26px 24px 22px;
+  width: 352px; align-self: center;
+  padding: var(--sp-7);
+  border-radius: var(--fl-radius-lg);
+  background: color-mix(in srgb, var(--fl-panel) 93%, transparent);
+  border: 1px solid var(--fl-border3);
+  backdrop-filter: blur(10px);
 }
+.login-card-eyebrow {
+  display: block; margin-bottom: var(--sp-2);
+  font-family: var(--f-cond); font-size: var(--fs-sm); font-weight: var(--fw-label);
+  text-transform: uppercase; letter-spacing: 0.14em; color: var(--fl-subtle);
+}
+.login-card-title {
+  font-size: var(--fs-display); font-weight: var(--fw-label);
+  letter-spacing: -0.01em; color: var(--fl-text); line-height: 1.2;
+}
+.login-form { margin-top: var(--sp-7); display: flex; flex-direction: column; gap: var(--sp-6); }
+.login-field { display: flex; flex-direction: column; gap: var(--sp-3); }
+.login-field > label {
+  font-family: var(--f-mono); font-size: var(--fs-sm);
+  letter-spacing: 0.1em; color: var(--fl-muted);
+}
+.login-submit {
+  width: 100%; height: 40px; border: none;
+  border-radius: var(--fl-radius-md);
+  background: var(--fl-accent); color: var(--fl-bg);
+  font-family: var(--f-ui); font-size: var(--fs-lg); font-weight: var(--fw-label);
+  display: flex; align-items: center; justify-content: center; gap: var(--sp-4);
+  cursor: pointer; transition: background 0.16s ease;
+}
+.login-submit:hover:not(:disabled) { background: var(--fl-accent-dark); }
+.login-submit:disabled { opacity: 0.75; cursor: wait; }
+.login-card-brandname { font-family: var(--f-mono); font-size: var(--fs-base); letter-spacing: 0.04em; color: var(--fl-dim); }
+.login-card-brandname b { color: var(--fl-text); font-weight: var(--fw-label); }
+.login-error {
+  display: flex; align-items: flex-start; gap: var(--sp-4);
+  margin-top: var(--sp-6); padding: var(--sp-4) var(--sp-5);
+  border-radius: var(--fl-radius-md); line-height: 1.5; font-size: var(--fs-md);
+  background: color-mix(in srgb, var(--tone) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--tone) 32%, transparent);
+  color: var(--tone);
+}
+.login-error svg { flex-shrink: 0; margin-top: var(--sp-hair); }
+.login-inputwrap { position: relative; display: flex; align-items: center; }
+.login-inputicon { position: absolute; left: var(--sp-5); color: var(--fl-muted); pointer-events: none; }
 .login-input {
-  height: 38px; width: 100%; border-radius: var(--fl-radius-md);
-  background: #080a0f; border: 1px solid rgba(255,255,255,0.11);
-  color: var(--fl-text); font-size: 13px; font-family: var(--f-ui, "Inter", sans-serif);
-  transition: border-color .16s ease, background .16s ease;
+  width: 100%; padding: var(--sp-4) var(--sp-5) var(--sp-4) var(--sp-8);
+  border-radius: var(--fl-radius-md);
+  background: var(--fl-input-bg); border: 1px solid var(--fl-border3);
+  color: var(--fl-text); font-family: var(--f-ui); font-size: var(--fs-lg);
 }
-.login-input::placeholder { color: rgba(229,232,240,0.4); }
+.login-input::placeholder { color: var(--fl-muted); }
+.login-input--pw { padding-right: var(--sp-9); }
 .login-input:hover { border-color: rgba(255,255,255,0.18); }
 .login-input:focus-visible { outline: 2px solid var(--fl-accent); outline-offset: 2px; border-color: var(--fl-accent); background: #0c0f16; }
-/* Ground line: a thin strip below both columns, anchoring the layout and
-   filling the lower dead-zone. Holds the live UTC clock, aligned right. */
-.login-footer {
-  flex: 0 0 auto; display: flex; align-items: center; justify-content: flex-end;
-  margin-top: clamp(20px, 2.4vw, 34px); padding-top: 16px;
-  border-top: 1px solid rgba(255,255,255,0.07);
+.login-eye {
+  position: absolute; right: var(--sp-3);
+  background: transparent; border: none; cursor: pointer; color: var(--fl-muted);
+  padding: var(--sp-3); border-radius: var(--fl-radius-sm); display: flex; align-items: center;
+}
+.login-eye:hover { color: var(--fl-dim); }
+.login-caps {
+  display: flex; align-items: center; gap: var(--sp-3); margin-top: var(--sp-1);
+  font-family: var(--f-mono); font-size: var(--fs-sm); color: var(--fl-warn);
 }
 @media (max-width: 980px) {
   .login-herotext { display: none; }
   .login-main { justify-content: center; }
   .login-card { width: min(410px, 100%); }
-  .login-footer { justify-content: center; }
 }
 @media (max-width: 480px) {
   .login-content { padding: 24px 16px 18px; }
@@ -1632,87 +1701,21 @@ svg.lucide { stroke-width: 1.6px; }
 }
 @keyframes login-shake { 10%,90%{transform:translateX(-1px)} 20%,80%{transform:translateX(2px)} 30%,50%,70%{transform:translateX(-4px)} 40%,60%{transform:translateX(4px)} }
 .login-shake { animation: login-shake .4s ease both; }
-@keyframes login-scan { 0% { transform: translateY(-30%); } 100% { transform: translateY(130%); } }
-.login-scanline {
-  position: absolute; left: 0; right: 0; height: 180px; top: 0;
-  background: linear-gradient(180deg, transparent, color-mix(in srgb, var(--fl-accent) 7%, transparent), transparent);
-  animation: login-scan 8s linear infinite; pointer-events: none;
-}
 @keyframes login-rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 .login-rise { animation: login-rise 0.5s var(--ease, ease) both; }
 
-/* ── Login liquid background (drifting blobs) ─────────────────────────── */
-.login-blob {
-  position: absolute; border-radius: 50%; filter: blur(74px);
-  pointer-events: none; will-change: transform; opacity: 0.55;
-}
-@keyframes login-liquid-a { 0%,100% { transform: translate(0,0) scale(1); }      50% { transform: translate(48px,-34px) scale(1.18); } }
-@keyframes login-liquid-b { 0%,100% { transform: translate(0,0) scale(1); }      50% { transform: translate(-54px,42px) scale(1.12); } }
-@keyframes login-liquid-c { 0%,100% { transform: translate(0,0) scale(1); }      50% { transform: translate(34px,36px) scale(0.88); } }
-@media (prefers-reduced-motion: reduce) { .login-blob { animation: none !important; } }
-
 @keyframes login-spin { to { transform: rotate(360deg); } }
 
-/* ── Login "wow" layer: aurora sheen + film grain + button sheen ──────── */
-@keyframes login-aurora-spin { to { transform: rotate(360deg); } }
-.login-aurora {
-  position: absolute; inset: -45%; pointer-events: none; opacity: 0.55; z-index: 0;
-  background: conic-gradient(from 0deg at 50% 50%,
-    color-mix(in srgb, var(--fl-accent) 20%, transparent),
-    transparent 24%,
-    color-mix(in srgb, #6b8ccf 18%, transparent) 50%,
-    transparent 72%,
-    color-mix(in srgb, var(--fl-accent) 20%, transparent));
-  filter: blur(95px);
-  animation: login-aurora-spin 44s linear infinite;
-}
-.login-grain {
-  position: absolute; inset: 0; pointer-events: none; z-index: 1; opacity: 0.045; mix-blend-mode: overlay;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
-}
-@keyframes login-sheen { 0% { transform: translateX(-130%) skewX(-18deg); } 55%, 100% { transform: translateX(260%) skewX(-18deg); } }
-.login-sheen {
-  position: absolute; top: 0; bottom: 0; width: 45%; pointer-events: none;
-  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.28), transparent);
-  animation: login-sheen 4.5s ease-in-out infinite;
-}
-@media (prefers-reduced-motion: reduce) { .login-aurora, .login-sheen { animation: none !important; } }
-
-
-/* ── Login background FX: Ken Burns drift + breathing beam glow ───────── */
+/* ── Fond de connexion : image nette, fixe. Les calques décoratifs qui la
+   voilaient (aurore conique, grain, braises, blobs, beamglow, Ken Burns) ont
+   été retirés le 2026-08-12 : ils repeignaient ce que la photo contient déjà. ── */
 .login-bgimg {
   position: absolute; inset: 0; z-index: 0; pointer-events: none;
   background: url(/login-bg.webp) right center / cover no-repeat;
-  animation: login-kenburns 30s ease-in-out infinite alternate;
-  will-change: transform;
 }
-@keyframes login-kenburns {
-  0%   { transform: scale(1.06) translate(0, 0); }
-  100% { transform: scale(1.16) translate(-1.6%, 1.2%); }
-}
-.login-beamglow {
-  position: absolute; z-index: 1; top: -12%; right: -6%; width: 56%; height: 82%;
-  pointer-events: none; filter: blur(46px);
-  background: radial-gradient(closest-side, color-mix(in srgb, var(--fl-accent) 24%, transparent), color-mix(in srgb, #6b8ccf 12%, transparent) 55%, transparent 75%);
-  animation: login-beamglow 6.5s ease-in-out infinite;
-}
-@keyframes login-beamglow { 0%,100% { opacity: .42; transform: scale(1); } 50% { opacity: .82; transform: scale(1.08); } }
-.login-logo-glow {
-  position: relative; display: inline-flex;
-  filter: drop-shadow(0 0 26px color-mix(in srgb, var(--fl-accent) 45%, transparent));
-  animation: login-logo-breathe 5s ease-in-out infinite;
-}
-@keyframes login-logo-breathe { 0%,100% { filter: drop-shadow(0 0 22px color-mix(in srgb, var(--fl-accent) 35%, transparent)); } 50% { filter: drop-shadow(0 0 38px color-mix(in srgb, var(--fl-accent) 60%, transparent)); } }
-@media (prefers-reduced-motion: reduce) { .login-bgimg, .login-beamglow, .login-logo-glow { animation: none !important; } }
-
-/* ── Login extras: cursor parallax wrapper, gold embers, UTC clock ────── */
-.login-bgwrap { position: absolute; inset: -22px; z-index: 0; transition: transform .25s ease-out; will-change: transform; }
-.login-embers { position: absolute; inset: 0; z-index: 1; pointer-events: none; }
-.login-utc { flex: 0 0 auto; font-family: var(--f-mono, "JetBrains Mono", monospace); font-size: 11px; letter-spacing: .04em; color: rgba(229,232,240,.42); display: flex; align-items: center; gap: 7px; white-space: nowrap; }
-.login-utc i { width: 5px; height: 5px; border-radius: 50%; background: var(--fl-ok); box-shadow: 0 0 6px color-mix(in srgb, var(--fl-ok) 60%, transparent); }
 
 /* Card brand shown only when the hero is hidden (avoids duplicate on wide screens) */
-.login-card-brand { display: none; }
+.login-card-brand { display: none; align-items: center; gap: var(--sp-5); margin-bottom: var(--sp-7); flex-wrap: wrap; }
 @media (max-width: 980px) { .login-card-brand { display: flex; } }
 
 /* Spinner utility (settings integration loaders) */

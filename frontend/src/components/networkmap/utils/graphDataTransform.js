@@ -1,5 +1,6 @@
-// frontend/src/components/networkmap/utils/graphDataTransform.js
 import { classifyNode, detectNodeType, nodeBadges, isInternal, getIPCategory, getPortBadges, getOSHint } from './nodeTypeRegistry';
+import { edgeClass, nodePortClass } from './peerSummary';
+import { edgeWidth, maxConnectionCount } from './edgeWidth';
 
 function cidrContains(cidr, ip) {
   try {
@@ -32,7 +33,6 @@ export function transformGraphData(apiData, nodeOverrides = {}, subnetRules = []
   const elements = [];
   const clusterIds = new Set();
 
-  // ── Pre-build port map from raw edges (nodeId → port numbers) ────────────
   const nodePortMap = new Map();
   edges.forEach(e => {
     const src = typeof e.source === 'string' ? e.source : e.source?.id;
@@ -46,7 +46,6 @@ export function transformGraphData(apiData, nodeOverrides = {}, subnetRules = []
     }
   });
 
-  // ── 1. IP /24 subnet clustering ──────────────────────────────────────
   const subnetMap = new Map();
   nodes.forEach(n => {
     if (isInternal(n.id)) {
@@ -71,11 +70,11 @@ export function transformGraphData(apiData, nodeOverrides = {}, subnetRules = []
     }
   });
 
-  // ── 2. URL domain clustering ──────────────────────────────────────────
-  // All http/https URLs with the same hostname → one domain node
-  const domainAgg = new Map(); // hostname → { ids, suspicious, totalBytes, connectionCount, evidenceIds }
+  const domainAgg = new Map();
   const suppressedNodes = new Set();
   const urlToDomain = new Map();
+
+  nodes.forEach(n => { if (n?.type === 'collection') suppressedNodes.add(n.id); });
 
   nodes.forEach(n => {
     if (/^https?:\/\//i.test(n.id)) {
@@ -87,7 +86,6 @@ export function transformGraphData(apiData, nodeOverrides = {}, subnetRules = []
         if (n.is_suspicious) e.suspicious = true;
         e.totalBytes    += n.total_bytes     || 0;
         e.connectionCount += n.connection_count || 0;
-        // Propagate evidence_ids so domain clusters are filtered correctly in GlobalNetworkMapPage
         if (n.evidence_ids?.length) {
           for (const eid of n.evidence_ids) {
             if (!e.evidenceIds.includes(eid)) e.evidenceIds.push(eid);
@@ -116,12 +114,10 @@ export function transformGraphData(apiData, nodeOverrides = {}, subnetRules = []
     ids.forEach(id => { suppressedNodes.add(id); urlToDomain.set(id, domainId); });
   });
 
-  // ── 3. Non-URL node elements ─────────────────────────────────────────
   nodes.forEach(n => {
     if (suppressedNodes.has(n.id)) return;
     const badges    = nodeBadges(n);
     const parent    = nodeToCluster.get(n.id);
-    // Prefer backend-provided ports, fall back to frontend edge aggregation
     const ports        = n.ports?.length ? n.ports : (nodePortMap.get(n.id) || []);
     const behavior     = { serverScore: n.server_score ?? null };
     const classification = nodeOverrides[n.id]
@@ -136,7 +132,7 @@ export function transformGraphData(apiData, nodeOverrides = {}, subnetRules = []
     elements.push({
       data: {
         id: n.id,
-        label: labelForNode(n.id),
+        label: n.label || labelForNode(n.id),
         nodeType: typeId,
         ...(parent ? { parent } : {}),
         is_suspicious: n.is_suspicious || false,
@@ -156,11 +152,16 @@ export function transformGraphData(apiData, nodeOverrides = {}, subnetRules = []
         _raw: n,
         _overridden: !!nodeOverrides[n.id],
       },
-      classes: [typeId, n.is_suspicious ? 'suspicious' : '', badges.includes('beacon') ? 'beacon' : '', badges.includes('dga') ? 'dga' : ''].filter(Boolean).join(' '),
+      classes: [
+        typeId,
+        nodePortClass(n.id, edges) ? `port-node-${nodePortClass(n.id, edges)}` : '',
+        n.is_suspicious ? 'suspicious' : '',
+        badges.includes('beacon') ? 'beacon' : '',
+        badges.includes('dga') ? 'dga' : '',
+      ].filter(Boolean).join(' '),
     });
   });
 
-  // ── 4. Edges — remapped to domain nodes, deduplicated ────────────────
   const visibleNodeIds = new Set([
     ...nodes.filter(n => !suppressedNodes.has(n.id)).map(n => n.id),
     ...Array.from(domainAgg.keys()).map(h => `domain:${h}`),
@@ -182,7 +183,7 @@ export function transformGraphData(apiData, nodeOverrides = {}, subnetRules = []
       edgeMap.set(key, {
         source: src, target: tgt,
         connection_count: 0, total_bytes: 0,
-        ports: [], protocols: [], has_suspicious: false,
+        ports: [], protocols: [], processes: [], has_suspicious: false,
         first_seen: null, last_seen: null, label: null,
       });
     }
@@ -192,13 +193,15 @@ export function transformGraphData(apiData, nodeOverrides = {}, subnetRules = []
     if (e.has_suspicious) agg.has_suspicious = true;
     if (e.ports)     agg.ports     = [...new Set([...agg.ports,     ...e.ports])];
     if (e.protocols) agg.protocols = [...new Set([...agg.protocols, ...e.protocols])];
+    if (e.processes) agg.processes = [...new Set([...agg.processes, ...e.processes])];
     if (e.first_seen && (!agg.first_seen || e.first_seen < agg.first_seen)) agg.first_seen = e.first_seen;
     if (e.last_seen  && (!agg.last_seen  || e.last_seen  > agg.last_seen))  agg.last_seen  = e.last_seen;
     if (!agg.label && e.label) agg.label = e.label;
   });
 
+  const volumeCeiling = maxConnectionCount([...edgeMap.values()]);
+
   edgeMap.forEach((edge, key) => {
-    // Build compact edge label: primary protocol then port count if > 1
     const mainLabel = edge.label
       || (edge.protocols[0] || (edge.ports[0] ? `TCP:${edge.ports[0]}` : null));
     const label = mainLabel && edge.ports.length > 1
@@ -211,16 +214,23 @@ export function transformGraphData(apiData, nodeOverrides = {}, subnetRules = []
         source: edge.source,
         target: edge.target,
         connection_count: edge.connection_count,
+        _w: edgeWidth(edge.connection_count, volumeCeiling),
+        _cpd: '0 0',
+        _cpw: '0.35 0.65',
         total_bytes: edge.total_bytes,
         ports: edge.ports,
         protocols: edge.protocols,
+        processes: edge.processes,
         has_suspicious: edge.has_suspicious,
         first_seen: edge.first_seen,
         last_seen:  edge.last_seen,
         label:      label || '',
         _raw: edge,
       },
-      classes: edge.has_suspicious ? 'suspicious-edge' : 'normal-edge',
+      classes: [
+        edge.has_suspicious ? 'suspicious-edge' : 'normal-edge',
+        edgeClass(edge.ports) ? `port-${edgeClass(edge.ports)}` : '',
+      ].filter(Boolean).join(' '),
     });
   });
 

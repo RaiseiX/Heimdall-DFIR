@@ -8,8 +8,8 @@ const CONTENT = {
     ],
     badge: 'BETA · PRÉ-V1',
     eyebrow: 'Digital Forensics & Incident Response',
-    hero_primary: "Voir l'invisible.",
-    hero_secondary: "Traquer l'inconnu.",
+    headline1: "Voir l'invisible.",
+    headline2: "Traquer l'inconnu.",
     hero_copy: "Corrélation d'artefacts, timeline forensique et chasse aux menaces — réunis dans un poste de commandement unique pour vos investigations.",
     trust: ['AES-256 chiffré', 'Sessions auditées', 'Traçabilité forensique'],
     quotes: [
@@ -48,8 +48,8 @@ const CONTENT = {
     ],
     badge: 'BETA · PRE-V1',
     eyebrow: 'Digital Forensics & Incident Response',
-    hero_primary: 'See the unseen.',
-    hero_secondary: 'Hunt the unknown.',
+    headline1: 'See the unseen.',
+    headline2: 'Hunt the unknown.',
     hero_copy: 'Artifact correlation, forensic timelines, and threat hunting brought together in one command center for your investigations.',
     trust: ['AES-256 encrypted', 'Audited sessions', 'Forensic traceability'],
     quotes: [

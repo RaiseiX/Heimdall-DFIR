@@ -6,8 +6,6 @@ import i18n from '../i18n/index.js';
 const MONO = 'var(--f-mono, "JetBrains Mono", monospace)';
 const UI   = 'var(--f-ui, Inter, sans-serif)';
 
-// Last-resort placeholder only (single, conservative). The real list comes from
-// the installed Ollama models + the active model configured in the admin panel.
 const MODELS_DFLT = ['qwen2.5:3b'];
 
 function getPromptCategories(t) {
@@ -33,8 +31,6 @@ function getPromptCategories(t) {
     },
   ];
 }
-
-// ─── Lightweight, dependency-free Markdown rendering ─────────────────────────
 
 const INLINE_CODE = { fontFamily: MONO, fontSize: '0.92em', background: 'color-mix(in srgb, var(--fl-accent) 11%, transparent)', color: 'var(--fl-accent)', borderRadius: 3, padding: '0.5px 4px' };
 const LINK = { color: 'var(--fl-accent)', textDecoration: 'underline' };
@@ -109,8 +105,6 @@ function MarkdownBody({ text }) {
   return <>{out}</>;
 }
 
-// ─── Welcome screen with prompt category cards ───────────────────────────────
-
 function WelcomeScreen({ onPickCategory, t }) {
   const promptCategories = getPromptCategories(t);
   return (
@@ -159,7 +153,6 @@ export default function GlobalAiChat() {
   const promptsRef   = useRef(null);
   const prevLenRef   = useRef(0);
 
-  // Draggable launcher bubble — grab to move (position persisted), click to open.
   const [btnPos, setBtnPos] = useState(() => { try { const s = localStorage.getItem('fl_aichat_btn_pos'); if (s) return JSON.parse(s); } catch (_e) {} return null; });
   const btnDragRef = useRef({ moved: false });
   const startBtnDrag = useCallback((e) => {
@@ -183,14 +176,13 @@ export default function GlobalAiChat() {
 
   useEffect(() => {
     const auth = { Authorization: `Bearer ${localStorage.getItem('heimdall_token')}` };
-    // Active model lives in system_settings (DB) — reliable even if the Ollama probe times out.
     const getActive = fetch('/api/settings/ai', { headers: auth }).then(r => r.json()).then(d => d?.active_model || null).catch(() => null);
     const getModels = fetch('/api/llm/models', { headers: auth }).then(r => r.json()).catch(() => ({ available: false, models: [] }));
     Promise.all([getActive, getModels]).then(([active, d]) => {
       setAvailable(d.available ?? false);
       const installed = Array.isArray(d.models) ? d.models.filter(Boolean) : [];
       let list = installed;
-      if (active && !list.includes(active)) list = [active, ...list];   // surface the configured model first
+      if (active && !list.includes(active)) list = [active, ...list];
       if (list.length) {
         setModels(list);
         setModel(active && list.includes(active) ? active : list[0]);
@@ -210,8 +202,6 @@ export default function GlobalAiChat() {
     if (open && !minimized) { setTimeout(() => inputRef.current?.focus(), 100); setUnread(0); }
   }, [open, minimized]);
 
-  // Allow any page to open the chat pre-filled with a prompt:
-  //   window.dispatchEvent(new CustomEvent('heimdall:ai-open', { detail: { prompt } }))
   useEffect(() => {
     const onOpen = (e) => {
       setOpen(true); setMinimized(false);
@@ -246,7 +236,6 @@ export default function GlobalAiChat() {
     try {
       const controller = new AbortController();
       abortRef.current = controller;
-      // Case-aware: on a case page, route through the case endpoint (rich context + RAG).
       const cm = window.location.pathname.match(/\/cases\/([0-9a-fA-F-]{36})/);
       const caseId = cm ? cm[1] : null;
       const headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('heimdall_token')}` };
@@ -373,7 +362,6 @@ export default function GlobalAiChat() {
                             </div>
                           )}
                         </div>
-                        {/* message actions */}
                         {!isUser && !msg.error && msg.content && !showCursor && (
                           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 3, paddingLeft: 2 }}>
                             <CopyBtn text={msg.content} label={t('common.copy')} />

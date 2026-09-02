@@ -24,17 +24,50 @@ export const ARTIFACT_COLORS: Record<string, string> = {
   appcompat: 'var(--fl-artifact-appcompat)',
   bits:      'var(--fl-artifact-bits)',
   hayabusa:  'var(--fl-danger)',
-  catscale_auth:        '#f43f5e',
-  catscale_logon:       '#22c55e',
-  catscale_process:     '#8b72d6',
-  catscale_network:     '#4d82c0',
-  catscale_history:     '#d97c20',
-  catscale_persistence: '#c89d1d',
-  catscale_fstimeline:  '#06b6d4',
+  sqle:      'var(--fl-artifact-sqle)',
 };
 
+export const ARTIFACT_FAMILY: Record<string, string> = {
+  account:     'var(--fl-artifact-srum)',
+  network:     'var(--fl-artifact-sqle)',
+  persistence: 'var(--fl-artifact-lnk)',
+  system:      'var(--fl-artifact-registry)',
+  package:     'var(--fl-artifact-amcache)',
+  container:   'var(--fl-artifact-shellbags)',
+  process:     'var(--fl-artifact-jumplist)',
+  files:       'var(--fl-artifact-bits)',
+};
+
+const FAMILY_PREFIXES: Array<[string, readonly string[]]> = [
+  ['process',     ['catscale_proc', 'catscale_process']],
+  ['container',   ['catscale_docker', 'catscale_podman']],
+  ['package',     ['catscale_package', 'catscale_installed', 'catscale_deb']],
+  ['network',     ['catscale_net', 'catscale_network', 'catscale_route', 'catscale_firewall', 'catscale_ssh']],
+  ['account',     ['catscale_auth', 'catscale_logon', 'catscale_logged', 'catscale_passwd',
+                   'catscale_failed', 'catscale_active_session', 'catscale_sudo', 'catscale_history']],
+  ['persistence', ['catscale_persistence', 'catscale_cron', 'catscale_crontab', 'catscale_systemd',
+                   'catscale_service', 'catscale_setuid', 'catscale_webshell']],
+  ['system',      ['catscale_kernel', 'catscale_module', 'catscale_loaded', 'catscale_mem',
+                   'catscale_cpu', 'catscale_os', 'catscale_host', 'catscale_mount',
+                   'catscale_usb', 'catscale_filesystem', 'catscale_collector']],
+  ['files',       ['catscale_open_file', 'catscale_executable', 'catscale_fstimeline', 'catscale_etc',
+                   'catscale_hidden', 'catscale_dev_file', 'catscale_var_log', 'catscale_user_file']],
+];
+
+export function artifactFamily(type?: string): string | null {
+  const t = String(type ?? '');
+  if (!t.startsWith('catscale_')) return null;
+  for (const [family, prefixes] of FAMILY_PREFIXES) {
+    if (prefixes.some(p => t.startsWith(p))) return family;
+  }
+  return null;
+}
+
 export function artifactColor(type: string): string {
-  return ARTIFACT_COLORS[type] || 'var(--fl-dim)';
+  const direct = ARTIFACT_COLORS[type];
+  if (direct) return direct;
+  const family = artifactFamily(type);
+  return family ? ARTIFACT_FAMILY[family] : 'var(--fl-dim)';
 }
 
 export const HAY_SEVERITY_BG: Record<string, string> = {

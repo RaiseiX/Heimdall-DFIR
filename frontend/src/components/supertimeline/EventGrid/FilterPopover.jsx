@@ -1,7 +1,10 @@
-// frontend/src/components/supertimeline/EventGrid/FilterPopover.jsx
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
+import { useTranslation } from 'react-i18next';
 import { useTimelineStore } from '../store/useTimelineStore';
+import { buildFacet } from '../utils/timelineUtils';
+
+const SELECT_ONLY = new Set(['artifact_type']);
 
 const OPS = [
   { value: 'contains',     label: 'contains'    },
@@ -41,8 +44,28 @@ export function isColFilterActive(colKey, storeState) {
 }
 
 export default function FilterPopover({ col, onClose, anchorEl }) {
+  const { t, i18n } = useTranslation();
   const store = useTimelineStore();
   const ref   = useRef(null);
+
+  const selectOnly = SELECT_ONLY.has(col.key);
+  const facet = useMemo(() => buildFacet(col.key, store), [col.key, store]);
+  const selectedValues = col.key === 'artifact_type' ? store.artifactTypes : [];
+
+  function pickValue(value) {
+    const s = useTimelineStore.getState();
+    if (col.key === 'artifact_type') { s.toggleArtifactType(value); return; }
+    const field = getStoreField(col.key);
+    if (field) {
+      s.setFilter(field + 'Op', 'equals');
+      s.setFilter(field, value);
+    } else {
+      s.setFilter('searchOp', 'equals');
+      s.setFilter('search', value);
+    }
+    s.applyFilters();
+    onClose();
+  }
 
   const storeField   = getStoreField(col.key);
   const storeOpField = storeField ? storeField + 'Op' : 'searchOp';
@@ -51,7 +74,6 @@ export default function FilterPopover({ col, onClose, anchorEl }) {
   const [op,    setOp]    = useState(store[storeOpField] || 'contains');
   const [value, setValue] = useState(initialValue);
 
-  // Compute fixed position centered under the column header
   const [pos, setPos] = useState({ top: -9999, left: -9999 });
   useEffect(() => {
     if (anchorEl?.current) {
@@ -86,10 +108,6 @@ export default function FilterPopover({ col, onClose, anchorEl }) {
 
   function apply() {
     const s = useTimelineStore.getState();
-    if (col.key === 'artifact_type') {
-      if (op === 'equals' && value) { s.toggleArtifactType(value); onClose(); return; }
-      return;
-    }
     if (storeField) {
       s.setFilter(storeField + 'Op', op);
       s.setFilter(storeField, noValue ? '' : value);
@@ -123,14 +141,59 @@ export default function FilterPopover({ col, onClose, anchorEl }) {
       style={{
         position: 'fixed', top: pos.top, left: pos.left, zIndex: 9999,
         background: 'var(--fl-bg)', border: '1px solid var(--fl-raised)', borderRadius: 6,
-        padding: 10, width: 220, boxShadow: '0 8px 28px rgba(0,0,0,0.7)',
+        padding: 10, width: 248, boxShadow: '0 8px 28px rgba(0,0,0,0.7)',
         fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11, display: 'flex', flexDirection: 'column', gap: 7,
       }}
     >
       <div style={{ fontSize: 8, color: 'var(--fl-muted)', textTransform: 'uppercase',
         letterSpacing: '0.08em', fontWeight: 700 }}>
-        Filter: {col.label}
+        {t('timeline.filter_title', { column: col.label })}
       </div>
+
+      {facet.values.length > 0 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+          <div style={{ fontSize: 8, color: 'var(--fl-muted)', display: 'flex', justifyContent: 'space-between', gap: 6, paddingBottom: 2 }}>
+            <span>{t('timeline.filter_values')}</span>
+            <span>{t(facet.scope === 'collection' ? 'timeline.filter_scope_collection' : 'timeline.filter_scope_page')}</span>
+          </div>
+          <div style={{ maxHeight: 168, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
+            {facet.values.map(v => {
+              const on = selectedValues.includes(v.value);
+              return (
+                <button key={v.value} onClick={() => pickValue(v.value)}
+                  title={v.value}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 7, width: '100%',
+                    background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left',
+                    padding: '3px 2px', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10,
+                    color: on ? 'var(--fl-accent)' : 'var(--fl-dim)',
+                  }}>
+                  <span style={{ width: 9, height: 9, borderRadius: 2, flexShrink: 0,
+                    border: `1px solid ${on ? 'var(--fl-accent)' : 'var(--fl-raised)'}`,
+                    background: on ? 'var(--fl-accent)' : 'transparent' }} />
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{v.value}</span>
+                  <span style={{ marginLeft: 'auto', color: 'var(--fl-muted)', fontSize: 9, flexShrink: 0 }}>
+                    {v.count === null
+                      ? t('timeline.filter_no_count')
+                      : v.count.toLocaleString(i18n.language)}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+          {facet.hidden > 0 && (
+            <div style={{ fontSize: 9, color: 'var(--fl-muted)', paddingTop: 3 }}>
+              {t('timeline.filter_hidden', { count: facet.hidden })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {selectOnly ? (
+        <div style={{ fontSize: 9, color: 'var(--fl-muted)', lineHeight: 1.5 }}>
+          {t('timeline.filter_select_only')}
+        </div>
+      ) : (<>
       <select
         value={op}
         onChange={e => setOp(e.target.value)}
@@ -163,7 +226,7 @@ export default function FilterPopover({ col, onClose, anchorEl }) {
             border: '1px solid color-mix(in srgb, var(--fl-accent) 25%, transparent)', color: 'var(--fl-accent)', cursor: 'pointer',
             fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
           }}
-        >Apply</button>
+        >{t('timeline.filter_apply')}</button>
         <button
           onClick={clear}
           style={{
@@ -171,8 +234,9 @@ export default function FilterPopover({ col, onClose, anchorEl }) {
             border: '1px solid var(--fl-raised)', color: 'var(--fl-muted)', cursor: 'pointer',
             fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
           }}
-        >Clear</button>
+        >{t('timeline.filter_clear')}</button>
       </div>
+      </>)}
     </div>,
     document.body,
   );

@@ -6,16 +6,14 @@ import { useTranslation } from 'react-i18next';
 
 export default function RetentionSection() {
   const { t } = useTranslation();
-  // ── Auto-retention config ──────────────────────────────────────────────────
-  const [cfg, setCfg]         = useState(null);   // { enabled, days }
+  const [cfg, setCfg]         = useState(null);
   const [savingCfg, setSavingCfg] = useState(false);
   const [cfgMsg, setCfgMsg]   = useState('');
-  const [preview, setPreview] = useState(null);   // { count, eligible }
+  const [preview, setPreview] = useState(null);
   const [previewing, setPreviewing] = useState(false);
   const [running, setRunning] = useState(false);
   const [confirmRun, setConfirmRun] = useState(false);
 
-  // ── Manual purge list ──────────────────────────────────────────────────────
   const [cases, setCases]     = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch]   = useState('');
@@ -49,7 +47,7 @@ export default function RetentionSection() {
 
   const toggleExempt = async (c) => {
     const next = !c.retention_exempt;
-    setCases(cs => cs.map(x => x.id === c.id ? { ...x, retention_exempt: next } : x));  // optimistic
+    setCases(cs => cs.map(x => x.id === c.id ? { ...x, retention_exempt: next } : x));
     try { await settingsAPI.setCaseExempt(c.id, next); }
     catch { setCases(cs => cs.map(x => x.id === c.id ? { ...x, retention_exempt: !next } : x)); }
   };
@@ -68,7 +66,6 @@ export default function RetentionSection() {
     <>
       <SectionHead title={t('settings.retention.title')} desc={t('settings.retention.desc')} />
 
-      {/* ── Auto-retention policy ── */}
       <div style={{ marginTop: 16, padding: 16, borderRadius: 10, border: '1px solid var(--fl-border)', background: 'var(--fl-panel)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
           <ShieldCheck size={14} style={{ color: 'var(--fl-accent)' }} />
@@ -114,7 +111,6 @@ export default function RetentionSection() {
         )}
       </div>
 
-      {/* ── Manual purge + per-case exemption ── */}
       <div style={{ marginTop: 24 }}>
         <div style={{ fontSize: 13, fontWeight: 600, fontFamily: UI, color: 'var(--fl-text)', marginBottom: 4 }}>{t('settings.retention.manual_title')}</div>
         <p style={{ fontSize: 11.5, color: 'var(--fl-muted)', fontFamily: UI, margin: '0 0 12px' }}>{t('settings.retention.manual_desc')}</p>

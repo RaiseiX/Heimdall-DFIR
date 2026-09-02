@@ -8,6 +8,7 @@ const logger = require('../config/logger').default;
 const { computeTriageScores, saveTriageScores, getTriageScores } = require('../services/triageScoreService');
 const { getExceptions, applyExceptions, applyExceptionsGrouped } = require('../services/detectionExceptions');
 const { getDriverIndex, getHijackIndex, matchDrivers, matchHijack } = require('../services/lolDriversService');
+const { subtypesOf } = require('../services/artifactSubtype');
 const { buildLateralMovement, mapNetworkRowsToLateral } = require('../services/lateralMovementService');
 const { SYSMON_BEHAVIOR_VECTORS, TIMESTOMP_QUERY, EXEC_ANOMALY_VECTORS, WMI_PERSISTENCE_VECTORS } = require('../services/detectionVectors');
 
@@ -792,9 +793,10 @@ router.get('/:id/detections/double-ext', authenticate, async (req, res) => {
                   raw->>'AppId', raw->>'TargetFilenameLastPart', '') AS filename
        FROM collection_timeline
        WHERE case_id = $1
-         AND artifact_type IN ('mft','lnk','prefetch','amcache','appcompat','recycle','shellbags','jumplist')
+         AND artifact_type = ANY($2)
        ORDER BY timestamp ASC`,
-      [id]
+      [id, ['mft', 'lnk', 'prefetch', 'amcache', 'appcompat', 'recycle', 'shellbags', 'jumplist',
+            ...subtypesOf('amcache'), ...subtypesOf('jumplist')]]
     );
 
     const doubleExtPattern = new RegExp(
@@ -1303,11 +1305,11 @@ router.get('/:id/detections/vuln-drivers', authenticate, async (req, res) => {
     const populated = [];
     let degraded = null;
 
-    // LOLDrivers: Amcache driver inventory carries SHA1 (DriverId) + DriverName.
     try {
       const drvRows = (await pool.query(
         `SELECT timestamp, artifact_type, description, source, host_name, raw FROM collection_timeline
-         WHERE case_id=$1 AND artifact_type='amcache' AND (raw ? 'DriverName' OR raw ? 'DriverId') LIMIT 20000`, [id])).rows;
+         WHERE case_id=$1 AND artifact_type = ANY($2) AND raw ? 'DriverTimeStamp' LIMIT 20000`,
+        [id, ['amcache', 'amcache_drivers']])).rows;
       const idx = await getDriverIndex();
       const items = matchDrivers(drvRows, idx);
       if (items.length) populated.push({ id: 'loldrivers', label: 'Driver vulnérable / malveillant (LOLDrivers)', mitre: 'T1068', severity: 'CRITIQUE', confidence: 'high', count: items.length, items });

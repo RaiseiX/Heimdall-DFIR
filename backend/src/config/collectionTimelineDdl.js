@@ -14,7 +14,12 @@ const COLLECTION_TIMELINE_STATEMENTS = [
      case_id       UUID NOT NULL REFERENCES cases(id) ON DELETE CASCADE,
      result_id     UUID REFERENCES parser_results(id) ON DELETE CASCADE,
      evidence_id   UUID REFERENCES evidence(id) ON DELETE CASCADE,
-     timestamp     TIMESTAMPTZ NOT NULL,
+     -- Nullable: inventory rows (timestamp_kind = 'inventory') carry no date of
+     -- their own. See db/migrations/20260818150000_collection_timeline_nullable_timestamp.sql
+     -- — that migration is what converts an *existing* table; this CREATE only
+     -- shapes a table born from this file, since the guarded batch below skips
+     -- when every expected column is already present.
+     timestamp     TIMESTAMPTZ,
      artifact_type VARCHAR(50)  NOT NULL DEFAULT '',
      artifact_name VARCHAR(100) NOT NULL DEFAULT '',
      description   TEXT         NOT NULL DEFAULT '',
@@ -55,6 +60,15 @@ const COLLECTION_TIMELINE_STATEMENTS = [
   `ALTER TABLE collection_timeline ADD COLUMN IF NOT EXISTS detections JSONB`,
 
   `CREATE INDEX IF NOT EXISTS idx_ct_case_ts    ON collection_timeline(case_id, timestamp)`,
+
+  // La grille ouvre sur `timestamp DESC NULLS LAST, id DESC`. Un parcours arriere de
+  // idx_ct_case_ts, declare ASC NULLS LAST, rend DESC NULLS FIRST — jamais NULLS LAST,
+  // et Postgres ne deduit pas l'equivalence meme quand le filtre exclut les NULL.
+  // Faute de cet index la vue par defaut balayait la table entiere : mesure le
+  // 2026-08-26 sur 2 978 351 lignes, 367 809 blocs lus et 4 639 ms, contre 270 blocs
+  // et 0,75 ms avec lui. Le NULLS LAST reste une decision — un objet d'inventaire est
+  // dans la vue et atteignable, jamais devant une ligne datee.
+  `CREATE INDEX IF NOT EXISTS idx_ct_case_ts_desc ON collection_timeline(case_id, timestamp DESC NULLS LAST, id DESC)`,
   `CREATE INDEX IF NOT EXISTS idx_ct_case_type  ON collection_timeline(case_id, artifact_type)`,
   `CREATE INDEX IF NOT EXISTS idx_ct_result     ON collection_timeline(result_id)`,
   `CREATE INDEX IF NOT EXISTS idx_ct_evidence   ON collection_timeline(evidence_id)`,

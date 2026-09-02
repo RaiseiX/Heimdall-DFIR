@@ -44,7 +44,6 @@ function Card({ accent, icon: Icon, title, desc, children, action }) {
   );
 }
 
-// YARA scan scoped to a single evidence (= this collection).
 function YaraSection({ evidenceId }) {
   const [results, setResults] = useState([]);
   const [scanning, setScanning] = useState(false);
@@ -58,7 +57,7 @@ function YaraSection({ evidenceId }) {
       const rows = r.data.results || [];
       setResults(rows);
       if (rows.length) setScanned(true);
-    } catch { /* keep silent — empty state covers it */ }
+    } catch { }
   }, [evidenceId]);
 
   useEffect(() => { load(); }, [load]);
@@ -150,7 +149,6 @@ const ARTIFACT_COLORS = {
 };
 function ac(t) { return ARTIFACT_COLORS[t] || 'var(--fl-dim)'; }
 
-// Sigma hunting runs on the case timeline (collection_timeline).
 function SigmaSection({ caseId }) {
   const [rules, setRules]   = useState([]);
   const [ruleId, setRuleId] = useState('');
@@ -206,7 +204,7 @@ function SigmaSection({ caseId }) {
             if (ev.type === 'progress') setProgress({ current: ev.current, total: ev.total, name: ev.name });
             if (ev.type === 'done')  { setProgress(null); setScanResult(ev); loadHistory(); }
             if (ev.type === 'error') setScanResult({ error: ev.error });
-          } catch { /* skip malformed SSE line */ }
+          } catch { }
         }
       }
     } catch {

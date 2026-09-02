@@ -16,6 +16,8 @@ const { pool } = require('../config/database');
 const { authenticate, auditLog } = require('../middleware/auth');
 
 const esService = require('../services/elasticsearchService');
+const { esMayServe } = require('../services/timelineSource');
+const { resolveArtifactStatus } = require('../services/artifactStatus');
 const { getRedis } = require('../config/redis');
 const logger = require('../config/logger').default;
 const { matchTags: matchKeywordTags } = require('../services/timelineKeywords');
@@ -33,7 +35,14 @@ const { findCsvFilesRecursive } = require('../services/csv/findCsvFiles');
 const { scanCollectionCsvs } = require('../services/csv/scanCollectionCsvs');
 const { ZIMMERMAN_DIR, ARTIFACT_PATTERNS, ECS_COLUMNS } = require('../config/artifactPatterns');
 const { purgeFsTimeline, purgeCatScaleState } = require('../services/fsTimelinePurge');
+const { purgeHayabusaScoped, aggregateHayabusaMeta } = require('../services/hayabusaScope');
+const { natureScopedWhere } = require('../services/timelineNature');
+const { buildAggCacheKeys, invalidateAggCache } = require('../services/timelineAggCache');
+const { foldHistogramRows, BKT_BEFORE_LO, BKT_AFTER_HI } = require('../services/timelineHistogramFold');
 const { parseRule, buildQuery } = require('../services/sigmaService');
+const { collectionHost, establishedHostsQuery, resolvedHostExpr } = require('../services/collectionHost');
+const { rawProjection } = require('../services/timelineRawScope');
+const { resolveArtifactType } = require('../services/artifactSubtype');
 
 const router = express.Router();
 
@@ -341,6 +350,8 @@ async function runConcurrent(items, fn, concurrency) {
 async function streamNormalizeToDB(csvPath, caseId, resultId, artifactType, config, evidenceId = null, sourceDevice = null) {
   try { fs.statSync(csvPath); } catch { return { rawCount: 0, normalized: 0, columns: [] }; }
 
+  const rowArtifactType = resolveArtifactType(artifactType, csvPath);
+
   let batch = [];
   let rawCount = 0;
   let normalized = 0;
@@ -460,7 +471,7 @@ async function streamNormalizeToDB(csvPath, caseId, resultId, artifactType, conf
       const forensic = extractForensicFields(clean, artifactType, config, tsResult.column, baseDesc, baseSource);
       batch.push({
         timestamp:     tsResult.timestamp,
-        artifact_type: artifactType,
+        artifact_type: rowArtifactType,
         artifact_name: config.name,
         description:   baseDesc,
         source:        baseSource,
@@ -870,23 +881,71 @@ router.get('/:caseId/timeline-histogram', authenticate, async (req, res) => {
   const client = await pool.connect();
   try {
     await client.query("SET statement_timeout = '8000'");
-    const r = await client.query(
-      `WITH b AS (
-         SELECT MIN(timestamp) lo, MAX(timestamp) hi FROM collection_timeline
-         WHERE case_id = $1 AND timestamp BETWEEN '1990-01-01' AND '2100-01-01'
-       )
-       SELECT width_bucket(EXTRACT(EPOCH FROM ct.timestamp),
-                           EXTRACT(EPOCH FROM b.lo), EXTRACT(EPOCH FROM b.hi) + 1, $2) AS bkt,
-              COUNT(*)::int AS n
-         FROM collection_timeline ct, b
-        WHERE ct.case_id = $1 AND ct.timestamp BETWEEN b.lo AND b.hi
-        GROUP BY bkt ORDER BY bkt`, [caseId, N]);
+
+    // Bornes au 1er et au 99e centile, pas au minimum et au maximum.
+    //
+    // Mesuré le 2026-08-24 sur une collecte Windows : min/max donnaient
+    // 2000-01-01 → 2035-01-01, soit 35 ans dont une date future, alors que 99,35 %
+    // des lignes tenaient entre 2021 et 2026. Les six années portant l'enquête
+    // occupaient 17 % de la barre. La garde `BETWEEN '1990' AND '2100'` n'y changeait
+    // rien : les deux aberrations sont à l'intérieur.
+    //
+    // Par décalage sur idx_ct_case_ts, pas par percentile_disc : 0,6 ms contre
+    // 1 392 ms sur 340 952 lignes. Ce point d'accès est sondé pendant le parsing,
+    // sous un statement_timeout de 8 s.
+    const cnt = await client.query(
+      `SELECT COUNT(*)::int n FROM collection_timeline
+        WHERE case_id = $1 AND timestamp IS NOT NULL`, [caseId]);
+    const dated = cnt.rows[0]?.n || 0;
+    const off = Math.floor(dated * 0.01);
+
     const bnd = await client.query(
-      `SELECT MIN(timestamp) lo, MAX(timestamp) hi, COUNT(*)::int total FROM collection_timeline
-        WHERE case_id = $1 AND timestamp BETWEEN '1990-01-01' AND '2100-01-01'`, [caseId]);
-    const buckets = new Array(N).fill(0);
-    for (const row of r.rows) { const i = (row.bkt || 1) - 1; if (i >= 0 && i < N) buckets[i] = row.n; }
-    res.json({ buckets, total: bnd.rows[0]?.total || 0, lo: bnd.rows[0]?.lo || null, hi: bnd.rows[0]?.hi || null });
+      `SELECT
+         (SELECT timestamp FROM collection_timeline
+           WHERE case_id = $1 AND timestamp IS NOT NULL
+           ORDER BY timestamp ASC OFFSET $2 LIMIT 1) AS lo,
+         (SELECT timestamp FROM collection_timeline
+           WHERE case_id = $1 AND timestamp IS NOT NULL
+           ORDER BY timestamp DESC OFFSET $2 LIMIT 1) AS hi`, [caseId, off]);
+    const lo = bnd.rows[0]?.lo || null;
+    const hi = bnd.rows[0]?.hi || null;
+
+    if (!lo || !hi) {
+      return res.json({ buckets: [], total: dated, lo: null, hi: null, before_lo: 0, after_hi: 0 });
+    }
+
+    // Un seul balayage là où il y en avait deux. Le comptage par seau et le comptage
+    // des hors-bornes lisaient exactement le même ensemble — le cas et ses 2,1 M
+    // lignes datées — sur la même connexion, donc l'un après l'autre : node-postgres
+    // sérialise les requêtes d'un client, un Promise.all n'y aurait rien changé.
+    // Mesuré le 2026-08-26 : 2 320 ms pour les quatre requêtes de ce point d'accès.
+    //
+    // Comptées, jamais seulement écartées : l'écran les nomme aux extrémités de la
+    // barre et l'analyste peut y aller. Les masquer serait le défaut que ce dépôt
+    // corrige partout ailleurs.
+    //
+    // La frontière ne bouge pas. Le CASE teste `< lo` et `> hi` exactement comme le
+    // faisait la requête supprimée. S'en remettre au 0 et au N+1 que `width_bucket`
+    // rend déjà aurait décalé la borne haute d'une seconde, puisque celle qu'on lui
+    // passe est `hi + 1` : une ligne à `hi + 0,5 s` serait tombée dans le dernier seau
+    // au lieu d'être comptée au-dessus de la borne.
+    //
+    // Les deux sentinelles sont des constantes du module, jamais une valeur du client.
+    const r = await client.query(
+      `SELECT CASE
+                WHEN timestamp < $3 THEN ${BKT_BEFORE_LO}
+                WHEN timestamp > $4 THEN ${BKT_AFTER_HI}
+                ELSE width_bucket(EXTRACT(EPOCH FROM timestamp),
+                                  EXTRACT(EPOCH FROM $3::timestamptz),
+                                  EXTRACT(EPOCH FROM $4::timestamptz) + 1, $2)
+              END AS bkt,
+              COUNT(*)::int AS n
+         FROM collection_timeline
+        WHERE case_id = $1 AND timestamp IS NOT NULL
+        GROUP BY 1 ORDER BY 1`, [caseId, N, lo, hi]);
+
+    const { buckets, before_lo, after_hi } = foldHistogramRows(r.rows, N);
+    res.json({ buckets, total: dated, lo, hi, before_lo, after_hi });
   } catch (err) {
     logger.warn('[timeline-histogram]', err.message);
     res.json({ buckets: [], total: 0, lo: null, hi: null });
@@ -1372,6 +1431,9 @@ router.post('/:caseId/parse', authenticate, async (req, res) => {
 
       const csvFiles = findCsvFilesRecursive(outputDir);
       let csvRawCount = 0, csvNormCount = 0, firstCols = [];
+      // Les fichiers dont l'insertion a été refusée. Sans cette liste, un échec
+      // d'écriture laissait les compteurs à zéro et se présentait comme un CSV vide.
+      const csvFailures = [];
 
       const csvT0 = Date.now();
       await runConcurrent(csvFiles, async (csvFilePath) => {
@@ -1384,23 +1446,36 @@ router.post('/:caseId/parse', authenticate, async (req, res) => {
           if (firstCols.length === 0) firstCols = r.columns;
         } catch (streamErr) {
           // Full error inline so winston actually surfaces it (pg errors carry code/detail/where).
-          logger.warn(`[parse] Stream insert error ${artifactType}/${path.basename(csvFilePath)}: ` +
+          logger.error(`[parse] Stream insert error ${artifactType}/${path.basename(csvFilePath)}: ` +
             `${streamErr.message || streamErr} | code=${streamErr.code || '?'}` +
             `${streamErr.detail ? ' | detail=' + String(streamErr.detail).slice(0, 200) : ''}` +
             `${streamErr.where ? ' | where=' + String(streamErr.where).slice(0, 150) : ''}`);
+          // Retenu, pas seulement journalisé : c'est cette liste qui empêche l'échec
+          // de se présenter plus bas comme un fichier vide. Journalisé en `error` et
+          // non `warn` — le 2026-08-13 un avertissement d'une autre étape a défilé
+          // sans être vu et douze artefacts sont passés pour vides pendant dix jours.
+          csvFailures.push({
+            file: path.basename(csvFilePath),
+            reason: `${streamErr.message || streamErr}`.slice(0, 200),
+            code: streamErr.code || null,
+          });
         } finally {
           dbWriteSem.release();
         }
       }, 3);
       const csvMs = Date.now() - csvT0;
       const rps = csvMs > 0 ? Math.round(csvNormCount / (csvMs / 1000)) : 0;
-      logger.info(`[BENCH] ${artifactType} CSV→DB: ${csvFiles.length} files, ${csvRawCount} raw → ${csvNormCount} rows in ${csvMs}ms (${rps} rows/s, batch=${CT_DB_BATCH})`);
+      // Les échecs figurent dans la ligne de résumé. « 0 raw → 0 rows » sans mention
+      // d'échec se lit « le fichier était vide » ; c'est ce qu'on a lu le 2026-08-24
+      // pour un $MFT de 365 031 lignes dont l'insertion avait été refusée.
+      const failNote = csvFailures.length
+        ? ` | ${csvFailures.length} FICHIER(S) REFUSÉ(S): ${csvFailures.map(f => `${f.file} (${f.code || 'sans code'})`).join(', ')}`
+        : '';
+      logger.info(`[BENCH] ${artifactType} CSV→DB: ${csvFiles.length} files, ${csvRawCount} raw → ${csvNormCount} rows in ${csvMs}ms (${rps} rows/s, batch=${CT_DB_BATCH})${failNote}`);
 
-      const artifactStatus = (toolError && csvNormCount === 0)
-        ? 'error'
-        : (csvNormCount === 0 && !toolError)
-          ? 'degraded'
-          : 'success';
+      const artifactStatus = resolveArtifactStatus({
+        toolError, normalized: csvNormCount, failures: csvFailures,
+      });
       results[artifactType] = {
         status: artifactStatus,
         name: config.name,
@@ -1409,7 +1484,17 @@ router.post('/:caseId/parse', authenticate, async (req, res) => {
         normalized_records: csvNormCount,
         columns: firstCols,
         ...(toolError && csvNormCount === 0 ? { error: toolError } : {}),
-        ...(artifactStatus === 'degraded' ? { warning: '0 événements parsés (fichier vide ou format non reconnu)' } : {}),
+        // Les refus d'insertion voyagent avec le résultat : la couverture et l'écran
+        // doivent pouvoir nommer le fichier perdu, pas seulement en compter zéro.
+        ...(csvFailures.length ? { csv_failures: csvFailures } : {}),
+        // Le libellé suit la cause réelle. Il affirmait « fichier vide ou format non
+        // reconnu » pour tout `degraded` ; depuis qu'un échec partiel produit aussi ce
+        // statut, cette phrase aurait décrit un fichier refusé comme un fichier vide.
+        ...(artifactStatus !== 'success' && csvFailures.length
+          ? { warning: `${csvFailures.length} fichier(s) lus mais refusés à l'écriture — ${csvNormCount} ligne(s) écrite(s) sur ce type` }
+          : artifactStatus === 'degraded'
+            ? { warning: '0 événements parsés (fichier vide ou format non reconnu)' }
+            : {}),
         ...(csvNormCount === 0 && toolStdout ? { tool_output: toolStdout.trim().split('\n').slice(-6).join(' | ').substring(0, 500) } : {}),
       };
       logger.info(`[parse] ${artifactType}: files=${files.length} csv_raw=${csvRawCount} normalized=${csvNormCount}`);
@@ -1525,14 +1610,9 @@ router.post('/:caseId/parse', authenticate, async (req, res) => {
       ]
     );
 
-    try {
-      const redis = getRedis();
-      if (redis) {
-
-        const keys = await redis.keys(`timeline:aggs:${caseId}:*`);
-        if (keys.length) await redis.del(...keys);
-      }
-    } catch (_e) {}
+    // Les nouvelles lignes doivent etre visibles tout de suite : voir
+    // services/timelineAggCache.ts, qui nomme les cles et sait donc les retrouver.
+    await invalidateAggCache(getRedis(), caseId);
 
     await auditLog(req.user.id, 'parse_collection', 'collection', resultId,
       { artifact_types: typesToParse, total_records: totalRecords }, req.ip);
@@ -1780,6 +1860,37 @@ function shiftHuntPredicate(where, nextParamIndex) {
   return where.replace(/\$(\d+)/g, (_m, n) => `$${parseInt(n, 10) + nextParamIndex - 1}`);
 }
 
+// Is the Elasticsearch index complete enough to answer for this case?
+//
+// See src/services/timelineSource.js for why an index can hold a strict subset of
+// Postgres. The two case-wide counts are cached together for five minutes: this only
+// runs when an index exists at all, and the Postgres side is an index-only scan on
+// idx_ct_case_ts. Any failure resolves to false — Postgres has everything, so falling
+// back costs latency, while trusting a partial index costs rows.
+async function esCanAnswerFor(caseId) {
+  const key = `timeline:essource:${caseId}`;
+  try {
+    const redis = getRedis();
+    if (redis) {
+      const cached = await redis.get(key);
+      if (cached !== null && cached !== undefined) return cached === '1';
+    }
+    const [es, pg] = await Promise.all([
+      esService.searchTimeline(caseId, { page: 1, limit: 1 }),
+      pool.query('SELECT COUNT(*)::int n FROM collection_timeline WHERE case_id = $1', [caseId]),
+    ]);
+    const ok = esMayServe(es?.total, pg.rows[0]?.n);
+    if (!ok) {
+      logger.info(`[timeline] ES bypassed for ${caseId}: index holds ${es?.total}, Postgres holds ${pg.rows[0]?.n}`);
+    }
+    try { if (redis) await redis.setex(key, 300, ok ? '1' : '0'); } catch (_e) {}
+    return ok;
+  } catch (e) {
+    logger.warn(`[timeline] ES completeness check failed, using PG: ${String(e.message).substring(0, 100)}`);
+    return false;
+  }
+}
+
 router.get('/:caseId/timeline', authenticate, async (req, res) => {
   try {
     const { caseId } = req.params;
@@ -1816,6 +1927,15 @@ router.get('/:caseId/timeline', authenticate, async (req, res) => {
 
     const SAFE_SORT_COLS = new Set(['timestamp', 'artifact_type', 'artifact_name', 'description', 'source']);
     const safeCol = SAFE_SORT_COLS.has(sort_col) ? sort_col : 'timestamp';
+
+    // Inventory rows (timestamp_kind = 'inventory') carry a NULL timestamp. Postgres
+    // sorts NULLs first under DESC, so the default "most recent first" view would have
+    // opened on 872,419 undated lsof lines with the actual chronology buried beneath
+    // them. Every ORDER BY below therefore carries NULLS LAST in *both* directions:
+    // an undated row is in the view and reachable, but never ahead of a dated one.
+    //
+    // The start_time / end_time filters need no such care — `timestamp >= x` is
+    // unknown for NULL, so a time range already excludes inventory by construction.
 
     const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -1868,7 +1988,7 @@ router.get('/:caseId/timeline', authenticate, async (req, res) => {
     if (!host_name && !user_name && !hasAdvancedFilters) {
       try {
         const hasIndex = await esService.indexExists(caseId);
-        if (hasIndex) {
+        if (hasIndex && await esCanAnswerFor(caseId)) {
           const esResult = await esService.searchTimeline(caseId, {
             page: pg, limit: lim, sort_dir, sort_col: safeCol,
             ...(safeSortMulti ? { sort_multi: safeSortMulti } : {}),
@@ -1890,6 +2010,36 @@ router.get('/:caseId/timeline', authenticate, async (req, res) => {
     const params     = [caseId];
     let   pi         = 2;
 
+    let hostCol = 'host_name';
+    let hostMachines = [];
+    let hostEtablis = [];
+    try {
+      const hq = establishedHostsQuery(caseId);
+      const hr = await pool.query(hq.text, hq.values);
+      const parCollecte = new Map();
+      for (const row of hr.rows) {
+        if (!parCollecte.has(row.evidence_id)) parCollecte.set(row.evidence_id, []);
+        parCollecte.get(row.evidence_id).push({ host: row.host, events: row.events });
+      }
+      const machines = [];
+      for (const [evidence_id, obs] of parCollecte) {
+        const seule = collectionHost(obs);
+        if (seule) machines.push({ evidence_id, host: seule.host });
+      }
+      const etablis = [...new Set(hr.rows.map(r => String(r.host)))];
+      const filtreHote = Boolean(host_name || host_name_op === 'empty' || host_name_op === 'not_empty');
+      const expr = resolvedHostExpr(machines, etablis, pi);
+      if (expr.params.length) {
+        hostMachines = machines;
+        hostEtablis = etablis;
+        if (filtreHote) {
+          hostCol = expr.sql;
+          params.push(...expr.params);
+          pi += expr.params.length;
+        }
+      }
+    } catch { hostCol = 'host_name'; hostMachines = []; hostEtablis = []; }
+
     if (artifact_types) {
       conditions.push(`artifact_type = ANY($${pi++})`);
       params.push(artifact_types.split(','));
@@ -1900,7 +2050,7 @@ router.get('/:caseId/timeline', authenticate, async (req, res) => {
     if (start_time) { conditions.push(`timestamp >= $${pi++}`); params.push(start_time); }
     if (end_time)   { conditions.push(`timestamp <= $${pi++}`); params.push(end_time);   }
     if (host_name || host_name_op === 'empty' || host_name_op === 'not_empty')
-      pi = pushTextFilter('host_name', host_name || '', host_name_op, pi, conditions, params);
+      pi = pushTextFilter(hostCol, host_name || '', host_name_op, pi, conditions, params);
     if (user_name || user_name_op === 'empty' || user_name_op === 'not_empty')
       pi = pushTextFilter('user_name', user_name || '', user_name_op, pi, conditions, params);
     if (result_id)   { conditions.push(`result_id = $${pi++}`);      params.push(result_id);  }
@@ -1948,61 +2098,103 @@ router.get('/:caseId/timeline', authenticate, async (req, res) => {
 
     const where = conditions.join(' AND ');
 
-    const aggCacheKey = `timeline:aggs:${caseId}:${evidence_id || ''}:${(validatedEvidenceIds || []).join(',')}:${hunt_id || ''}`;
-    let cachedAggs = null;
+    // Filtre de nature, applique aux lignes rendues et non au comptage : voir
+    // services/timelineNature.ts pour la regle et ses tests.
+    const whereRows = natureScopedWhere(where, req.query.nature);
+
+    // Deux caches, parce que les agregats n'ont pas les memes dependances : hotes et
+    // utilisateurs sont interroges avec [caseId] seul, la facette des types avec le
+    // `where` complet. Voir services/timelineAggCache.ts pour le defaut mesure que
+    // cette separation corrige — une cle unique rendait la facette d'un filtre sur
+    // la vue non filtree du meme cas.
+    const { dimensions: dimsKey, facets: facetsKey } = buildAggCacheKeys(caseId, where, params);
+    let cachedFacets = null; // [{ artifact_type, cnt }]
+    let cachedDims   = null; // { hosts, users }
     try {
       const redis = getRedis();
       if (redis) {
-        const raw = await redis.get(aggCacheKey);
-        if (raw) cachedAggs = JSON.parse(raw);
+        const [rawFacets, rawDims] = await redis.mget(facetsKey, dimsKey);
+        if (rawFacets) cachedFacets = JSON.parse(rawFacets);
+        if (rawDims)   cachedDims   = JSON.parse(rawDims);
       }
     } catch (_e) {}
 
+    // `undated` sort du même agrégat que `total` : sur une table de 1,2 million de
+    // lignes ce compte tourne à chaque page, et une seconde requête doublerait le coût
+    // pour une information que la première connaît déjà.
+    //
+    // Il existe parce que l'en-tête annonçait « 1 213 366 events » alors que 872 414 de
+    // ces lignes sont des objets d'inventaire sans horodatage. La ligne dit sa nature
+    // depuis la cellule DateTime vide et sa colonne Type TS ; le total, lui, les fondait
+    // toutes dans le même mot. Les deux branches le portent, sinon activer le
+    // dédoublonnage ferait réapparaître le compte fondu.
     const countSql = collapseDupes
-      ? `SELECT COUNT(*)::int AS total FROM (
-           SELECT DISTINCT COALESCE(dedupe_hash, id::text) AS k
-             FROM collection_timeline WHERE ${where}
-         ) d`
-      : `SELECT COUNT(*)::int AS total FROM collection_timeline WHERE ${where}`;
+      ? `SELECT COUNT(*)::int AS total,
+                COUNT(*) FILTER (WHERE ts IS NULL)::int AS undated
+           FROM (
+             SELECT DISTINCT ON (COALESCE(dedupe_hash, id::text))
+                    COALESCE(dedupe_hash, id::text) AS k, timestamp AS ts
+               FROM collection_timeline WHERE ${where}
+           ) d`
+      : `SELECT COUNT(*)::int AS total,
+                COUNT(*) FILTER (WHERE timestamp IS NULL)::int AS undated
+           FROM collection_timeline WHERE ${where}`;
+
+    const projExpr = resolvedHostExpr(hostMachines, hostEtablis, pi + 2);
+    const hostProj = projExpr.params.length ? projExpr.sql : 'host_name';
+
+    const rawCol = rawProjection(artifact_types);
 
     const rowsSql = collapseDupes
       ? `SELECT DISTINCT ON (COALESCE(dedupe_hash, id::text))
                 id, timestamp, artifact_type, artifact_name, description, source,
-                host_name, user_name, process_name, mitre_technique_id, mitre_technique_name, mitre_tactic,
+                ${hostProj} AS host_name, user_name, process_name, mitre_technique_id, mitre_technique_name, mitre_tactic,
                 tool, timestamp_kind, details, "path", ext, event_id, file_size,
-                src_ip::text AS src_ip, dst_ip::text AS dst_ip, sha1, tags, detections
+                src_ip::text AS src_ip, dst_ip::text AS dst_ip, sha1, tags, detections${rawCol}
            FROM collection_timeline
-          WHERE ${where}
+          WHERE ${whereRows}
           ORDER BY COALESCE(dedupe_hash, id::text),
                    array_length(tags, 1) DESC NULLS LAST,
                    length(COALESCE(description, '')) DESC,
-                   ${safeCol} ${direction}
+                   ${safeCol} ${direction} NULLS LAST
           LIMIT $${pi} OFFSET $${pi + 1}`
       : `SELECT id, timestamp, artifact_type, artifact_name, description, source,
-                host_name, user_name, process_name, mitre_technique_id, mitre_technique_name, mitre_tactic,
+                ${hostProj} AS host_name, user_name, process_name, mitre_technique_id, mitre_technique_name, mitre_tactic,
                 tool, timestamp_kind, details, "path", ext, event_id, file_size,
-                src_ip::text AS src_ip, dst_ip::text AS dst_ip, sha1, tags, detections
+                src_ip::text AS src_ip, dst_ip::text AS dst_ip, sha1, tags, detections${rawCol}
            FROM collection_timeline
-          WHERE ${where}
-          ORDER BY ${safeCol} ${direction}, id ${direction}
+          WHERE ${whereRows}
+          ORDER BY ${safeCol} ${direction} NULLS LAST, id ${direction}
           LIMIT $${pi} OFFSET $${pi + 1}`;
 
     const baseQueries = [
       pool.query(countSql, params),
-      pool.query(rowsSql, [...params, lim, offset]),
+      pool.query(rowsSql, [...params, lim, offset, ...projExpr.params]),
     ];
 
-    let typesRes, hostsRes, usersRes;
-    if (cachedAggs) {
-
-      typesRes  = { rows: cachedAggs.types };
-      hostsRes  = { rows: cachedAggs.hosts };
-      usersRes  = { rows: cachedAggs.users };
-    } else {
-
+    // Chaque agregat absent du cache est ajoute a la volee et son rang retenu. Les
+    // deux caches se ratent independamment : supposer une position fixe dans
+    // `results` rendrait la facette a la place des hotes des que l'un des deux
+    // repondrait seul.
+    const slot = {};
+    if (!cachedFacets) {
+      slot.facets = baseQueries.length;
       baseQueries.push(
-        pool.query(`SELECT artifact_type, COUNT(*)::int AS cnt FROM collection_timeline WHERE ${where} GROUP BY artifact_type ORDER BY artifact_type`, params),
-        pool.query(`SELECT DISTINCT host_name FROM collection_timeline WHERE case_id = $1 AND host_name IS NOT NULL ORDER BY host_name LIMIT 100`, [caseId]),
+        pool.query(`SELECT artifact_type, COUNT(*)::int AS cnt FROM collection_timeline WHERE ${where} GROUP BY artifact_type ORDER BY artifact_type`, params)
+      );
+    }
+    if (!cachedDims) {
+      slot.dims = baseQueries.length;
+      baseQueries.push(
+        (() => {
+          const fx = resolvedHostExpr(hostMachines, hostEtablis, 2);
+          const col = fx.params.length ? fx.sql : 'host_name';
+          return pool.query(
+            `SELECT DISTINCT h AS host_name FROM (
+               SELECT ${col} AS h FROM collection_timeline WHERE case_id = $1 AND host_name IS NOT NULL
+             ) d WHERE h IS NOT NULL ORDER BY h LIMIT 100`,
+            [caseId, ...fx.params]);
+        })(),
         pool.query(`SELECT DISTINCT user_name FROM collection_timeline WHERE case_id = $1 AND user_name IS NOT NULL ORDER BY user_name LIMIT 100`, [caseId])
       );
     }
@@ -2010,22 +2202,20 @@ router.get('/:caseId/timeline', authenticate, async (req, res) => {
     const results = await Promise.all(baseQueries);
     const countRes = results[0];
     const rowsRes  = results[1];
-    if (!cachedAggs) {
-      typesRes = results[2];
-      hostsRes = results[3];
-      usersRes = results[4];
 
-      try {
-        const redis = getRedis();
-        if (redis) {
-          await redis.setex(aggCacheKey, 300, JSON.stringify({
-            types: typesRes.rows,
-            hosts: hostsRes.rows,
-            users: usersRes.rows,
-          }));
-        }
-      } catch (_e) {}
-    }
+    const typesRes = { rows: cachedFacets ?? results[slot.facets].rows };
+    const hostsRes = { rows: cachedDims ? cachedDims.hosts : results[slot.dims].rows };
+    const usersRes = { rows: cachedDims ? cachedDims.users : results[slot.dims + 1].rows };
+
+    try {
+      const redis = getRedis();
+      if (redis) {
+        const writes = [];
+        if (!cachedFacets) writes.push(redis.setex(facetsKey, 300, JSON.stringify(typesRes.rows)));
+        if (!cachedDims)   writes.push(redis.setex(dimsKey,   300, JSON.stringify({ hosts: hostsRes.rows, users: usersRes.rows })));
+        if (writes.length) await Promise.all(writes);
+      }
+    } catch (_e) {}
 
     const total = countRes.rows[0].total;
 
@@ -2089,6 +2279,7 @@ router.get('/:caseId/timeline', authenticate, async (req, res) => {
     }
     res.write(']');
     res.write(`,"total":${total}`);
+    res.write(`,"undated":${countRes.rows[0].undated ?? 0}`);
     res.write(`,"page":${pg}`);
     res.write(`,"limit":${lim}`);
     res.write(`,"total_pages":${Math.ceil(total / lim)}`);
@@ -2312,13 +2503,40 @@ router.get('/:caseId/timeline/groups', authenticate, async (req, res) => {
     if (invalidCol) {
       return res.status(400).json({ error: `column not groupable: ${invalidCol}` });
     }
-    const groupSelect = groupCols.map((c, i) => `${c} AS k${i}`).join(', ');
+    const groupSelect = groupCols.map((c, i) => `${c === 'host_name' ? '__HOSTCOL__' : c} AS k${i}`).join(', ');
     const groupBy     = groupCols.join(', ');
+    const besoinHote  = groupCols.includes('host_name')
+      || Boolean(host_name || host_name_op === 'empty' || host_name_op === 'not_empty');
 
     // Build WHERE clause — same shape as GET /timeline, hunt_id included.
     const conditions = ['case_id = $1'];
     const params     = [caseId];
     let pi = 2;
+
+    let hostColG = 'host_name';
+    if (besoinHote) {
+      try {
+        const hq = establishedHostsQuery(caseId);
+        const hr = await pool.query(hq.text, hq.values);
+        const par = new Map();
+        for (const row of hr.rows) {
+          if (!par.has(row.evidence_id)) par.set(row.evidence_id, []);
+          par.get(row.evidence_id).push({ host: row.host, events: row.events });
+        }
+        const machines = [];
+        for (const [evidence_id, obs] of par) {
+          const seule = collectionHost(obs);
+          if (seule) machines.push({ evidence_id, host: seule.host });
+        }
+        const etablis = [...new Set(hr.rows.map(r => String(r.host)))];
+        const expr = resolvedHostExpr(machines, etablis, pi);
+        if (expr.params.length) {
+          hostColG = expr.sql;
+          params.push(...expr.params);
+          pi += expr.params.length;
+        }
+      } catch { hostColG = 'host_name'; }
+    }
 
     if (artifact_types) {
       conditions.push(`artifact_type = ANY($${pi++})`);
@@ -2330,7 +2548,7 @@ router.get('/:caseId/timeline/groups', authenticate, async (req, res) => {
     if (start_time) { conditions.push(`timestamp >= $${pi++}`); params.push(start_time); }
     if (end_time)   { conditions.push(`timestamp <= $${pi++}`); params.push(end_time); }
     if (host_name || host_name_op === 'empty' || host_name_op === 'not_empty')
-      pi = pushTextFilter('host_name', host_name || '', host_name_op, pi, conditions, params);
+      pi = pushTextFilter(hostColG, host_name || '', host_name_op, pi, conditions, params);
     if (user_name || user_name_op === 'empty' || user_name_op === 'not_empty')
       pi = pushTextFilter('user_name', user_name || '', user_name_op, pi, conditions, params);
     if (result_id)  { conditions.push(`result_id = $${pi++}`);    params.push(result_id); }
@@ -2388,7 +2606,7 @@ router.get('/:caseId/timeline/groups', authenticate, async (req, res) => {
     const where = conditions.join(' AND ');
     const fromExpr = (dedupe === 'collapse' || dedupe === '1' || dedupe === 'true')
       ? `(SELECT DISTINCT ON (COALESCE(dedupe_hash, id::text))
-              id, timestamp, tool, event_id, artifact_type, host_name, user_name,
+              id, timestamp, tool, event_id, artifact_type, ${hostColG} AS host_name, user_name,
               ext, mitre_technique_id, source, process_name
            FROM collection_timeline WHERE ${where}
            ORDER BY COALESCE(dedupe_hash, id::text)) ct`
@@ -2397,14 +2615,21 @@ router.get('/:caseId/timeline/groups', authenticate, async (req, res) => {
       ? `FROM ${fromExpr}`
       : `FROM ${fromExpr}`;
 
+    // Quand le dedoublonnage est actif, le sous-select a deja resolu l'hote et ne
+    // projette pas `evidence_id` : l'expression ne peut pas s'y appliquer une seconde
+    // fois. Sinon elle s'applique ici, sur la table.
+    const dedoublonne = (dedupe === 'collapse' || dedupe === '1' || dedupe === 'true');
+    const groupSelectResolu = groupSelect.replace('__HOSTCOL__', dedoublonne ? 'host_name' : hostColG);
+    const groupByResolu     = groupCols.map(c => (c === 'host_name' && !dedoublonne) ? hostColG : c).join(', ');
+
     const sql = `
-      SELECT ${groupSelect},
+      SELECT ${groupSelectResolu},
              COUNT(*)::bigint     AS cnt,
              MIN(timestamp)        AS first_ts,
              MAX(timestamp)        AS last_ts,
              (ARRAY_AGG(id ORDER BY timestamp))[1:3] AS sample_ids
       ${fromClause}
-      GROUP BY ${groupBy}
+      GROUP BY ${groupByResolu}
       ORDER BY cnt DESC
       LIMIT 10000
     `;
@@ -2609,13 +2834,7 @@ router.post('/:caseId/import-csv', authenticate, csvUpload.array('files', 20), a
     await auditLog(req.user.id, 'csv_meta_import', 'collection', resultId, { files: perFile.length, inserted: grandTotal }, req.ip);
 
     // Invalidate cached aggs so the UI sees new rows immediately.
-    try {
-      const redis = getRedis();
-      if (redis) {
-        const keys = await redis.keys(`timeline:aggs:${caseId}:*`);
-        if (keys.length) await redis.del(...keys);
-      }
-    } catch (_e) {}
+    await invalidateAggCache(getRedis(), caseId);
 
     res.json({ result_id: resultId, inserted: grandTotal, files: perFile });
   } catch (err) {
@@ -2696,29 +2915,23 @@ router.post('/:caseId/hayabusa', authenticate, async (req, res) => {
     const evtxParentDir = evtxCommonAncestor(evtxFiles);
     const outputFile = path.join(TEMP_DIR, `hayabusa-${caseId}-${uuidv4()}.jsonl`);
 
-    // Atomic helper: lock → wipe old Hayabusa data → insert fresh result record.
-    // FOR UPDATE blocks a concurrent Hayabusa run on the same case until we commit,
-    // ensuring exactly one result record exists at any time.
+    // Atomic helper: lock → replace this collection's Hayabusa data → insert fresh result.
+    // The purge is scoped to the collection being parsed, not to the case: a case can
+    // hold several collections, and replacing one must never erase the detections of
+    // the others. FOR UPDATE still blocks a concurrent run on the same collection.
     async function initHayabusaRecord(outputDataJson, recordCount = 0) {
       const dbClient = await pool.connect();
       try {
         await dbClient.query('BEGIN');
-        const oldRows = await dbClient.query(
-          `SELECT id FROM parser_results WHERE case_id = $1 AND parser_name = 'Hayabusa' FOR UPDATE`,
-          [caseId]
-        );
-        const oldIds = oldRows.rows.map(r => r.id);
-        await dbClient.query(
-          `DELETE FROM collection_timeline WHERE case_id = $1 AND artifact_type = 'hayabusa'`,
-          [caseId]
-        );
-        if (oldIds.length > 0) {
-          await dbClient.query(`DELETE FROM parser_results WHERE id = ANY($1::uuid[])`, [oldIds]);
+        const { timelineRows, resultIds: oldIds } =
+          await purgeHayabusaScoped(dbClient, caseId, hayEvidenceId);
+        if (timelineRows > 0) {
+          logger.info(`[hayabusa] replacing ${timelineRows} detection row(s) from a previous run of this collection`);
         }
         const newRow = await dbClient.query(
-          `INSERT INTO parser_results (case_id, parser_name, parser_version, input_file, output_data, record_count, created_by)
-           VALUES ($1, 'Hayabusa', '2.x', $2, $3::jsonb, $4, $5) RETURNING id`,
-          [caseId, evtxParentDir, outputDataJson, recordCount, req.user.id]
+          `INSERT INTO parser_results (case_id, evidence_id, parser_name, parser_version, input_file, output_data, record_count, created_by)
+           VALUES ($1, $2, 'Hayabusa', '2.x', $3, $4::jsonb, $5, $6) RETURNING id`,
+          [caseId, hayEvidenceId, evtxParentDir, outputDataJson, recordCount, req.user.id]
         );
         await dbClient.query('COMMIT');
         return { newId: newRow.rows[0].id, oldIds };
@@ -3270,10 +3483,14 @@ router.get('/:caseId/hayabusa', authenticate, async (req, res) => {
     const limit  = Math.min(parseInt(req.query.limit) || 10000, 100000);
     const cursor = req.query.cursor || null; // BIGINT id cursor
 
+    // One Hayabusa run per collection, so a case holds as many result rows as it
+    // holds parsed collections. Reading a single row here while counting detections
+    // case-wide below would put one collection's evtx count beside every
+    // collection's detections.
     const meta = await pool.query(
-      `SELECT output_data, record_count, created_at, id FROM parser_results
+      `SELECT output_data, record_count, created_at, id, evidence_id FROM parser_results
        WHERE case_id = $1 AND parser_name = 'Hayabusa'
-       ORDER BY created_at DESC LIMIT 1`,
+       ORDER BY created_at DESC`,
       [caseId]
     );
 
@@ -3281,8 +3498,7 @@ router.get('/:caseId/hayabusa', authenticate, async (req, res) => {
       return res.json({ timeline: [], total_detections: 0, stats: { critical: 0, high: 0, medium: 0, low: 0 }, next_cursor: null });
     }
 
-    const metaRow  = meta.rows[0];
-    const metaData = metaRow.output_data || {};
+    const hayMeta = aggregateHayabusaMeta(meta.rows);
 
     // Read detections from collection_timeline — cursor-paginated by row id
     let ctQuery = `SELECT id, timestamp, artifact_name AS rule_title, description,
@@ -3334,9 +3550,9 @@ router.get('/:caseId/hayabusa', authenticate, async (req, res) => {
       timeline:         rows,
       total_detections: parseInt(ls.total) || 0,
       stats,
-      evtx_files_count: metaData.evtx_files_count || 0,
-      diagnostic:       metaData.diagnostic        || null,
-      generated_at:     metaRow.created_at,
+      evtx_files_count: hayMeta.evtxFilesCount,
+      diagnostic:       hayMeta.diagnostic,
+      generated_at:     hayMeta.generatedAt,
       next_cursor:      nextCursor,
     });
   } catch (err) {
@@ -3516,15 +3732,27 @@ router.get('/:caseId/export/csv', authenticate, async (req, res) => {
     const baseCols = ['timestamp', 'artifact_type', 'artifact_name', 'source', 'description',
                       'host_name', 'user_name', 'process_name',
                       'mitre_tactic', 'mitre_technique_id', 'mitre_technique_name'];
+    // Header names double as row keys below (`csvCell(row[c])`), so they must be the
+    // column names Postgres actually returns.
+    //
+    // `ip_address` and `evidence_path` were named here and in the SELECT below, and
+    // neither has ever existed on collection_timeline — the real columns are src_ip,
+    // dst_ip, source_device and path. The query therefore threw, and the route
+    // answered 500. It only fired when exactly one artifact type was requested, which
+    // is to say whenever an analyst exported a filtered view; exporting everything
+    // took the other branch and worked, which is why it went unnoticed.
     const extraCols = singleArtifact
-      ? ['tool', 'event_id', 'ext', 'file_size', 'ip_address', 'sha1', 'evidence_path', 'dedupe_hash', 'tags', 'detections']
+      ? ['tool', 'event_id', 'ext', 'file_size', 'src_ip', 'dst_ip', 'sha1',
+         'source_device', 'path', 'dedupe_hash', 'tags', 'detections']
       : [];
 
     const selectCols = singleArtifact
       ? `timestamp, artifact_type, artifact_name, source, description,
          host_name, user_name, process_name,
          mitre_tactic, mitre_technique_id, mitre_technique_name,
-         tool, event_id, ext, file_size, ip_address, sha1, evidence_path, dedupe_hash,
+         tool, event_id, ext, file_size,
+         src_ip::text AS src_ip, dst_ip::text AS dst_ip, sha1,
+         source_device, "path", dedupe_hash,
          tags, detections, raw`
       : `timestamp, artifact_type, artifact_name, source, description,
          host_name, user_name, process_name,
@@ -3571,7 +3799,10 @@ router.get('/:caseId/export/csv', authenticate, async (req, res) => {
     }
     res.end();
   } catch (err) {
-    logger.error('[export csv]', err);
+    // The message goes in the message, not in the metadata: as `logger.error(tag, err)`
+    // the cause landed outside `message` and the 500 left no readable trace in the log
+    // stream — this failure was diagnosed from the source, not from the logs.
+    logger.error(`[export csv] ${err?.message ?? err}`);
     if (!res.headersSent) res.status(500).json({ error: 'Erreur export CSV' });
   }
 });

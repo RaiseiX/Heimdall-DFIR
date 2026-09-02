@@ -18,7 +18,6 @@ function fmtSize(b) {
   return `${n.toFixed(n >= 100 || i === 0 ? 0 : 1)} ${u[i]}`;
 }
 
-// Quick-access tiles → this collection's other workspaces.
 const QUICK_TABS = [
   { tab: 'timeline',   labelKey: 'collectionOverview.tiles.timeline',   fallback: 'Super Timeline', icon: Clock,          accent: 'var(--fl-ok)' },
   { tab: 'network',    labelKey: 'collectionOverview.tiles.network',    fallback: 'Network',        icon: Network,        accent: 'var(--fl-accent)' },
@@ -33,8 +32,8 @@ export default function CollectionOverview({ caseId, collectionId, collName }) {
   const navigate = useNavigate();
 
   const [evidence, setEvidence] = useState(null);
-  const [result, setResult]     = useState(null);   // { resultId, recordCount, parsedAt, parsedBy }
-  const [breakdown, setBreakdown] = useState([]);   // [{ artifact_type, count }]
+  const [result, setResult]     = useState(null);
+  const [breakdown, setBreakdown] = useState([]);
   const [loading, setLoading]   = useState(true);
   const [reparsing, setReparsing] = useState(false);
 
@@ -48,7 +47,6 @@ export default function CollectionOverview({ caseId, collectionId, collName }) {
       const ev = (evRes.data || []).find(e => e.id === collectionId) || null;
       setEvidence(ev);
 
-      // Match parser results to THIS collection by evidence_id; keep the richest run.
       const mine = (Array.isArray(prRes.data) ? prRes.data : [])
         .filter(r => r.evidence_id === collectionId)
         .sort((a, b) => (b.record_count ?? 0) - (a.record_count ?? 0));
@@ -58,9 +56,13 @@ export default function CollectionOverview({ caseId, collectionId, collName }) {
         setResult({ resultId: top.id, recordCount: top.record_count ?? 0, parsedAt: top.created_at, parsedBy: top.parsed_by });
         try {
           const typesRes = await parsersAPI.resultTypes(top.id);
-          const rows = (typesRes.data || []).filter(r => r.artifact_type).sort((a, b) => b.count - a.count);
+          const payload = Array.isArray(typesRes.data) ? typesRes.data : (typesRes.data?.types ?? []);
+          const rows = payload.filter(r => r.artifact_type).sort((a, b) => b.count - a.count);
           setBreakdown(rows);
-        } catch { setBreakdown([]); }
+        } catch (err) {
+          console.error('[CollectionOverview] artifact type breakdown failed', err);
+          setBreakdown([]);
+        }
       } else {
         setResult(null);
         setBreakdown([]);
@@ -97,7 +99,6 @@ export default function CollectionOverview({ caseId, collectionId, collName }) {
   return (
     <div style={{ maxWidth: 1000, margin: '0 auto', width: '100%', padding: '20px 16px 48px' }}>
 
-      {/* ── Header ── */}
       <div style={{
         display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16,
         paddingBottom: 16, borderBottom: '1px solid var(--fl-border)', marginBottom: 20,
@@ -150,7 +151,6 @@ export default function CollectionOverview({ caseId, collectionId, collName }) {
       </div>
 
       {!isParsed ? (
-        /* ── Empty state — collection imported but not yet parsed ── */
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '72px 16px', gap: 13, textAlign: 'center' }}>
           <div style={{ width: 46, height: 46, borderRadius: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--fl-raised)', border: '1px solid var(--fl-border)' }}>
             <Database size={21} style={{ color: 'var(--fl-muted)' }} strokeWidth={1.5} />
@@ -172,7 +172,6 @@ export default function CollectionOverview({ caseId, collectionId, collName }) {
         </div>
       ) : (
         <>
-          {/* ── Stat row ── */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 24, flexWrap: 'wrap', marginBottom: 24 }}>
             <div>
               <div style={{ fontFamily: MONO, fontSize: 26, fontWeight: 700, color: 'var(--fl-text)', fontFeatureSettings: '"tnum"', lineHeight: 1.1 }}>
@@ -206,7 +205,6 @@ export default function CollectionOverview({ caseId, collectionId, collName }) {
             )}
           </div>
 
-          {/* ── Artifact breakdown ── */}
           {breakdown.length > 0 && (
             <div style={{ marginBottom: 28 }}>
               <div style={{ fontFamily: MONO, fontSize: 10, color: 'var(--fl-muted)', textTransform: 'uppercase', letterSpacing: '0.12em', fontWeight: 600, marginBottom: 12 }}>
@@ -237,7 +235,6 @@ export default function CollectionOverview({ caseId, collectionId, collName }) {
             </div>
           )}
 
-          {/* ── Quick-access tiles ── */}
           <div>
             <div style={{ fontFamily: MONO, fontSize: 10, color: 'var(--fl-muted)', textTransform: 'uppercase', letterSpacing: '0.12em', fontWeight: 600, marginBottom: 12 }}>
               {t('collectionOverview.explore', 'Explorer cette collecte')}

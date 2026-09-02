@@ -1,4 +1,3 @@
-// frontend/src/components/supertimeline/EventGrid/GroupPanel.jsx
 import { useState } from 'react';
 import { useTimelineStore } from '../store/useTimelineStore';
 
@@ -20,7 +19,7 @@ export default function GroupPanel() {
     try {
       const field = JSON.parse(raw);
       addGroupByField(field);
-    } catch { /* invalid data */ }
+    } catch { }
   }
 
   function onChipDragStart(e, idx) {
@@ -68,15 +67,15 @@ export default function GroupPanel() {
     >
       {!hasGroups && (
         <span style={{
-          fontSize: 9, color: 'var(--fl-raised)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
+          fontSize: 9, color: 'var(--fl-dim)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
           letterSpacing: '0.06em', userSelect: 'none', pointerEvents: 'none',
         }}>
-          ⊕ Drag a column header here to group
+          Drag a column header here to group
         </span>
       )}
       {hasGroups && (
         <>
-          <span style={{ fontSize: 8, color: 'var(--fl-raised)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
+          <span style={{ fontSize: 8, color: 'var(--fl-dim)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
             textTransform: 'uppercase', letterSpacing: '0.08em', flexShrink: 0 }}>
             Group by:
           </span>
@@ -99,7 +98,7 @@ export default function GroupPanel() {
               }}
             >
               {idx > 0 && (
-                <span style={{ color: 'var(--fl-raised)', marginRight: 2, fontSize: 8 }}>›</span>
+                <span style={{ color: 'var(--fl-dim)', marginRight: 2, fontSize: 8 }}>›</span>
               )}
               {f.label}
               <span

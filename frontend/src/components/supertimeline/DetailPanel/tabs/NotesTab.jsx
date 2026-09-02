@@ -32,7 +32,7 @@ export default function NotesTab({ record: r }) {
       const res = await artifactsAPI.getNotes(caseId, ref);
       const loaded = res.data?.notes ?? [];
       setNotes(loaded);
-      setNotedRef(ref, loaded.length > 0); // C6: update grid indicator
+      setNotedRef(ref, loaded.length > 0);
     } catch {} finally { setSaving(false); }
   }
 
@@ -53,7 +53,7 @@ export default function NotesTab({ record: r }) {
       const res = await artifactsAPI.getNotes(caseId, ref);
       const loaded = res.data?.notes ?? [];
       setNotes(loaded);
-      setNotedRef(ref, loaded.length > 0); // C6: update grid indicator
+      setNotedRef(ref, loaded.length > 0);
     } catch {}
   }
 

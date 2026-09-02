@@ -1,4 +1,3 @@
-// Shared building blocks for the Settings page sections (Observatory charter).
 export const MONO = 'var(--f-mono, "JetBrains Mono", monospace)';
 export const UI   = 'var(--f-ui, "Inter", sans-serif)';
 

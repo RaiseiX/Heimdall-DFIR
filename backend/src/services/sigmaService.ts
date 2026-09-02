@@ -14,6 +14,8 @@ export interface SigmaRule {
 export interface BuildQueryResult {
   where:  string;
   params: unknown[];
+  unsupported: string | null;
+  fields: string[];
 }
 
 // Sigma's `level:` field. A value outside this set (typo, or absent) is
@@ -110,6 +112,17 @@ export function parseRule(content: string): {
   };
 }
 
+const EVENT_DATA_CONTAINER = 'AllFieldInfo';
+const SAFE_FIELD = /^[A-Za-z0-9_.-]+$/;
+
+export function isSafeFieldName(field: string): boolean {
+  return typeof field === 'string' && field.length > 0 && SAFE_FIELD.test(field);
+}
+
+export function fieldExpr(field: string): string {
+  return `COALESCE(raw->>'${field}', raw->'${EVENT_DATA_CONTAINER}'->>'${field}')`;
+}
+
 function splitField(key: string): { field: string; mods: string[] } {
   const parts = key.split('|');
   return { field: parts[0], mods: parts.slice(1) };
@@ -127,7 +140,7 @@ function fieldCondition(
     const idx = params.length + 1;
     let sqlVal: unknown = val;
     let op    = '=';
-    let cast  = `raw->>'${field}'`;
+    let cast  = fieldExpr(field);
 
     if (mods.includes('contains')) {
       op     = 'ILIKE';
@@ -155,7 +168,8 @@ function buildGroup(
   groupKey:  string,
   groupVal:  unknown,
   params:    unknown[],
-): string {
+  fields?:   Set<string>,
+): string | null {
 
   if (groupKey === 'keywords') {
     const terms = Array.isArray(groupVal) ? groupVal : [groupVal];
@@ -168,53 +182,197 @@ function buildGroup(
     return clauses.length === 1 ? clauses[0] : `(${clauses.join(' OR ')})`;
   }
 
+  if (Array.isArray(groupVal) && groupVal.length > 0
+      && groupVal.every(v => typeof v === 'object' && v !== null && !Array.isArray(v))) {
+    const variantes: string[] = [];
+    for (const variante of groupVal) {
+      const sql = buildGroup(groupKey, variante, params, fields);
+      if (sql === null) return null;
+      variantes.push(`(${sql})`);
+    }
+    return variantes.length === 1 ? variantes[0] : `(${variantes.join(' OR ')})`;
+  }
+
   if (typeof groupVal === 'object' && groupVal !== null && !Array.isArray(groupVal)) {
     const map = groupVal as Record<string, unknown>;
     const fieldClauses: string[] = [];
     for (const [key, val] of Object.entries(map)) {
       const { field, mods } = splitField(key);
+      if (!isSafeFieldName(field)) return null;
+      fields?.add(field);
       const values = Array.isArray(val) ? val : [val];
       fieldClauses.push(fieldCondition(field, mods, values, params));
     }
-    if (fieldClauses.length === 0) return 'TRUE';
+    if (fieldClauses.length === 0) return null;
     return fieldClauses.length === 1
       ? fieldClauses[0]
       : `(${fieldClauses.join(' AND ')})`;
   }
 
-  return 'TRUE';
+  return null;
+}
+
+
+type CondNode =
+  | { k: 'group'; name: string }
+  | { k: 'quant'; mode: 'all' | 'one'; pattern: string }
+  | { k: 'not'; on: CondNode }
+  | { k: 'and'; left: CondNode; right: CondNode }
+  | { k: 'or'; left: CondNode; right: CondNode };
+
+export interface ConditionSql { sql?: string; error?: string }
+
+function tokenize(condition: string): string[] | null {
+  const cleaned = String(condition ?? '').trim().toLowerCase();
+  if (!cleaned) return null;
+  if (!/^[a-z0-9_*() ]+$/.test(cleaned)) return null;
+  const spaced = cleaned.replace(/\(/g, ' ( ').replace(/\)/g, ' ) ');
+  const toks = spaced.split(/\s+/).filter(Boolean);
+  return toks.length ? toks : null;
+}
+
+function parseCondition(toks: string[]): { node: CondNode; rest: string[] } | null {
+  const parseOr = (t: string[]): { node: CondNode; rest: string[] } | null => {
+    let left = parseAnd(t);
+    if (!left) return null;
+    while (left.rest[0] === 'or') {
+      const right = parseAnd(left.rest.slice(1));
+      if (!right) return null;
+      left = { node: { k: 'or', left: left.node, right: right.node }, rest: right.rest };
+    }
+    return left;
+  };
+  const parseAnd = (t: string[]): { node: CondNode; rest: string[] } | null => {
+    let left = parseNot(t);
+    if (!left) return null;
+    while (left.rest[0] === 'and') {
+      const right = parseNot(left.rest.slice(1));
+      if (!right) return null;
+      left = { node: { k: 'and', left: left.node, right: right.node }, rest: right.rest };
+    }
+    return left;
+  };
+  const parseNot = (t: string[]): { node: CondNode; rest: string[] } | null => {
+    if (t[0] === 'not') {
+      const inner = parseNot(t.slice(1));
+      return inner ? { node: { k: 'not', on: inner.node }, rest: inner.rest } : null;
+    }
+    return parseAtom(t);
+  };
+  const parseAtom = (t: string[]): { node: CondNode; rest: string[] } | null => {
+    if (!t.length) return null;
+    if (t[0] === '(') {
+      const inner = parseOr(t.slice(1));
+      if (!inner || inner.rest[0] !== ')') return null;
+      return { node: inner.node, rest: inner.rest.slice(1) };
+    }
+    if ((t[0] === 'all' || /^\d+$/.test(t[0])) && t[1] === 'of' && t[2]) {
+      if (t[0] !== 'all' && t[0] !== '1') return null;
+      return { node: { k: 'quant', mode: t[0] === 'all' ? 'all' : 'one', pattern: t[2] }, rest: t.slice(3) };
+    }
+    if (/^[a-z0-9_]+$/.test(t[0])) return { node: { k: 'group', name: t[0] }, rest: t.slice(1) };
+    return null;
+  };
+  return parseOr(toks);
+}
+
+function matchGroups(pattern: string, groups: Record<string, string>): string[] {
+  const names = Object.keys(groups);
+  if (pattern === 'them') return names;
+  if (!pattern.includes('*')) return names.filter(n => n === pattern);
+  const re = new RegExp('^' + pattern.split('*').map(p => p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('.*') + '$');
+  return names.filter(n => re.test(n));
+}
+
+function emit(node: CondNode, groups: Record<string, string>): string | null {
+  switch (node.k) {
+    case 'group':
+      return groups[node.name] ?? null;
+    case 'not': {
+      const on = emit(node.on, groups);
+      return on === null ? null : `NOT (${on})`;
+    }
+    case 'and': {
+      const l = emit(node.left, groups); const r = emit(node.right, groups);
+      return l === null || r === null ? null : `(${l}) AND (${r})`;
+    }
+    case 'or': {
+      const l = emit(node.left, groups); const r = emit(node.right, groups);
+      return l === null || r === null ? null : `(${l}) OR (${r})`;
+    }
+    case 'quant': {
+      const names = matchGroups(node.pattern, groups);
+      if (!names.length) return null;
+      const parts = names.map(n => groups[n]);
+      if (parts.some(p => p == null)) return null;
+      return `(${parts.map(p => `(${p})`).join(node.mode === 'all' ? ' AND ' : ' OR ')})`;
+    }
+  }
+}
+
+export function conditionToSql(condition: string, groups: Record<string, string>): ConditionSql {
+  const toks = tokenize(condition);
+  if (!toks) return { error: `condition illisible : ${condition || '(absente)'}` };
+  const parsed = parseCondition(toks);
+  if (!parsed || parsed.rest.length) return { error: `condition non analysable : ${condition}` };
+  const sql = emit(parsed.node, groups);
+  if (sql === null) return { error: `condition « ${condition} » : groupe attendu absent ou non compilable` };
+  return { sql };
 }
 
 export function buildQuery(rule: SigmaRule): BuildQueryResult {
-  const detection = rule.detection;
+  const detection = rule?.detection ?? {};
   const condition = String(detection['condition'] ?? '').trim().toLowerCase();
   const params: unknown[] = [];
 
-  const groupSql: Record<string, string> = {};
+  const refuse = (reason: string): BuildQueryResult =>
+    ({ where: 'FALSE', params: [], unsupported: reason, fields: [] });
+
+  const fields = new Set<string>();
+
+  const groupSql: Record<string, string | null> = {};
   for (const [key, val] of Object.entries(detection)) {
     if (key === 'condition') continue;
-    groupSql[key] = buildGroup(key, val, params);
+    groupSql[key] = buildGroup(key, val, params, fields);
   }
 
-  let where: string;
+  const unreadable = Object.entries(groupSql).filter(([, sql]) => sql === null).map(([k]) => k);
+  if (unreadable.length) return refuse(`groupe non compilable : ${unreadable.join(', ')}`);
 
-  if (condition === 'selection') {
-    where = groupSql['selection'] ?? 'TRUE';
-  } else if (condition === 'keywords') {
-    where = groupSql['keywords'] ?? 'TRUE';
-  } else if (condition === 'selection and not filter') {
-    const sel = groupSql['selection'] ?? 'TRUE';
-    const flt = groupSql['filter']    ?? 'FALSE';
-    where = `(${sel}) AND NOT (${flt})`;
-  } else if (condition === 'selection or keywords') {
-    const sel = groupSql['selection'] ?? 'FALSE';
-    const kw  = groupSql['keywords']  ?? 'FALSE';
-    where = `(${sel}) OR (${kw})`;
-  } else {
+  const compilables: Record<string, string> = {};
+  for (const [k, v] of Object.entries(groupSql)) if (v !== null) compilables[k] = v;
 
-    const parts = Object.values(groupSql);
-    where = parts.length > 0 ? parts.join(' AND ') : 'TRUE';
-  }
+  const out = conditionToSql(condition, compilables);
+  if (out.error || !out.sql) return refuse(out.error || `condition non compilable : ${condition}`);
+  const where = out.sql;
 
-  return { where, params };
+  return { where, params, unsupported: null, fields: [...fields] };
+}
+
+export function unreachableFields(fields: string[], present: Set<string> | null | undefined): string[] | null {
+  if (!fields || fields.length === 0) return null;
+  if (!present || present.size === 0) return null;
+  if (fields.some(f => present.has(f))) return null;
+  return [...fields];
+}
+
+export function presentFieldsQuery(caseId: string, perType = 200, nestedRows = 20000): { text: string; values: unknown[] } {
+  return {
+    text: `WITH par_type AS (
+             SELECT raw, row_number() OVER (PARTITION BY artifact_type) AS n
+               FROM collection_timeline
+              WHERE case_id = $1 AND raw IS NOT NULL
+           ),
+           imbrique AS (
+             SELECT raw->'${EVENT_DATA_CONTAINER}' AS f
+               FROM collection_timeline
+              WHERE case_id = $1
+                AND jsonb_typeof(raw->'${EVENT_DATA_CONTAINER}') = 'object'
+              LIMIT $3
+           )
+           SELECT DISTINCT jsonb_object_keys(raw) AS champ FROM par_type WHERE n <= $2
+           UNION
+           SELECT DISTINCT jsonb_object_keys(f) AS champ FROM imbrique`,
+    values: [caseId, perType, nestedRows],
+  };
 }

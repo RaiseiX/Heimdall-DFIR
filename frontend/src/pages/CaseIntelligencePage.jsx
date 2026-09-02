@@ -1,26 +1,35 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { Globe, GitBranch, Share2, Download, Loader2, Target, Filter, PenLine } from 'lucide-react';
+import { Loader2, PenLine } from 'lucide-react';
 import { useSocket, useSocketEvent } from '../hooks/useSocket';
-import { networkAPI, casesAPI, iocsAPI } from '../utils/api';
+import { networkAPI, casesAPI, iocsAPI, evidenceAPI } from '../utils/api';
 import { useTheme } from '../utils/theme';
 import AttackPathD3 from '../components/network/AttackPathD3';
 import LateralMovementD3 from '../components/network/LateralMovementD3';
-import IntelViewSwitcher from '../components/network/IntelViewSwitcher';
 import AptAttributionTab from '../components/mitre/AptAttributionTab';
 import NetworkExplorer from '../components/networkmap/NetworkExplorer';
 import TriagePanel from '../components/networkmap/TriagePanel';
 import InvestigationDrawer from '../components/networkmap/InvestigationDrawer';
-import ZonePanel from '../components/networkmap/ZonePanel';
+import ColorblindToggle from '../components/networkmap/ColorblindToggle';
+import { Segment, Action } from '../components/networkmap/MapControls';
+import { triageStats } from '../components/networkmap/utils/triageStats';
+import { foldUrlNodes, URL_SCOPES } from '../components/networkmap/utils/foldUrlNodes';
+import { collectionLabel } from '../components/networkmap/utils/collectionLabel';
+import { declareZone, withdrawZone, countZones, declaredZoneEntries } from '../components/networkmap/utils/zoneDeclaration';
 import { transformGraphData } from '../components/networkmap/utils/graphDataTransform';
 
 const VIEWS = [
-  { id: 'network',     labelKey: 'caseIntelligence.views.network',     icon: Globe,     color: 'var(--fl-accent)' },
-  { id: 'attack',      labelKey: 'caseIntelligence.views.attack',      icon: GitBranch, color: 'var(--fl-accent)' },
-  { id: 'lateral',     labelKey: 'caseIntelligence.views.lateral',     icon: Share2,    color: 'var(--fl-warn)' },
-  { id: 'attribution', labelKey: 'caseIntelligence.views.attribution', icon: Target,    color: 'var(--fl-danger)' },
+  { id: 'network',     labelKey: 'caseIntelligence.views.network' },
+  { id: 'attack',      labelKey: 'caseIntelligence.views.attack' },
+  { id: 'lateral',     labelKey: 'caseIntelligence.views.lateral' },
+  { id: 'attribution', labelKey: 'caseIntelligence.views.attribution' },
 ];
+
+const LAYOUTS = ['organic', 'zones'];
+
+const bandStat   = { fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11, color: 'var(--fl-muted)', whiteSpace: 'nowrap' };
+const bandStrong = { color: 'var(--fl-text)', fontWeight: 600 };
 
 export default function CaseIntelligencePage({ collectionId }) {
   const { t } = useTranslation();
@@ -40,6 +49,7 @@ export default function CaseIntelligencePage({ collectionId }) {
   const [loading, setLoading] = useState(false);
   const [filterLoading, setFilterLoading] = useState(false);
   const [collectionScoped, setCollectionScoped] = useState(false);
+  const [caseEvidences, setCaseEvidences] = useState([]);
   const [loadingLateral, setLoadingLateral] = useState(false);
   const [graphData, setGraphData] = useState({ network: null, attack: null });
   const [lateralData, setLateralData] = useState({ nodes: [], edges: [], chains: [], total_events: 0 });
@@ -50,7 +60,6 @@ export default function CaseIntelligencePage({ collectionId }) {
   );
   const [fromTs, setFromTs] = useState('');
   const [toTs,   setToTs]   = useState('');
-  const [beacons, setBeacons] = useState([]);
   const [schemaEditingBy, setSchemaEditingBy] = useState(null);
   const schemaEditTimer = useRef(null);
 
@@ -60,28 +69,24 @@ export default function CaseIntelligencePage({ collectionId }) {
   const [allEdges,          setAllEdges]          = useState([]);
 
   const [annotations,     setAnnotations]     = useState({ zones: [], node_overrides: {} });
-  const [drawingZoneType, setDrawingZoneType] = useState(null);
-  const [colorblindMode,     setColorblindMode]     = useState(() => localStorage.getItem('nm_colorblind') === '1');
-  const [nodeColorOverrides, setNodeColorOverrides] = useState(() => {
+  const [colorblindMode,  setColorblindMode]  = useState(() => localStorage.getItem('nm_colorblind') === '1');
+  const [nodeColorOverrides] = useState(() => {
     try { return JSON.parse(localStorage.getItem('nm_node_colors') || '{}'); } catch { return {}; }
   });
-  const [placingAsset, setPlacingAsset] = useState(null); // { typeId, label, colorOverride } | null
   const saveTimer = useRef(null);
 
-  function handleAssetPlaced(position) {
-    const mn = {
-      id: `manual:${crypto.randomUUID()}`,
-      typeId: placingAsset.typeId,
-      label: placingAsset.label || '',
-      position,
-      colorOverride: placingAsset.colorOverride || null,
-    };
-    persistAnnotations({
-      ...annotations,
-      manual_nodes: [...(annotations.manual_nodes || []), mn],
-    });
-    setPlacingAsset(null);
-  }
+  const [layoutMode, setLayoutMode] = useState('zones');
+  const [relayout, setRelayout]     = useState(0);
+  const [urlScope, setUrlScope]     = useState(URL_SCOPES.MACHINES);
+  const [folded, setFolded]         = useState(null);
+
+  const caseStats = useMemo(() => triageStats(cytoscapeElements).stats, [cytoscapeElements]);
+  const declaredZones = useMemo(() => countZones(
+    cytoscapeElements
+      .filter(el => el?.data?.source == null && el?.data?.nodeType !== 'cluster')
+      .map(el => ({ id: el.data?.id, type: el.data?._raw?.type })),
+    annotations.zone_declarations,
+  ).declared, [cytoscapeElements, annotations.zone_declarations]);
 
   function handleDeleteManualNode(nodeId) {
     persistAnnotations({
@@ -93,12 +98,6 @@ export default function CaseIntelligencePage({ collectionId }) {
   function toggleColorblind() {
     setColorblindMode(v => { const n = !v; localStorage.setItem('nm_colorblind', n ? '1' : '0'); return n; });
   }
-  function handleNodeColorChange(typeId, color) {
-    setNodeColorOverrides(prev => { const n = { ...prev, [typeId]: color }; localStorage.setItem('nm_node_colors', JSON.stringify(n)); return n; });
-  }
-  function handleNodeColorReset(typeId) {
-    setNodeColorOverrides(prev => { const n = { ...prev }; delete n[typeId]; localStorage.setItem('nm_node_colors', JSON.stringify(n)); return n; });
-  }
 
   const attackSvgRef = useRef(null);
   const lateralSvgRef = useRef(null);
@@ -108,28 +107,29 @@ export default function CaseIntelligencePage({ collectionId }) {
     setLoading(true);
     setError(null);
 
-    const scopeIds = initialEvidenceIds || collectionId || '';
-    const graphParams = scopeIds
-      ? { view: 'network', evidence_ids: scopeIds }
-      : { view: 'all' };
+    evidenceAPI.list(id)
+      .then(r => (Array.isArray(r?.data) ? r.data : (r?.data?.evidence || [])))
+      .catch(() => [])
+      .then(evidences => {
+        setCaseEvidences(evidences);
+        const scopeIds = initialEvidenceIds || collectionId || evidences[0]?.id || '';
 
-    Promise.allSettled([
-      networkAPI.graphData(id, graphParams),
-      casesAPI.get(id),
-      networkAPI.beacons(id),
-      networkAPI.getAnnotations(id),
-    ]).then(([graphRes, caseRes, beaconRes, annotRes]) => {
-      if (caseRes.status   === 'fulfilled') setCaseInfo(caseRes.value?.data);
-      if (graphRes.status  === 'fulfilled') setGraphData(graphRes.value?.data || {});
-      if (beaconRes.status === 'fulfilled') setBeacons(beaconRes.value?.data?.beacons || []);
-      if (annotRes.status  === 'fulfilled') setAnnotations(annotRes.value?.data || { zones: [], node_overrides: {} });
-      if (scopeIds) {
-        setCollectionScoped(true);
-        setActiveEvidenceIds(scopeIds.split(',').filter(Boolean));
-      }
-    }).catch(() => {
-      setError(t('caseIntelligence.load_error'));
-    }).finally(() => setLoading(false));
+        return Promise.allSettled([
+          networkAPI.graphData(id, { view: 'network', evidence_ids: scopeIds }),
+          casesAPI.get(id),
+          networkAPI.getAnnotations(id),
+        ]).then(([graphRes, caseRes, annotRes]) => {
+          if (caseRes.status   === 'fulfilled') setCaseInfo(caseRes.value?.data);
+          if (graphRes.status  === 'fulfilled') setGraphData(graphRes.value?.data || {});
+          if (annotRes.status  === 'fulfilled') setAnnotations(annotRes.value?.data || { zones: [], node_overrides: {} });
+          setCollectionScoped(Boolean(scopeIds));
+          setActiveEvidenceIds(scopeIds ? scopeIds.split(',').filter(Boolean) : []);
+        });
+      })
+      .catch(() => {
+        setError(t('caseIntelligence.load_error'));
+      })
+      .finally(() => setLoading(false));
   }, [id, t]);
 
   const lateralLoaded = useRef(false);
@@ -146,7 +146,6 @@ export default function CaseIntelligencePage({ collectionId }) {
       .finally(() => setLoadingLateral(false));
   }, [view, id]);
 
-  // Malicious IOC values for this case → highlight matching nodes on the map.
   const [iocHits, setIocHits] = useState(null);
   useEffect(() => {
     if (!id) return;
@@ -162,19 +161,27 @@ export default function CaseIntelligencePage({ collectionId }) {
   useEffect(() => {
     if (!graphData.network) return;
     const overrides = annotations?.node_overrides ?? {};
-    const { elements: els } = transformGraphData(graphData.network, overrides);
+    const f = foldUrlNodes(graphData.network, urlScope);
+    setFolded(f);
+    const { elements: els } = transformGraphData(
+      { ...graphData.network, nodes: f.nodes, edges: f.edges }, overrides);
     if (iocHits) {
       els.forEach(el => {
-        if (el.data?.source || !el.data?.id) return; // skip edges / structural
+        if (el.data?.source || !el.data?.id) return;
         const idv = String(el.data.id).toLowerCase();
         const lbl = String(el.data.label || '').toLowerCase().replace(/\s*\(\d+\)\s*$/, '');
         if (iocHits.has(idv) || iocHits.has(lbl)) el.data._iocHit = 1;
       });
     }
+    const decls = annotations?.zone_declarations || {};
+    els.forEach(el => {
+      if (el.data?.source || !el.data?.id) return;
+      const d = decls[el.data.id];
+      if (d) el.data._zoneDeclared = d.zone;
+    });
     setCytoscapeElements(els);
     setAllEdges(els.filter(e => e.data?.source));
-  }, [graphData.network, annotations, iocHits]);
-
+  }, [graphData.network, annotations, iocHits, urlScope]);
 
   useEffect(() => {
     if (!socket || !id) return;
@@ -197,16 +204,6 @@ export default function CaseIntelligencePage({ collectionId }) {
     }, 500);
   }
 
-  function handleZoneDrawn(zone) {
-    persistAnnotations({ ...annotations, zones: [...annotations.zones, zone] });
-    setDrawingZoneType(null);
-  }
-  function handleZoneUpdate(zoneId, patch) {
-    persistAnnotations({ ...annotations, zones: annotations.zones.map(z => z.id === zoneId ? { ...z, ...patch } : z) });
-  }
-  function handleZoneDelete(zoneId) {
-    persistAnnotations({ ...annotations, zones: annotations.zones.filter(z => z.id !== zoneId) });
-  }
   function handleOverrideType(nodeId, typeId) {
     persistAnnotations({ ...annotations, node_overrides: { ...annotations.node_overrides, [nodeId]: typeId } });
   }
@@ -220,20 +217,33 @@ export default function CaseIntelligencePage({ collectionId }) {
     persistAnnotations({ ...annotations, node_positions: positions });
   }
 
+  function handleDeclareZone(nodeId, zone) {
+    persistAnnotations({
+      ...annotations,
+      zone_declarations: declareZone(
+        annotations.zone_declarations, nodeId, zone,
+        currentUsername, new Date().toISOString(),
+      ),
+    });
+  }
+  function handleWithdrawZone(nodeId) {
+    persistAnnotations({
+      ...annotations,
+      zone_declarations: withdrawZone(annotations.zone_declarations, nodeId),
+    });
+  }
+
   const refetchNetwork = useCallback(async (ids, from, to) => {
     setFilterLoading(true);
     const params = { view: 'network' };
     if (ids.length > 0) params.evidence_ids = ids.join(',');
     if (from) params.from_ts = from;
     if (to)   params.to_ts   = to;
-    const [graphRes, beaconRes] = await Promise.allSettled([
+    const [graphRes] = await Promise.allSettled([
       networkAPI.graphData(id, params),
-      networkAPI.beacons(id, { ...(from ? { from_ts: from } : {}), ...(to ? { to_ts: to } : {}) }),
     ]);
     if (graphRes.status  === 'fulfilled' && graphRes.value?.data?.network)
       setGraphData(prev => ({ ...prev, network: graphRes.value.data.network }));
-    if (beaconRes.status === 'fulfilled')
-      setBeacons(beaconRes.value?.data?.beacons || []);
     setFilterLoading(false);
   }, [id]);
 
@@ -299,62 +309,116 @@ export default function CaseIntelligencePage({ collectionId }) {
 
       <div style={{
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        padding: '10px 16px', borderBottom: `1px solid ${T.border}`,
-        background: T.panel, flexShrink: 0,
+        padding: '9px 16px', borderBottom: `1px solid ${T.border}`,
+        background: T.panel, flexShrink: 0, flexWrap: 'wrap', gap: 10,
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{ fontFamily: 'var(--f-display, var(--f-sans))', fontSize: 15, fontWeight: 700, color: T.text, letterSpacing: '-0.01em' }}>
-                {t('caseIntelligence.title')}
-              </span>
-              {collectionScoped && (
-                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-dim)' }}>
-                  <span style={{ width: 6, height: 6, borderRadius: 2, background: 'var(--fl-accent)', flexShrink: 0 }} />
-                  {t('caseIntelligence.collection_scoped')}
-                </span>
-              )}
-            </div>
-            <div style={{ fontSize: 11, color: T.dim, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontFeatureSettings: '"tnum"', marginTop: 2 }}>
-              {caseInfo?.case_number || ''}{caseInfo?.title ? ` — ${caseInfo.title}` : ''}
-            </div>
-          </div>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 14, flexWrap: 'wrap' }}>
+          <span style={{ fontFamily: 'var(--f-display, var(--f-sans))', fontSize: 14, fontWeight: 700, color: T.text, letterSpacing: '-0.01em' }}>
+            {t('caseIntelligence.title')}
+          </span>
+          <span style={{ fontSize: 11, color: T.dim, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontFeatureSettings: '"tnum"' }}>
+            {caseInfo?.case_number || ''}{caseInfo?.title ? ` — ${caseInfo.title}` : ''}
+          </span>
+          {collectionScoped && (
+            <span style={{ fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-muted)' }}>
+              {t('caseIntelligence.collection_scoped')}
+            </span>
+          )}
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <IntelViewSwitcher
-            views={VIEWS.map(v => ({ id: v.id, label: t(v.labelKey), icon: v.icon }))}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+          <Segment
+            label={t('caseIntelligence.title')}
+            options={VIEWS.map(v => ({ id: v.id, label: t(v.labelKey) }))}
             active={view}
             onChange={setView}
           />
 
-          <button
-            onClick={exportPng}
-            title={t('caseIntelligence.export_png_title', { view: t(activeView.labelKey) })}
-            style={{
-              display: 'flex', alignItems: 'center', gap: 5,
-              padding: '6px 10px', fontSize: 12, border: `1px solid ${T.border}`,
-              background: 'transparent', color: T.dim, borderRadius: 7, cursor: 'pointer',
-              transition: 'color 0.15s, border-color 0.15s',
-            }}
-            onMouseEnter={e => { e.currentTarget.style.color = 'var(--fl-text)'; e.currentTarget.style.borderColor = 'var(--fl-border3)'; }}
-            onMouseLeave={e => { e.currentTarget.style.color = T.dim; e.currentTarget.style.borderColor = T.border; }}
-          >
-            <Download size={12} /> PNG
-          </button>
+          <span style={{ width: 1, height: 16, background: T.border }} />
 
-          <div style={{ width: 1, height: 20, background: T.border }} />
-
-          <IntelViewSwitcher
-            views={[
-              { id: 'case',   label: t('caseIntelligence.case_mode'),   icon: Filter },
-              { id: 'global', label: t('caseIntelligence.global_mode'), icon: Globe },
+          <Segment
+            label={t('caseIntelligence.case_mode')}
+            options={[
+              { id: 'case',   label: t('caseIntelligence.case_mode') },
+              { id: 'global', label: t('caseIntelligence.global_mode') },
             ]}
             active="case"
             onChange={(m) => { if (m === 'global') navigate(`/cases/${id}/global-map`); }}
           />
         </div>
       </div>
+
+      {view === 'network' && (
+        <div style={{
+          display: 'flex', alignItems: 'center', flexWrap: 'wrap',
+          borderBottom: `1px solid ${T.border}`, background: T.panel, flexShrink: 0,
+        }}>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 14, flexWrap: 'wrap', padding: '8px 14px', flex: '1 1 auto' }}>
+            <span style={bandStat}><b style={bandStrong}>{caseStats.nodes}</b> {t('networkMap.band.nodes')}</span>
+            <span style={bandStat}><b style={bandStrong}>{caseStats.edges}</b> {t('networkMap.band.edges')}</span>
+            {caseStats.ext > 0 && (
+              <span style={bandStat}><b style={bandStrong}>{caseStats.ext}</b> {t('networkMap.band.zone_external', { count: caseStats.ext })} {t('networkMap.band.zones_inferred', { count: caseStats.ext })}</span>
+            )}
+            {declaredZoneEntries(declaredZones).map(({ zone, count, key }) => (
+              <span key={zone} style={{ ...bandStat, color: 'var(--fl-warn)' }}>
+                <b style={{ ...bandStrong, color: 'var(--fl-warn)' }}>{count}</b> {t(key, { count })}
+              </span>
+            ))}
+            {caseStats.susp > 0 && (
+              <span style={{ ...bandStat, color: 'var(--fl-warn)' }}>{t('networkMap.triage.suspects', { count: caseStats.susp })}</span>
+            )}
+            {caseStats.ioc > 0 && (
+              <span style={{ ...bandStat, color: 'var(--fl-danger)' }}>{t('networkMap.triage.ioc_count', { count: caseStats.ioc })}</span>
+            )}
+            {caseStats.nodes > 0 && caseStats.edges === 0 && (
+              <span style={{ ...bandStat, color: 'var(--fl-warn)' }}>{t('networkMap.band.no_link_at_all')}</span>
+            )}
+            {folded?.folded?.urls > 0 && (
+              <span style={bandStat}>
+                {urlScope === URL_SCOPES.DOMAINS
+                  ? t('networkMap.scope.folded', { urls: folded.folded.urls, hosts: folded.folded.hosts })
+                  : t('networkMap.scope.hidden', { count: folded.folded.urls })}
+              </span>
+            )}
+          </div>
+
+          <div style={{ width: 1, alignSelf: 'stretch', background: 'var(--fl-border2)', margin: '6px 0' }} />
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', padding: '8px 14px', flex: '0 0 auto' }}>
+            {caseEvidences.length > 1 && (
+              <Segment
+                label={t('caseIntelligence.collection')}
+                options={caseEvidences.map(e => ({
+                  id: e.id,
+                  label: collectionLabel(e.original_filename || e.name || e.id),
+                }))}
+                active={activeEvidenceIds[0] || ''}
+                onChange={(evId) => handleEvidenceFilter([evId])}
+              />
+            )}
+            <Segment
+              label={t('networkMap.scope.machines')}
+              options={[URL_SCOPES.MACHINES, URL_SCOPES.DOMAINS, URL_SCOPES.ALL]
+                .map(sc => ({ id: sc, label: t(`networkMap.scope.${sc}`) }))}
+              active={urlScope}
+              onChange={setUrlScope}
+            />
+            <Segment
+              label={t('networkMap.layout.organic')}
+              options={LAYOUTS.map(l => ({ id: l, label: t(`networkMap.layout.${l}`) }))}
+              active={layoutMode}
+              onChange={setLayoutMode}
+            />
+            <Action onClick={() => setRelayout(n => n + 1)} title={t('networkMap.layout.reorganize_hint')}>
+              {t('networkMap.layout.reorganize')}
+            </Action>
+            <ColorblindToggle active={colorblindMode} onToggle={toggleColorblind} />
+            <Action onClick={exportPng} title={t('caseIntelligence.export_png_title', { view: t(activeView.labelKey) })}>
+              PNG
+            </Action>
+          </div>
+        </div>
+      )}
 
       <div style={{ flex: 1, position: 'relative', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
         {(isLoading || filterLoading) && (
@@ -374,8 +438,7 @@ export default function CaseIntelligencePage({ collectionId }) {
             position: 'absolute', top: 8, left: '50%', transform: 'translateX(-50%)',
             zIndex: 20, display: 'flex', alignItems: 'center', gap: 6,
             background: 'var(--fl-card)', border: '1px solid color-mix(in srgb, var(--fl-accent) 25%, transparent)',
-            borderRadius: 6, padding: '5px 12px', pointerEvents: 'none',
-            boxShadow: '0 4px 16px rgba(0,0,0,0.5)',
+            borderRadius: 4, padding: '5px 12px', pointerEvents: 'none',
           }}>
               <PenLine size={11} style={{ color: 'var(--fl-accent)', flexShrink: 0 }} />
               <span style={{ fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-dim)' }}>
@@ -391,37 +454,17 @@ export default function CaseIntelligencePage({ collectionId }) {
         {!error && (
           <>
             <div style={{ display: view === 'network' ? 'flex' : 'none', flex: 1, width: '100%', height: '100%', overflow: 'hidden' }}>
-              <ZonePanel
-                zones={annotations.zones}
-                drawingZoneType={drawingZoneType}
-                onStartDraw={type => setDrawingZoneType(type)}
-                onCancelDraw={() => setDrawingZoneType(null)}
-                onDeleteZone={handleZoneDelete}
-                onZoneUpdate={handleZoneUpdate}
-                colorblindMode={colorblindMode}
-                onToggleColorblind={toggleColorblind}
-                nodeColorOverrides={nodeColorOverrides}
-                onNodeColorChange={handleNodeColorChange}
-                onNodeColorReset={handleNodeColorReset}
-                placingAsset={placingAsset}
-                onStartPlace={setPlacingAsset}
-                onCancelPlace={() => setPlacingAsset(null)}
-              />
               <NetworkExplorer
                 elements={cytoscapeElements}
                 onNodeSelect={setSelectedNode}
                 onNodeDeselect={() => setSelectedNode(null)}
                 selectedNodeId={selectedNode?.id}
-                zones={annotations.zones}
-                drawingZoneType={drawingZoneType}
-                onZoneDrawn={handleZoneDrawn}
-                onZoneUpdate={handleZoneUpdate}
-                onZoneDelete={handleZoneDelete}
                 colorblindMode={colorblindMode}
                 nodeColorOverrides={nodeColorOverrides}
-                manualNodes={annotations.manual_nodes || []}
-                placingAsset={placingAsset}
-                onAssetPlaced={handleAssetPlaced}
+                layoutMode={layoutMode}
+                relayoutNonce={relayout}
+                zoneDeclarations={annotations.zone_declarations}
+                machinesWithoutLink={graphData.network?.identity?.machines_without_link || []}
                 savedPositions={annotations.node_positions || {}}
                 onPositionsSave={handlePositionsSave}
                 onCyReady={setCyInstance}
@@ -448,6 +491,9 @@ export default function CaseIntelligencePage({ collectionId }) {
                   onOverrideType={handleOverrideType}
                   onResetType={handleResetType}
                   onDeleteManualNode={nodeId => { handleDeleteManualNode(nodeId); setSelectedNode(null); }}
+                  zoneDeclarations={annotations.zone_declarations}
+                  onDeclareZone={handleDeclareZone}
+                  onWithdrawZone={handleWithdrawZone}
                 />
               )}
             </div>

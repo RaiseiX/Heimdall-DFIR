@@ -19,6 +19,7 @@ import CollectionPage from './pages/CollectionPage';
 import CollectionLayout from './pages/CollectionLayout';
 import SuperTimelinePage from './pages/SuperTimelinePage';
 import ParserLogsPage from './pages/ParserLogsPage';
+import CoveragePage from './pages/CoveragePage';
 import IOCsPage from './pages/IOCsPage';
 import ThreatHuntPage from './pages/ThreatHuntPage';
 import ThreatIntelPage from './pages/ThreatIntelPage';
@@ -81,7 +82,6 @@ function AppInner() {
     localStorage.setItem('heimdall_tour_done', '1');
   };
 
-  // Auto-logout on inactivity, driven by the admin security policy (0 = disabled).
   useEffect(() => {
     if (!user) return;
     let timer = null;
@@ -121,6 +121,7 @@ function AppInner() {
                     <Route index element={<Navigate to="evidence" replace />} />
                     <Route path="timeline" element={<SuperTimelinePage />} />
                     <Route path="logs" element={<ParserLogsPage />} />
+                    <Route path="coverage" element={<CoveragePage />} />
                     <Route path=":tab" element={<CaseDetailPage user={user} />} />
                   </Route>
                   <Route path="global-map" element={<GlobalNetworkMapPage />} />
@@ -129,7 +130,6 @@ function AppInner() {
                 <Route path="/collection" element={<CollectionPage />} />
                 <Route path="/super-timeline" element={<SuperTimelinePage />} />
                 <Route path="/parsed-data" element={<ParsedDataPage />} />
-                {/* IOCs & Threat Hunting are admin-only; analysts hunt within a case. */}
                 <Route path="/iocs" element={user.role === 'admin' ? <IOCsPage /> : <Navigate to="/" replace />} />
                 <Route path="/threat-hunt" element={user.role === 'admin' ? <Navigate to="/threat-hunt/yara-rules" replace /> : <Navigate to="/" replace />} />
                 <Route path="/threat-hunt/:tab" element={user.role === 'admin' ? <ThreatHuntPage /> : <Navigate to="/" replace />} />
@@ -140,7 +140,6 @@ function AppInner() {
                 <Route path="/collection-agent" element={<CollectionAgentPage />} />
                 <Route path="/documentation" element={<DocumentationPage />} />
                 {user.role === 'admin' && <Route path="/admin" element={<Navigate to="/admin/health" replace />} />}
-                {/* Account/Audit/RGPD/SLA were moved to Settings — redirect legacy /admin URLs. */}
                 {user.role === 'admin' && <Route path="/admin/users" element={<Navigate to="/settings" replace />} />}
                 {user.role === 'admin' && <Route path="/admin/audit" element={<Navigate to="/settings" replace />} />}
                 {user.role === 'admin' && <Route path="/admin/rgpd" element={<Navigate to="/settings" replace />} />}

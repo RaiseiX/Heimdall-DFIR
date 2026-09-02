@@ -1,4 +1,3 @@
-// frontend/src/components/networkmap/tabs/IocTab.jsx
 import { useTranslation } from 'react-i18next';
 
 export default function IocTab({ nodeData }) {

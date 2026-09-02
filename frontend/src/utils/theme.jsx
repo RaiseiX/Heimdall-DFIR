@@ -1,27 +1,5 @@
 import { createContext, useContext, useState, useEffect } from 'react';
 
-/**
- * Source de vérité des couleurs : `src/index.css` (`:root` + `body.theme-light`).
- *
- * Ce module ne définit AUCUNE valeur de couleur. Il expose des alias vers les
- * custom properties afin que les styles inline JSX (`style={{ color: T.text }}`)
- * et les feuilles CSS lisent exactement les mêmes tokens.
- *
- * Historique : ce provider injectait auparavant 15 hex en style inline sur
- * <html>. L'inline battant `:root` mais perdant contre `body.theme-light`,
- * le mode sombre était servi par theme.jsx et le mode clair par index.css.
- * D'où deux régressions : `--fl-border` opaque en sombre (au lieu du hairline
- * translucide de la charte Observatory) et `--fl-purple` confondu avec
- * `--fl-accent` sur 204 occurrences. L'injection est supprimée.
- *
- * Contrainte : ne jamais concaténer un suffixe alpha sur ces valeurs
- * (`${T.accent}22` produirait `var(--fl-accent)22`, invalide). Utiliser
- * `color-mix(in srgb, ${T.accent} 13%, transparent)`.
- *
- * Contrainte : ne pas passer ces valeurs à un canvas (Cytoscape, D3) — ces
- * moteurs écrivent des attributs et ne résolvent pas `var()`. Ils gardent
- * leur propre palette d'hex Observatory.
- */
 const TOKENS = {
   bg:         'var(--fl-bg)',
   panel:      'var(--fl-panel)',
@@ -68,7 +46,6 @@ export function ThemeProvider({ children }) {
       localStorage.setItem('heimdall_preferences', JSON.stringify(p));
     } catch (_e) {}
 
-    // La classe est le seul signal : index.css fait le reste.
     document.body.classList.remove('theme-dark', 'theme-light');
     document.body.classList.add('theme-' + mode);
   }, [mode]);

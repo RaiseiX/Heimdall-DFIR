@@ -617,7 +617,6 @@ export default function ThreatIntelPage() {
         </div>
       </div>
 
-      {/* Segmented control nav */}
       <div style={{ display: 'inline-flex', gap: 2, padding: 3, marginBottom: 22, borderRadius: 9, background: 'var(--fl-bg)', border: '1px solid var(--fl-border)', maxWidth: '100%', overflowX: 'auto' }}>
         {TABS.map(it => {
           const on = tab === it.id; const Ico = it.icon;

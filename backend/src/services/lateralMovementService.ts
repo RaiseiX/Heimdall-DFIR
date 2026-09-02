@@ -1,3 +1,4 @@
+import { resolveNodeIdentity } from './networkIdentity';
 export interface IdentityObservation { identifiers: string[]; }
 
 const isIpLike = (s: string): boolean =>
@@ -337,7 +338,11 @@ export function buildLateralMovement(input: {
   edgeCap?: number;
 }): LateralResult {
   const aliasMap = resolveIdentities(input.observations);
-  const resolve = (id: string) => aliasMap.get(id) ?? id;
+  const canon = (id: string) => {
+    const r = resolveNodeIdentity(id);
+    return r.kind === 'host' && r.key ? r.key : id;
+  };
+  const resolve = (id: string) => canon(aliasMap.get(id) ?? id);
 
   const { nodes, edges } = buildLateralGraph(input.rows, resolve);
 

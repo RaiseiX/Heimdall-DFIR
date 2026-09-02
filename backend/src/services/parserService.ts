@@ -14,6 +14,7 @@ import type {
 } from '../types/index';
 import { safePath } from './uploadService';
 import { importCsvToTimeline } from './ingestionTimeline';
+import { parserOutcome, expectsCsvOutput } from './parserOutcome';
 
 const ZIMMERMAN_DIR =
   process.env.ZIMMERMAN_TOOLS_DIR || '/app/zimmerman-tools';
@@ -115,11 +116,26 @@ function buildHayabusaArgs(
   outputDir: string,
   extraArgs: Record<string, string> = {}
 ): string[] {
+  // Aligned with the collection-import path (routes/collection.js), which was the
+  // only one configured for full coverage. This one ran `--profile standard` and
+  // no rule flags, so it emitted a `Details` column instead of `AllFieldInfo` —
+  // and every consumer reads AllFieldInfo. The evidence was in the CSV; nothing
+  // looked at the column it landed in.
+  //
+  // --min-level informational : keep every level, not just the loud ones.
+  // --enable-all-rules / noisy / deprecated / unsupported : maximum coverage.
+  // --scan-all-evtx-files : do not skip an EVTX because no rule targets its channel.
   return [
     'csv-timeline',
     '--directory', inputFile,
     '--output', path.join(outputDir, 'hayabusa-results.csv'),
-    '--profile', extraArgs['profile'] || 'standard',
+    '--profile', extraArgs['profile'] || 'all-field-info',
+    '--min-level', extraArgs['min-level'] || 'informational',
+    '--enable-all-rules',
+    '--enable-noisy-rules',
+    '--enable-deprecated-rules',
+    '--enable-unsupported-rules',
+    '--scan-all-evtx-files',
     '--no-wizard',
     '--quiet',
   ];
@@ -395,29 +411,19 @@ export async function runParser(
 
   }
 
-  if (exitCode === 0 && csvPaths.length > 0 && totalRecords === 0) {
-    emitStatus(io, socketId, {
-      status: 'DEGRADED',
-      message: `Terminé — 0 événements parsés (fichier vide ou format non reconnu)`,
-      resultId,
-      recordCount: 0,
-    });
-  } else if (exitCode === 0) {
-    emitStatus(io, socketId, {
-      status: 'SUCCESS',
-      message: `Terminé — ${totalRecords.toLocaleString()} événements importés`,
-      resultId,
-      recordCount: totalRecords,
-    });
-  } else {
-    emitStatus(io, socketId, {
-      status: 'FAILED',
-      message: `Processus terminé avec le code ${exitCode}`,
-      exitCode,
-      resultId,
-      recordCount: totalRecords,
-    });
-  }
+  const outcome = parserOutcome({
+    exitCode,
+    csvCount: csvPaths.length,
+    totalRecords,
+    expectsCsv: expectsCsvOutput(parser),
+  });
+  emitStatus(io, socketId, {
+    status: outcome.status,
+    message: outcome.message,
+    resultId,
+    recordCount: totalRecords,
+    ...(outcome.status === 'FAILED' ? { exitCode } : {}),
+  });
 
   return totalRecords;
 }

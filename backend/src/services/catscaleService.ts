@@ -9,7 +9,13 @@ import { Pool } from 'pg';
 import { findArtifactFiles, findArtifactFile, type CatScaleFailure } from './catscaleFiles';
 import { collectStateArtifacts } from './catscaleStateCollect';
 import { resolveCollectionTime } from './catscaleNetworkParsers';
-import { insertStateRows } from './catscaleStateStore';
+import { insertStateRows, type StateRow } from './catscaleStateStore';
+import { projectInventoryRows } from './catscaleInventoryTimeline';
+import { projectNetworkConnections } from './networkConnectionProjection';
+import { buildSourcePath, archiveMemberPath, outfilePrefix, detectOutfilePrefix } from './catscaleSourcePath';
+import { registerCollectionFiles, reconcileCoverage, registerArchiveMembers } from './catscaleCoverage';
+import { parseDpkgLogLines, parseAptHistoryBlocks } from './catscalePackageLogs';
+import { parseAuthorizedKeys, parseTextLines } from './catscaleShapeParsers';
 
 const MONTHS: Record<string, number> = {
   Jan: 0, Feb: 1, Mar: 2, Apr: 3, May: 4, Jun: 5,
@@ -112,7 +118,8 @@ async function walkDir(dir: string, cb: (fp: string) => Promise<void>): Promise<
   try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
   for (const e of entries) {
     const fp = path.join(dir, e.name);
-    if (e.isDirectory()) await walkDir(fp, cb);
+    if (e.isSymbolicLink()) await cb(fp);
+    else if (e.isDirectory()) await walkDir(fp, cb);
     else if (e.isFile()) await cb(fp);
   }
 }
@@ -293,7 +300,7 @@ const AUTH_PATTERNS_RE = [
   /FAILED LOGIN/,
 ];
 
-async function parseAuthLog(filePath: string, caseId: string, pool: Pool, hostname: string, collectedAt: Date, link: TimelineLink = {}): Promise<number> {
+async function parseAuthLog(filePath: string, caseId: string, pool: Pool, hostname: string, collectedAt: Date, sourcePath: string, link: TimelineLink = {}): Promise<number> {
   const rows: Row[] = [];
 
   for await (const line of readLines(filePath)) {
@@ -354,7 +361,7 @@ async function parseAuthLog(filePath: string, caseId: string, pool: Pool, hostna
     rows.push({
       case_id: caseId, timestamp: ts ?? collectedAt,
       artifact_type: 'catscale_auth', artifact_name: 'Linux Auth Log',
-      source: path.basename(filePath),
+      source: sourcePath,
       description,
       raw: { line, category, username, source_ip: sourceIp, host, process: proc },
       host_name: host, user_name: username,
@@ -376,7 +383,7 @@ function auditField(body: string, key: string): string | null {
   return m ? (m[1] ?? m[2] ?? null) : null;
 }
 
-async function parseAuditd(filePath: string, caseId: string, pool: Pool, hostname: string, link: TimelineLink = {}): Promise<number> {
+async function parseAuditd(filePath: string, caseId: string, pool: Pool, hostname: string, sourcePath: string, link: TimelineLink = {}): Promise<number> {
   const rows: Row[] = [];
   for await (const line of readLines(filePath)) {
     const m = AUDIT_RE.exec(line);
@@ -409,7 +416,7 @@ async function parseAuditd(filePath: string, caseId: string, pool: Pool, hostnam
     rows.push({
       case_id: caseId, timestamp: ts,
       artifact_type: 'catscale_auditd', artifact_name: 'Linux Audit Log',
-      source: path.basename(filePath),
+      source: sourcePath,
       description: `AUDITD ${type}: ${subject}${key ? ` [${key}]` : ''}${result ? ` (${result})` : ''}`,
       raw: { type, serial, exe, comm, key, result, uid, auid, argv, line, host: hostname },
       host_name: hostname, user_name: auid && auid !== '4294967295' ? auid : null,
@@ -422,7 +429,7 @@ async function parseAuditd(filePath: string, caseId: string, pool: Pool, hostnam
 
 const LAST_TS_RE = /\b(Mon|Tue|Wed|Thu|Fri|Sat|Sun)\s+\w{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}\s+\d{4}/;
 
-async function parseLastWtmp(filePath: string, caseId: string, pool: Pool, hostname: string, link: TimelineLink = {}): Promise<number> {
+async function parseLastWtmp(filePath: string, caseId: string, pool: Pool, hostname: string, sourcePath: string, link: TimelineLink = {}): Promise<number> {
   const rows: Row[] = [];
 
   for await (const line of readLines(filePath)) {
@@ -466,7 +473,7 @@ async function parseLastWtmp(filePath: string, caseId: string, pool: Pool, hostn
       case_id: caseId, timestamp: loginTs,
       artifact_type: 'catscale_logon',
       artifact_name: isReboot ? 'Linux System Event' : 'Linux Logon History',
-      source: path.basename(filePath),
+      source: sourcePath,
       description,
       raw: { user, tty, from, login_time: loginStr, logout_time: logoutMatch?.[1] ?? null, still_logged: stillLogged, duration, type, host: hostname },
       host_name: hostname, user_name: isReboot ? null : user,
@@ -478,7 +485,7 @@ async function parseLastWtmp(filePath: string, caseId: string, pool: Pool, hostn
   return batchInsert(pool, rows, link);
 }
 
-async function parseProcessList(filePath: string, caseId: string, pool: Pool, t: Date, hostname: string, link: TimelineLink = {}): Promise<number> {
+async function parseProcessList(filePath: string, caseId: string, pool: Pool, t: Date, hostname: string, sourcePath: string, link: TimelineLink = {}): Promise<number> {
   const rows: Row[] = [];
   let headerLine = '';
   let headerSeen = false;
@@ -516,7 +523,7 @@ async function parseProcessList(filePath: string, caseId: string, pool: Pool, t:
     rows.push({
       case_id: caseId, timestamp: t,
       artifact_type: 'catscale_process', artifact_name: 'Linux Process List',
-      source: path.basename(filePath),
+      source: sourcePath,
       description: `Process [${user}] PID=${pid}: ${command.substring(0, 150)}`,
       raw: { pid: +pid, user, command, host: hostname },
       host_name: hostname, user_name: user,
@@ -544,7 +551,7 @@ function graphKeys(hostname: string, peerIp: string | null, peer: string, proto:
   return { Computer: hostname, dst_ip: peerIp, dst_port: portOf(peer), proto };
 }
 
-async function parseNetworkConnections(filePath: string, caseId: string, pool: Pool, t: Date, hostname: string, link: TimelineLink = {}): Promise<number> {
+async function parseNetworkConnections(filePath: string, caseId: string, pool: Pool, t: Date, hostname: string, sourcePath: string, link: TimelineLink = {}): Promise<number> {
   const rows: Row[] = [];
 
   for await (const line of readLines(filePath)) {
@@ -559,7 +566,7 @@ async function parseNetworkConnections(filePath: string, caseId: string, pool: P
       const peerIp = NO_PEER_STATES.has(state) ? null : toInet(peer);
       rows.push({
         case_id: caseId, timestamp: t,
-        artifact_type: 'catscale_network', source: path.basename(filePath),
+        artifact_type: 'catscale_network', source: sourcePath,
         description: `${netid.toUpperCase()} ${state}: ${local} ↔ ${peer}${proc ? ` [${proc[1]}]` : ''}`,
         raw: {
           netid, state, local, peer, process: proc?.[1] ?? null,
@@ -581,7 +588,7 @@ async function parseNetworkConnections(filePath: string, caseId: string, pool: P
       const foreignIp = NO_PEER_STATES.has(state) ? null : toInet(foreign);
       rows.push({
         case_id: caseId, timestamp: t,
-        artifact_type: 'catscale_network', source: path.basename(filePath),
+        artifact_type: 'catscale_network', source: sourcePath,
         description: `${proto.toUpperCase()} ${state}: ${local} ↔ ${foreign}`,
         raw: { proto, local, foreign, state, host: hostname, ...graphKeys(hostname, foreignIp, foreign, proto) },
         host_name: hostname,
@@ -594,7 +601,7 @@ async function parseNetworkConnections(filePath: string, caseId: string, pool: P
 }
 
 
-async function parseBashHistory(filePath: string, caseId: string, pool: Pool, t: Date, username: string, hostname: string, link: TimelineLink = {}): Promise<number> {
+async function parseBashHistory(filePath: string, caseId: string, pool: Pool, t: Date, username: string, hostname: string, sourcePath: string, link: TimelineLink = {}): Promise<number> {
   const rows: Row[] = [];
   let pendingTs: Date | null = null;
 
@@ -606,7 +613,7 @@ async function parseBashHistory(filePath: string, caseId: string, pool: Pool, t:
     rows.push({
       case_id: caseId, timestamp: pendingTs ?? t,
       artifact_type: 'catscale_history', artifact_name: 'Linux Shell History',
-      source: path.basename(filePath),
+      source: sourcePath,
       description: `Historique [${username}]: ${line.substring(0, 200)}`,
       raw: { command: line, username, host: hostname },
       host_name: hostname, user_name: username,
@@ -622,7 +629,7 @@ async function parseBashHistory(filePath: string, caseId: string, pool: Pool, t:
 }
 
 
-async function parseCronTabList(filePath: string, caseId: string, pool: Pool, t: Date, hostname: string, link: TimelineLink = {}): Promise<number> {
+async function parseCronTabList(filePath: string, caseId: string, pool: Pool, t: Date, hostname: string, sourcePath: string, link: TimelineLink = {}): Promise<number> {
   const rows: Row[] = [];
   let currentUser = 'unknown';
 
@@ -635,7 +642,7 @@ async function parseCronTabList(filePath: string, caseId: string, pool: Pool, t:
       rows.push({
         case_id: caseId, timestamp: t,
         artifact_type: 'catscale_persistence', artifact_name: 'Linux Cron',
-        source: 'crontab',
+        source: sourcePath,
         description: `Cron [${currentUser}]: ${line.trim().substring(0, 200)}`,
         raw: { cron_entry: line.trim(), user: currentUser, host: hostname },
         host_name: hostname, user_name: currentUser,
@@ -647,7 +654,7 @@ async function parseCronTabList(filePath: string, caseId: string, pool: Pool, t:
 }
 
 
-async function parseSystemdList(filePath: string, caseId: string, pool: Pool, t: Date, hostname: string, link: TimelineLink = {}): Promise<number> {
+async function parseSystemdList(filePath: string, caseId: string, pool: Pool, t: Date, hostname: string, sourcePath: string, link: TimelineLink = {}): Promise<number> {
   const rows: Row[] = [];
 
   for await (const line of readLines(filePath)) {
@@ -657,7 +664,7 @@ async function parseSystemdList(filePath: string, caseId: string, pool: Pool, t:
       rows.push({
         case_id: caseId, timestamp: t,
         artifact_type: 'catscale_persistence', artifact_name: 'Linux Systemd Unit',
-        source: 'systemd',
+        source: sourcePath,
         description: `Service ${active === 'failed' ? '⚠ FAILED' : 'actif'}: ${unit} (${sub}) — ${desc.trim().substring(0, 100)}`,
         raw: { unit, active, sub, description: desc.trim(), host: hostname },
         host_name: hostname,
@@ -672,7 +679,7 @@ async function parseSystemdList(filePath: string, caseId: string, pool: Pool, t:
       rows.push({
         case_id: caseId, timestamp: t,
         artifact_type: 'catscale_persistence', artifact_name: 'Linux Systemd Unit',
-        source: 'systemd-unit-files',
+        source: sourcePath,
         description: `Service [${state}]: ${unit}`,
         raw: { unit, state, host: hostname },
         host_name: hostname,
@@ -737,7 +744,7 @@ function locationKey(fullPath: string): string {
 
 async function parseFsTimeline(
   filePath: string, caseId: string, pool: Pool, hostname: string, collectedAt: Date,
-  link: TimelineLink = {}, stats?: FsTimelineFilterStats, exhaustive = false,
+  sourcePath: string, link: TimelineLink = {}, stats?: FsTimelineFilterStats, exhaustive = false,
 ): Promise<number> {
   const rows: Row[] = [];
   let inserted = 0;
@@ -803,7 +810,7 @@ async function parseFsTimeline(
     rows.push({
       case_id: caseId, timestamp: ts,
       artifact_type: 'catscale_fstimeline', artifact_name: 'Linux Filesystem Timeline',
-      source: 'full-timeline.csv',
+      source: sourcePath,
       description: `${perms} [${user}] ${fullPath}`,
       raw: { path: fullPath, last_modified: lastMod, permissions: perms, user, host: hostname },
       host_name: hostname, user_name: user !== 'root' ? user : null,
@@ -845,6 +852,59 @@ export interface CatScaleParseResult {
    *  carries no filesystem timeline. Surfacing this is what keeps a 92% reduction
    *  an explicit decision instead of a silent one. */
   fs_filter: FsTimelineFilterStats | null;
+  /** One entry per ingestion_files status for this collection. The sum equals the
+   *  number of files on disk — that equality is what makes coverage checkable. */
+  coverage: Record<string, number>;
+}
+
+// A package installation timeline out of /var/log/dpkg.log and
+// /var/log/apt/history.log. Both live inside var-log.tar.gz and neither was read
+// before: the archive walk filtered on auth.log, secure, messages and syslog,
+// none of which exist on a systemd host. That filter is the reason a complete
+// /var/log produced four events.
+async function parsePackageLog(
+  filePath: string, caseId: string, pool: Pool, hostname: string,
+  sourcePath: string, kind: 'dpkg' | 'apt', link: TimelineLink,
+): Promise<number> {
+  const content = fs.readFileSync(filePath, 'utf8');
+  const rows: Row[] = [];
+
+  if (kind === 'dpkg') {
+    for (const op of parseDpkgLogLines(content)) {
+      // dpkg writes local time with no zone. Parsed as UTC rather than as the
+      // analyst's zone, so the same evidence reads the same on every machine.
+      const ts = new Date(`${op.ts.replace(' ', 'T')}Z`);
+      if (isNaN(ts.getTime())) continue;
+      const version = op.to && op.to !== '<none>' ? ` ${op.to}` : '';
+      rows.push({
+        case_id: caseId, timestamp: ts,
+        artifact_type: 'catscale_package_op', artifact_name: 'Linux Package Operation',
+        source: sourcePath,
+        description: `${op.action}${op.pkg ? ` ${op.pkg}` : ''}${version}`,
+        raw: { ...op, host: hostname },
+        host_name: hostname, user_name: null,
+        timestamp_kind: 'log', path: null, ext: null,
+      } as Row);
+    }
+  } else {
+    for (const tx of parseAptHistoryBlocks(content)) {
+      const ts = new Date(`${tx.ts.replace(/\s+/, 'T')}Z`);
+      if (isNaN(ts.getTime())) continue;
+      // Requested-By is the operator. Unattended upgrades have none, and that
+      // absence is itself the distinction worth keeping.
+      const who = tx.requested_by ? tx.requested_by.replace(/\s*\(\d+\)$/, '') : null;
+      rows.push({
+        case_id: caseId, timestamp: ts,
+        artifact_type: 'catscale_package_transaction', artifact_name: 'Linux Package Transaction',
+        source: sourcePath,
+        description: tx.commandline ?? 'apt transaction',
+        raw: { ...tx, host: hostname },
+        host_name: hostname, user_name: who,
+        timestamp_kind: 'log', path: null, ext: null,
+      } as Row);
+    }
+  }
+  return batchInsert(pool, rows, link);
 }
 
 export async function parseCatScale(
@@ -898,6 +958,49 @@ export async function parseCatScale(
     osInfo = pretty?.[1] ?? releaseContent.split('\n')[0] ?? '';
   }
 
+  // Computed once hostname and collection time are final. Every parser below
+  // receives its canonical source path through this instead of recomputing a
+  // bare filename or a hardcoded category — see catscaleSourcePath.ts.
+  // Read off the filenames, not rebuilt from collectionTime — which is the mtime
+  // of the extracted directory, not the DTG Cat-Scale burned into every name.
+  // Rebuilding it left the 24-character prefix on every stored path.
+  const prefix = detectOutfilePrefix(catscaleRoot) || outfilePrefix(hostname, collectionTime);
+  const srcOf = (p: string) => buildSourcePath(catscaleRoot, p, prefix);
+
+  // The coverage ledger is written BEFORE any parsing is attempted, so that a
+  // parse dying in flight still leaves a record of every file that existed. That
+  // is the difference between "no data" and "not processed" — the substitution
+  // this whole module has been making silently.
+  let coverage: Record<string, number> = {};
+  if (link.evidenceId) {
+    emit('coverage');
+    try {
+      const n = await registerCollectionFiles(pool, catscaleRoot, caseId, link.evidenceId, prefix);
+      logger.info(`[CatScale] coverage ledger: ${n} files registered before parsing`);
+    } catch (e: any) {
+      logger.error(`[CatScale] coverage registration failed: ${e?.message ?? e}`);
+      failures.push({ stage: 'insert', target: catscaleRoot, reason: `coverage: ${e?.message ?? e}` });
+    }
+
+    // Re-parsing an evidence must replace its timeline, not append to it.
+    // Measured on 2026-08-17: a second parse of the reference collection left
+    // 676,667 rows where the host has 340,952 — the old labels and the new ones
+    // side by side, every occurrence-based count doubled. catscale_state has had
+    // this guarantee since the atomicity fix; the timeline never did.
+    try {
+      const purged = await pool.query(
+        'DELETE FROM collection_timeline WHERE case_id = $1::uuid AND evidence_id = $2::uuid',
+        [caseId, link.evidenceId],
+      );
+      if (purged.rowCount) {
+        logger.info(`[CatScale] replacing ${purged.rowCount} timeline rows from a previous parse of this evidence`);
+      }
+    } catch (e: any) {
+      logger.error(`[CatScale] timeline purge failed: ${e?.message ?? e}`);
+      failures.push({ stage: 'insert', target: catscaleRoot, reason: `timeline purge: ${e?.message ?? e}` });
+    }
+  }
+
   emit('auth_logs');
   const logsDir = path.join(catscaleRoot, 'Logs');
   for (const varLogTar of findArtifactFiles(logsDir, 'var-log.tar.gz')) {
@@ -907,11 +1010,17 @@ export async function parseCatScale(
       await walkDir(varLogTmp, async (fp) => {
         const base = path.basename(fp);
         if (/^(auth\.log|secure|messages|syslog)(\.1)?$/.test(base)) {
-          const n = await parseAuthLog(fp, caseId, pool, hostname, collectionTime, link).catch(fail('parse', fp));
+          const n = await parseAuthLog(fp, caseId, pool, hostname, collectionTime, archiveMemberPath(srcOf(varLogTar), varLogTmp, fp), link).catch(fail('parse', fp));
           if (n > 0) { totalEvents += n; artifacts.push(`auth:${base} (${n})`); }
         } else if (/^audit\.log(\.\d+)?$/.test(base)) {
-          const n = await parseAuditd(fp, caseId, pool, hostname, link).catch(fail('parse', fp));
+          const n = await parseAuditd(fp, caseId, pool, hostname, archiveMemberPath(srcOf(varLogTar), varLogTmp, fp), link).catch(fail('parse', fp));
           if (n > 0) { totalEvents += n; artifacts.push(`auditd:${base} (${n})`); }
+        } else if (/^dpkg\.log(\.\d+)?$/.test(base)) {
+          const n = await parsePackageLog(fp, caseId, pool, hostname, archiveMemberPath(srcOf(varLogTar), varLogTmp, fp), 'dpkg', link).catch(fail('parse', fp));
+          if (n > 0) { totalEvents += n; artifacts.push(`dpkg:${base} (${n})`); }
+        } else if (/[/\\]apt[/\\]history\.log(\.\d+)?$/.test(fp)) {
+          const n = await parsePackageLog(fp, caseId, pool, hostname, archiveMemberPath(srcOf(varLogTar), varLogTmp, fp), 'apt', link).catch(fail('parse', fp));
+          if (n > 0) { totalEvents += n; artifacts.push(`apt:${base} (${n})`); }
         }
       });
     }
@@ -922,12 +1031,12 @@ export async function parseCatScale(
   // filesystem for utmp*/wtmp* and can emit several. 'last-utmpdump' is
   // deliberately excluded — it is a utmpdump dump, not `last` output.
   for (const fp of findArtifactFiles(logsDir, 'last-wtmp', 'last-wtmpx', 'last-utmp')) {
-    const n = await parseLastWtmp(fp, caseId, pool, hostname, link).catch(fail('parse', fp));
+    const n = await parseLastWtmp(fp, caseId, pool, hostname, srcOf(fp), link).catch(fail('parse', fp));
     if (n > 0) { totalEvents += n; artifacts.push(`logon:${path.basename(fp)} (${n})`); }
   }
 
   for (const btmpFile of findArtifactFiles(logsDir, 'last-btmp')) {
-    const n = await parseLastWtmp(btmpFile, caseId, pool, hostname, link).catch(fail('parse', btmpFile));
+    const n = await parseLastWtmp(btmpFile, caseId, pool, hostname, srcOf(btmpFile), link).catch(fail('parse', btmpFile));
     if (n > 0) { totalEvents += n; artifacts.push(`failed_logon:${path.basename(btmpFile)} (${n})`); }
   }
 
@@ -937,7 +1046,7 @@ export async function parseCatScale(
   // first one present is the collection's process listing — not one of several.
   const procFile = findArtifactFile(procDir, 'processes-axwwSo', 'processes-auxSww', 'processes-auxww', 'processes-eF', 'processes-ef', 'processes-e');
   if (procFile) {
-    const n = await parseProcessList(procFile, caseId, pool, collectionTime, hostname, link).catch(fail('parse', procFile));
+    const n = await parseProcessList(procFile, caseId, pool, collectionTime, hostname, srcOf(procFile), link).catch(fail('parse', procFile));
     if (n > 0) { totalEvents += n; artifacts.push(`process:${path.basename(procFile)} (${n})`); }
   }
 
@@ -945,7 +1054,7 @@ export async function parseCatScale(
   // Cat-Scale.sh:269-279 picks ss or one netstat form, but the netstat branch
   // writes both -antup and -an, so several files can legitimately coexist.
   for (const fp of findArtifactFiles(procDir, 'ss-anepo', 'netstat-pvWanoee', 'netstat-pvTanoee', 'netstat-antup', 'netstat-an')) {
-    const n = await parseNetworkConnections(fp, caseId, pool, collectionTime, hostname, link).catch(fail('parse', fp));
+    const n = await parseNetworkConnections(fp, caseId, pool, collectionTime, hostname, srcOf(fp), link).catch(fail('parse', fp));
     if (n > 0) { totalEvents += n; artifacts.push(`network:${path.basename(fp)} (${n})`); }
   }
 
@@ -962,7 +1071,7 @@ export async function parseCatScale(
 
           const parts = fp.split(path.sep);
           const username = parts[parts.length - 2] || 'unknown';
-          const n = await parseBashHistory(fp, caseId, pool, collectionTime, username, hostname, link).catch(fail('parse', fp));
+          const n = await parseBashHistory(fp, caseId, pool, collectionTime, username, hostname, archiveMemberPath(srcOf(homeTar), homeTmp, fp), link).catch(fail('parse', fp));
           if (n > 0) { totalEvents += n; artifacts.push(`history:${username}:${base} (${n})`); }
         }
       });
@@ -973,7 +1082,7 @@ export async function parseCatScale(
   const persistDir = path.join(catscaleRoot, 'Persistence');
 
   for (const cronTabList of findArtifactFiles(persistDir, 'cron-tab-list')) {
-    const n = await parseCronTabList(cronTabList, caseId, pool, collectionTime, hostname, link).catch(fail('parse', cronTabList));
+    const n = await parseCronTabList(cronTabList, caseId, pool, collectionTime, hostname, srcOf(cronTabList), link).catch(fail('parse', cronTabList));
     if (n > 0) { totalEvents += n; artifacts.push(`cron:${path.basename(cronTabList)} (${n})`); }
   }
 
@@ -984,15 +1093,19 @@ export async function parseCatScale(
       await walkDir(cronTmp, async (fp) => {
         const base = path.basename(fp);
         if (!base.includes('.') || base.endsWith('.txt')) {
-          const n = await parseCronTabList(fp, caseId, pool, collectionTime, hostname, link).catch(fail('parse', fp));
+          const n = await parseCronTabList(fp, caseId, pool, collectionTime, hostname, archiveMemberPath(srcOf(cronFolderTar), cronTmp, fp), link).catch(fail('parse', fp));
           if (n > 0) { totalEvents += n; artifacts.push(`cron:spool:${base} (${n})`); }
         }
       });
     }
   }
 
+  // findArtifactFiles walks three distinct filenames here (systemctl_service_status,
+  // systemctl_all, persistence-systemdlist), which used to collapse onto two
+  // hardcoded labels. sourcePath is computed per file, inside the loop, so each
+  // keeps its own canonical path instead of losing its identity to the others.
   for (const fp of findArtifactFiles(persistDir, 'systemctl_service_status', 'systemctl_all', 'persistence-systemdlist')) {
-    const n = await parseSystemdList(fp, caseId, pool, collectionTime, hostname, link).catch(fail('parse', fp));
+    const n = await parseSystemdList(fp, caseId, pool, collectionTime, hostname, srcOf(fp), link).catch(fail('parse', fp));
     if (n > 0) { totalEvents += n; artifacts.push(`systemd:${path.basename(fp)} (${n})`); }
   }
 
@@ -1005,7 +1118,7 @@ export async function parseCatScale(
       dropped: { container_layer: 0, rebuildable: 0, package_tree: 0, not_relevant: 0, unparsable: 0 },
       top_dropped_locations: [],
     };
-    const n = await parseFsTimeline(fsTimelineFile, caseId, pool, hostname, collectionTime, link,
+    const n = await parseFsTimeline(fsTimelineFile, caseId, pool, hostname, collectionTime, srcOf(fsTimelineFile), link,
       fsFilter, options.exhaustiveFsTimeline === true)
       .catch(fail('parse', fsTimelineFile));
     if (n > 0) { totalEvents += n; artifacts.push(`fstimeline:${path.basename(fsTimelineFile)} (${n})`); }
@@ -1022,19 +1135,116 @@ export async function parseCatScale(
   // Docker alone is 88 of the 158 files in a real collection and was never opened
   // before. These artifacts are inventories, not events, so they go to
   // catscale_state; only the container lifecycle timestamps reach the timeline.
+  // The archives nothing opened before 2026-08-17. Their members are registered in
+  // the coverage ledger as evidence of their own, then read.
+  //
+  // ssh-folders.tar.gz is why this matters: it holds authorized_keys, the quietest
+  // durable foothold on a Linux host. The reference collection carried a planted
+  // key from the day it was taken, inside an archive no parser ever expanded.
+  const archiveStateRows: StateRow[] = [];
+  emit('archives');
+  const ARCHIVES: [string, string][] = [
+    ['System_Info', 'etc-key-files.tar.gz'],
+    ['System_Info', 'etc-modified-files.tar.gz'],
+    ['Process_and_Network', 'ssh-folders.tar.gz'],
+    ['Logs', 'var-crash.tar.gz'],
+  ];
+  for (const [dirName, pattern] of ARCHIVES) {
+    for (const arch of findArtifactFiles(path.join(catscaleRoot, dirName), pattern)) {
+      const tmp = path.join(os.tmpdir(), `catscale-arch-${caseId}-${Date.now()}-${path.basename(arch)}`);
+      tempDirs.push(tmp);
+      if (!extractTarGz(arch, tmp, failures)) continue;
+      const archSrc = srcOf(arch);
+      if (link.evidenceId) {
+        try {
+          const n = await registerArchiveMembers(pool, caseId, link.evidenceId, archSrc, tmp);
+          if (n) artifacts.push(`archive:${path.basename(arch)} (${n} members)`);
+        } catch (e: any) {
+          failures.push({ stage: 'insert', target: arch, reason: `members: ${e?.message ?? e}` });
+        }
+      }
+      await walkDir(tmp, async (fp) => {
+        const memberSrc = archiveMemberPath(archSrc, tmp, fp);
+
+        // A link is not a file with content, it is a pointer, and the pointer is
+        // the evidence: /etc/rc*.d/K01* and S01* are all links, and together they
+        // say which services start at which runlevel. Reading one would follow it
+        // out of the expanded archive into a target that is not there.
+        let lst: fs.Stats | null = null;
+        try { lst = fs.lstatSync(fp); } catch { return; }
+        if (lst.isSymbolicLink()) {
+          let target = '';
+          try { target = fs.readlinkSync(fp); } catch { /* keep the link, lose the target */ }
+          archiveStateRows.push({
+            kind: 'etc_symlink',
+            label: `${path.basename(fp)} -> ${target}`,
+            source_file: memberSrc,
+            raw: { target, member_path: memberSrc, host: hostname },
+          });
+          return;
+        }
+
+        let size = 0;
+        try { size = fs.statSync(fp).size; } catch { return; }
+        if (size === 0 || size > 512 * 1024) return;
+        let content: string;
+        try { content = fs.readFileSync(fp, 'utf8'); } catch { return; }
+        // A NUL in the first kilobyte means binary; its bytes are not lines.
+        if (content.slice(0, 1024).includes('\u0000')) return;
+
+        if (/(^|\/)authorized_keys2?$/.test(fp)) {
+          for (const k of parseAuthorizedKeys(content)) {
+            archiveStateRows.push({
+              kind: 'ssh_authorized_key',
+              label: `${k.algo} ${k.comment || '(no comment)'}`,
+              source_file: memberSrc,
+              raw: { ...k, member_path: memberSrc, host: hostname },
+            });
+          }
+          return;
+        }
+        for (const l of parseTextLines(content)) {
+          archiveStateRows.push({
+            kind: 'etc_file_line',
+            label: String(l.text).slice(0, 512),
+            source_file: memberSrc,
+            raw: { ...l, host: hostname },
+          });
+        }
+      });
+    }
+  }
+
   emit('host_state');
   let stateRows = 0;
   try {
-    const collected = collectStateArtifacts(catscaleRoot, caseId, hostname, collectionTime, failures);
-    if (collected.stateRows.length) {
-      stateRows = await insertStateRows(pool, caseId, hostname, collectionTime, collected.stateRows, {
+    const collected = collectStateArtifacts(catscaleRoot, caseId, hostname, collectionTime, prefix, failures);
+    // insertStateRows purges this evidence before inserting, so archive-derived
+    // rows must travel in the same call or the second would erase the first.
+    const allStateRows = [...collected.stateRows, ...archiveStateRows];
+    if (allStateRows.length) {
+      stateRows = await insertStateRows(pool, caseId, hostname, collectionTime, allStateRows, {
         evidence_id: link.evidenceId ?? null,
         result_id: link.resultId ?? null,
       });
-      const byKind = collected.stateRows.reduce<Record<string, number>>((acc, r) => {
+      const byKind = allStateRows.reduce<Record<string, number>>((acc, r) => {
         acc[r.kind] = (acc[r.kind] ?? 0) + 1; return acc;
       }, {});
       for (const [kind, n] of Object.entries(byKind)) artifacts.push(`state:${kind} (${n})`);
+
+      // The same objects enter the SuperTimeline as undated inventory rows. Kept in
+      // its own try: a projection that fails is not a state collection that found
+      // nothing, and the catch below would have logged it under the wrong name.
+      if (link.evidenceId) {
+        try {
+          const projected = await projectInventoryRows(pool, caseId, link.evidenceId);
+          logger.info(`[CatScale] inventory: ${projected} undated rows projected into the timeline`);
+          if (projected > 0) artifacts.push(`inventory:timeline (${projected})`);
+        } catch (e: any) {
+          logger.error(`[CatScale] inventory projection failed: ${e?.message ?? e}`);
+          failures.push({ stage: 'parse', target: catscaleRoot, reason: `inventory projection: ${e?.message ?? e}` });
+        }
+      }
     }
     if (collected.timelineRows.length) {
       const n = await batchInsert(pool, collected.timelineRows as Row[], link);
@@ -1042,7 +1252,13 @@ export async function parseCatScale(
     }
   } catch (e: any) {
     // A state-collection failure must not be reported as "no containers found".
-    logger.warn(`[CatScale] host state collection failed: ${e?.message ?? e}`);
+    //
+    // Logged at error, not warn. On 2026-08-03 and again on 2026-08-13 this step
+    // threw on a NUL byte, the warning scrolled past, and the parse concluded
+    // "Detected and parsed: 334803 events". Twelve declared artifacts looked
+    // empty for ten days, and the design spec deduced a stale container image
+    // from it. It was one exception, hidden by its own log level.
+    logger.error(`[CatScale] host state collection failed: ${e?.message ?? e}`);
     failures.push({ stage: 'parse', target: catscaleRoot, reason: `host state: ${e?.message ?? e}` });
   }
 
@@ -1050,10 +1266,43 @@ export async function parseCatScale(
     try { fs.rmSync(dir, { recursive: true, force: true }); } catch (_e) {}
   }
 
+  // Les connexions entrent dans network_connections une fois toutes les lignes de
+  // timeline ecrites — la projection les y lit. Placee plus haut, a cote de celle de
+  // l'inventaire, elle ne trouverait rien : les lignes reseau n'y sont pas encore.
+  //
+  // Dans son propre try : une projection qui echoue n'est pas une collecte sans
+  // connexions, et le catch precedent l'aurait journalisee sous le mauvais nom.
+  if (link.evidenceId) {
+    try {
+      const net = await projectNetworkConnections(pool, caseId, link.evidenceId);
+      const skipped = net.skipped.reduce((n, s) => n + s.count, 0);
+      logger.info(`[CatScale] network: ${net.inserted} connexions projetees sur ${net.examined} lignes` +
+        (skipped > 0 ? ` — ${skipped} ecartees : ` + net.skipped.map(s => `${s.count} ${s.reason}`).join(', ') : ''));
+      if (net.inserted > 0) artifacts.push(`network:connections (${net.inserted})`);
+    } catch (e: any) {
+      logger.error(`[CatScale] network projection failed: ${e?.message ?? e}`);
+      failures.push({ stage: 'parse', target: catscaleRoot, reason: `network projection: ${e?.message ?? e}` });
+    }
+  }
+
+  // Settle every ledger row now that the outcome of each file is known. Runs after
+  // the temp directories are cleared, so an archive member counted here is counted
+  // against its archive rather than a path that no longer exists.
+  if (link.evidenceId) {
+    try {
+      coverage = await reconcileCoverage(pool, caseId, link.evidenceId, failures, catscaleRoot);
+      const total = Object.values(coverage).reduce((a, b) => a + b, 0);
+      logger.info(`[CatScale] coverage: ${coverage.parsed ?? 0} parsed of ${total} files — ` +
+        Object.entries(coverage).map(([k, v]) => `${k} ${v}`).join(', '));
+    } catch (e: any) {
+      logger.error(`[CatScale] coverage reconciliation failed: ${e?.message ?? e}`);
+    }
+  }
+
   logger.info(`[CatScale] ${hostname} (${osInfo || 'Linux'}): ${totalEvents} events, ${stateRows} state rows — ${artifacts.length} sources`);
   return {
     events: totalEvents, hostname, os_info: osInfo,
     collection_time: collectionTime.toISOString(), artifacts, unreadable, failures,
-    state_rows: stateRows, fs_filter: fsFilter,
+    state_rows: stateRows, fs_filter: fsFilter, coverage,
   };
 }

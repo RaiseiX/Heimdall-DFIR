@@ -24,6 +24,7 @@ const { createAdapter } = require('@socket.io/redis-adapter');
 const { pool, testConnection } = require('./config/database');
 const { runGuardedMigrations } = require('./services/schemaMigrations');
 const { COLLECTION_TIMELINE_STATEMENTS, COLLECTION_TIMELINE_EXPECTED_COLUMNS } = require('./config/collectionTimelineDdl');
+const { NETWORK_CONNECTIONS_STATEMENTS, NETWORK_CONNECTIONS_EXPECTED_COLUMNS } = require('./config/networkConnectionsDdl');
 const { markDegraded, clearDegraded } = require('./services/schemaState');
 const requireHealthySchema = require('./middleware/requireHealthySchema');
 const { connectRedis } = require('./config/redis');
@@ -241,6 +242,20 @@ async function runMigrations() {
   } catch (e) {
     logger.error('[migration] collection_timeline FAILED — ingestion disabled', { error: e.message });
     markDegraded('collection_timeline', e.message);
+  }
+
+  // network_connections n'avait pas d'evidence_id : avec plusieurs collectes dans un
+  // cas, une connexion ne pouvait pas dire d'ou elle venait. Meme garde que ci-dessus.
+  try {
+    await runGuardedMigrations(pool, {
+      name: 'network_connections',
+      statements: NETWORK_CONNECTIONS_STATEMENTS,
+      skipIfPresent: { table: 'network_connections', columns: NETWORK_CONNECTIONS_EXPECTED_COLUMNS },
+    });
+    clearDegraded('network_connections');
+  } catch (e) {
+    logger.error('[migration] network_connections FAILED', { error: e.message });
+    markDegraded('network_connections', e.message);
   }
 
   try {

@@ -2,7 +2,6 @@ import { useState, useMemo } from 'react';
 import { Copy, CheckCheck, ChevronDown, ChevronRight, AlertTriangle, Sparkles, Search } from 'lucide-react';
 import { useTheme } from '../../utils/theme';
 
-// Open the global AI chat pre-filled with a question about an artifact.
 function askAi(artifact) {
   const prompt = `Explique l'artefact forensique Linux « ${artifact.title} » : ce qu'il contient, où le trouver, et comment l'exploiter dans une investigation DFIR.`;
   window.dispatchEvent(new CustomEvent('heimdall:ai-open', { detail: { prompt } }));
@@ -520,7 +519,6 @@ function ArtifactCard({ artifact, search, compact }) {
       {open && (
         <div style={{ background: 'var(--fl-bg)', padding: '14px 16px', borderTop: '1px solid var(--fl-border)' }}>
 
-          {/* Location */}
           <div style={{ marginBottom: 12 }}>
             <div style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--fl-accent)', marginBottom: 7 }}>Localisation</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
@@ -534,7 +532,6 @@ function ArtifactCard({ artifact, search, compact }) {
             </div>
           </div>
 
-          {/* Forensic Value */}
           <div style={{ marginBottom: 12 }}>
             <div style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--fl-accent)', marginBottom: 7 }}>Valeur Forensique</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
@@ -547,7 +544,6 @@ function ArtifactCard({ artifact, search, compact }) {
             </div>
           </div>
 
-          {/* Commands */}
           {artifact.commands && artifact.commands.length > 0 && (
             <div style={{ marginBottom: 12 }}>
               <div style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--fl-accent)', marginBottom: 7 }}>Commandes d'Investigation</div>
@@ -563,7 +559,6 @@ function ArtifactCard({ artifact, search, compact }) {
             </div>
           )}
 
-          {/* IOCs */}
           <div>
             <div style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--fl-accent)', marginBottom: 7 }}>Indicateurs Suspects</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
@@ -605,7 +600,6 @@ export default function LinuxArtifactsDoc({ search }) {
 
   return (
     <div style={{ padding: '26px 34px', maxWidth: 960 }}>
-      {/* Editorial header */}
       <div style={{ marginBottom: 18 }}>
         <h1 style={{ fontFamily: 'var(--f-display, "Space Grotesk", "Inter", sans-serif)', fontSize: 26, fontWeight: 600, letterSpacing: '-0.02em', color: 'var(--fl-text)', margin: 0 }}>
           Artefacts Forensiques Linux
@@ -617,7 +611,6 @@ export default function LinuxArtifactsDoc({ search }) {
         </p>
       </div>
 
-      {/* Controls: category chips + density */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 22, paddingBottom: 16, borderBottom: '1px solid var(--fl-border)' }}>
         {CATEGORIES.map(c => {
           const active = catFilter === c;

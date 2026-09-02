@@ -1,13 +1,9 @@
-// frontend/src/components/globalnetworkmap/utils/transformGlobalGraphData.js
 import { transformGraphData } from '../../networkmap/utils/graphDataTransform';
 
-// Thin wrapper: calls existing transformGraphData then annotates each node element
-// with evidence_ids and correlationCount derived from the merged API response.
 export function transformGlobalGraphData(apiData, subnetRules = []) {
   const { elements } = transformGraphData(apiData, {}, subnetRules);
 
   return elements.map(el => {
-    // Edges have el.data.source — skip annotation
     if (!el.data?.id || el.data?.source != null) return el;
 
     const raw = el.data?._raw;

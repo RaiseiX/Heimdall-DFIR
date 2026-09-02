@@ -103,8 +103,8 @@ async function runSigma(
       const parsed = parseRule(rule.content);
       if (!parsed.valid || !parsed.parsed) continue;
 
-      const { where, params } = buildQuery(parsed.parsed as any);
-      if (!where) continue;
+      const { where, params, unsupported } = buildQuery(parsed.parsed as any);
+      if (unsupported || !where) continue;
 
       const shiftedWhere = where.replace(/\$(\d+)/g, (_: string, n: string) => `$${parseInt(n, 10) + 1}`);
 

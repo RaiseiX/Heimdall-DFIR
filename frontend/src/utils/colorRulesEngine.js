@@ -2,7 +2,15 @@
 function getFieldValue(record, field) {
   if (field.startsWith('raw.')) {
     const key = field.slice(4);
-    return record.raw?.[key] ?? null;
+    const raw = record.raw;
+    if (!raw || typeof raw !== 'object') return null;
+    if (Object.prototype.hasOwnProperty.call(raw, key)) return raw[key] ?? null;
+    let cur = raw;
+    for (const part of String(key).split('.')) {
+      if (cur == null || typeof cur !== 'object') return null;
+      cur = cur[part];
+    }
+    return cur ?? null;
   }
   return record[field] ?? null;
 }
@@ -77,14 +85,12 @@ export function evaluateColorRules(record, rules) {
   return null;
 }
 
-// Cell-scope matches — returns a map { columnKey: {color, ruleName, ruleId} }.
-// Rules with scope === 'cell' and a `column` field get applied per-cell instead of row-wide.
 export function evaluateCellColorRules(record, rules) {
   const out = {};
   for (const rule of rules) {
     if (!rule.is_active) continue;
     if (rule.scope !== 'cell' || !rule.column) continue;
-    if (out[rule.column]) continue; // priority: first wins per column
+    if (out[rule.column]) continue;
     if (evalConditions(record, rule.conditions)) {
       out[rule.column] = { color: rule.color, icon: rule.icon ?? null, ruleName: rule.name, ruleId: rule.id, scope: 'cell', columnKey: rule.column };
     }

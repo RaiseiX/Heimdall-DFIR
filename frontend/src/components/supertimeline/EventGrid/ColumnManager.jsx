@@ -1,7 +1,8 @@
-// frontend/src/components/supertimeline/EventGrid/ColumnManager.jsx
 import { useEffect, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 
-export default function ColumnManager({ allCols, hiddenCols, onToggle, onReset, onClose }) {
+export default function ColumnManager({ allCols, hiddenCols, constantCols = [], onToggle, onReset, onClose }) {
+  const { t } = useTranslation();
   const ref = useRef(null);
 
   useEffect(() => {
@@ -32,6 +33,11 @@ export default function ColumnManager({ allCols, hiddenCols, onToggle, onReset, 
         <span style={{ fontSize: 10, color: visible ? 'var(--fl-dim)' : 'var(--fl-muted)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}>
           {col.label}
         </span>
+        {constantCols.includes(col.key) && (
+          <span style={{ marginLeft: 'auto', fontSize: 9, color: 'var(--fl-muted)' }}>
+            {t('timeline.colHint.constant')}
+          </span>
+        )}
       </label>
     );
   }
@@ -55,7 +61,7 @@ export default function ColumnManager({ allCols, hiddenCols, onToggle, onReset, 
       {baseCols.map(col => <ColRow key={col.key} col={col} />)}
       {dynamicCols.length > 0 && (
         <>
-          <div style={{ padding: '6px 12px 3px', fontSize: 8, color: 'var(--fl-raised)',
+          <div style={{ padding: '6px 12px 3px', fontSize: 8, color: 'var(--fl-dim)',
             textTransform: 'uppercase', letterSpacing: '0.08em', borderTop: '1px solid var(--fl-card)' }}>
             CSV Fields
           </div>

@@ -248,7 +248,7 @@ export default function AiCopilotModal({ caseId, caseName, isOpen, onClose, sock
   const [collapsedThink, setCollapsedThink]       = useState({});
 
   const [agentType, setAgentType] = useState('analysis');
-  const [feedback, setFeedback]   = useState({});  // msgId → 1 | -1
+  const [feedback, setFeedback]   = useState({});
 
   const abortRef       = useRef(null);
   const endRef         = useRef(null);
@@ -266,8 +266,6 @@ export default function AiCopilotModal({ caseId, caseName, isOpen, onClose, sock
     api.get('/ai/models').then(r => {
       if (r.data.available && r.data.models?.length) {
         setModels(r.data.models);
-        // Honour the admin's active-model setting if it's installed,
-        // otherwise fall back to the first available model.
         const saved = localStorage.getItem('heimdall.ai.activeModel');
         setModel(saved && r.data.models.includes(saved) ? saved : r.data.models[0]);
       }
@@ -632,7 +630,6 @@ export default function AiCopilotModal({ caseId, caseName, isOpen, onClose, sock
                     )}
                   </div>
 
-                  {/* Feedback thumbs — only on completed assistant messages */}
                   {msg.role === 'assistant' && !msg.loading && !msg.error && msg.content && (
                     <div style={{ display: 'flex', gap: 4, marginTop: 4, justifyContent: 'flex-end' }}>
                       {[{ r: 1, icon: '👍' }, { r: -1, icon: '👎' }].map(({ r, icon }) => (
@@ -690,7 +687,6 @@ export default function AiCopilotModal({ caseId, caseName, isOpen, onClose, sock
             ))}
           </div>
 
-          {/* Agent selector */}
           <div style={{ flexShrink: 0, padding: '6px 10px 0', display: 'flex', gap: 4, alignItems: 'center' }}>
             <span style={{ fontSize: 8, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-muted)', marginRight: 2 }}>Agent:</span>
             {[

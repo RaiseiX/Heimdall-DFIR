@@ -6,25 +6,18 @@ import { notebookAPI } from '../../utils/api';
 const MONO = 'var(--f-mono, "JetBrains Mono", monospace)';
 const UI   = 'var(--f-ui, sans-serif)';
 
-// Lightweight markdown-to-html for preview (no external dep).
 function mdToHtml(md) {
   return md
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-    // headings
     .replace(/^### (.+)$/gm, '<h3 style="margin:.8em 0 .3em;font-size:13px;color:var(--fl-text)">$1</h3>')
     .replace(/^## (.+)$/gm,  '<h2 style="margin:.9em 0 .3em;font-size:14px;color:var(--fl-text)">$1</h2>')
     .replace(/^# (.+)$/gm,   '<h1 style="margin:1em 0 .4em;font-size:16px;color:var(--fl-text)">$1</h1>')
-    // bold / italic
     .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
     .replace(/\*(.+?)\*/g,     '<em>$1</em>')
-    // inline code
     .replace(/`([^`]+)`/g, '<code style="background:var(--fl-card);padding:1px 5px;border-radius:3px;font-family:'+MONO+';font-size:10.5px">$1</code>')
-    // MITRE technique links (T1234 / T1234.001)
     .replace(/\b(T\d{4}(?:\.\d{3})?)\b/g, '<a href="https://attack.mitre.org/techniques/$1" target="_blank" rel="noreferrer" style="color:var(--fl-accent);text-decoration:none;font-family:'+MONO+';font-size:10.5px">$1</a>')
-    // bullet lists
     .replace(/^[-*] (.+)$/gm, '<li style="margin:.15em 0">$1</li>')
     .replace(/(<li[\s\S]*?<\/li>\n?)+/g, m => '<ul style="margin:.4em 0 .4em 1.2em;padding:0">'+m+'</ul>')
-    // paragraphs (blank-line separated)
     .replace(/\n{2,}/g, '</p><p style="margin:.5em 0">')
     .replace(/^(.+)$/gm, s => s.startsWith('<') ? s : s);
 }
@@ -64,7 +57,6 @@ export default function NotebookPanel({ caseId }) {
   function handleChange(v) {
     setContent(v);
     setDirty(true);
-    // Debounced auto-save after 3 s of inactivity.
     clearTimeout(timerRef.current);
     timerRef.current = setTimeout(() => save(v), 3000);
   }
@@ -76,7 +68,6 @@ export default function NotebookPanel({ caseId }) {
   return (
     <div style={{ maxWidth: 900, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 12 }}>
 
-      {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         <BookOpen size={14} style={{ color: 'var(--fl-accent)', flexShrink: 0 }} />
         <span style={{ fontSize: 11, fontFamily: MONO, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--fl-dim)', fontWeight: 700 }}>
@@ -102,14 +93,12 @@ export default function NotebookPanel({ caseId }) {
         </button>
       </div>
 
-      {/* Hint */}
       {!content && !preview && (
         <p style={{ fontSize: 11, fontFamily: UI, color: 'var(--fl-subtle)', margin: 0 }}>
           {t('notebook.hint')}
         </p>
       )}
 
-      {/* Editor / Preview */}
       {preview ? (
         <div
           style={{ minHeight: 400, padding: '14px 16px', border: '1px solid var(--fl-border)', borderRadius: 8, background: 'var(--fl-bg)', fontSize: 12.5, fontFamily: UI, color: 'var(--fl-text)', lineHeight: 1.65, overflowY: 'auto' }}

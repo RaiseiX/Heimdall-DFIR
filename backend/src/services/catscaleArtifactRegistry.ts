@@ -8,11 +8,14 @@
 import type { StateRow } from './catscaleStateStore';
 import {
   parseHashList, parsePathList, parseHeaderTable,
-  parseKeyValueBlocks, parsePathDescription, parseHeadMarkers,
+  parseKeyValueBlocks, parsePathDescription, parseHeadMarkers, parseProcLinks,
+  parseKeyValueLines, parseTextLines, parseJsonDoc,
+  parseDpkgTable, dpkgStateMeaning,
 } from './catscaleShapeParsers';
 
 export type Shape =
-  | 'hash_list' | 'path_list' | 'header_table' | 'kv_blocks' | 'path_desc' | 'head_markers';
+  | 'hash_list' | 'path_list' | 'header_table' | 'kv_blocks' | 'path_desc' | 'head_markers'
+  | 'proc_link' | 'kv_lines' | 'text_lines' | 'json_doc' | 'dpkg_table';
 
 export interface SpecFinding {
   kind: string;
@@ -52,6 +55,18 @@ const WEB_ROOT_RE = /^\/(var\/www|srv\/(www|http)|usr\/share\/(nginx|apache2)|op
 // 1,283 candidates were nearly all a pentest toolkit inside a container image.
 const IMAGE_STORAGE_RE = /\/(containers\/storage|var\/lib\/docker|var\/lib\/containerd)\/|\/overlay2?\//;
 
+// An unpacked forensic collection: a full filesystem copy of another machine,
+// usually sitting in an analyst's home directory. Matched on the collector
+// layouts this product ingests — CatScale writes `catscale_out/`, CyLR and
+// Magnet RESPONSE write a `filesystem/` root — plus the naming an analyst
+// gives the archive they expanded.
+//
+// Deliberately narrow, and never a silent exclusion: a directory can be named
+// to look like a collection. Findings under it are labelled, counted, and left
+// on screen for the analyst to judge.
+const EXTRACTED_COLLECTION_RE =
+  /\/(catscale_out|uploads\/collections)\/|\/filesystem\/(usr|etc|var|bin|sbin|opt|root|home)\/|[-_](collecte|collection)\//i;
+
 export const ARTIFACT_REGISTRY: ArtifactSpec[] = [
   // ── Misc ────────────────────────────────────────────────────────────────
   {
@@ -64,10 +79,32 @@ export const ARTIFACT_REGISTRY: ArtifactSpec[] = [
     // Measured on a real host: 69 of 229 setuid binaries sat under a writable
     // prefix, and 49 of those were inside container image storage — content of an
     // image, not a privilege-escalation primitive on the host.
-    findingOf: r => (WRITABLE_PREFIXES.some(p => String(r.path).startsWith(p))
-      && !IMAGE_STORAGE_RE.test(String(r.path))
-      ? { kind: 'setuid_in_writable_path', path: r.path, description: `Setuid/setgid binary in a user-writable location: ${r.path}` }
-      : null),
+    //
+    // A third class showed up on 2026-08-13, and it is the normal case on a DFIR
+    // workstation: all 20 findings on that host pointed inside
+    // /home/<user>/Téléchargements/srv-vpn01-collecte/filesystem/, an unpacked
+    // collection of ANOTHER machine. Every setuid binary of that machine sits
+    // under /home/, outside image storage, and fires the rule correctly while
+    // saying nothing true about the host being examined.
+    //
+    // These are classified rather than dropped. Silently discarding a path is how
+    // an attacker who plants a payload under an overlay/ or a directory named
+    // like a collection disappears from the screen — the analyst must see the
+    // count and the reason, then decide.
+    findingOf: r => {
+      const p = String(r.path);
+      if (!WRITABLE_PREFIXES.some(w => p.startsWith(w))) return null;
+      if (IMAGE_STORAGE_RE.test(p)) {
+        return { kind: 'setuid_in_container_image', path: r.path,
+          description: `Setuid/setgid binary inside container image storage, not on the host filesystem: ${r.path}` };
+      }
+      if (EXTRACTED_COLLECTION_RE.test(p)) {
+        return { kind: 'setuid_in_extracted_collection', path: r.path,
+          description: `Setuid/setgid binary inside an unpacked forensic collection — evidence of another host, not this one: ${r.path}` };
+      }
+      return { kind: 'setuid_in_writable_path', path: r.path,
+        description: `Setuid/setgid binary in a user-writable location: ${r.path}` };
+    },
   },
   {
     dir: 'Misc', pattern: 'pot-webshell-first-1000', kind: 'webshell_candidate', shape: 'head_markers',
@@ -130,6 +167,44 @@ export const ARTIFACT_REGISTRY: ArtifactSpec[] = [
     dir: 'Process_and_Network', pattern: 'ssh-folders-list', kind: 'ssh_folder', shape: 'path_list',
     labelOf: r => r.path,
   },
+  // The /proc inventory: 280,000 lines that no parser read until 2026-08-14. A
+  // process holding or executing a file that no longer exists on disk becomes
+  // visible only here.
+  {
+    dir: 'Process_and_Network', pattern: 'process-map_files-links',
+    kind: 'proc_mapped_file', shape: 'proc_link',
+    labelOf: r => r.target,
+  },
+  {
+    dir: 'Process_and_Network', pattern: 'process-map_files-link-hashes',
+    kind: 'proc_mapped_file_hash', shape: 'hash_list',
+    labelOf: r => r.path,
+  },
+  {
+    dir: 'Process_and_Network', pattern: 'process-fd-links',
+    kind: 'proc_open_fd', shape: 'proc_link',
+    labelOf: r => r.target,
+  },
+  {
+    // /proc/<pid>/status, one block per process, keyed by its Name line.
+    dir: 'Process_and_Network', pattern: 'process-details',
+    kind: 'proc_status', shape: 'kv_blocks', blockKey: 'Name',
+    labelOf: r => r.label,
+  },
+  {
+    // `head` over /proc/<pid>/cmdline: the full argument vector, which the ps
+    // listing truncates.
+    dir: 'Process_and_Network', pattern: 'process-cmdline',
+    kind: 'proc_cmdline', shape: 'head_markers',
+    labelOf: r => r.path,
+  },
+  {
+    // /proc/<pid>/environ. LD_PRELOAD and LD_LIBRARY_PATH live here, and they are
+    // among the quietest persistence mechanisms on Linux.
+    dir: 'Process_and_Network', pattern: 'process-environment',
+    kind: 'proc_environment', shape: 'head_markers',
+    labelOf: r => r.path,
+  },
 
   // ── Podman — the CLI is Docker-compatible, so the shapes are the same ────
   {
@@ -140,6 +215,96 @@ export const ARTIFACT_REGISTRY: ArtifactSpec[] = [
     dir: 'Podman', pattern: 'podman-image-ls-all', kind: 'podman_image', shape: 'header_table',
     labelOf: r => r.repository ?? r.image_id ?? '',
   },
+  // ── The remainder of the collection ─────────────────────────────────────
+  // Every file below produced nothing before 2026-08-17. Where the format carries
+  // structure worth extracting it gets a shape; where it does not yet, `text_lines`
+  // records the content line by line rather than letting the file read as empty.
+  // "No parser written for this shape" must never present itself as "no data".
+  { dir: 'Docker', pattern: 'docker-container-logs', kind: 'docker_container_log', shape: 'text_lines',
+    labelOf: r => String(r.text).slice(0, 200) },
+  { dir: 'Docker', pattern: 'docker-network-inspect', kind: 'docker_network', shape: 'json_doc',
+    labelOf: r => String(r.Name ?? r.Id ?? '') },
+  { dir: 'Docker', pattern: 'docker-info', kind: 'docker_info', shape: 'kv_lines',
+    labelOf: r => r.key },
+  { dir: 'Docker', pattern: 'docker-version', kind: 'docker_version', shape: 'kv_lines',
+    labelOf: r => r.key },
+  { dir: 'Docker', pattern: 'docker-image-ls-all', kind: 'docker_image', shape: 'header_table',
+    labelOf: r => r.image ?? r.id ?? '' },
+  { dir: 'Docker', pattern: 'docker-container-ls-all-size', kind: 'docker_container_size', shape: 'header_table',
+    labelOf: r => r.names ?? r.container_id ?? '' },
+
+  { dir: 'Podman', pattern: 'podman-info', kind: 'podman_info', shape: 'kv_lines',
+    labelOf: r => r.key },
+  { dir: 'Podman', pattern: 'podman-version', kind: 'podman_version', shape: 'kv_lines',
+    labelOf: r => r.key },
+  { dir: 'Podman', pattern: 'podman-network-inspect', kind: 'podman_network', shape: 'json_doc',
+    labelOf: r => String(r.Name ?? r.Id ?? '') },
+
+  { dir: 'System_Info', pattern: 'release', kind: 'os_release', shape: 'kv_lines',
+    labelOf: r => r.key },
+  { dir: 'System_Info', pattern: 'cpuinfo', kind: 'cpu_info', shape: 'kv_lines',
+    labelOf: r => r.key },
+  { dir: 'System_Info', pattern: 'meminfo', kind: 'mem_info', shape: 'kv_lines',
+    labelOf: r => r.key },
+  { dir: 'System_Info', pattern: 'df', kind: 'filesystem_usage', shape: 'header_table',
+    labelOf: r => Object.values(r)[0] ?? '' },
+  { dir: 'System_Info', pattern: 'mount', kind: 'mount_point', shape: 'text_lines',
+    labelOf: r => String(r.text).slice(0, 200) },
+  { dir: 'System_Info', pattern: 'lsusb', kind: 'usb_device', shape: 'text_lines',
+    labelOf: r => String(r.text).slice(0, 200) },
+  { dir: 'System_Info', pattern: 'dmesg', kind: 'kernel_message', shape: 'text_lines',
+    labelOf: r => String(r.text).slice(0, 200) },
+  { dir: 'System_Info', pattern: 'sudo', kind: 'sudo_config', shape: 'text_lines',
+    labelOf: r => String(r.text).slice(0, 200) },
+  // Structured since 2026-08-18. As `text_lines` this produced 2,670 rows for 2,665
+  // packages — the five header lines of `dpkg -l` counted as packages — and the state
+  // code was buried in a string nobody could filter on.
+  //
+  // No findingOf, deliberately. `rc` is what `apt remove` leaves behind by default and
+  // a healthy Debian host has dozens; a rule firing on it would bury the states that
+  // matter. The state is recorded and queryable, which is what an investigation needs
+  // — the decision of what is abnormal here belongs to the analyst, not the parser.
+  { dir: 'System_Info', pattern: 'deb-packages', kind: 'installed_package', shape: 'dpkg_table',
+    labelOf: r => (r.fullyInstalled
+      ? `${r.name} ${r.version}`
+      : `${r.name} ${r.version} [${r.state}]`).slice(0, 200) },
+  { dir: 'System_Info', pattern: 'procmod', kind: 'proc_module', shape: 'text_lines',
+    labelOf: r => String(r.text).split(/\s+/)[0] ?? '' },
+  { dir: 'System_Info', pattern: 'host-date-timezone', kind: 'host_time', shape: 'text_lines',
+    labelOf: r => String(r.text).slice(0, 200) },
+  { dir: 'System_Info', pattern: 'etc-key-files-list', kind: 'etc_key_file', shape: 'path_list',
+    labelOf: r => r.path },
+  { dir: 'System_Info', pattern: 'etc-modified-files-list', kind: 'etc_modified_file', shape: 'path_list',
+    labelOf: r => r.path },
+
+  // Failed authentications. Empty here ("has no entries"), and that emptiness is
+  // itself an observation about an exposed host — it must be recorded, not absent.
+  { dir: 'Logs', pattern: 'last-btmp', kind: 'failed_login', shape: 'text_lines',
+    labelOf: r => String(r.text).slice(0, 200) },
+  { dir: 'Logs', pattern: 'var-log-list', kind: 'var_log_file', shape: 'path_list',
+    labelOf: r => r.path },
+
+  // Systemd unit definitions, concatenated. The timeline parser reads this file
+  // for its unit list and produced nothing from it; `text_lines` keeps the whole
+  // definition — an ExecStart pointing somewhere unexpected is the finding, and it
+  // only exists in the body.
+  { dir: 'Persistence', pattern: 'persistence-systemdlist', kind: 'systemd_unit_definition', shape: 'text_lines',
+    labelOf: r => String(r.text).slice(0, 200) },
+  { dir: 'Persistence', pattern: 'cron-tab-list', kind: 'crontab_entry', shape: 'text_lines',
+    labelOf: r => String(r.text).slice(0, 200) },
+  { dir: 'Persistence', pattern: 'cron-folder-list', kind: 'cron_folder_file', shape: 'path_list',
+    labelOf: r => r.path },
+  { dir: 'Persistence', pattern: 'service_status', kind: 'service_status', shape: 'text_lines',
+    labelOf: r => String(r.text).slice(0, 200) },
+
+  { dir: 'User_Files', pattern: 'hidden-user-home-dir-list', kind: 'hidden_home_file', shape: 'path_list',
+    labelOf: r => r.path },
+
+  // Written at the collection root, not in a folder. '.' rather than '' so the
+  // "every entry declares a folder" invariant keeps its teeth; path.join
+  // normalises it away.
+  { dir: '.', pattern: 'console-error-log', kind: 'collector_error', shape: 'text_lines',
+    labelOf: r => String(r.text).slice(0, 200) },
 ];
 
 function shapeRows(spec: ArtifactSpec, content: string): any[] {
@@ -151,6 +316,15 @@ function shapeRows(spec: ArtifactSpec, content: string): any[] {
       .map(b => ({ label: b.label, ...b.fields }));
     case 'path_desc':    return parsePathDescription(content);
     case 'head_markers': return parseHeadMarkers(content);
+    case 'proc_link':    return parseProcLinks(content);
+    case 'kv_lines':     return parseKeyValueLines(content);
+    case 'text_lines':   return parseTextLines(content);
+    // The decoded state travels into `raw` alongside the literal code, so the GIN
+    // index on catscale_state.raw can answer "which packages were removed but kept
+    // their configuration" (raw->>'current' = 'config-files') without re-parsing.
+    case 'dpkg_table':   return parseDpkgTable(content)
+                                  .map(r => ({ ...r, ...dpkgStateMeaning(r.state) }));
+    case 'json_doc':     return parseJsonDoc(content);
     default:             return [];
   }
 }

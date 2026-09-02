@@ -1,4 +1,3 @@
-// frontend/src/components/networkmap/tabs/ConnectionsTab.jsx
 import { useState } from 'react';
 import { NODE_TYPES } from '../../../constants/nodeTypes';
 import { detectNodeType } from '../utils/nodeTypeRegistry';
@@ -20,7 +19,7 @@ function fmtTs(ts, locale) {
 
 export default function ConnectionsTab({ nodeData, allEdges, onSelectPeer }) {
   const { t, i18n } = useTranslation();
-  const [expanded, setExpanded] = useState(null); // peerId whose edge is expanded
+  const [expanded, setExpanded] = useState(null);
 
   if (!nodeData) return null;
   const nodeId = nodeData.id;
@@ -53,7 +52,6 @@ export default function ConnectionsTab({ nodeData, allEdges, onSelectPeer }) {
 
         return (
           <div key={i} style={{ marginBottom: 2 }}>
-            {/* Connection row */}
             <div
               onClick={() => setExpanded(isOpen ? null : peerId)}
               style={{
@@ -71,7 +69,6 @@ export default function ConnectionsTab({ nodeData, allEdges, onSelectPeer }) {
               <span style={{ fontSize: 9, color, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {peerId}
               </span>
-              {/* Protocol / port badge */}
               {(edge.label || (edge.protocols && edge.protocols[0])) && (
                 <span style={{ fontSize: 7, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', padding: '1px 4px',
                   borderRadius: 2, background: '#0c1828', border: '1px solid #1a1f2c',
@@ -88,10 +85,8 @@ export default function ConnectionsTab({ nodeData, allEdges, onSelectPeer }) {
               <span style={{ fontSize: 8, color: 'var(--fl-subtle)', flexShrink: 0 }}>{isOpen ? '▲' : '▼'}</span>
             </div>
 
-            {/* Inline detail panel */}
             {isOpen && (
               <div style={{ background: '#0a0c11', border: '1px solid #131722', borderTop: 'none', borderRadius: '0 0 3px 3px', padding: '8px 10px' }}>
-                {/* Stats row */}
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 8 }}>
                   {[
                     [t('networkMap.fields.connections'), edge.connection_count || 1],
@@ -107,7 +102,6 @@ export default function ConnectionsTab({ nodeData, allEdges, onSelectPeer }) {
                   ))}
                 </div>
 
-                {/* Ports */}
                 {edge.ports?.length > 0 && (
                   <div style={{ marginBottom: 6 }}>
                     <div style={{ fontSize: 7, color: 'var(--fl-subtle)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 3 }}>{t('networkMap.fields.ports')}</div>
@@ -120,7 +114,6 @@ export default function ConnectionsTab({ nodeData, allEdges, onSelectPeer }) {
                   </div>
                 )}
 
-                {/* Protocols */}
                 {edge.protocols?.length > 0 && (
                   <div style={{ marginBottom: 6 }}>
                     <div style={{ fontSize: 7, color: 'var(--fl-subtle)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 3 }}>{t('networkMap.fields.protocols')}</div>
@@ -132,7 +125,6 @@ export default function ConnectionsTab({ nodeData, allEdges, onSelectPeer }) {
                   </div>
                 )}
 
-                {/* Navigate to peer button */}
                 <button
                   onClick={() => onSelectPeer?.(peerId)}
                   style={{ width: '100%', marginTop: 4, padding: '4px', borderRadius: 3, background: `color-mix(in srgb, ${color} 6%, transparent)`, border: `1px solid color-mix(in srgb, ${color} 19%, transparent)`, color, fontSize: 8, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', cursor: 'pointer' }}

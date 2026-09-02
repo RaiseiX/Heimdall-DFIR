@@ -1,7 +1,10 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Copy, Check } from 'lucide-react';
 import { fmtTs } from '../../../../utils/formatters';
-import { fmtDesc, fmtSrc } from '../../utils/timelineUtils';
+import { fmtDesc, fmtSrc, timestampPlausibility } from '../../utils/timelineUtils';
+import { useTranslation } from 'react-i18next';
+import { collectionAPI } from '../../../../utils/api';
+import { useTimelineStore } from '../../store/useTimelineStore';
 
 function cleanHost(v) {
   if (!v) return null;
@@ -41,28 +44,33 @@ function sortRawByPriority(entries) {
   });
 }
 
-// wrap=true for multi-line fields (description, notes); false by default = single truncated line
-function FieldBlock({ label, value, highlight, wrap = false }) {
+function FieldBlock({ label, value, highlight, wrap = false, tone, note }) {
   if (value == null || value === '') return null;
   const str = String(value);
+  const color = tone === 'warn' ? 'var(--fl-warn)'
+    : highlight ? 'var(--fl-danger)'
+    : 'var(--fl-dim)';
   return (
-    <div style={{ borderRadius: 4, border: '1px solid var(--fl-card)', overflow: 'hidden', marginBottom: 5 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6,
-        fontSize: 8, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase',
-        color: 'var(--fl-muted)', padding: '3px 8px', background: 'var(--fl-bg)' }}>
-        <span>{label}</span>
-        {str.length > 0 && <CopyBtn value={str} />}
+    <div className="dtl-row" style={{ display: 'grid', gridTemplateColumns: '112px 1fr auto', gap: 10,
+      alignItems: 'baseline', padding: '6px 8px', borderBottom: '1px solid var(--fl-border2)' }}>
+      <span style={{ fontSize: 8, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase',
+        color: 'var(--fl-muted)' }}>{label}</span>
+      <div>
+        <div title={str.length > 2000 ? undefined : str} style={{
+          fontSize: 10, color, lineHeight: 1.5, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
+          maxHeight: 220, overflowY: 'auto',
+          textDecoration: tone === 'warn' ? 'underline dotted' : undefined,
+          ...(wrap
+            ? { wordBreak: 'break-all' }
+            : { overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }),
+        }}>
+          {str.length > 4000 ? str.slice(0, 4000) + '…' : str}
+        </div>
+        {note && (
+          <div style={{ fontSize: 10, color: 'var(--fl-warn)', marginTop: 3, lineHeight: 1.4 }}>{note}</div>
+        )}
       </div>
-      <div title={str.length > 2000 ? undefined : str} style={{
-        fontSize: 10, color: highlight ? 'var(--fl-danger)' : 'var(--fl-dim)', padding: '5px 8px',
-        background: 'var(--fl-bg)', lineHeight: 1.5, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
-        maxHeight: 220, overflowY: 'auto',
-        ...(wrap
-          ? { wordBreak: 'break-all' }
-          : { overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }),
-      }}>
-        {str.length > 4000 ? str.slice(0, 4000) + '…' : str}
-      </div>
+      {str.length > 0 && <CopyBtn value={str} />}
     </div>
   );
 }
@@ -70,7 +78,7 @@ function FieldBlock({ label, value, highlight, wrap = false }) {
 function CopyBtn({ value }) {
   const [ok, setOk] = useState(false);
   return (
-    <button onClick={e => { e.stopPropagation(); navigator.clipboard.writeText(String(value)); setOk(true); setTimeout(() => setOk(false), 1200); }}
+    <button className="dtl-copy" onClick={e => { e.stopPropagation(); navigator.clipboard.writeText(String(value)); setOk(true); setTimeout(() => setOk(false), 1200); }}
       style={{ background: 'none', border: 'none', cursor: 'pointer', color: ok ? 'var(--fl-ok)' : 'var(--fl-dim)',
         padding: '2px 3px', flexShrink: 0, display: 'inline-flex', alignItems: 'center' }}
       aria-label={ok ? 'Copied' : 'Copy value'} title="Copy">
@@ -80,10 +88,25 @@ function CopyBtn({ value }) {
 }
 
 export default function DetailsTab({ record: r }) {
+  const { t } = useTranslation();
+  const { caseId } = useTimelineStore();
+  const [rowRaw, setRowRaw] = useState(r?.raw || null);
+  const [rawState, setRawState] = useState(r?.raw ? 'ready' : 'idle');
+
+  useEffect(() => {
+    if (!r) return;
+    if (r.raw) { setRowRaw(r.raw); setRawState('ready'); return; }
+    setRawState('loading');
+    collectionAPI.timelineRowRaw(caseId, r.id)
+      .then(res => { setRowRaw(res.data.raw); r.raw = res.data.raw; setRawState('ready'); })
+      .catch(() => { setRowRaw(null); setRawState('error'); });
+  }, [r?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const plaus = timestampPlausibility(r?.timestamp, Date.now());
+  const tsFutureNote  = t('timeline.ts_future');
+  const tsAncientNote = t('timeline.ts_ancient');
   if (!r) return null;
-  const raw = r.raw || {};
-  // Flatten AllFieldInfo / ExtraFieldInfo nested objects into top-level entries
-  // so Hayabusa event-specific fields (ServiceName, CommandLine, etc.) appear individually.
+  const raw = rowRaw || {};
   const rawEntries = sortRawByPriority(
     Object.entries(raw)
       .filter(([, v]) => v != null)
@@ -103,7 +126,9 @@ export default function DetailsTab({ record: r }) {
     <div style={{ flex: 1, overflowY: 'auto', padding: '10px 12px' }}>
       <FieldBlock label="Description" value={fmtDesc(r)} highlight={!!r.detections?.length} wrap />
       {r.details && <FieldBlock label="Payload" value={r.details} wrap />}
-      <FieldBlock label="Timestamp UTC" value={fmtTs(r.timestamp)} />
+      <FieldBlock label="Timestamp UTC" value={fmtTs(r.timestamp)}
+        tone={plaus === 'ok' || plaus === 'none' ? undefined : 'warn'}
+        note={plaus === 'future' ? tsFutureNote : plaus === 'ancient' ? tsAncientNote : undefined} />
       <FieldBlock label="Artifact Type" value={r.artifact_type} />
       <FieldBlock label="Source"        value={fmtSrc(r)} />
       {cleanHost(r.host_name)    && <FieldBlock label="Host"      value={cleanHost(r.host_name)} />}
@@ -116,8 +141,19 @@ export default function DetailsTab({ record: r }) {
       {r.dst_ip                  && <FieldBlock label="Dst IP"    value={r.dst_ip} />}
       {r.tool                    && <FieldBlock label="Tool"      value={r.tool} />}
 
-      {/* CSV original data — all raw fields from the source file */}
-      {rawEntries.length > 0 && (
+      {rawState === 'loading' && (
+        <div style={{ marginTop: 10, fontSize: 10, color: 'var(--fl-muted)',
+          fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}>
+          {t('timeline.csv_loading')}
+        </div>
+      )}
+      {rawState === 'error' && (
+        <div style={{ marginTop: 10, fontSize: 10, color: 'var(--fl-warn)',
+          fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}>
+          {t('timeline.csv_error')}
+        </div>
+      )}
+      {rawState === 'ready' && rawEntries.length > 0 && (
         <div style={{ marginTop: 10 }}>
           <div style={{ fontSize: 8, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase',
             color: 'var(--fl-muted)', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 6 }}>

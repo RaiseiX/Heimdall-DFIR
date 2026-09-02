@@ -88,6 +88,12 @@ const TIMELINE_FIELD_CONFIG = {
   webcache:     { timestampColumns: ['AccessedTime', 'ModifiedTime'], descriptionColumns: ['Url'], sourceColumn: 'ContainerType', hostColumns: ['ComputerName'], eventIdColumn: null },
   pcap:         { timestampColumns: ['first_seen', 'last_seen'], descriptionColumns: [], sourceColumn: 'protocol', hostColumns: [], eventIdColumn: null,
                  describe: (r) => `${r.src_ip}:${r.src_port} → ${r.dst_ip}:${r.dst_port} ${r.protocol}` },
+  amcache:  { timestampColumns: ['FileKeyLastWriteTimestamp', 'KeyLastWriteTimestamp', 'LinkDate'],
+              descriptionColumns: ['Description', 'ApplicationName', 'FullPath', 'DriverName', 'FriendlyName', 'LnkName', 'KeyName'],
+              sourceColumn: 'KeyName', hostColumns: ['Computer', 'ComputerName'], eventIdColumn: null },
+  jumplist: { timestampColumns: ['SourceCreated', 'SourceModified', 'TargetCreated', 'TargetModified'],
+              descriptionColumns: ['AppIdDescription', 'LocalPath', 'EntryName', 'Path'],
+              sourceColumn: 'SourceFile', hostColumns: ['MachineID', 'NetBiosMachineName'], eventIdColumn: null },
 };
 
 module.exports = { stripNullBytes, normalizeTimestamp, extractTimestamp, extractDescription, computeDedupeHash, TIMELINE_FIELD_CONFIG };

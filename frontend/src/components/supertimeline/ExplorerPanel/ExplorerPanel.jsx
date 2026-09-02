@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Layers, X } from 'lucide-react';
+import { Layers, X, BarChart2, Users, Boxes } from 'lucide-react';
 import { useTimelineStore } from '../store/useTimelineStore';
 import ArtifactsTab from './ArtifactsTab';
 import TimelineTab  from './TimelineTab';
@@ -7,10 +7,10 @@ import EntitiesTab  from './EntitiesTab';
 import TipsTab      from './TipsTab';
 
 const TABS = [
-  { key: 'artifacts', icon: '◈', label: 'Artifacts' },
-  { key: 'timeline',  icon: '⊟', label: 'Timeline'  },
-  { key: 'entities',  icon: '⊕', label: 'Entities'  },
-  { key: 'tips',      icon: '?', label: 'Tips'       },
+  { key: 'artifacts', Icon: Boxes,     label: 'Artifacts' },
+  { key: 'timeline',  Icon: BarChart2, label: 'Timeline'  },
+  { key: 'entities',  Icon: Users,     label: 'Entities'  },
+  { key: 'tips',      Icon: null,      label: 'Tips'      },
 ];
 
 export default function ExplorerPanel() {
@@ -31,7 +31,7 @@ export default function ExplorerPanel() {
 
   function switchTab(key) {
     setActiveTab(key);
-    try { localStorage.setItem('supertl.navTab', key); } catch { /**/ }
+    try { localStorage.setItem('supertl.navTab', key); } catch { }
   }
 
   if (!explorerOpen) {
@@ -48,7 +48,6 @@ export default function ExplorerPanel() {
     <div style={{ width: 220, flexShrink: 0, background: 'var(--fl-bg)', borderRight: '1px solid var(--fl-raised)',
       display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
 
-      {/* Tab bar */}
       <div style={{ height: 32, background: 'var(--fl-bg)', borderBottom: '1px solid var(--fl-raised)',
         display: 'flex', alignItems: 'stretch', flexShrink: 0 }}>
         {TABS.map(t => {
@@ -64,7 +63,7 @@ export default function ExplorerPanel() {
             }}>
               <span style={{ fontSize: 9, color: active ? 'var(--fl-accent)' : 'var(--fl-muted)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
                 fontWeight: active ? 700 : 400, letterSpacing: '0.05em' }}>
-                {t.icon} {t.label}
+                {t.Icon && <t.Icon size={11} strokeWidth={1.6} />} {t.label}
               </span>
             </button>
           );
@@ -78,7 +77,6 @@ export default function ExplorerPanel() {
         </button>
       </div>
 
-      {/* Tab content */}
       <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
         {activeTab === 'artifacts' && <ArtifactsTab />}
         {activeTab === 'timeline'  && <TimelineTab  />}

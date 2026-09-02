@@ -1,4 +1,3 @@
-// frontend/src/components/networkmap/tabs/LateralTab.jsx
 import { useTranslation } from 'react-i18next';
 
 const LATERAL_EID_KEYS = {

@@ -30,7 +30,6 @@ export default function CaseShell({ user }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
 
-      {/* Persistent case command-strip — breadcrumb + state, stable across tab changes */}
       <div style={{
         position: 'sticky', top: 0, zIndex: 110,
         display: 'flex', alignItems: 'center', gap: 10,
@@ -74,7 +73,6 @@ export default function CaseShell({ user }) {
             }}>
               {caseData.title}
             </span>
-            {/* Status now lives once, as a clickable chip in the CaseDetailPage cockpit strip — not duplicated here. */}
             {caseData.priority && <PriorityPill priority={caseData.priority} />}
             <AssigneesControl caseId={id} user={user} />
           </>

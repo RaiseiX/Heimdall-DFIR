@@ -28,17 +28,10 @@ function ToggleButton({ active, onClick, children }) {
   );
 }
 
-/**
- * Investigation workspace — single home for the analyst flow:
- * ① workflow (DFIR phases + tasks) OR Kanban board (status columns)
- * → ② findings (structured forensic notes) → ③ kill chain (built live from findings).
- * All of it feeds the PDF report.
- */
 export default function InvestigationWorkspace({ caseId }) {
   const { t } = useTranslation();
-  // Bump to make the kill chain re-read findings whenever the analyst edits one.
   const [refreshKey, setRefreshKey] = useState(0);
-  const [view, setView] = useState('phases'); // 'phases' | 'kanban'
+  const [view, setView] = useState('phases');
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16, maxWidth: 1100, margin: '0 auto' }}>

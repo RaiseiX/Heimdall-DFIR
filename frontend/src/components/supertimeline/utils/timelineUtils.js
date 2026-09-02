@@ -1,35 +1,28 @@
-// ============================================================================
-// timelineUtils.js — Shared utilities for SuperTimeline components
-// ============================================================================
+import { artifactFamily } from './artifactFamily';
 
-// ARTIFACT_TAB_HEX — hex colors per artifact type
 export const ARTIFACT_TAB_HEX = {
-  evtx: '#2E5090',      // Deep Blue
-  prefetch: '#8B4789',  // Purple
-  mft: '#D97706',       // Amber
-  lnk: '#7C3AED',       // Violet
-  registry: '#DC2626',  // Red
-  amcache: '#0891B2',   // Cyan
-  shellbags: '#059669', // Emerald
-  jumplist: '#CA8A04',  // Yellow
-  srum: '#4F46E5',      // Indigo
-  recycle: '#EA580C',   // Orange
-  wxtcmd: '#2563EB',    // Blue
-  sqle: '#6366F1',      // Iris
-  sum: '#1E40AF',       // Dark Blue
-  appcompat: '#8B5CF6', // Fuchsia
-  bits: '#0369A1',      // Sky
-  hayabusa: '#991B1B',  // Dark Red
+  evtx: '#2E5090',
+  prefetch: '#8B4789',
+  mft: '#D97706',
+  lnk: '#7C3AED',
+  registry: '#DC2626',
+  amcache: '#0891B2',
+  shellbags: '#059669',
+  jumplist: '#CA8A04',
+  srum: '#4F46E5',
+  recycle: '#EA580C',
+  wxtcmd: '#2563EB',
+  sqle: '#6366F1',
+  sum: '#1E40AF',
+  appcompat: '#8B5CF6',
+  bits: '#0369A1',
+  hayabusa: '#991B1B',
 };
 
-/**
- * Returns hex color for artifact type, with fallback
- */
 export function tabColor(type) {
   return ARTIFACT_TAB_HEX[type] || '#8b9ab4';
 }
 
-// DETECTION_SEV_RANK — severity ranking for sorting
 export const DETECTION_SEV_RANK = {
   greyware: 1,
   low: 1,
@@ -38,7 +31,6 @@ export const DETECTION_SEV_RANK = {
   critical: 4,
 };
 
-// DETECTION_SEV_COLOR — CSS variable colors per severity
 export const DETECTION_SEV_COLOR = {
   critical: 'var(--fl-danger)',
   high: 'var(--fl-danger)',
@@ -47,9 +39,6 @@ export const DETECTION_SEV_COLOR = {
   greyware: 'var(--fl-gold)',
 };
 
-/**
- * Returns highest severity label from array of {severity} objects, or null
- */
 export function topDetectionSeverity(dets) {
   if (!Array.isArray(dets) || dets.length === 0) return null;
   let highest = null;
@@ -64,10 +53,220 @@ export function topDetectionSeverity(dets) {
   return highest;
 }
 
-/**
- * djb2 hash function for computing unique reference
- * Returns 8-character hex string of hash(timestamp|artifact_type|source)
- */
+export const INVENTORY_TS_KIND = 'inventory';
+
+export function isInventoryRow(r) {
+  return r?.timestamp_kind === INVENTORY_TS_KIND;
+}
+
+export function tsTypeLabel(r, labels) {
+  const kind = r?.timestamp_kind || '';
+  if (kind !== INVENTORY_TS_KIND) return kind;
+  return labels?.inventory || INVENTORY_TS_KIND;
+}
+
+export function splitCounts(total, undated) {
+  const t = Number(total) || 0;
+  const u = Number(undated) || 0;
+  return { dated: Math.max(t - u, 0), undated: u };
+}
+
+export function rankTypes(types, counts, visible = 12, selected = []) {
+  const list = Array.isArray(types) ? types.filter(Boolean) : [];
+  if (list.length === 0) return { shown: [], hidden: [] };
+  const c = counts || {};
+  const sel = new Set(Array.isArray(selected) ? selected : []);
+
+  const ranked = [...list].sort((a, b) => {
+    const na = Number(c[a] ?? -1), nb = Number(c[b] ?? -1);
+    return nb - na || String(a).localeCompare(String(b));
+  });
+
+  if (ranked.length <= visible + 3) return { shown: ranked, hidden: [] };
+
+  const shown = ranked.slice(0, visible);
+  const hidden = ranked.slice(visible);
+  const rescued = hidden.filter(t => sel.has(t));
+  return rescued.length
+    ? { shown: [...shown, ...rescued], hidden: hidden.filter(t => !sel.has(t)) }
+    : { shown, hidden };
+}
+
+const CONSTANT_MIN_SAMPLE = 3;
+
+export function constantColumns(records, keys) {
+  const rows = Array.isArray(records) ? records : [];
+  const cols = Array.isArray(keys) ? keys : [];
+  if (rows.length < CONSTANT_MIN_SAMPLE || cols.length === 0) return [];
+
+  return cols.filter(k => {
+    const first = rows[0]?.[k];
+    if (first === undefined || first === null || first === '') return false;
+    return rows.every(r => r?.[k] === first);
+  });
+}
+
+export const DENSITIES = ['compact', 'normal', 'relaxed'];
+export const DEFAULT_DENSITY = 'normal';
+
+export const STACKED_TIMESTAMP_PX = 27;
+
+const ROW_HEIGHTS = {
+  compact: { row: 22, group: 24, groupNested: 20, loadmore: 34 },
+  normal:  { row: 28, group: 28, groupNested: 24, loadmore: 40 },
+  relaxed: { row: 36, group: 34, groupNested: 30, loadmore: 46 },
+};
+
+function heightsFor(density) {
+  return ROW_HEIGHTS[density] || ROW_HEIGHTS[DEFAULT_DENSITY];
+}
+
+export function rowHeightFor(density, item) {
+  const h = heightsFor(density);
+  if (!item) return h.row;
+  if (item.type === 'group')    return item.level === 0 ? h.group : h.groupNested;
+  if (item.type === 'loadmore') return h.loadmore;
+  return h.row;
+}
+
+export function stacksTimestamp(density) {
+  return heightsFor(density).row >= STACKED_TIMESTAMP_PX;
+}
+
+export function describeCount(state) {
+  const s = state || {};
+  const t = s.total;
+  if (s.loading || t === null || t === undefined || t === '') return { kind: 'loading' };
+  const n = Number(t);
+  if (!Number.isFinite(n)) return { kind: 'loading' };
+  if (n <= 0) return { kind: 'empty' };
+  return { kind: 'count', total: n };
+}
+
+export function pagePosition(lo, hi, firstTs, lastTs) {
+  const num = v => (v === null || v === undefined || v === '' ? NaN : Number(v));
+  const L = num(lo), H = num(hi);
+  const a = num(firstTs), b = num(lastTs);
+  if (![L, H, a, b].every(Number.isFinite)) return null;
+  const span = H - L;
+  if (span <= 0) return null;
+  const from = Math.min(a, b), to = Math.max(a, b);
+  const pct = v => Math.max(0, Math.min(100, ((v - L) / span) * 100));
+  return { startPct: pct(from), endPct: pct(to) };
+}
+
+export const MONO_ADVANCE_PX = 6;
+export const CELL_PADDING_PX = 16;
+const TS_COL_STACKED_PX = 110;
+const TS_COL_INLINE_PX  = 23 * MONO_ADVANCE_PX + CELL_PADDING_PX;
+
+export function timestampColumnWidth(density) {
+  return stacksTimestamp(density) ? TS_COL_STACKED_PX : TS_COL_INLINE_PX;
+}
+
+export function splitPathTail(path) {
+  const s = path === null || path === undefined ? '' : String(path);
+  if (!s) return { head: '', tail: '' };
+  let cut = -1;
+  for (let i = s.length - 1; i >= 0; i--) {
+    const c = s[i];
+    if (c === '/' || c === '\\') { cut = i; break; }
+  }
+  if (cut === -1) return { head: '', tail: s };
+  return { head: s.slice(0, cut + 1), tail: s.slice(cut + 1) };
+}
+
+export function initialExplorerOpen(stored) {
+  return stored === 'true';
+}
+
+export const ANCIENT_BEFORE_YEAR = 1980;
+const ANCIENT_BEFORE_MS = Date.UTC(ANCIENT_BEFORE_YEAR, 0, 1);
+
+export function timestampPlausibility(ts, now = Date.now()) {
+  if (ts === null || ts === undefined || ts === '') return 'none';
+  const t = new Date(ts).getTime();
+  if (Number.isNaN(t)) return 'none';
+  if (t > now) return 'future';
+  if (t < ANCIENT_BEFORE_MS) return 'ancient';
+  return 'ok';
+}
+
+export function countImplausible(records, now = Date.now()) {
+  const rows = Array.isArray(records) ? records : [];
+  let future = 0, ancient = 0;
+  for (const r of rows) {
+    const verdict = timestampPlausibility(r?.timestamp, now);
+    if (verdict === 'future')  future++;
+    else if (verdict === 'ancient') ancient++;
+  }
+  return { future, ancient, total: future + ancient };
+}
+
+const SERVER_FACETS = {
+  artifact_type: s => ({ values: s.availTypes, counts: s.typeCounts }),
+  host_name:     s => ({ values: s.hostsAvail, counts: null }),
+  user_name:     s => ({ values: s.usersAvail, counts: null }),
+};
+
+export function buildFacet(colKey, state, limit = 12) {
+  const s = state || {};
+  const server = SERVER_FACETS[colKey]?.(s);
+  let entries;
+  let scope;
+
+  if (server && Array.isArray(server.values) && server.values.length > 0) {
+    scope = 'collection';
+    entries = server.values
+      .filter(v => v !== undefined && v !== null && v !== '')
+      .map(v => ({ value: String(v), count: server.counts ? (Number(server.counts[v]) || 0) : null }));
+  } else {
+    scope = 'page';
+    const tally = new Map();
+    for (const r of (Array.isArray(s.records) ? s.records : [])) {
+      const v = r?.[colKey];
+      if (v === undefined || v === null || v === '') continue;
+      const k = String(v);
+      tally.set(k, (tally.get(k) || 0) + 1);
+    }
+    entries = [...tally].map(([value, count]) => ({ value, count }));
+  }
+
+  entries.sort((a, b) =>
+    (b.count ?? -1) - (a.count ?? -1) || a.value.localeCompare(b.value));
+
+  return {
+    values: entries.slice(0, limit),
+    hidden: Math.max(entries.length - limit, 0),
+    scope,
+  };
+}
+
+export function orderColumns(cols, order) {
+  const list = Array.isArray(cols) ? cols : [];
+  const wanted = Array.isArray(order) ? order : [];
+  if (wanted.length === 0) return list;
+
+  const byKey = new Map(list.map(c => [c.key, c]));
+  const placed = [];
+  const seen = new Set();
+  for (const key of wanted) {
+    const col = byKey.get(key);
+    if (col && !seen.has(key)) { placed.push(col); seen.add(key); }
+  }
+  return [...placed, ...list.filter(c => !seen.has(c.key))];
+}
+
+export function moveColumn(order, fromKey, toKey) {
+  const list = Array.isArray(order) ? [...order] : [];
+  const from = list.indexOf(fromKey);
+  const to   = list.indexOf(toKey);
+  if (from < 0 || to < 0 || from === to) return Array.isArray(order) ? order : [];
+  list.splice(from, 1);
+  list.splice(to, 0, fromKey);
+  return list;
+}
+
 export function computeRef(r) {
   const input = `${r.timestamp || ''}|${r.artifact_type || ''}|${r.source || ''}`;
   let hash = 5381;
@@ -77,37 +276,29 @@ export function computeRef(r) {
   return Math.abs(hash).toString(16).substring(0, 8).padStart(8, '0');
 }
 
-/**
- * Format description per artifact type
- */
 export function fmtDesc(r) {
   const raw = r.raw || {};
-  switch (r.artifact_type) {
+  switch (artifactFamily(r.artifact_type)) {
     case 'evtx': {
       const md  = raw.MapDescription || r.description || '';
       const eid = String(raw.EventId || raw.EventID || '').trim();
       const pd  = raw.PayloadData1 || raw.PayloadData2 || '';
       if (/^\d+\s*\|\s*\d+\s*\|/.test(md)) {
-        // Pipe-delimited EvtxECmd format: "EventID | count | Human readable title"
         const parts = md.split('|');
         const eidParsed = String(raw.EventId || raw.EventID || parts[0]).trim();
         const title     = parts.slice(2).join('|').trim();
         if (title && pd)   return `[EID:${eidParsed}] ${title} — ${pd}`;
         if (title)         return `[EID:${eidParsed}] ${title}`;
-        // PayloadData utile seulement si ce n'est pas un nombre brut (count EvtxECmd)
         if (pd && !/^\d+$/.test(String(pd).trim())) return `[EID:${eidParsed}] ${pd}`;
         return `EventID ${eidParsed}`;
       }
-      // Pas de MapDescription utile — chercher dans tous les PayloadData, puis Channel
       const isNum = v => !v || /^\d+$/.test(String(v).trim());
       const mdOk  = md && md !== eid && !isNum(md);
       if (eid && mdOk) return `[EID:${eid}] ${md}`;
-      // First non-numeric PayloadData
       for (let n = 1; n <= 6; n++) {
         const pv = raw[`PayloadData${n}`];
         if (pv != null && !isNum(pv)) return `[EID:${eid}] ${String(pv)}`;
       }
-      // Last resort: Channel (already visible in DataPath, but useful in the description)
       const ch = raw.Channel || raw.channel || '';
       if (eid && ch) return `[EID:${eid}] ${ch}`;
       if (eid)       return `EventID ${eid}`;
@@ -115,18 +306,14 @@ export function fmtDesc(r) {
     }
     case 'appcompat': {
       const p = raw.Path || r.description || '';
-      // ShimCache rows are often tab-delimited metadata:
-      //   position \t timestamp \t timestamp \t arch(8664) \t name \t publisherId
-      // Keep only the human-readable tokens (drop position / timestamps / arch).
       if (/\t/.test(p) || /^[0-9a-f]{6,}[\s\t]/i.test(p)) {
         const meaningful = p
           .split(/\t+/).map(s => s.trim()).filter(Boolean)
-          .filter(s => !/^[0-9a-f]{4,}$/i.test(s)            // pure hex: position, timestamps, 8664
+          .filter(s => !/^[0-9a-f]{4,}$/i.test(s)
                     && !/^(8664|x86_64|x64|x86|32)$/i.test(s)
-                    && !/^\d+$/.test(s));                     // pure decimal
+                    && !/^\d+$/.test(s));
         if (meaningful.length) return meaningful.join(' ');
       }
-      // Otherwise just strip a leading arch code / hex prefix from a normal path.
       return p
         .replace(/^(8664|x86_64|x64|x86|32)\s+/i, '')
         .replace(/^([0-9a-f]{6,}\s+)+/i, '')
@@ -202,7 +389,6 @@ export function fmtDesc(r) {
       const desc = raw.FileDescription || raw.ProgramName || '';
       if (path && desc) return `${path} (${desc})`;
       if (path || desc) return path || desc;
-      // ShortCuts entries: strip |hexhash suffix from KeyName
       const keyName = (raw.KeyName || r.description || '').replace(/\|[0-9a-f]{8,}$/i, '').trim();
       return keyName;
     }
@@ -220,7 +406,6 @@ export function fmtDesc(r) {
       const localPath = raw.LocalPath || raw.TargetFileDosPath || raw.NetworkPath || '';
       const name      = raw.Name || '';
       if (localPath) return name && name !== localPath ? `${name} → ${localPath}` : localPath;
-      // r.description may be a server collection path — strip it
       return cleanSrcPath(r.description || '') || r.description || '';
     }
     case 'wxtcmd':
@@ -239,35 +424,24 @@ export function fmtDesc(r) {
   }
 }
 
-/**
- * Nettoie un chemin serveur Heimdall (/app/collections/case-.../Saved_Files/...)
- * et retourne un chemin Windows lisible ou juste le nom de fichier.
- */
 function cleanSrcPath(src) {
   if (!src) return '';
-  // Chemin serveur type: /app/collections/case-{id}-{ts}/Saved_Files/Category/C/Windows/...
   const savedFiles = src.match(/\/Saved_Files\/(?:[^/]+\/)?(.*)/);
   if (savedFiles) {
     const p = savedFiles[1];
-    // Convert Unix separators -> Windows separators
     return p.replace(/\//g, '\\');
   }
-  // Chemin /app/ ou /tmp/ sans Saved_Files → juste le nom de fichier
   if (src.startsWith('/app/') || src.startsWith('/tmp/')) {
     return src.split('/').pop() || src;
   }
   return src;
 }
 
-/**
- * Format source per artifact type
- */
 export function fmtSrc(r) {
   const raw = r.raw || {};
   const src = cleanSrcPath(r.source);
-  switch (r.artifact_type) {
+  switch (artifactFamily(r.artifact_type)) {
     case 'evtx':
-      // Channel ex: "Security", "System", "Application"
       return raw.Channel || src.replace(/\.evtx$/i, '').split('\\').pop() || src;
     case 'appcompat':
       return raw.SourceFile ? cleanSrcPath(raw.SourceFile) : src;
@@ -278,7 +452,6 @@ export function fmtSrc(r) {
     case 'lnk':
       return raw.SourceFile ? cleanSrcPath(raw.SourceFile) : src;
     case 'registry':
-      // HivePath ex: "C:\Windows\System32\config\SYSTEM" ou juste "SYSTEM"
       return raw.HivePath || src;
     case 'amcache':
       return raw.SourceFile ? cleanSrcPath(raw.SourceFile) : src;
@@ -303,7 +476,6 @@ export function fmtSrc(r) {
   }
 }
 
-// COLUMNS_BASE — Base column definitions for timeline table
 export const COLUMNS_BASE = [
   { key: 'timestamp', label: 'Timestamp', size: 186 },
   { key: 'artifact_type', label: 'Artifact Type', size: 96 },
@@ -320,7 +492,6 @@ export const COLUMNS_BASE = [
   { key: 'detections', label: 'Detections', size: 130 },
 ];
 
-// SERVER_SORTABLE — Set of columns that can be sorted server-side
 export const SERVER_SORTABLE = new Set([
   'timestamp',
   'artifact_type',
@@ -328,8 +499,6 @@ export const SERVER_SORTABLE = new Set([
   'source',
 ]);
 
-// GROUP_BY_FIELDS — derived from COLUMNS_BASE (grid columns), minus free-text/complex columns,
-// plus a few extra forensic fields not visible as columns but groupable at the DB level.
 const _GROUP_BY_EXCLUDE = new Set(['timestamp', 'description', 'detections']);
 export const GROUP_BY_FIELDS = [
   ...COLUMNS_BASE
@@ -340,7 +509,6 @@ export const GROUP_BY_FIELDS = [
   { key: 'dst_ip', label: 'Dest IP' },
 ];
 
-// FORENSIC_TAGS — Tags for marking events with forensic significance
 export const FORENSIC_TAGS = [
   { key: 'exec', label: 'Execution', color: '#EF4444' },
   { key: 'persist', label: 'Persistence', color: '#F59E0B' },
@@ -356,7 +524,6 @@ export const FORENSIC_TAGS = [
   { key: 'impact', label: 'Impact', color: '#7C2D12' },
 ];
 
-// CONFIDENCE_LEVELS — Confidence classification with dark-theme colors
 export const CONFIDENCE_LEVELS = [
   { key: 'critical', label: 'Malicious',   color: '#f87171', bg: 'rgba(220,38,38,0.14)',  dot: '#ef4444' },
   { key: 'high',     label: 'Suspect',     color: '#fb923c', bg: 'rgba(234,88,12,0.12)',  dot: '#f97316' },
@@ -364,12 +531,13 @@ export const CONFIDENCE_LEVELS = [
   { key: 'low',      label: 'Benign',      color: '#34d399', bg: 'rgba(16,185,129,0.10)', dot: '#10b981' },
 ];
 
-// CONFIDENCE_MAP — Map confidence keys to their definitions
 export const CONFIDENCE_MAP = Object.fromEntries(CONFIDENCE_LEVELS.map(c => [c.key, c]));
 
-// ARTIFACT_FIELD_PRIORITY — per-type ordered list of raw fields shown first in Schema tab
-// and used to sort dynamic columns in single-artifact mode.
 export const ARTIFACT_FIELD_PRIORITY = {
+  hayabusa:  ['RuleTitle','Level','Computer','Channel','EventID',
+              'AllFieldInfo.TargetUserName','AllFieldInfo.SubjectUserName',
+              'AllFieldInfo.IpAddress','AllFieldInfo.WorkstationName',
+              'AllFieldInfo.LogonType','AllFieldInfo.ProcessName','AllFieldInfo.CommandLine'],
   evtx:      ['EventId','Channel','PayloadData1','SubjectUserName','TargetUserName','IpAddress','LogonType','WorkstationName','ProcessName','ProcessId'],
   prefetch:  ['ExecutableName','RunCount','LastRun','SourceFilename','VolumeName','VolumeSerial'],
   mft:       ['FileName','ParentPath','FileSize','Created0x10','LastModified0x10','LastAccess0x10','InUse'],
@@ -388,56 +556,53 @@ export const ARTIFACT_FIELD_PRIORITY = {
   appcompat: ['Path','LastModifiedTime','FileSize','SHA1'],
 };
 
-// KEEP IN SYNC with COLUMNS_BASE keys above. If you add a new first-class column
-// to COLUMNS_BASE, add its key here too to prevent duplication in dynamic columns.
-// NORMALIZED_KEYS — raw keys already promoted to first-class columns; skip in dynamic cols
 const NORMALIZED_KEYS = new Set([
   'timestamp','artifact_type','artifact_name','description','source','tool',
   'timestamp_kind','details','path','ext','event_id','file_size','src_ip','dst_ip',
   'sha1','host_name','user_name','process_name','mitre_technique_id',
 ]);
 
-/**
- * buildDynamicCols — generate dynamic column definitions from raw JSONB keys
- * for single-artifact mode. Returns array of { key, label, size }.
- *
- * @param {Array} records - current loaded records
- * @param {string} artifactType - e.g. 'evtx'
- * @param {string} caseId - for localStorage scoping
- * @returns {Array<{key: string, label: string, size: number}>}
- */
+export function readRawPath(raw, key) {
+  if (!raw || typeof raw !== 'object') return undefined;
+  if (Object.prototype.hasOwnProperty.call(raw, key)) return raw[key];
+  let cur = raw;
+  for (const part of String(key).split('.')) {
+    if (cur == null || typeof cur !== 'object') return undefined;
+    cur = cur[part];
+  }
+  return cur;
+}
+
 export function buildDynamicCols(records, artifactType, caseId) {
   if (!records?.length) return [];
-  // Collect all raw keys across first 20 records to catch sparse fields
   const allKeys = new Set();
-  // Sample first 20 records to balance field coverage vs. performance;
-  // sparse fields that only appear after record 20 will be absent from dynamic cols.
   records.slice(0, 20).forEach(r => {
-    Object.keys(r?.raw || {}).forEach(k => allKeys.add(k));
+    Object.entries(r?.raw || {}).forEach(([k, v]) => {
+      if (v && typeof v === 'object' && !Array.isArray(v)) {
+        Object.keys(v).forEach(sub => allKeys.add(`${k}.${sub}`));
+      } else {
+        allKeys.add(k);
+      }
+    });
   });
-  // Filter out already-normalized keys AND keys whose sampled value is a nested object/array
-  // (e.g. AllFieldInfo, ExtraFieldInfo in Hayabusa) — they render as [object Object] in cells.
   const rawKeys = [...allKeys].filter(k => {
     if (NORMALIZED_KEYS.has(k)) return false;
-    const sample = records.slice(0, 20).find(r => r?.raw?.[k] != null)?.raw?.[k];
+    const sample = records.slice(0, 20)
+      .map(r => readRawPath(r?.raw, k)).find(v => v != null);
     if (sample != null && typeof sample === 'object') return false;
     return true;
   });
   const rawKeysSet = new Set(rawKeys);
-  // Sort: priority list first, then alphabetical
   const priority = ARTIFACT_FIELD_PRIORITY[artifactType] || [];
   const prioritySet = new Set(priority);
   const sorted = [
     ...priority.filter(k => rawKeysSet.has(k)),
     ...rawKeys.filter(k => !prioritySet.has(k)).sort(),
   ];
-  // Restore user-added column order from localStorage
   let userAdded = [];
   try {
-    // Key format: supertl.dynamicCols.<artifactType>.<caseId>
-    // Assumes artifactType is a short lowercase string (e.g. 'evtx') and caseId is a UUID — no encoding needed.
     userAdded = JSON.parse(localStorage.getItem(`supertl.dynamicCols.${artifactType}.${caseId}`) || '[]');
-  } catch { /* ignore */ }
+  } catch { }
   const finalKeys = [...new Set([...sorted, ...userAdded.filter(k => allKeys.has(k))])];
   return finalKeys.map(k => ({
     key: `raw.${k}`,

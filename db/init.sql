@@ -237,7 +237,12 @@ CREATE TABLE IF NOT EXISTS collection_timeline (
     case_id             UUID NOT NULL REFERENCES cases(id) ON DELETE CASCADE,
     result_id           UUID REFERENCES parser_results(id) ON DELETE CASCADE,
     evidence_id         UUID REFERENCES evidence(id) ON DELETE CASCADE,  -- v2.18 isolation key
-    timestamp           TIMESTAMPTZ NOT NULL,
+    -- Nullable depuis 2026-08-18 : les lignes d'inventaire (timestamp_kind =
+    -- 'inventory') décrivent un objet dont on ignore la date. Les ancrer à l'heure
+    -- de collecte donnerait à 872 000 objets le même horodatage, qui se lirait
+    -- comme autant d'événements simultanés. NULL dit la vérité : cet objet
+    -- existait, on ignore depuis quand.
+    timestamp           TIMESTAMPTZ,
     artifact_type       VARCHAR(50)  NOT NULL DEFAULT '',
     artifact_name       VARCHAR(200) NOT NULL DEFAULT '',
     description         TEXT         NOT NULL DEFAULT '',

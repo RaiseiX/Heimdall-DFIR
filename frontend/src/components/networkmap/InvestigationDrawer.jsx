@@ -1,4 +1,3 @@
-// frontend/src/components/networkmap/InvestigationDrawer.jsx
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
@@ -6,6 +5,9 @@ import { NODE_TYPES } from '../../constants/nodeTypes';
 import { detectNodeType } from './utils/nodeTypeRegistry';
 import { iocsAPI, bookmarksAPI } from '../../utils/api';
 import { buildNodeArtifacts } from './utils/nodeArtifacts';
+import { ZONES, zoneOf } from './utils/zoneDeclaration';
+import { peerSummary } from './utils/peerSummary';
+import { portService, isCleartextPort } from './utils/registerGroups';
 import EventsTab      from './tabs/EventsTab';
 import ConnectionsTab from './tabs/ConnectionsTab';
 import IocTab         from './tabs/IocTab';
@@ -18,19 +20,41 @@ const TABS = [
   { key: 'lateral', label: 'LATERAL' },
 ];
 
-export default function InvestigationDrawer({ nodeData, caseId, allEdges, onClose, onSelectPeer, nodeOverrides, onOverrideType, onResetType, onDeleteManualNode }) {
+const MONO = 'var(--f-mono, "JetBrains Mono", monospace)';
+
+const rowLabel = {
+  width: 92, flexShrink: 0,
+  fontSize: 9, letterSpacing: '0.1em', textTransform: 'uppercase', fontWeight: 700,
+  color: 'var(--fl-muted)', fontFamily: MONO,
+};
+const rowValue = { flex: 1, minWidth: 0, fontSize: 11, fontFamily: MONO, color: 'var(--fl-dim)' };
+const rowNote  = { display: 'block', fontSize: 10, color: 'var(--fl-subtle)', fontFamily: MONO, marginTop: 1 };
+
+const Dash = () => <span style={{ color: 'var(--fl-border)' }}>—</span>;
+
+function Row({ label, children, notes = [] }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, padding: '3px 0' }}>
+      <span style={rowLabel}>{label}</span>
+      <span style={rowValue}>
+        {children}
+        {notes.filter(Boolean).map((n, i) => <span key={i} style={rowNote}>{n}</span>)}
+      </span>
+    </div>
+  );
+}
+
+export default function InvestigationDrawer({ nodeData, caseId, allEdges, onClose, onSelectPeer, nodeOverrides, onOverrideType, onResetType, onDeleteManualNode, zoneDeclarations, onDeclareZone, onWithdrawZone }) {
   const [tab, setTab] = useState('events');
   const navigate = useNavigate();
   const { t } = useTranslation();
   const [flagged, setFlagged] = useState(false);
   const [pinned, setPinned]   = useState(false);
   const [busy, setBusy]       = useState(false);
-  // Reset per-node action state when a different node is selected.
   useEffect(() => { setFlagged(false); setPinned(false); setBusy(false); }, [nodeData?.id]);
   if (!nodeData) return null;
 
   const ALL_TYPES  = Object.values(NODE_TYPES).sort((a, b) => a.label.localeCompare(b.label));
-  // nodeData is Cytoscape element data — use pre-computed nodeType, fall back to detectNodeType with _raw
   const autoTypeId = nodeData.nodeType || detectNodeType({ id: nodeData.id, type: nodeData._raw?.type || '', is_suspicious: nodeData.is_suspicious });
   const overrideId = nodeOverrides?.[nodeData.id] ?? null;
   const activeTypeId = overrideId ?? autoTypeId;
@@ -38,6 +62,18 @@ export default function InvestigationDrawer({ nodeData, caseId, allEdges, onClos
   const acol   = type.color;
 
   const art = buildNodeArtifacts(nodeData);
+
+  const zone = zoneOf({ id: nodeData.id, type: nodeData._raw?.type }, zoneDeclarations);
+  const declarable = zone.inferred !== null && !!onDeclareZone;
+  const declaredAt = zone.at ? String(zone.at).slice(0, 19).replace('T', ' ') : '';
+
+  const summary = peerSummary(nodeData.id, allEdges, { maxProcesses: 4 });
+  const seenAt = (allEdges || [])
+    .filter(e => e?.data?.source === nodeData.id || e?.data?.target === nodeData.id)
+    .map(e => e?.data?.last_seen || e?.data?.first_seen)
+    .filter(Boolean)
+    .sort()
+    .pop();
 
   function goTimeline() {
     if (!art.valid) return;
@@ -74,69 +110,44 @@ export default function InvestigationDrawer({ nodeData, caseId, allEdges, onClos
 
   return (
     <div style={{ width: 'clamp(380px, 30vw, 540px)', flexShrink: 0, background: '#0a0c11', borderLeft: '1px solid #1a1f2c', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-      {/* Color accent top border */}
-      <div style={{ height: 3, background: acol, flexShrink: 0 }} />
-
-      {/* Header */}
-      <div style={{ padding: '11px 12px 9px', borderBottom: '1px solid #131722', flexShrink: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 4 }}>
-          <span style={{ padding: '3px 8px', borderRadius: 3, fontSize: 11, fontWeight: 700, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', background: `color-mix(in srgb, ${acol} 9%, transparent)`, color: acol, border: `1px solid color-mix(in srgb, ${acol} 19%, transparent)` }}>
-            {type.label.toUpperCase()}
-          </span>
-          <span style={{ fontSize: 15, color: acol, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontWeight: 700, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+      <div style={{ padding: '11px 13px 10px', borderBottom: '1px solid #131722', flexShrink: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 9 }}>
+          <span style={{ fontSize: 13, color: 'var(--fl-text)', fontFamily: MONO, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+            title={nodeData.id}>
             {nodeData.label || nodeData.id}
           </span>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--fl-muted)', cursor: 'pointer', fontSize: 15, lineHeight: 1, padding: '0 2px' }}>✕</button>
-        </div>
-        {/* Stats row */}
-        <div style={{ fontSize: 12, color: 'var(--fl-muted)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', display: 'flex', alignItems: 'center', gap: 9 }}>
-          <span>{nodeData.connection_count || 0} conns · {fmtBytes(nodeData.total_bytes)}</span>
-          {nodeData.serverScore != null && (
-            <span title={`Comportement : ${nodeData.serverScore >= 0.65 ? 'SERVEUR' : nodeData.serverScore <= 0.25 ? 'CLIENT' : 'MIXTE'} (score ${nodeData.serverScore})`}
-              style={{ fontSize: 11, color: nodeData.serverScore >= 0.65 ? 'var(--fl-ok)' : nodeData.serverScore <= 0.25 ? 'var(--fl-warn)' : 'var(--fl-muted)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', cursor: 'default' }}>
-              {nodeData.serverScore >= 0.65 ? '▲SRV' : nodeData.serverScore <= 0.25 ? '▼CLT' : '≈MIX'}
-            </span>
-          )}
-          {nodeData.confidence && nodeData.confidence !== 'OVERRIDE' && (
-            <span title={`Signaux: ${(nodeData.signals||[]).join(', ')}`}
-              style={{ fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', cursor: 'help',
-                color: nodeData.confidence === 'HIGH' ? 'var(--fl-ok)' : nodeData.confidence === 'MEDIUM' ? 'var(--fl-gold)' : 'var(--fl-muted)' }}>
-              ● {nodeData.confidence}
-            </span>
-          )}
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--fl-muted)', cursor: 'pointer', fontSize: 13, lineHeight: 1, padding: '0 2px' }}>✕</button>
         </div>
 
-        {/* GeoIP for external nodes */}
-        {nodeData.geo && (
-          <div style={{ fontSize: 11, color: 'var(--fl-purple)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', marginTop: 3, display: 'flex', alignItems: 'center', gap: 5 }}>
-            <span>🌍</span>
-            <span>{nodeData.geo.country}{nodeData.geo.city ? ` · ${nodeData.geo.city}` : ''}{nodeData.geo.region ? ` (${nodeData.geo.region})` : ''}</span>
-          </div>
-        )}
+        <Row
+          label={t('networkMap.zone.title')}
+          notes={[
+            zone.source === 'declared'
+              ? t('networkMap.zone.declared_by', { by: zone.by, at: declaredAt })
+              : zone.zone ? t('networkMap.zone.inferred_from') : null,
+            zone.source === 'declared' && zone.inferred
+              ? `${t(`networkMap.zone.${zone.inferred}`)} — ${t('networkMap.zone.inferred_from')}`
+              : null,
+          ]}
+        >
+          {zone.zone
+            ? <span style={{ color: zone.source === 'declared' ? 'var(--fl-warn)' : 'var(--fl-dim)' }}>{t(`networkMap.zone.${zone.zone}`)}</span>
+            : <Dash />}
+        </Row>
 
-        {/* Risk + classification badges */}
-        <div style={{ display: 'flex', gap: 4, marginTop: 5, flexWrap: 'wrap' }}>
-          {nodeData.is_suspicious && <span style={{ padding: '3px 8px', borderRadius: 2, fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', background: 'color-mix(in srgb, var(--fl-danger) 7%, transparent)', color: 'var(--fl-danger)', border: '1px solid color-mix(in srgb, var(--fl-danger) 15%, transparent)' }}>⚠ IOC</span>}
-          {(nodeData.beacon_score || 0) > 70 && <span style={{ padding: '3px 8px', borderRadius: 2, fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', background: 'color-mix(in srgb, var(--fl-warn) 7%, transparent)', color: 'var(--fl-warn)', border: '1px solid color-mix(in srgb, var(--fl-warn) 15%, transparent)' }}>◎ BEACON {nodeData.beacon_score}%</span>}
-          {(nodeData.dga_score || 0) > 60 && <span style={{ padding: '3px 8px', borderRadius: 2, fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', background: 'color-mix(in srgb, var(--fl-accent) 7%, transparent)', color: 'var(--fl-accent)', border: '1px solid color-mix(in srgb, var(--fl-accent) 15%, transparent)' }}>⁉ DGA {nodeData.dga_score}</span>}
-          {nodeData.osHint === 'windows'        && <span style={{ padding: '3px 8px', borderRadius: 2, fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', background: 'color-mix(in srgb, var(--fl-purple) 7%, transparent)', color: 'var(--fl-purple)', border: '1px solid color-mix(in srgb, var(--fl-purple) 15%, transparent)' }}>⊞ WINDOWS</span>}
-          {nodeData.osHint === 'linux'          && <span style={{ padding: '3px 8px', borderRadius: 2, fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', background: 'color-mix(in srgb, var(--fl-warn) 7%, transparent)', color: 'var(--fl-warn)', border: '1px solid color-mix(in srgb, var(--fl-warn) 15%, transparent)' }}>🐧 LINUX</span>}
-          {nodeData.osHint === 'network_device' && <span style={{ padding: '3px 8px', borderRadius: 2, fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', background: 'color-mix(in srgb, var(--fl-ok) 7%, transparent)', color: 'var(--fl-ok)', border: '1px solid color-mix(in srgb, var(--fl-ok) 15%, transparent)' }}>⊟ NET-DEV</span>}
-          {nodeData.ipCategory && <span style={{ padding: '3px 8px', borderRadius: 2, fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', background: 'color-mix(in srgb, var(--fl-purple) 7%, transparent)', color: 'var(--fl-purple)', border: '1px solid color-mix(in srgb, var(--fl-purple) 15%, transparent)' }}>◈ {nodeData.ipCategory}</span>}
-          {nodeData.segment && <span style={{ padding: '3px 8px', borderRadius: 2, fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', background: `color-mix(in srgb, ${nodeData.segment.color} 9%, transparent)`, color: nodeData.segment.color, border: `1px solid color-mix(in srgb, ${nodeData.segment.color} 21%, transparent)` }}>⊕ {nodeData.segment.label}</span>}
-          {(nodeData.portBadges || []).map(pb => (
-            <span key={pb.badge} style={{ padding: '3px 8px', borderRadius: 2, fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', background: `color-mix(in srgb, ${pb.color} 7%, transparent)`, color: pb.color, border: `1px solid color-mix(in srgb, ${pb.color} 15%, transparent)` }}>{pb.badge}</span>
-          ))}
-        </div>
-
-        {/* Type override */}
-        <div style={{ marginTop: 7, paddingTop: 7, borderTop: '1px solid #131722' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-            <span style={{ fontSize: 11, color: 'var(--fl-subtle)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', textTransform: 'uppercase', letterSpacing: '0.08em', flexShrink: 0 }}>Type</span>
+        <Row
+          label={t('networkMap.drawer.type')}
+          notes={[
+            overrideId ? `${t('networkMap.drawer.auto')} ${NODE_TYPES[autoTypeId]?.label ?? autoTypeId}` : null,
+            !overrideId && nodeData.confidence && nodeData.confidence !== 'OVERRIDE'
+              ? `${nodeData.confidence} · ${(nodeData.signals || []).join(', ')}` : null,
+          ]}
+        >
+          <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <select
               value={activeTypeId}
               onChange={e => onOverrideType?.(nodeData.id, e.target.value)}
-              style={{ flex: 1, background: '#131722', border: '1px solid #1a1f2c', borderRadius: 3, color: acol, fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', padding: '3px 5px', cursor: 'pointer', outline: 'none' }}
+              style={{ flex: 1, minWidth: 0, background: 'none', border: 0, borderBottom: '1px solid var(--fl-border3)', color: acol, fontSize: 11, fontFamily: MONO, padding: '1px 0 2px', cursor: 'pointer', outline: 'none' }}
             >
               {ALL_TYPES.map(t => (
                 <option key={t.id} value={t.id} style={{ background: '#0a0c11', color: t.color }}>
@@ -147,22 +158,127 @@ export default function InvestigationDrawer({ nodeData, caseId, allEdges, onClos
             {overrideId && (
               <button
                 onClick={() => onResetType?.(nodeData.id)}
-                title="Restore auto-detected type"
-                style={{ background: 'none', border: 'none', color: 'var(--fl-muted)', fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', cursor: 'pointer', flexShrink: 0, padding: '2px 4px' }}
+                title={t('networkMap.drawer.reset_type')}
+                style={{ background: 'none', border: 'none', color: 'var(--fl-muted)', fontSize: 11, fontFamily: MONO, cursor: 'pointer', flexShrink: 0, padding: '0 2px' }}
                 onMouseEnter={e => { e.currentTarget.style.color = 'var(--fl-danger)'; }}
                 onMouseLeave={e => { e.currentTarget.style.color = 'var(--fl-muted)'; }}
               >↺</button>
             )}
-          </div>
-          {overrideId && (
-            <div style={{ fontSize: 11, color: 'var(--fl-subtle)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', marginTop: 3 }}>
-              Auto: {NODE_TYPES[autoTypeId]?.label ?? autoTypeId}
+          </span>
+        </Row>
+
+        <Row label={t('networkMap.register.port')}>
+          {summary.ports.length
+            ? summary.ports.map((p, i) => (
+              <span key={p}>
+                {i > 0 ? <span style={{ color: 'var(--fl-border)' }}> · </span> : null}
+                <span style={{ color: isCleartextPort(p) ? 'var(--fl-danger)' : 'var(--fl-dim)' }}>{`:${p}`}</span>
+                {portService(p) ? <span style={{ fontSize: 10, color: isCleartextPort(p) ? 'var(--fl-danger)' : 'var(--fl-muted)', marginLeft: 5 }}>{portService(p)}</span> : null}
+              </span>
+            ))
+            : <Dash />}
+        </Row>
+
+        <Row label={t('networkMap.register.process')}>
+          {summary.processes.length
+            ? <span>{summary.processes.join(', ')}{summary.truncated ? <span style={{ color: 'var(--fl-muted)' }}>{` +${summary.truncated}`}</span> : null}</span>
+            : <span style={{ color: 'var(--fl-muted)', fontStyle: 'italic' }}>{t('networkMap.register.unattributed')}</span>}
+        </Row>
+
+        <Row label={t('networkMap.register.conn')}>
+          <span style={{ color: 'var(--fl-text)' }}>{summary.connections || nodeData.connection_count || 0}</span>
+        </Row>
+
+        {nodeData.total_bytes > 0 && (
+          <Row label={t('networkMap.drawer.volume')}>{fmtBytes(nodeData.total_bytes)}</Row>
+        )}
+
+        <Row label={t('networkMap.drawer.seen_at')}>
+          {seenAt ? <span>{String(seenAt).slice(0, 19).replace('T', ' ')}</span> : <Dash />}
+        </Row>
+
+        {(nodeData.is_suspicious || (nodeData.beacon_score || 0) > 70 || (nodeData.dga_score || 0) > 60) && (
+          <Row label={t('networkMap.drawer.verdict')}>
+            {nodeData.is_suspicious && <span style={{ color: 'var(--fl-danger)' }}>{t('networkMap.drawer.ioc')}</span>}
+            {(nodeData.beacon_score || 0) > 70 && (
+              <span style={{ color: 'var(--fl-warn)', marginLeft: nodeData.is_suspicious ? 10 : 0 }}>
+                {t('networkMap.drawer.beacon')} {nodeData.beacon_score}%
+              </span>
+            )}
+            {(nodeData.dga_score || 0) > 60 && (
+              <span style={{ color: 'var(--fl-accent)', marginLeft: 10 }}>{t('networkMap.drawer.dga')} {nodeData.dga_score}</span>
+            )}
+          </Row>
+        )}
+
+        {nodeData.osHint && (
+          <Row label={t('networkMap.drawer.system')}>{t(`networkMap.drawer.os_${nodeData.osHint}`, nodeData.osHint)}</Row>
+        )}
+
+        {nodeData.serverScore != null && (
+          <Row label={t('networkMap.drawer.behavior')} notes={[`score ${nodeData.serverScore}`]}>
+            <span style={{ color: nodeData.serverScore >= 0.65 ? 'var(--fl-ok)' : nodeData.serverScore <= 0.25 ? 'var(--fl-warn)' : 'var(--fl-dim)' }}>
+              {t(`networkMap.drawer.behavior_${nodeData.serverScore >= 0.65 ? 'server' : nodeData.serverScore <= 0.25 ? 'client' : 'mixed'}`)}
+            </span>
+          </Row>
+        )}
+
+        {nodeData.ipCategory && <Row label={t('networkMap.drawer.category')}>{nodeData.ipCategory}</Row>}
+
+        {nodeData.segment && (
+          <Row label={t('networkMap.subnet.title')}>
+            <span style={{ color: nodeData.segment.color }}>{nodeData.segment.label}</span>
+          </Row>
+        )}
+
+        {nodeData.geo && (
+          <Row label={t('networkMap.drawer.country')}>
+            {nodeData.geo.country}{nodeData.geo.city ? ` · ${nodeData.geo.city}` : ''}{nodeData.geo.region ? ` (${nodeData.geo.region})` : ''}
+          </Row>
+        )}
+
+        {declarable && (
+          <div style={{ marginTop: 9, paddingTop: 9, borderTop: '1px solid #131722' }}>
+            <div style={{ ...rowLabel, width: 'auto', marginBottom: 5 }}>{t('networkMap.zone.declare')}</div>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 14, flexWrap: 'wrap' }}>
+              {ZONES.map(z => {
+                const on = zone.source === 'declared' && zone.zone === z;
+                return (
+                  <button
+                    key={z}
+                    type="button"
+                    onClick={() => onDeclareZone(nodeData.id, z)}
+                    aria-pressed={on}
+                    style={{
+                      background: 'none', border: 0, padding: '0 0 2px', cursor: 'pointer',
+                      fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11,
+                      color: on ? 'var(--fl-warn)' : 'var(--fl-muted)',
+                      borderBottom: `1px solid ${on ? 'var(--fl-warn)' : 'var(--fl-border3)'}`,
+                    }}
+                  >{t(`networkMap.zone.${z}`)}</button>
+                );
+              })}
             </div>
-          )}
-        </div>
+
+            {zone.source === 'declared' && onWithdrawZone && (
+              <button
+                type="button"
+                onClick={() => onWithdrawZone(nodeData.id)}
+                style={{
+                  display: 'block', marginTop: 7, background: 'none', border: 0, padding: '0 0 2px',
+                  cursor: 'pointer', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11,
+                  color: 'var(--fl-muted)', borderBottom: '1px solid var(--fl-border3)',
+                }}
+              >{t('networkMap.zone.withdraw')}</button>
+            )}
+
+            <div style={{ fontSize: 11, color: 'var(--fl-subtle)', marginTop: 7, lineHeight: 1.5 }}>
+              {t('networkMap.zone.hint')}
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* Tabs */}
       <div style={{ display: 'flex', borderBottom: '1px solid #131722', flexShrink: 0 }}>
         {TABS.map(t => (
           <button key={t.key} onClick={() => setTab(t.key)} style={{
@@ -175,7 +291,6 @@ export default function InvestigationDrawer({ nodeData, caseId, allEdges, onClos
         ))}
       </div>
 
-      {/* Tab content */}
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         {tab === 'events'  && <EventsTab      caseId={caseId} nodeId={nodeData.id} />}
         {tab === 'conns'   && <ConnectionsTab nodeData={nodeData} allEdges={allEdges} onSelectPeer={onSelectPeer} />}
@@ -183,7 +298,6 @@ export default function InvestigationDrawer({ nodeData, caseId, allEdges, onClos
         {tab === 'lateral' && <LateralTab     nodeData={nodeData} allEdges={allEdges} />}
       </div>
 
-      {/* Action bar */}
       <div style={{ padding: '6px 10px', borderTop: '1px solid #131722', display: 'flex', gap: 5, flexShrink: 0 }}>
         {nodeData._manual ? (
           <button

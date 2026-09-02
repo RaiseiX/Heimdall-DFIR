@@ -2,6 +2,7 @@
 // Kept out of routes/collection.js so it can be consumed without importing the router.
 const path = require('path');
 const fs = require('fs');
+const { resolveRecmdBatch } = require('../services/recmdBatch');
 
 const ZIMMERMAN_DIR = process.env.ZIMMERMAN_TOOLS_DIR || '/app/zimmerman-tools';
 
@@ -77,7 +78,7 @@ const ARTIFACT_PATTERNS = {
     tool: 'RECmd.dll',
     toolKey: 'registry',
     name: 'Registry Hives',
-    argsBuilder: (input, output) => ['dotnet', path.join(ZIMMERMAN_DIR, 'RECmd.dll'), '-f', input, '--csv', output, '--csvf', 'registry_results.csv', '--bn', path.join(ZIMMERMAN_DIR, 'BatchExamples', 'RECmd_Batch_MC.reb')],
+    argsBuilder: (input, output) => ['dotnet', path.join(ZIMMERMAN_DIR, 'RECmd.dll'), '-f', input, '--csv', output, '--csvf', 'registry_results.csv', '--bn', resolveRecmdBatch(ZIMMERMAN_DIR, (p) => fs.existsSync(p)) || path.join(ZIMMERMAN_DIR, 'BatchExamples', 'RECmd_Batch_MC.reb')],
     timestampColumns: ['LastWriteTimestamp'],
     descriptionColumns: ['Description', 'ValueName'],
     sourceColumn: 'HivePath',
@@ -87,7 +88,7 @@ const ARTIFACT_PATTERNS = {
     tool: 'AmcacheParser.dll',
     toolKey: 'amcache',
     name: 'Amcache',
-    argsBuilder: (input, output) => ['dotnet', path.join(ZIMMERMAN_DIR, 'AmcacheParser.dll'), '-f', input, '--csv', output, '--csvf', 'amcache_results.csv'],
+    argsBuilder: (input, output) => ['dotnet', path.join(ZIMMERMAN_DIR, 'AmcacheParser.dll'), '-f', input, '-i', '--csv', output, '--csvf', 'amcache_results.csv'],
     timestampColumns: ['FileKeyLastWriteTimestamp', 'LinkDate'],
     descriptionColumns: ['FileDescription', 'FullPath', 'ProgramName', 'KeyName'],
     sourceColumn: 'ProgramName',

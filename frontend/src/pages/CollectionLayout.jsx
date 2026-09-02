@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
 import { useParams, NavLink, Outlet, useOutletContext, useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import {
   FolderOpen, Clock, Crosshair, AlertTriangle, Network,
   Shield, ScrollText, FileText, Activity, FlaskConical, ChevronLeft,
-  Brain, ExternalLink,
+  Brain, ExternalLink, ListChecks,
 } from 'lucide-react';
 import UiIcon from '../components/ui/Icon';
 import { evidenceAPI } from '../utils/api';
@@ -15,9 +16,7 @@ import CollectionOverview from '../components/collection/CollectionOverview';
 import { resolveCollectionPane } from './collectionPane';
 
 export default function CollectionLayout() {
-  // No default for `tab`: React Router prefers the static child routes (timeline,
-  // logs) over `:tab`, so the param is absent for them and their page must come
-  // from <Outlet />. Defaulting to 'evidence' rendered the overview instead.
+  const { t } = useTranslation();
   const { id, collectionId, tab: collectionTab } = useParams();
   const pane = resolveCollectionPane(collectionTab);
   const shellCtx = useOutletContext() || {};
@@ -25,11 +24,8 @@ export default function CollectionLayout() {
   const [collName, setCollName] = useState('');
 
   const base = `/cases/${id}/collections/${collectionId}`;
-  // VolWeb runs on port 8888 of the same host — derive from the current origin so it
-  // works whether the app is opened on localhost or on the dev server (e.g. 192.168.1.201).
   const volwebUrl = `${window.location.protocol}//${window.location.hostname}:8888`;
 
-  // Resolve the collection name for the contextual breadcrumb ("where am I").
   useEffect(() => {
     if (!id || !collectionId) return;
     evidenceAPI.list(id)
@@ -37,9 +33,6 @@ export default function CollectionLayout() {
       .catch(() => {});
   }, [id, collectionId]);
 
-  // Segmented tab: active = filled accent pill, inactive = ghost. Accent is
-  // parameterised so the specialised tabs (Super Timeline = ok, Hayabusa =
-  // danger) reuse the same shape with their own signal colour.
   const tabSt = (isActive, accent = 'var(--fl-accent)') => ({
     display: 'flex', alignItems: 'center', gap: 6,
     padding: '0 11px', height: 27, alignSelf: 'center',
@@ -54,7 +47,6 @@ export default function CollectionLayout() {
     whiteSpace: 'nowrap',
     textDecoration: 'none',
   });
-  // Hover only affects non-active links (NavLink sets aria-current="page" when active).
   const tabHoverIn  = e => { if (e.currentTarget.getAttribute('aria-current') !== 'page') { e.currentTarget.style.background = 'var(--fl-card)'; e.currentTarget.style.color = 'var(--fl-dim)'; } };
   const tabHoverOut = e => { if (e.currentTarget.getAttribute('aria-current') !== 'page') { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--fl-subtle)'; } };
 
@@ -82,7 +74,6 @@ export default function CollectionLayout() {
         gap: 2,
       }}>
 
-        {/* Contextual breadcrumb — you're inside a collection, with a way back */}
         <button onClick={() => navigate(`/cases/${id}/evidence`)} title="Back to case evidence"
           style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--fl-muted)', padding: '0 6px', height: '100%', flexShrink: 0 }}
           onMouseEnter={e => { e.currentTarget.style.color = 'var(--fl-dim)'; }}
@@ -125,6 +116,15 @@ export default function CollectionLayout() {
         >
           <FileText size={12} />
           Logs
+        </NavLink>
+
+        <NavLink
+          to={`${base}/coverage`}
+          style={({ isActive }) => tabSt(isActive)}
+          onMouseEnter={tabHoverIn} onMouseLeave={tabHoverOut}
+        >
+          <ListChecks size={12} />
+          {t('coverage.tab')}
         </NavLink>
 
         <span style={{ width: 1, height: 16, background: 'var(--fl-border)', flexShrink: 0, margin: '0 4px' }} />

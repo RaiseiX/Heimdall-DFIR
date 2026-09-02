@@ -83,7 +83,24 @@ async function importCsvFile(pool, { caseId, resultId, evidenceId, filePath, fil
   };
 
   await new Promise((resolve, reject) => {
-    const parser = parseStream({ columns: true, skip_empty_lines: true, relax_column_count: true, encoding: 'utf8' });
+    // relax_quotes: a stray double quote is data, not a syntax error.
+    //
+    // Linux filenames may contain `"`, and Cat-Scale writes full-timeline.csv without
+    // escaping them. On the reference collection four lines out of 8,587,252 carry one
+    // — GNOME Software cached an icon named `…-fonts-atarismall_"atari800"-medium.png`
+    // — and a strict RFC 4180 parser rejected all 2,680,315,426 bytes over those four
+    // characters ("Invalid Opening Quote… at line 1054033").
+    //
+    // Relaxed, the quote is kept verbatim inside the field: the path is not rewritten,
+    // which matters because that quote is a property of the machine under
+    // investigation, exactly like the accents in /home/raisei/Téléchargements/….
+    //
+    // This aligns the outlier rather than setting new policy — collection.js and
+    // network.js already parse with relax_quotes.
+    const parser = parseStream({
+      columns: true, skip_empty_lines: true, relax_column_count: true,
+      relax_quotes: true, encoding: 'utf8',
+    });
     parser.on('data', async (rec) => {
       parser.pause();
       try {

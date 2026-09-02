@@ -20,14 +20,11 @@ function guessIocType(v) {
   return 'other';
 }
 
-// Pick the most identifying string of a detection result to suppress on.
 function fpValue(it) {
   return it.filename || it.dest_ip || it.value || it.CommandLine || it.command_line ||
     it.Image || it.process || it.path || it.target || it.description || it.source || '';
 }
 
-// "False positive" button — stores a reusable suppression then reloads the section.
-// Flag = false positive. Click = this case · Shift+click = global (all cases).
 function FpBtn({ caseId, detectionType, item, onDone }) {
   const { t } = useTranslation();
   const [busy, setBusy] = useState(false);
@@ -41,7 +38,7 @@ function FpBtn({ caseId, detectionType, item, onDone }) {
     try {
       await detectionsAPI.addException(caseId, { detection_type: detectionType, match_value: value, scope });
       onDone?.();
-    } catch { /* ignore */ } finally { setBusy(false); }
+    } catch { } finally { setBusy(false); }
   };
   return (
     <button onClick={mark} disabled={busy} title={t('detections.actions.false_positive_title', { value: String(value).slice(0, 50) })}
@@ -53,10 +50,9 @@ function FpBtn({ caseId, detectionType, item, onDone }) {
   );
 }
 
-// Promote a detection result to a case IOC.
 function IocBtn({ caseId, item }) {
   const { t } = useTranslation();
-  const [state, setState] = useState('idle'); // idle | done
+  const [state, setState] = useState('idle');
   const value = fpValue(item);
   if (!value) return null;
   const promote = async (e) => {
@@ -65,7 +61,7 @@ function IocBtn({ caseId, item }) {
     try {
       await iocsAPI.create(caseId, { ioc_type: guessIocType(value), value: String(value).slice(0, 500), is_malicious: true, severity: 7, description: 'Promoted from detection' });
       setState('done');
-    } catch { /* ignore */ }
+    } catch { }
   };
   return (
     <button onClick={promote} title={state === 'done' ? t('detections.actions.added_to_iocs') : t('detections.actions.promote_ioc')}
@@ -77,7 +73,6 @@ function IocBtn({ caseId, item }) {
   );
 }
 
-// Combined per-result actions (FP + promote to IOC) — drop-in for the old <FpBtn>.
 function ResultActions({ caseId, detectionType, item, onDone }) {
   return (
     <span style={{ display: 'inline-flex', gap: 2 }}>
@@ -160,7 +155,6 @@ function SevBadge({ severity }) {
   );
 }
 
-// Confidence = true-positive likelihood (distinct axis from severity). Lets analysts sort the signal.
 const CONF = {
   high:   { color: 'var(--fl-ok)' },
   medium: { color: 'var(--fl-gold)' },
@@ -211,9 +205,6 @@ function CopyCell({ value, style, maxWidth = 200 }) {
   );
 }
 
-// Description cell: wraps onto 2 lines (no jarring native tooltip) and reveals a
-// copy button on hover. Gives the primary content the room reclaimed from the
-// empty process/host columns.
 function DescCell({ value }) {
   const { t } = useTranslation();
   const [hover, setHover] = useState(false);
@@ -242,12 +233,8 @@ function DescCell({ value }) {
   );
 }
 
-// ── Row detail drawer ──────────────────────────────────────────────────────
-// A single shared drawer surfaces the full record behind any detection row.
 const DetailContext = createContext(null);
 
-// Clickable table row — opens the detail drawer with the row's full payload.
-// Action buttons inside cells call stopPropagation, so they don't trigger this.
 function Row({ i, detail, children }) {
   const open = useContext(DetailContext);
   const base = i % 2 ? 'transparent' : 'rgba(255,255,255,0.02)';
@@ -834,7 +821,6 @@ function SysmonBehaviorSection({ caseId, runSignal, hiddenSevs, onComplete, onCo
   );
 }
 
-// Generic grouped detection section (reused for anti-forensic & execution-anomaly).
 function GroupedSection({ caseId, runSignal, hiddenSevs, onComplete, onCounts, apiFn, detectionType, title, icon, intro }) {
   const { t } = useTranslation();
   const { fmtDateTime } = useDateFormat();
@@ -870,15 +856,11 @@ function GroupedSection({ caseId, runSignal, hiddenSevs, onComplete, onCounts, a
         const visibleItems = (v.items ?? []).filter(it => !hiddenSevs.has(normalizeSeverity(it.severity)));
         if (visibleItems.length === 0) return null;
 
-        // Adaptive columns: only render PROCESS / HOST when they actually carry
-        // differentiating signal. MFT-based detections have no process; a single
-        // shared host (e.g. one collection) is shown once in the vector header
-        // instead of repeated down an otherwise-useless column.
         const procOf = it => it.raw?.Image || it.raw?.CommandLine || it.raw?.TargetImage || it.raw?.TargetFilename || '';
         const hostOf = it => (it.host_name && it.host_name !== '-') ? String(it.host_name) : '';
         const hasProc = visibleItems.some(it => procOf(it));
         const uniqHosts = [...new Set(visibleItems.map(hostOf).filter(Boolean))];
-        const hasHostCol = uniqHosts.length > 1;          // varying hosts → keep column
+        const hasHostCol = uniqHosts.length > 1;
         const singleHost = uniqHosts.length === 1 ? uniqHosts[0] : null;
 
         const headers = [
@@ -950,7 +932,7 @@ export default function DetectionsTab({ caseId }) {
   const sectionCountsRef = useRef({});
   const [exceptions, setExceptions] = useState([]);
   const [showExc, setShowExc]       = useState(false);
-  const [detail, setDetail]         = useState(null); // row clicked → full-record drawer
+  const [detail, setDetail]         = useState(null);
 
   const loadExceptions = useCallback(() => {
     detectionsAPI.exceptions(caseId).then(r => setExceptions(r.data?.exceptions || [])).catch(() => {});
@@ -958,10 +940,9 @@ export default function DetectionsTab({ caseId }) {
   useEffect(() => { loadExceptions(); }, [loadExceptions]);
 
   const removeException = async (exId) => {
-    try { await detectionsAPI.deleteException(caseId, exId); loadExceptions(); } catch { /* ignore */ }
+    try { await detectionsAPI.deleteException(caseId, exId); loadExceptions(); } catch { }
   };
 
-  // Background "run all engines" (YARA/Sigma/Hayabusa/detections) — survives leaving the page.
   const [bgJob, setBgJob] = useState(null);
   useEffect(() => {
     threatHuntingAPI.runAllStatus(caseId).then(r => { if (r.data?.status && r.data.status !== 'idle') setBgJob(r.data); }).catch(() => {});
@@ -972,7 +953,7 @@ export default function DetectionsTab({ caseId }) {
     return () => clearInterval(iv);
   }, [bgJob?.status, caseId]);
   const launchBg = async () => {
-    try { const r = await threatHuntingAPI.runAll(caseId); setBgJob(r.data); } catch { /* ignore */ }
+    try { const r = await threatHuntingAPI.runAll(caseId); setBgJob(r.data); } catch { }
   };
 
   const handleRunAll = () => {
@@ -981,7 +962,6 @@ export default function DetectionsTab({ caseId }) {
     setRunSignal(s => s + 1);
   };
 
-  // Auto-run all detections once when the tab opens.
   useEffect(() => { handleRunAll(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleComplete = useCallback((sectionId) => {

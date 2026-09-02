@@ -1,23 +1,23 @@
-import { ArrowUp, ArrowDown, ArrowUpDown, Filter } from 'lucide-react';
+import { ArrowUp, ArrowDown, ArrowUpDown, Filter, Pin, PinOff } from 'lucide-react';
 import { useRef, useState } from 'react';
 import FilterPopover, { isColFilterActive } from './FilterPopover';
 import { useTimelineStore } from '../store/useTimelineStore';
 
-export function ColumnHeader({ col, sortState, multiSort, onSort, onPin, isPinned, pinnedOffset, onResize, scrollLeftRef, clientSort }) {
-  // Server-sort entry (multi-sort) takes precedence over client-sort
+export function ColumnHeader({ col, sortState, multiSort, onSort, onPin, isPinned, pinnedOffset, onResize, onReorder, scrollLeftRef, clientSort }) {
   const serverEntry = multiSort?.find(s => s.col === col.key);
   const clientEntry = !serverEntry && clientSort?.col === col.key ? { col: col.key, dir: clientSort.dir } : null;
   const sortEntry   = serverEntry || clientEntry;
   const sortOrder   = multiSort?.length > 1 && serverEntry ? multiSort.findIndex(s => s.col === col.key) + 1 : null;
-  const isSortable  = true; // All columns support at least client-side sort
+  const isSortable  = true;
   const isClientSort = !!clientEntry;
   const isResizable = true;
-  // All columns are draggable to the GroupPanel (except _verdict which has no meaningful group value)
   const isGroupable = col.key !== '_verdict';
   const dragRef = useRef(null);
 
   const [showFilter, setShowFilter] = useState(false);
   const [hovered,    setHovered]    = useState(false);
+  const [focused,    setFocused]    = useState(false);
+  const [dropTarget, setDropTarget] = useState(false);
   const headerRef = useRef(null);
   const storeState   = useTimelineStore();
   const filterActive = isColFilterActive(col.key, storeState);
@@ -49,12 +49,32 @@ export function ColumnHeader({ col, sortState, multiSort, onSort, onPin, isPinne
   return (
     <div
       ref={headerRef}
+      tabIndex={0}
       {...(pinnedOffset != null ? { 'data-sticky-left': '' } : {})}
-      draggable={isGroupable}
-      onDragStart={isGroupable ? (e => {
-        e.dataTransfer.setData('groupField', JSON.stringify({ key: col.key, label: col.label }));
-        e.dataTransfer.effectAllowed = 'copy';
-      }) : undefined}
+      draggable
+      onDragStart={e => {
+        e.dataTransfer.setData('columnKey', col.key);
+        if (isGroupable) e.dataTransfer.setData('groupField', JSON.stringify({ key: col.key, label: col.label }));
+        e.dataTransfer.effectAllowed = 'copyMove';
+      }}
+      onDragOver={e => {
+        if (!onReorder || !e.dataTransfer.types.includes('columnKey')) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        setDropTarget(true);
+      }}
+      onDragLeave={() => setDropTarget(false)}
+      onDrop={e => {
+        setDropTarget(false);
+        const from = e.dataTransfer.getData('columnKey');
+        if (!from || from === col.key) return;
+        e.preventDefault();
+        e.stopPropagation();
+        onReorder?.(from, col.key);
+      }}
+      onDragEnd={() => setDropTarget(false)}
+      onFocus={() => setFocused(true)}
+      onBlur={e => { if (!e.currentTarget.contains(e.relatedTarget)) setFocused(false); }}
       onClick={isSortable ? (e => { if (!dragRef.current) onSort(col.key, e.shiftKey); }) : undefined}
       style={{
         padding: '0 8px',
@@ -72,6 +92,7 @@ export function ColumnHeader({ col, sortState, multiSort, onSort, onPin, isPinne
         transform:  pinnedOffset != null ? `translateX(${scrollLeftRef?.current ?? 0}px)` : undefined,
         boxShadow:  pinnedOffset != null ? '3px 0 6px rgba(0,0,0,0.25)' : undefined,
         borderRight: pinnedOffset != null ? '1px solid var(--fl-border)' : undefined,
+        borderLeft: dropTarget ? '1px solid var(--fl-accent)' : undefined,
       }}
       onMouseEnter={e => {
         setHovered(true);
@@ -107,17 +128,19 @@ export function ColumnHeader({ col, sortState, multiSort, onSort, onPin, isPinne
         onMouseEnter={e => { e.currentTarget.style.color = 'var(--fl-accent)'; }}
         onMouseLeave={e => { e.currentTarget.style.color = isPinned ? 'var(--fl-accent)' : 'var(--fl-subtle)'; }}
       >
-        {isPinned ? '⊟' : '⊞'}
+        {isPinned ? <PinOff size={9} strokeWidth={1.6} /> : <Pin size={9} strokeWidth={1.6} />}
       </span>
-      {/* Filter icon — shown on hover or when filter active */}
-      {(hovered || filterActive || showFilter) && (
-        <div
-          onClick={e => e.stopPropagation()}
-          style={{ position: 'relative', flexShrink: 0, marginLeft: 'auto' }}
-        >
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{
+          position: 'relative', flexShrink: 0, marginLeft: 'auto',
+          opacity: (hovered || focused || filterActive || showFilter) ? 1 : 0,
+          transition: 'opacity 90ms ease-out',
+        }}
+      >
           <button
             onClick={e => { e.stopPropagation(); setShowFilter(v => !v); }}
-            title="Filter this column"
+            title={`${col.label} — filtrer`}
             style={{
               background: 'none', border: 'none', cursor: 'pointer', padding: '1px 2px',
               display: 'flex', alignItems: 'center',
@@ -131,9 +154,7 @@ export function ColumnHeader({ col, sortState, multiSort, onSort, onPin, isPinne
           {showFilter && (
             <FilterPopover col={col} onClose={() => setShowFilter(false)} anchorEl={headerRef} />
           )}
-        </div>
-      )}
-      {/* Resize handle */}
+      </div>
       {isResizable && (
         <div
           onMouseDown={startResize}

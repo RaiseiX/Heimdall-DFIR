@@ -25,7 +25,7 @@ const TABS = [
   { key: 'notes',   label: 'Notes'   },
   { key: 'raw',     label: 'Raw'     },
   { key: 'schema',  label: 'Schema'  },
-  { key: 'ai',      label: 'AI ✦', accent: 'var(--fl-ok)' },
+  { key: 'ai',      label: 'AI', accent: 'var(--fl-ok)' },
 ];
 
 export default function DetailPanel() {
@@ -65,17 +65,13 @@ export default function DetailPanel() {
       borderLeft: '1px solid var(--fl-border)', display: 'flex', flexDirection: 'column', overflow: 'hidden',
       transition: 'width 0.15s ease' }}>
 
-      {/* Artifact color bar — full width top border */}
       <div style={{ height: 3, background: acol, flexShrink: 0 }} />
 
-      {/* Forensic identity header */}
       <div style={{ padding: '8px 12px 0', borderBottom: '1px solid var(--fl-card)', flexShrink: 0 }}>
 
-        {/* Line 1: artifact badge + timestamp + host + navigation */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 5 }}>
-          <span style={{ padding: '1px 6px', borderRadius: 3, fontSize: 9, fontWeight: 700,
-            fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', background: `color-mix(in srgb, ${acol} 9%, transparent)`, color: acol, border: `1px solid color-mix(in srgb, ${acol} 19%, transparent)`,
-            flexShrink: 0 }}>
+          <span style={{ fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
+            color: acol, flexShrink: 0 }}>
             {record.artifact_type}
           </span>
           <span style={{ fontSize: 10, color: 'var(--fl-accent)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', flex: 1,
@@ -83,7 +79,7 @@ export default function DetailPanel() {
             {fmtTs(record.timestamp)}
           </span>
           {record.host_name && (
-            <span style={{ fontSize: 9, color: '#4a6080', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', flexShrink: 0 }}>
+            <span style={{ fontSize: 9, color: 'var(--fl-muted)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', flexShrink: 0 }}>
               {record.host_name}
             </span>
           )}
@@ -141,13 +137,11 @@ export default function DetailPanel() {
           </div>
         </div>
 
-        {/* Line 2: description */}
         <div style={{ fontSize: 11, color: '#c0d4f0', marginBottom: 5, lineHeight: 1.4,
           display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
           {desc}
         </div>
 
-        {/* Line 3: confidence + forensic tags + MITRE IDs */}
         {(lvl || detSev || td.tags?.length > 0 || mitreTags.length > 0) && (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 6 }}>
             {lvl && (
@@ -167,24 +161,21 @@ export default function DetailPanel() {
             {td.tags?.map(key => {
               const ft = FORENSIC_TAG_MAP[key];
               return ft ? (
-                <span key={key} style={{ padding: '0 5px', borderRadius: 8, fontSize: 9,
-                  fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontWeight: 600, background: `color-mix(in srgb, ${ft.color} 13%, transparent)`,
-                  color: ft.color, border: `1px solid color-mix(in srgb, ${ft.color} 19%, transparent)` }}>
+                <span key={key} style={{ fontSize: 9,
+                  fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: ft.color }}>
                   {ft.label}
                 </span>
               ) : null;
             })}
             {mitreTags.slice(0, 3).map(t => (
-              <span key={t} style={{ padding: '0 5px', borderRadius: 3, fontSize: 9,
-                fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', background: 'var(--fl-card)', color: 'var(--fl-accent)',
-                border: '1px solid color-mix(in srgb, var(--fl-accent) 19%, transparent)' }}>
+              <span key={t} style={{ fontSize: 9,
+                fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-accent)' }}>
                 {t}
               </span>
             ))}
           </div>
         )}
 
-        {/* Tab nav */}
         <div style={{ display: 'flex', gap: 0, flexWrap: 'nowrap', overflowX: 'auto' }}>
           {TABS.map(tab => {
             const active = detailTab === tab.key;
@@ -205,7 +196,6 @@ export default function DetailPanel() {
         </div>
       </div>
 
-      {/* Tab body */}
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: 'var(--fl-panel)' }}>
         {detailTab === 'details' && <DetailsTab record={record} />}
         {detailTab === 'mitre'   && <MitreTab   record={record} />}

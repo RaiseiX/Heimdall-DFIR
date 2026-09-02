@@ -8,8 +8,6 @@ import { useTranslation } from 'react-i18next';
 import { buildParserLogReport } from './parserLogExport';
 import { buildParseResults } from './parserResults';
 
-// Honest status vocabulary — every ingestion/parse state gets its own badge.
-// NEVER collapse empty/degraded/quarantined/skipped(_duplicate) into a green "ok" badge.
 const STATUS_CONFIG = {
   ok:                { key: 'parserLogs.status_ok',        color: 'var(--fl-ok)',     icon: CheckCircle2 },
   parsed:            { key: 'parserLogs.status_ok',        color: 'var(--fl-ok)',     icon: CheckCircle2 },
@@ -26,8 +24,6 @@ const STATUS_CONFIG = {
   parsing:           { key: 'parserLogs.status_progress',  color: 'var(--fl-dim)',    icon: Loader2 },
 };
 
-// Priority order for rolling many per-parser statuses up into one header badge —
-// worst / most-informative status wins. Nothing here folds into "ok".
 const STATUS_PRIORITY = ['error', 'quarantined', 'degraded', 'empty', 'skipped_duplicate', 'skipped', 'parsing', 'queued', 'classified', 'extracting', 'received', 'ok', 'parsed'];
 
 function deriveStatus(parseResults = []) {
@@ -47,9 +43,6 @@ function fmtDuration(parsed_at, updated_at) {
   return `${Math.round(ms/60000)}min`;
 }
 
-// Every decision scanCollectionCsvs can make gets its own badge — none of these
-// ever collapse into a single green "ok" count, matching the honest-status
-// convention documented at the top of this file.
 const CSV_BADGES = [
   { key: 'imported', labelKey: 'parserLogs.csv_imported', color: 'var(--fl-ok)' },
   { key: 'imported_fallback', labelKey: 'parserLogs.csv_imported_fallback', color: 'var(--fl-warn)' },
@@ -84,8 +77,6 @@ export default function ParserLogsPage() {
     setLoading(false);
   }
 
-  // Honest 11-state ingestion rollup (received…parsed/empty/degraded/error/quarantined/skipped_duplicate)
-  // for the selected evidence — distinct from the per-parser-run statuses in the table below.
   async function loadIngestionCounts() {
     if (!caseId || !collectionId) { setIngestionCounts(null); return; }
     try {
@@ -106,12 +97,6 @@ export default function ParserLogsPage() {
     });
   }
 
-  // Carries a run's outcome off the machine it ran on — tests run on one box,
-  // debugging often happens on another, and a screenshot can't be grepped.
-  // Flattens every currently-loaded row's per-parser results (the same shape
-  // rendered on screen) into the plain-text report; a hard backend crash
-  // mid-parse is the one case this can't capture (nothing here to flatten),
-  // but ordinary parser-level failures — the common case — show up either way.
   function handleExport() {
     const generatedAt = new Date().toISOString();
     const flatRows = [];

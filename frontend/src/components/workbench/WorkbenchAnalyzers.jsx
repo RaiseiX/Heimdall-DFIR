@@ -1,11 +1,6 @@
 import { useMemo } from 'react';
 import { Shield, KeyRound, LogIn, AlertTriangle } from 'lucide-react';
 
-// ── Persistence Sweep ────────────────────────────────────────────────────────
-// Pattern library: structured detection rules matching common Windows persistence
-// techniques. Each rule is evaluated against every pinned row's raw text; hits are
-// grouped by MITRE technique and rendered as a compact, actionable table.
-
 const PERSISTENCE_RULES = [
   { mitre: 'T1547.001', name: 'Registry Run Keys',       weight: 3, match: r => /\\(Run|RunOnce|RunOnceEx|RunServices|RunServicesOnce)(\\|$)/i.test(r._blob) || /HKLM.*CurrentVersion\\Run/i.test(r._blob) || r.artifact_type === 'registry' && /\\Run(Once)?\\/.test(r.source || '') },
   { mitre: 'T1547.009', name: 'LNK Startup Folder',      weight: 3, match: r => /Startup\\.*\.lnk/i.test(r._blob) || (r.artifact_type === 'lnk' && /\\Startup\\/i.test(r._blob)) },
@@ -100,10 +95,6 @@ export function PersistenceSweep({ pins, caseId, navigate }) {
     </div>
   );
 }
-
-// ── Logon Session Reconstruction ─────────────────────────────────────────────
-// Groups 4624 / 4625 / 4634 / 4648 events by their TargetLogonId / SubjectLogonId.
-// Reconstructs sessions: start (logon), end (logoff), duration, logon type, user, host.
 
 const LOGON_TYPES = {
   2:  'Interactive',

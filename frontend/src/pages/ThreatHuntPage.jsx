@@ -261,15 +261,10 @@ function YaraRulesTab() {
   const [saving, setSaving]      = useState(false);
   const [error, setError]        = useState('');
 
-  // Toolbar — search by name, single-select segmented filter, scope columns
-  // the analyst has explicitly asked back after a ScopeBar token removal.
   const [search, setSearch]       = useState('');
   const [filter, setFilter]       = useState('all');
   const [restoredScope, setRestoredScope] = useState(() => new Set());
 
-  // Delete confirmation — retype-to-confirm via the shared destructiveConfirm
-  // gate (utils/destructiveConfirm.js), not a bespoke check: the trash icon
-  // used to sit right next to edit, 566 times, with no guard at all.
   const [pendingDelete, setPendingDelete] = useState(null);
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
   const [deleting, setDeleting] = useState(false);
@@ -284,10 +279,6 @@ function YaraRulesTab() {
       setLoading(false);
       return;
     }
-    // Rules and stats are two independent facts — a rule list is fully usable
-    // (browse, search, edit, delete) without match counts. Fetched separately
-    // so a stats-endpoint hiccup degrades to "counts unavailable" rather than
-    // hiding the whole table behind an unrelated error.
     try {
       const statsRes = await threatHuntingAPI.yaraRuleStats();
       setRuleStats(statsRes.data.stats ?? []);
@@ -300,8 +291,6 @@ function YaraRulesTab() {
 
   useEffect(() => { load(); }, [load]);
 
-  // Rows: rules joined with match-count stats (Task 1). Absence from `stats`
-  // means zero matches, not a missing rule — see mergeRuleStats' doc comment.
   const rows = useMemo(() => mergeRuleStats(rules, ruleStats), [rules, ruleStats]);
   const stats = useMemo(() => computeYaraRuleStats(rows), [rows]);
   const segmentCounts = useMemo(() => ({
@@ -315,10 +304,6 @@ function YaraRulesTab() {
     [rows, search, filter],
   );
 
-  // Scope bar — columns constant across every currently-loaded rule (Task 2's
-  // constantColumns) get lifted into a removable token instead of a column.
-  // Removing a token adds its key back to `restoredScope`, which both drops
-  // it from the lifted set below and re-inserts a real column for it.
   const constantKeys = useMemo(() => constantColumns(rows, SCOPE_CANDIDATE_COLUMNS), [rows]);
   const liftedKeys = useMemo(
     () => constantKeys.filter(key => !restoredScope.has(key)),
@@ -418,7 +403,7 @@ function YaraRulesTab() {
     if (!pendingDelete) return;
     setDeleting(true);
     try { await threatHuntingAPI.deleteYaraRule(pendingDelete.id); setPendingDelete(null); load(); }
-    catch (_e) { /* surfaced via the next load()'s loadError if the list itself fails to refresh */ }
+    catch (_e) { }
     finally { setDeleting(false); }
   }
 
@@ -436,10 +421,6 @@ function YaraRulesTab() {
       },
       {
         key: 'name', header: t('threat_hunt.yara.columns.rule'), mono: true,
-        // Dimmed means "won't run" (disabled), not "hasn't matched yet" —
-        // see `isRuleDimmed`'s doc comment. A zero-match active rule still
-        // hunts on every run; that state is carried by the `—` in the
-        // Correspondances column and the `Muettes` filter instead.
         render: r => <span className={isRuleDimmed(r) ? 'rt-name-muted' : undefined}>{r.name}</span>,
       },
     ];
@@ -687,19 +668,11 @@ function YaraScanTab() {
     casesAPI.list().then(r => setCases(r.data.cases || [])).catch(() => {});
   }, []);
 
-  // Case switch resets every band tied to a *run* — scope/progress/stats
-  // describe a scan that hasn't happened yet for the newly-picked case.
-  // Same shape as SigmaHuntTab's own case-switch effect.
   useEffect(() => {
     setScopeInfo(null); setProgress(null); setScanStats(null); setScanError('');
     if (!caseId) { setEvidence([]); setResults([]); setHeaderMeta(null); return; }
     evidenceAPI.list(caseId).then(r => setEvidence(r.data.evidence || [])).catch(() => {});
     threatHuntingAPI.yaraResultsCase(caseId).then(r => setResults(r.data.results || [])).catch(() => {});
-    // Same cheap /timeline?limit=1 call SigmaHuntTab uses purely for its
-    // `hosts_available` aggregate — a case's host is a property of the
-    // case, not of whichever engine is currently running, so it's worth
-    // showing here even though a YARA scan itself never touches the
-    // timeline. No new backend endpoint.
     timelineAPI.list(caseId, { limit: 1 })
       .then(r => setHeaderMeta({ hosts: r.data?.hosts_available || [] }))
       .catch(() => setHeaderMeta(null));
@@ -732,11 +705,6 @@ function YaraScanTab() {
               setScopeInfo({
                 evidenceTotal: ev.total,
                 rulesTotal: ev.rules,
-                // `files_to_scan`/`skipped_memory`/`skipped_size` (2026-08-11
-                // scope-band precomputation) are additive on `start` — an
-                // older backend build without them would leave filesToScan
-                // at the full evidence count, i.e. "nothing skipped" rather
-                // than throwing.
                 filesToScan: ev.files_to_scan ?? ev.total,
                 skippedMemory: ev.skipped_memory || 0,
                 skippedSize: ev.skipped_size || 0,
@@ -789,13 +757,6 @@ function YaraScanTab() {
     return t('threat_hunt.yara.meta_volume', { count: evidence.length, n: fmtNum(evidence.length, i18n.language), size: fmtSize(totalSize) });
   }, [caseId, evidence, t, i18n.language]);
 
-  // YARA persists matches only — `POST /yara/scan-case/:caseId` is a
-  // DELETE-then-INSERT-WHERE-matched (see yaraScanTable.js's own doc
-  // comment), so a scan that found nothing leaves no row anywhere. Unlike
-  // Sigma's `hunted_at` (a hunt record is written every time, match or not),
-  // there is no honest way to say "last scan" here — only "last match".
-  // Distinguishing the two matters: a case scanned five times with zero
-  // hits must not read as "never scanned".
   const lastMatchLabel = useMemo(() => {
     const last = results[0]?.scanned_at;
     return last
@@ -807,10 +768,6 @@ function YaraScanTab() {
   const scopeStatus      = scanError ? 'error' : scanning ? 'running' : scanStats ? 'done' : null;
   const scopeStatusColor = scopeStatus === 'error' ? 'var(--fl-danger)' : scopeStatus === 'running' ? C.yara : 'var(--fl-ok)';
 
-  // Fallback stats built from persisted results alone (page just loaded, no
-  // scan ran this session yet) via yaraScanTable.js's own
-  // deriveYaraScanStats — filesScanned/filesSkipped/rulesChecked stay
-  // `null` ("unknown"), never guessed as 0, since only matches persist.
   const derivedStats = useMemo(() => {
     if (scanStats) return scanStats;
     if (!results.length) return null;
@@ -862,7 +819,6 @@ function YaraScanTab() {
         <EmptyState icon={Scan} title={t('threat_hunt.yara.pick_case_prompt')} />
       ) : (
         <>
-          {/* 1. Header — case, host(s), evidence volume, last match */}
           <div className="rt-hunt-header">
             <h3 className="rt-case-title">{selectedCase ? `${selectedCase.case_number} — ${selectedCase.title}` : caseId}</h3>
             <div className="rt-stat-row">
@@ -872,10 +828,6 @@ function YaraScanTab() {
             </div>
           </div>
 
-          {/* 2. Scope band — what WILL be scanned, populated by the SSE
-              `start` event (fires before any file is actually scanned).
-              Evidence files, not the timeline — see the route's own
-              skip-classification comment in threatHunting.ts. */}
           {scopeInfo && (
             <div className="rt-toolbar">
               <Badge color={C.yara}>{t('threat_hunt.yara.scope_rules', { count: scopeInfo.rulesTotal, n: fmtNum(scopeInfo.rulesTotal, i18n.language) })}</Badge>
@@ -895,8 +847,6 @@ function YaraScanTab() {
             </div>
           )}
 
-          {/* 3. Progress band — during the run, what's been found so far,
-              not just current/total/name */}
           {scanning && progress && (
             <div>
               <div className="rt-stat-row">
@@ -909,7 +859,6 @@ function YaraScanTab() {
             </div>
           )}
 
-          {/* 4. Stats row */}
           {derivedStats && (
             <div className="rt-stat-row">
               <span>
@@ -926,11 +875,6 @@ function YaraScanTab() {
             </div>
           )}
 
-          {/* 5. Results table — one row per evidence×rule match; no
-              severity axis to sort by (YARA carries none), so rows stay in
-              the backend's own `ORDER BY scanned_at DESC` — most recent
-              match first, which doubles as "what changed since I was last
-              here". */}
           <div className="rt-table-wrap">
             <DataTable
               columns={columns}
@@ -997,18 +941,10 @@ function SigmaRulesTab() {
   const [saving, setSaving]       = useState(false);
   const [error, setError]         = useState('');
 
-  // Toolbar — search by name, single-select segmented filter, scope columns
-  // the analyst has explicitly asked back after a ScopeBar token removal.
-  // Same shape as YaraRulesTab (see yaraRulesTable.js's doc comments); the
-  // second caller of these primitives, not a new pattern.
   const [search, setSearch]       = useState('');
   const [filter, setFilter]       = useState('all');
   const [restoredScope, setRestoredScope] = useState(() => new Set());
 
-  // Delete confirmation — retype-to-confirm via the shared destructiveConfirm
-  // gate, exactly like YaraRulesTab. This replaces the bare `confirm()` the
-  // tab used before: the trash icon sat right next to edit, 3999 times, with
-  // no guard at all.
   const [pendingDelete, setPendingDelete] = useState(null);
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
   const [deleting, setDeleting] = useState(false);
@@ -1022,10 +958,6 @@ function SigmaRulesTab() {
 
   useEffect(() => { load(); }, [load]);
 
-  // Rows: rules plus a stable tagsKey (sigmaRulesTable.js's withTagsKey) so
-  // constantColumns has a scalar to compare tags by. Unlike YaraRulesTab
-  // there is no per-rule stats endpoint to merge — Sigma rules carry no
-  // equivalent of yara_scan_results.
   const rows = useMemo(() => withTagsKey(rules), [rules]);
   const stats = useMemo(() => computeSigmaRuleStats(rows), [rows]);
   const segmentCounts = useMemo(() => ({
@@ -1039,12 +971,6 @@ function SigmaRulesTab() {
     [rows, search, filter],
   );
 
-  // Scope bar — columns constant across every currently-loaded rule
-  // (SIGMA_SCOPE_CANDIDATE_COLUMNS: tagsKey and author_username) get lifted
-  // into a removable token instead of a column. On the real 3999-row set
-  // both are constant — every rule was imported from the same
-  // `{github, sigmahq}` source, under the same account — see the doc
-  // comment on SIGMA_SCOPE_CANDIDATE_COLUMNS in sigmaRulesTable.js.
   const constantKeys = useMemo(() => constantColumns(rows, SIGMA_SCOPE_CANDIDATE_COLUMNS), [rows]);
   const liftedKeys = useMemo(
     () => constantKeys.filter(key => !restoredScope.has(key)),
@@ -1113,7 +1039,7 @@ function SigmaRulesTab() {
     if (!pendingDelete) return;
     setDeleting(true);
     try { await threatHuntingAPI.deleteSigmaRule(pendingDelete.id); setPendingDelete(null); load(); }
-    catch (_e) { /* surfaced via the next load()'s loadError if the list itself fails to refresh */ }
+    catch (_e) { }
     finally { setDeleting(false); }
   }
 
@@ -1122,13 +1048,6 @@ function SigmaRulesTab() {
     catch (_e) {}
   }
 
-  // Dims text in a rule's cells (never the whole row via a DataTable prop
-  // DataTable doesn't have — see the report on why that would have been a
-  // contract change) when `isRuleDimmed` says the rule won't run: disabled,
-  // or retired upstream. Applied to every text cell (rule/platform/
-  // technique/status) so the row still reads as muted at a glance, while
-  // the severity dot keeps its true colour — a rule doesn't stop being
-  // critical for being deprecated or disabled.
   function dimCls(r) {
     return isRuleDimmed(r) ? 'rt-name-muted' : undefined;
   }
@@ -1359,13 +1278,6 @@ const ARTIFACT_COLORS = {
 };
 function ac(t) { return ARTIFACT_COLORS[t] || 'var(--fl-dim)'; }
 
-// ── Sigma severity vocabulary (SIGMA_LEVEL_RANK/COLOR, sigmaLevelRank/Color/
-// Label) and fmtNum now live in ./sigmaRulesTable.js — SigmaRulesTab (the
-// rules inventory, below) and SigmaHuntTab (the case-scoped results table)
-// both need the exact same "critical is always red, unknown never guessed"
-// rules, and a shared, independently-tested source beats two copies drifting
-// apart. See the import at the top of this file.
-
 function SigmaHuntTab() {
   const { t, i18n } = useTranslation();
   const [cases, setCases]           = useState([]);
@@ -1394,20 +1306,12 @@ function SigmaHuntTab() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Case switch resets every band tied to a *run* (scope/progress/stats are
-  // about a scan that hasn't happened for the newly-picked case) but leaves
-  // `ruleId` alone — an analyst probing the same Sigma rule across several
-  // cases in a row is a real workflow, and the rule list isn't case-scoped.
   useEffect(() => {
     setScopeInfo(null); setProgress(null); setScanStats(null); setScanError(''); setHuntError('');
     if (!caseId) { setHistory([]); setHistoryError(''); setHeaderMeta(null); return; }
     threatHuntingAPI.sigmaHunts(caseId)
       .then(r => { setHistory(r.data.hunts || []); setHistoryError(''); })
       .catch(e => { setHistory([]); setHistoryError(e.response?.data?.error || e.message || t('threat_hunt.sigma.errors.load_history')); });
-    // Cheapest possible call into the SuperTimeline's own /timeline route
-    // (limit: 1 — one record) purely for its `total` and `hosts_available`
-    // aggregates, which the header band needs. No new backend endpoint: this
-    // one already computes both for every SuperTimeline page load.
     timelineAPI.list(caseId, { limit: 1 })
       .then(r => setHeaderMeta({ total: r.data?.total ?? 0, hosts: r.data?.hosts_available || [] }))
       .catch(() => setHeaderMeta(null));
@@ -1451,11 +1355,6 @@ function SigmaHuntTab() {
             if (ev.type === 'start') {
               setScopeInfo({
                 total: ev.total,
-                // rules_to_run is the exact count (added alongside skipped_platform/
-                // collection_platform — see threatHunting.ts); the total-minus-
-                // skipped_platform fallback below only covers if an older backend
-                // build is somehow still running, and slightly overstates when
-                // status-excluded rules also fall inside the matching platforms.
                 rulesToRun: ev.rules_to_run ?? Math.max(0, ev.total - (ev.skipped_platform || 0)),
                 skippedPlatform: ev.skipped_platform || 0,
                 collectionPlatform: ev.collection_platform,
@@ -1492,11 +1391,6 @@ function SigmaHuntTab() {
   const selectedCase = cases.find(c => c.id === caseId) || null;
   const selectedRule = sigmaRules.find(r => r.id === ruleId) || null;
 
-  // CommandPalette in generic mode (components/ui/CommandPalette.jsx) —
-  // replaces the 3999-option <select> this tab used to render. `sub` folds
-  // severity + the most specific MITRE technique into the picker's second
-  // line so an analyst can find "that one critical T1055 rule" by typing
-  // either the name or either of those, without opening it first.
   const ruleItems = useMemo(() => sigmaRules.map(r => ({
     id: r.id,
     label: r.name,
@@ -1525,12 +1419,6 @@ function SigmaHuntTab() {
       : t('threat_hunt.sigma.meta_last_hunt_never');
   }, [history, t, i18n.language]);
 
-  // Default sort is severity descending (design spec) — match_count breaks
-  // ties within a tier. A level absent or unrecognised (rank 0) sinks to the
-  // bottom rather than being folded into `low`: this project's rule is that
-  // a decision never collapses into an absence of data, and "we don't know
-  // this rule's severity" is not the same claim as "this rule is low
-  // severity".
   const sortedHistory = useMemo(() => {
     return [...history].sort((a, b) => {
       const r = sigmaLevelRank(b.level) - sigmaLevelRank(a.level);
@@ -1538,12 +1426,6 @@ function SigmaHuntTab() {
     });
   }, [history]);
 
-  // The stats row's "rules evaluated" figure only exists for a scan run THIS
-  // session (it comes off the SSE `done` event, never persisted). Falling
-  // back to `history` still gives honest "rules with matches" / "total
-  // events" / severity breakdown counts — but `rulesChecked` stays `null`
-  // rather than being guessed, and the row below renders that as "unknown",
-  // not as 0.
   const derivedStats = useMemo(() => {
     if (scanStats) return scanStats;
     if (!history.length) return null;
@@ -1582,11 +1464,6 @@ function SigmaHuntTab() {
         : '—'),
     },
     {
-      // Honest counts (Task 1 of the platform-scoping plan): `match_count`
-      // is a real COUNT(*), `sample_size` how much of it `matched_events`
-      // actually samples. `sample_size == null` (rows from before that
-      // column existed) is shown as "unknown", never silently as 0 — the
-      // same rule this whole product enforces everywhere else.
       key: 'match_count', header: t('threat_hunt.sigma.columns.matches'), width: 150, align: 'right', mono: true,
       render: r => {
         if (r.match_count == null) return '—';
@@ -1663,7 +1540,6 @@ function SigmaHuntTab() {
         <EmptyState icon={Shield} title={t('threat_hunt.sigma.pick_case_prompt')} />
       ) : (
         <>
-          {/* 1. Header — case, host(s), event count, last hunt date */}
           <div className="rt-hunt-header">
             <h3 className="rt-case-title">{selectedCase ? `${selectedCase.case_number} — ${selectedCase.title}` : caseId}</h3>
             <div className="rt-stat-row">
@@ -1673,8 +1549,6 @@ function SigmaHuntTab() {
             </div>
           </div>
 
-          {/* 2. Scope band — what WILL run, populated by the SSE `start`
-              event (fires before any rule is actually evaluated) */}
           {scopeInfo && (
             <div className="rt-toolbar">
               <Badge color={C.sigma}>
@@ -1698,8 +1572,6 @@ function SigmaHuntTab() {
             </div>
           )}
 
-          {/* 3. Progress band — during the run, what's been found so far,
-              not just current/total/name */}
           {scanning && progress && (
             <div>
               <div className="rt-stat-row">
@@ -1714,7 +1586,6 @@ function SigmaHuntTab() {
             </div>
           )}
 
-          {/* 4. Stats row */}
           {derivedStats && (
             <div className="rt-stat-row">
               <span>
@@ -1729,9 +1600,6 @@ function SigmaHuntTab() {
             </div>
           )}
 
-          {/* 5. Results table — severity descending by default; every
-              matched row is a real react-router Link (DataTable's rowHref),
-              never an onClick-as-navigation div */}
           <div className="rt-table-wrap">
             <DataTable
               columns={columns}
@@ -1779,7 +1647,6 @@ function getTabs(t) {
   ];
 }
 
-// ── Community Sysmon configurations (downloaded straight from their GitHub) ──
 const SYSMON_CONFIGS = [
   {
     key: 'swiftonsecurity',
@@ -1837,7 +1704,7 @@ function SysmonTab() {
   const { t, i18n } = useTranslation();
   const [busy, setBusy] = useState(null);
   const [err, setErr]   = useState({});
-  const [lib, setLib]   = useState({});   // key -> { imported_at, size }
+  const [lib, setLib]   = useState({});
 
   const loadLib = useCallback(() => {
     threatHuntingAPI.sysmonLibrary()
@@ -1849,14 +1716,14 @@ function SysmonTab() {
   async function importCfg(cfg) {
     setBusy(cfg.key); setErr(e => ({ ...e, [cfg.key]: null }));
     try {
-      await threatHuntingAPI.sysmonImport(cfg.key);   // server fetches + stores
+      await threatHuntingAPI.sysmonImport(cfg.key);
       loadLib();
     } catch (e) {
       setErr(er => ({ ...er, [cfg.key]: t('threat_hunt.sysmon.import_failed', { error: e.response?.data?.error || e.message }) }));
     } finally { setBusy(null); }
   }
   async function removeCfg(key) {
-    try { await threatHuntingAPI.sysmonLibraryDelete(key); loadLib(); } catch { /* ignore */ }
+    try { await threatHuntingAPI.sysmonLibraryDelete(key); loadLib(); } catch { }
   }
   async function downloadStored(cfg) {
     try {
@@ -1866,12 +1733,9 @@ function SysmonTab() {
       a.download = `${cfg.key}-sysmonconfig.xml`;
       document.body.appendChild(a); a.click(); a.remove();
       URL.revokeObjectURL(a.href);
-    } catch { /* ignore */ }
+    } catch { }
   }
 
-  // Band ② measures — small integers only (catalogue tops out at 5 entries),
-  // so plain `{{count}}` is enough; no locale thousands-formatting needed
-  // (contrast Sigma/YARA's `fmtNum`, built for four-digit rule counts).
   const importedEntries   = Object.values(lib);
   const importedCount     = importedEntries.length;
   const notImportedCount  = SYSMON_CONFIGS.length - importedCount;
@@ -1882,10 +1746,6 @@ function SysmonTab() {
 
   return (
     <div>
-      {/* 1. Header — archetype C has no case/scope to name, so the title is
-          the catalogue itself; subtitle is what a config actually does and
-          how it's used, since "recommended community configs" alone
-          wouldn't tell an analyst why importing one matters. */}
       <div className="rt-hunt-header">
         <h3 className="rt-case-title">{t('threat_hunt.sysmon.header_title')}</h3>
         <p className="rt-intro-text">
@@ -1895,10 +1755,6 @@ function SysmonTab() {
         </p>
       </div>
 
-      {/* 2. Stats — the only other band this archetype gets (§2.1). No
-          scope band (nothing is filtered), no toolbar (4-5 items, nothing
-          to search/sort), no DataTable (a table over 4-5 rows is the
-          uniformity the design spec explicitly warns against). */}
       <div className="rt-stat-row">
         <span>{t('threat_hunt.sysmon.stat_total', { count: SYSMON_CONFIGS.length })}</span>
         <span>{t('threat_hunt.sysmon.stat_imported', { count: importedCount })}</span>
@@ -1935,9 +1791,6 @@ function SysmonTab() {
                     </span>
                   )}
                 </div>
-                {/* A failed import says why (server error text), never just
-                    silence — same "never turn a decision into an absence of
-                    data" rule the stats row above follows for zero counts. */}
                 {err[cfg.key] && <p className="rt-catalog-error">{err[cfg.key]}</p>}
               </div>
               <div className="rt-catalog-actions">
@@ -1976,7 +1829,6 @@ function SysmonTab() {
   );
 }
 
-// ── "Run all" — launch every engine on a case in the background ──────────────
 function RunAllTab() {
   const { t, i18n } = useTranslation();
   const [cases, setCases]         = useState([]);
@@ -1993,16 +1845,8 @@ function RunAllTab() {
     setScope(null); setScopeError('');
     if (!caseId) { setJob(null); setHeaderMeta(null); return; }
     threatHuntingAPI.runAllStatus(caseId).then(r => setJob(r.data)).catch(() => setJob(null));
-    // Read-only preview (backend/src/routes/threatHunting.ts's `/run-all/
-    // :caseId/scope`, 2026-08-11) — no scan runs, nothing is written; safe
-    // to call on every case switch, before the analyst decides to launch
-    // anything. Reuses Sigma's own platform/status scoping policy for its
-    // half, so this can never drift from what a real launch evaluates.
     threatHuntingAPI.runAllScope(caseId).then(r => setScope(r.data))
       .catch(() => setScopeError(t('threat_hunt.run_all.scope_error')));
-    // Same cheap /timeline?limit=1 call the other two execution tabs use
-    // purely for `hosts_available` — a case's host, not tied to any one
-    // engine.
     timelineAPI.list(caseId, { limit: 1 })
       .then(r => setHeaderMeta({ hosts: r.data?.hosts_available || [] }))
       .catch(() => setHeaderMeta(null));
@@ -2018,7 +1862,7 @@ function RunAllTab() {
   async function launch() {
     if (!caseId) return;
     setLaunching(true);
-    try { const r = await threatHuntingAPI.runAll(caseId); setJob(r.data); } catch { /* ignore */ } finally { setLaunching(false); }
+    try { const r = await threatHuntingAPI.runAll(caseId); setJob(r.data); } catch { } finally { setLaunching(false); }
   }
 
   const selectedCase = cases.find(c => c.id === caseId) || null;
@@ -2038,10 +1882,6 @@ function RunAllTab() {
     return t('threat_hunt.sigma.meta_hosts_count', { count: hosts.length, n: fmtNum(hosts.length, i18n.language) });
   }, [headerMeta, t, i18n.language]);
 
-  // `hunt_runs` only ever keeps the latest row per case (getHuntRun orders
-  // by started_at DESC LIMIT 1), so "last run" is finished_at once a run
-  // has completed, started_at while one is still going, and an honest
-  // "never" when no row exists at all for this case yet.
   const lastRunLabel = useMemo(() => {
     if (!job || job.status === 'idle') return t('threat_hunt.run_all.meta_last_run_never');
     const date = job.finished_at || job.started_at;
@@ -2066,8 +1906,6 @@ function RunAllTab() {
     {
       key: 'count', header: t('threat_hunt.run_all.columns.findings'), width: 140, align: 'right', mono: true,
       render: st => {
-        // Never guess a number for a step that hasn't finished — `count`
-        // only means something once the step is `done`.
         if (st.status === 'error') return <span className="rt-cell-danger" title={st.error || undefined}>{t('threat_hunt.run_all.status.error')}</span>;
         if (st.status === 'done')  return <span className={(st.count || 0) > 0 ? 'rt-cell-danger' : 'rt-name-muted'}>{fmtNum(st.count ?? 0, i18n.language)}</span>;
         return <span className="rt-name-muted">—</span>;
@@ -2098,8 +1936,6 @@ function RunAllTab() {
         <EmptyState icon={Rocket} title={t('threat_hunt.run_all.pick_case_prompt')} />
       ) : (
         <>
-          {/* 1. Header — case, host(s), last run (this endpoint's own
-              status/steps, not tied to any one engine's substrate) */}
           <div className="rt-hunt-header">
             <h3 className="rt-case-title">{selectedCase ? `${selectedCase.case_number} — ${selectedCase.title}` : caseId}</h3>
             <div className="rt-stat-row">
@@ -2110,11 +1946,6 @@ function RunAllTab() {
 
           {scopeError && <Alert variant="warn" message={scopeError} />}
 
-          {/* 2. Scope band — one line per engine, never a merged figure:
-              YARA counts evidence files, Sigma counts timeline events, and
-              the two substrates aren't comparable. See threatHunting.ts's
-              own `/run-all/:caseId/scope` comment for why this preview can
-              never drift from what launching for real would evaluate. */}
           {scope && (
             <div>
               <div className="rt-scope-line">
@@ -2138,9 +1969,6 @@ function RunAllTab() {
             </div>
           )}
 
-          {/* 3. Progress band — while running, what's been found so far
-              across the engines that already finished, not just which
-              engine is currently active. */}
           {running && (
             <div className="rt-stat-row">
               <span>{t('threat_hunt.run_all.engines_done', { done: doneCount, total: steps.length })}</span>
@@ -2148,8 +1976,6 @@ function RunAllTab() {
             </div>
           )}
 
-          {/* 4. Stats row — post-run summary; not shown mid-run so it never
-              duplicates band 3's own numbers. */}
           {hasSteps && !running && (
             <div className="rt-stat-row">
               <span>{t('threat_hunt.run_all.done')}</span>
@@ -2161,9 +1987,6 @@ function RunAllTab() {
             </div>
           )}
 
-          {/* 5. Results — one row per engine; no severity axis (fixed
-              built-in analyses, not a rule corpus with a level column), so
-              rows keep the engines' own declared order. */}
           <div className="rt-table-wrap">
             <DataTable
               columns={columns}
@@ -2197,7 +2020,6 @@ export default function ThreatHuntPage() {
         </p>
       </div>
 
-      {/* Segmented control nav (active tint = section colour: YARA accent / Sigma steel) */}
       <div style={{ display: 'inline-flex', gap: 2, padding: 3, marginBottom: 22, borderRadius: 9, background: 'var(--fl-bg)', border: '1px solid var(--fl-border)', maxWidth: '100%', overflowX: 'auto' }}>
         {tabs.map(it => {
           const on = tab === it.id; const Ico = it.icon;

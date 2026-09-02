@@ -4,8 +4,6 @@ import { Monitor, X } from 'lucide-react';
 
 const MONO = 'var(--f-mono, "JetBrains Mono", monospace)';
 
-// Auth'd images can't be loaded via a plain <img src> (no Bearer header), so each
-// tile is fetched as a blob through the api client and rendered from an object URL.
 function RdpImg({ caseId, name, onClick, style }) {
   const [url, setUrl] = useState(null);
   useEffect(() => {

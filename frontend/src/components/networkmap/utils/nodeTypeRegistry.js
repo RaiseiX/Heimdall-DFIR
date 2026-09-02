@@ -1,22 +1,19 @@
-// frontend/src/components/networkmap/utils/nodeTypeRegistry.js
 import { NODE_TYPES } from '../../../constants/nodeTypes';
 
-// ── Private / special IPv4 ranges ────────────────────────────────────────────
 const PRIVATE_RANGES_V4 = [
-  /^10\./,                                          // RFC1918 10.0.0.0/8
-  /^172\.(1[6-9]|2\d|3[01])\./,                    // RFC1918 172.16.0.0/12
-  /^192\.168\./,                                    // RFC1918 192.168.0.0/16
-  /^127\./,                                         // Loopback 127.0.0.0/8
-  /^169\.254\./,                                    // APIPA link-local 169.254.0.0/16
-  /^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./,     // CGN RFC6598 100.64.0.0/10
-  /^(22[4-9]|23\d)\./,                              // Multicast 224.0.0.0/4
-  /^0\.0\.0\.0$/,                                   // Unspecified
-  /^255\.255\.255\.255$/,                            // Broadcast
+  /^10\./,
+  /^172\.(1[6-9]|2\d|3[01])\./,
+  /^192\.168\./,
+  /^127\./,
+  /^169\.254\./,
+  /^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./,
+  /^(22[4-9]|23\d)\./,
+  /^0\.0\.0\.0$/,
+  /^255\.255\.255\.255$/,
 ];
 
 const PRIVATE_TLD = /\.(lab|local|lan|corp|internal|intranet|home|localdomain|test|priv)$/i;
 
-// ── IP category (special address space beyond RFC1918) ────────────────────────
 export function getIPCategory(ip) {
   const s = (ip || '').replace(/^::ffff:/i, '').replace(/:\d+$/, '');
   if (s === '::1' || /^127\./.test(s))                      return 'LOOPBACK';
@@ -31,7 +28,6 @@ export function getIPCategory(ip) {
   return null;
 }
 
-// ── Port → service badge mapping ──────────────────────────────────────────────
 const PORT_ROLES = [
   { ports: [80, 8080, 8000, 3000, 8008, 8888],            badge: 'HTTP',     color: '#6b8ccf' },
   { ports: [443, 8443, 4443],                              badge: 'HTTPS',    color: '#6abf8e' },
@@ -59,11 +55,9 @@ export function getPortBadges(ports) {
 
 export function isInternal(ip) {
   const s = (ip || '').replace(/^::ffff:/i, '').replace(/:\d+$/, '');
-  // ── IPv6 special ──────────────────────────────────────────────────────
-  if (s === '::1')                       return true; // loopback
-  if (/^fe[89ab][0-9a-f]:/i.test(s))    return true; // link-local fe80::/10
-  if (/^f[cd][0-9a-f]{2}:/i.test(s))    return true; // ULA fc00::/7
-  // ── IPv4 ─────────────────────────────────────────────────────────────
+  if (s === '::1')                       return true;
+  if (/^fe[89ab][0-9a-f]:/i.test(s))    return true;
+  if (/^f[cd][0-9a-f]{2}:/i.test(s))    return true;
   return PRIVATE_RANGES_V4.some(re => re.test(s));
 }
 
@@ -72,7 +66,6 @@ function extractParenIP(id) {
   return m ? m[1] : null;
 }
 
-// ── OS fingerprint from port evidence ────────────────────────────────────────
 export function getOSHint(ports) {
   const p = new Set((ports || []).map(Number));
   const win = (p.has(445)?60:0) + (p.has(135)?40:0) + (p.has(3389)?40:0) +
@@ -89,7 +82,6 @@ export function getOSHint(ports) {
   return null;
 }
 
-// ── Multi-signal scoring rules ────────────────────────────────────────────────
 const TYPE_RULES = [
   { typeId: 'domain_controller', threshold: 70, signals: [
     { w: 85, label: 'hostname:dc',          test: (id)    => /\b(dc\d*|pdc|bdc|addc|domainctrl|domaincontroller)\b/i.test(id) },
@@ -162,13 +154,11 @@ const TYPE_RULES = [
   ]},
 ];
 
-// ── Full classification with confidence + matched signals ─────────────────────
 export function classifyNode(node, ports = [], behavior = {}) {
   const id      = String(node.id || '').toLowerCase();
   const type    = String(node.type || '');
   const portSet = new Set((ports || []).map(Number));
 
-  // Deterministic — no scoring needed
   if (node.is_suspicious || type === 'ioc')
     return { typeId: 'ioc',         confidence: 'HIGH', signals: ['is_suspicious'] };
   if (/^::ffff:/i.test(id))
@@ -186,7 +176,6 @@ export function classifyNode(node, ports = [], behavior = {}) {
   if (type === 'external')
     return { typeId: 'external_ip', confidence: 'HIGH', signals: ['type:external'] };
 
-  // Multi-signal scoring
   let best = null;
   for (const rule of TYPE_RULES) {
     let score = 0; const matched = [];
@@ -202,7 +191,6 @@ export function classifyNode(node, ports = [], behavior = {}) {
     return { typeId: best.typeId, confidence, signals: best.signals };
   }
 
-  // Behavioral fallback
   if (type === 'internal' || isInternal(node.id)) {
     const ss = behavior.serverScore ?? 0.5;
     if (ss > 0.65) return { typeId: 'server',      confidence: 'LOW', signals: ['behavior:server_score=' + ss] };
@@ -212,17 +200,14 @@ export function classifyNode(node, ports = [], behavior = {}) {
   return { typeId: 'external_ip', confidence: 'HIGH', signals: ['default:external'] };
 }
 
-// Backward-compatible wrapper
 export function detectNodeType(node, ports = [], behavior = {}) {
   return classifyNode(node, ports, behavior).typeId;
 }
 
-// Get the color for a node (used for edge coloring, etc.)
 export function nodeColor(typeId) {
   return (NODE_TYPES[typeId] || NODE_TYPES.server).color;
 }
 
-// Compute badges for a node
 export function nodeBadges(node) {
   const badges = [];
   if (node.is_suspicious)      badges.push('ioc');

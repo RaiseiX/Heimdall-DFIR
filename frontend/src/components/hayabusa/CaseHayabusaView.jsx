@@ -73,7 +73,6 @@ export default function CaseHayabusaView({ caseId, reloadKey = 0, onTotalChange 
 
   const tableContainerRef = useRef(null);
 
-  // ── Load data ─────────────────────────────────────────────────────────────
   const loadData = useCallback(async (cid) => {
     if (!cid) return;
     setLoading(true);
@@ -130,7 +129,6 @@ export default function CaseHayabusaView({ caseId, reloadKey = 0, onTotalChange 
     }
   };
 
-  // ── Filtered rows ─────────────────────────────────────────────────────────
   const tactics = useMemo(
     () => [...new Set(detections.map(d => getF(d, 'tactic')).filter(Boolean))].sort(),
     [detections]
@@ -160,7 +158,6 @@ export default function CaseHayabusaView({ caseId, reloadKey = 0, onTotalChange 
     setSelId(null);
   }, [filtered]);
 
-  // ── Virtualizer ───────────────────────────────────────────────────────────
   const rowVirtualizer = useVirtualizer({
     count:            filtered.length,
     getScrollElement: () => tableContainerRef.current,
@@ -173,7 +170,6 @@ export default function CaseHayabusaView({ caseId, reloadKey = 0, onTotalChange 
   const padTop    = vItems.length > 0 ? (vItems[0]?.start ?? 0) : 0;
   const padBottom = vItems.length > 0 ? totalH - (vItems[vItems.length - 1]?.end ?? 0) : 0;
 
-  // ── Helpers ───────────────────────────────────────────────────────────────
   const toggleStar = useCallback((id, e) => {
     e?.stopPropagation();
     setStarred(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
@@ -210,11 +206,9 @@ export default function CaseHayabusaView({ caseId, reloadKey = 0, onTotalChange 
   const totalCount = detections.length;
   const starCount  = starred.size;
 
-  // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
 
-      {/* ── Toolbar ── */}
       <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap',
         padding: '7px 14px 6px', borderBottom: '1px solid var(--fl-sep)', flexShrink: 0 }}>
         <button
@@ -273,7 +267,6 @@ export default function CaseHayabusaView({ caseId, reloadKey = 0, onTotalChange 
         )}
       </div>
 
-      {/* ── Error ── */}
       {error && (
         <div style={{ margin: '0 12px 4px', padding: '5px 10px', borderRadius: 5, fontSize: 11,
           background: 'rgba(218,54,51,0.08)', border: '1px solid rgba(218,54,51,0.2)', color: 'var(--fl-danger)',
@@ -285,7 +278,6 @@ export default function CaseHayabusaView({ caseId, reloadKey = 0, onTotalChange 
         </div>
       )}
 
-      {/* ── Empty / Loading ── */}
       {!hasData && !loading && !running && (
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 10 }}>
           <Shield size={44} style={{ color: 'color-mix(in srgb, var(--fl-danger) 13%, transparent)' }} />
@@ -308,10 +300,8 @@ export default function CaseHayabusaView({ caseId, reloadKey = 0, onTotalChange 
 
       {hasData && !loading && (
         <>
-          {/* ── Filter bar ── */}
           <div style={{ display: 'flex', gap: 6, padding: '5px 10px', borderBottom: '1px solid var(--fl-sep)',
             alignItems: 'center', flexShrink: 0, flexWrap: 'wrap' }}>
-            {/* Search */}
             <div style={{ position: 'relative', flex: '1 1 200px', minWidth: 160 }}>
               <Search size={12} style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', color: 'var(--fl-dim)' }} />
               <input
@@ -332,7 +322,6 @@ export default function CaseHayabusaView({ caseId, reloadKey = 0, onTotalChange 
 
             <div style={{ width: 1, height: 16, background: 'var(--fl-sep)' }} />
 
-            {/* Level filter pills */}
             {['all', ...LEVELS].map(l => {
               const col = LEVEL_COLORS[l] || 'var(--fl-accent)';
               const active = levelFilter === l;
@@ -370,13 +359,10 @@ export default function CaseHayabusaView({ caseId, reloadKey = 0, onTotalChange 
             </span>
           </div>
 
-          {/* ── Table + Detail Panel ── */}
           <div style={{ flex: 1, display: 'flex', overflow: 'hidden', minHeight: 0 }}>
 
-            {/* Table area */}
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, overflow: 'hidden' }}>
 
-              {/* Fixed header */}
               <div style={{ flexShrink: 0, overflowX: 'hidden', borderBottom: '1px solid var(--fl-sep)' }}>
                 <table style={{ tableLayout: 'fixed', width: '100%', borderCollapse: 'collapse' }}>
                   <colgroup>
@@ -405,7 +391,6 @@ export default function CaseHayabusaView({ caseId, reloadKey = 0, onTotalChange 
                 </table>
               </div>
 
-              {/* Virtualized body */}
               <div ref={tableContainerRef} style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden' }}>
                 {filtered.length === 0 ? (
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -449,26 +434,22 @@ export default function CaseHayabusaView({ caseId, reloadKey = 0, onTotalChange 
                                   : '3px solid transparent',
                               }}
                             >
-                              {/* Star */}
                               <td onClick={e => toggleStar(d._id, e)}
                                 style={{ textAlign: 'center', fontSize: 12, cursor: 'pointer',
                                   color: isStar ? 'var(--fl-warn)' : 'var(--fl-panel)', padding: '2px 4px' }}>
                                 {isStar ? '★' : '☆'}
                               </td>
 
-                              {/* Severity dot */}
                               <td style={{ padding: '2px 4px', textAlign: 'center' }}>
                                 <span style={{ display: 'inline-block', width: 6, height: 6,
                                   borderRadius: '50%', background: levelCol, opacity: isCrit ? 1 : 0.7 }} />
                               </td>
 
-                              {/* Timestamp */}
                               <td style={{ padding: '2px 8px', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10,
                                 color: 'var(--fl-accent)', whiteSpace: 'nowrap', overflow: 'hidden' }}>
                                 {fmtTs(d.timestamp)}
                               </td>
 
-                              {/* Level */}
                               <td style={{ padding: '2px 8px', overflow: 'hidden' }}>
                                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3,
                                   padding: '1px 6px', borderRadius: 3, fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
@@ -479,26 +460,22 @@ export default function CaseHayabusaView({ caseId, reloadKey = 0, onTotalChange 
                                 </span>
                               </td>
 
-                              {/* EID */}
                               <td style={{ padding: '2px 8px', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10,
                                 fontWeight: 700, color: 'var(--fl-warn)', overflow: 'hidden' }}>
                                 <Highlight text={eid} term={search} />
                               </td>
 
-                              {/* Channel */}
                               <td style={{ padding: '2px 8px', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10,
                                 color: 'var(--fl-dim)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                 <Highlight text={d.channel || ''} term={search} />
                               </td>
 
-                              {/* Rule title */}
                               <td style={{ padding: '2px 8px', fontSize: 11, fontWeight: isCrit ? 600 : 400,
                                 color: isCrit ? 'var(--fl-danger)' : 'var(--fl-text)',
                                 overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                 <Highlight text={rTitle} term={search} />
                               </td>
 
-                              {/* MITRE */}
                               <td style={{ padding: '2px 8px', overflow: 'hidden' }}>
                                 {mitre && (
                                   <span style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 9, fontWeight: 600,
@@ -509,7 +486,6 @@ export default function CaseHayabusaView({ caseId, reloadKey = 0, onTotalChange 
                                 )}
                               </td>
 
-                              {/* Tactic */}
                               <td style={{ padding: '2px 8px', fontSize: 10, color: 'var(--fl-dim)',
                                 overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                 <Highlight text={d.tactic || ''} term={search} />
@@ -525,7 +501,6 @@ export default function CaseHayabusaView({ caseId, reloadKey = 0, onTotalChange 
               </div>
             </div>
 
-            {/* ── Detail Panel ── */}
             {selRow && (() => {
               const rTitle   = getF(selRow, 'rule_title', 'ruleTitle');
               const eid      = getF(selRow, 'event_id', 'eventId');
@@ -546,7 +521,6 @@ export default function CaseHayabusaView({ caseId, reloadKey = 0, onTotalChange 
                   background: '#0a0f1a',
                   display: 'flex', flexDirection: 'column',
                 }}>
-                  {/* Panel header */}
                   <div style={{ padding: '8px 12px 6px', borderBottom: `1px solid color-mix(in srgb, ${levelCol} 15%, transparent)`,
                     background: `color-mix(in srgb, ${levelCol} 3%, transparent)`, flexShrink: 0 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
@@ -579,7 +553,6 @@ export default function CaseHayabusaView({ caseId, reloadKey = 0, onTotalChange 
                       </div>
                     </div>
 
-                    {/* Badges */}
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
                       <span style={{ padding: '2px 8px', borderRadius: 4, fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontWeight: 700,
                         background: `color-mix(in srgb, ${levelCol} 9%, transparent)`, color: levelCol, border: `1px solid color-mix(in srgb, ${levelCol} 21%, transparent)`,
@@ -602,7 +575,6 @@ export default function CaseHayabusaView({ caseId, reloadKey = 0, onTotalChange 
                     </div>
                   </div>
 
-                  {/* Panel body */}
                   <div style={{ padding: '10px 12px', flex: 1 }}>
                     <div style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 12, fontWeight: 600,
                       color: selRow.level === 'critical' ? 'var(--fl-danger)' : 'var(--fl-text)',
@@ -673,7 +645,6 @@ export default function CaseHayabusaView({ caseId, reloadKey = 0, onTotalChange 
             })()}
           </div>
 
-          {/* ── Bottom bar ── */}
           <div style={{ borderTop: '1px solid var(--fl-sep)', padding: '3px 12px',
             display: 'flex', alignItems: 'center', justifyContent: 'space-between',
             flexShrink: 0, background: 'var(--fl-bg)' }}>

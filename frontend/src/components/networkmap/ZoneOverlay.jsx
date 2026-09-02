@@ -7,16 +7,12 @@ export const ZONE_DEFS_NORMAL = {
   cloud:    { label: 'Cloud',              color: 'var(--fl-purple)' },
 };
 
-// Wong (2011) colorblind-safe palette — distinguishable for protanopia & deuteranopia
 export const ZONE_DEFS_CB = {
   internet: { label: 'Internet / Externe', color: '#D55E00' },
   dmz:      { label: 'DMZ',               color: '#E69F00' },
   lan:      { label: 'LAN Interne',        color: '#0072B2' },
   cloud:    { label: 'Cloud',              color: '#56B4E9' },
 };
-
-// ZoneOverlay only handles the DRAWING interaction (drag preview rectangle).
-// Persistent zones are rendered as Cytoscape nodes in NetworkExplorer — no sync needed.
 
 export default function ZoneOverlay({ cyRef, zones, drawingZoneType, onZoneDrawn, onZoneUpdate, onZoneDelete, colorblindMode }) {
   const containerRef = useRef(null);
@@ -49,7 +45,6 @@ export default function ZoneOverlay({ cyRef, zones, drawingZoneType, onZoneDrawn
     const hSy   = Math.abs(drawing.curSy - drawing.startSy);
     if (wSx < 20 || hSy < 20) { setDrawing(null); return; }
 
-    // Convert screen → graph using Cytoscape's current viewport
     const zoom = cy.zoom();
     const pan  = cy.pan();
     const gx = (minSx - pan.x) / zoom;
@@ -75,7 +70,6 @@ export default function ZoneOverlay({ cyRef, zones, drawingZoneType, onZoneDrawn
 
   return (
     <div ref={containerRef} style={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 5 }}>
-      {/* Draw preview rectangle */}
       {drawRect && (
         <div style={{
           position: 'absolute',
@@ -89,7 +83,6 @@ export default function ZoneOverlay({ cyRef, zones, drawingZoneType, onZoneDrawn
         }} />
       )}
 
-      {/* Capture mouse events for drawing */}
       <div
         style={{ position: 'absolute', inset: 0, cursor: 'crosshair', pointerEvents: 'all', zIndex: 10 }}
         onMouseDown={handleDrawMouseDown}

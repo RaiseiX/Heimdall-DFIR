@@ -58,7 +58,6 @@ function TacticBadge({ tactic }) {
 }
 
 const PATTERNS = [
-  // ─── INITIAL ACCESS ────────────────────────────────────────────────────────
   {
     id: 'phishing-macro',
     tactic: 'Initial Access',
@@ -155,7 +154,6 @@ const PATTERNS = [
     remediation: ['Software Bill of Materials (SBOM)', 'Vérification hash avant tout déploiement', 'Network behavior baseline de tous les binaires légitimes', 'Least privilege pour agents de supervision'],
   },
 
-  // ─── EXECUTION ─────────────────────────────────────────────────────────────
   {
     id: 'powershell-malicious',
     tactic: 'Execution',
@@ -239,7 +237,6 @@ const PATTERNS = [
     remediation: ['Auditer abonnements WMI : Get-WMIObject -Namespace root\\subscription', 'Désactiver WMI distant si non nécessaire (DCOM restriction)', 'Sysmon EventID 19/20/21 pour WMI activity'],
   },
 
-  // ─── PERSISTENCE ───────────────────────────────────────────────────────────
   {
     id: 'persistence-task',
     tactic: 'Persistence',
@@ -336,7 +333,6 @@ const PATTERNS = [
     remediation: ['Activer KnownDLLs dans le registre', 'Binaires dans Program Files (protégé en écriture)', 'Sysmon EventID 7 avec filtre non-System32 + non signé'],
   },
 
-  // ─── PRIVILEGE ESCALATION ──────────────────────────────────────────────────
   {
     id: 'token-impersonation',
     tactic: 'Privilege Escalation',
@@ -414,7 +410,6 @@ const PATTERNS = [
     remediation: ['Mettre UAC sur "Toujours notifier" (niveau 4)', 'Comptes admin dédiés, jamais utilisés au quotidien', 'Désactiver les auto-elevate inutiles via GPO'],
   },
 
-  // ─── DEFENSE EVASION ───────────────────────────────────────────────────────
   {
     id: 'process-injection',
     tactic: 'Defense Evasion',
@@ -521,7 +516,6 @@ const PATTERNS = [
     remediation: ['PowerShell v5+ obligatoire (meilleur AMSI logging)', 'ETW hardening (protection contre le patch ETW)', 'Alerter sur techniques AMSI bypass connues via Sigma'],
   },
 
-  // ─── CREDENTIAL ACCESS ─────────────────────────────────────────────────────
   {
     id: 'credential-dump-lsass',
     tactic: 'Credential Access',
@@ -648,7 +642,6 @@ const PATTERNS = [
     remediation: ['Device Bound Credentials (DBSC) dans Chrome', 'Gestionnaire de mots de passe tiers (KeePass, Bitwarden)', 'EDR : alerter sur accès non-navigateur aux fichiers Login Data'],
   },
 
-  // ─── DISCOVERY ─────────────────────────────────────────────────────────────
   {
     id: 'ad-enumeration',
     tactic: 'Discovery',
@@ -702,7 +695,6 @@ const PATTERNS = [
     remediation: ['Segmentation réseau (VLAN, micro-segmentation)', 'IDS avec règles anti-scan (Snort/Suricata)', 'Bloquer les outils de scan tiers via AppLocker'],
   },
 
-  // ─── LATERAL MOVEMENT ──────────────────────────────────────────────────────
   {
     id: 'lateral-rdp-smb',
     tactic: 'Lateral Movement',
@@ -757,7 +749,6 @@ const PATTERNS = [
     remediation: ['Restreindre DCOM par GPO (DCOM Machine Access Restrictions)', 'Firewall Windows : bloquer port 135 entre workstations', 'Sysmon EventID 1 avec parent wmiprvse.exe'],
   },
 
-  // ─── COLLECTION ─────────────────────────────────────────────────────────────
   {
     id: 'data-staging',
     tactic: 'Collection',
@@ -802,7 +793,6 @@ const PATTERNS = [
     remediation: ['EDR comportemental : détection SetWindowsHookEx anormal', 'Filtrage SMTP sortant (bloquer port 25/587 vers Internet)', 'Endpoint DLP'],
   },
 
-  // ─── COMMAND & CONTROL ─────────────────────────────────────────────────────
   {
     id: 'cobalt-strike-beacon',
     tactic: 'Command & Control',
@@ -842,7 +832,6 @@ const PATTERNS = [
     remediation: ['DNS Sinkhole (Palo Alto DNS Security, Cisco Umbrella)', 'Analyser entropie DNS avec DGA detection (Zeek)', 'Forcer tout trafic DNS via resolver interne', 'Bloquer requêtes DNS vers IPs externes directement'],
   },
 
-  // ─── EXFILTRATION ──────────────────────────────────────────────────────────
   {
     id: 'exfil-cloud',
     tactic: 'Exfiltration',
@@ -886,7 +875,6 @@ const PATTERNS = [
     remediation: ["DNS logging et analyse d'entropie (Zeek, Suricata)", 'Bloquer ICMP vers Internet depuis endpoints', 'Seul DNS interne autorisé (firewall block port 53 UDP vers Internet)'],
   },
 
-  // ─── IMPACT ─────────────────────────────────────────────────────────────────
   {
     id: 'ransomware',
     tactic: 'Impact',
@@ -992,7 +980,6 @@ function PatternCard({ pattern, search }) {
       {open && (
         <div style={{ background: T.bg, padding: '14px 16px' }}>
 
-          {/* APT & Malware */}
           <div style={{ display: 'flex', gap: 14, marginBottom: 12, flexWrap: 'wrap' }}>
             {pattern.apt && pattern.apt.length > 0 && (
               <div style={{ flex: 1, minWidth: 190 }}>
@@ -1026,7 +1013,6 @@ function PatternCard({ pattern, search }) {
             )}
           </div>
 
-          {/* Artifacts */}
           <div style={{ marginBottom: 12 }}>
             <div style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--fl-accent)', marginBottom: 7 }}>Artefacts à rechercher</div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', gap: 6 }}>
@@ -1046,7 +1032,6 @@ function PatternCard({ pattern, search }) {
             </div>
           </div>
 
-          {/* Commands */}
           {pattern.commands && pattern.commands.length > 0 && (
             <div style={{ marginBottom: 12 }}>
               <div style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--fl-accent)', marginBottom: 7 }}>Commandes malveillantes connues</div>
@@ -1062,7 +1047,6 @@ function PatternCard({ pattern, search }) {
             </div>
           )}
 
-          {/* Sigma */}
           {pattern.sigma && pattern.sigma.length > 0 && (
             <div style={{ marginBottom: 12 }}>
               <div style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--fl-accent)', marginBottom: 7 }}>Règles Sigma</div>
@@ -1079,7 +1063,6 @@ function PatternCard({ pattern, search }) {
             </div>
           )}
 
-          {/* IOCs */}
           {pattern.iocs && pattern.iocs.length > 0 && (
             <div style={{ marginBottom: 12 }}>
               <div style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--fl-accent)', marginBottom: 7 }}>Indicateurs de Compromission (IOCs)</div>
@@ -1096,7 +1079,6 @@ function PatternCard({ pattern, search }) {
             </div>
           )}
 
-          {/* Remediation */}
           {pattern.remediation && pattern.remediation.length > 0 && (
             <div>
               <div style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--fl-accent)', marginBottom: 7 }}>Remédiation & Détection</div>
@@ -1153,7 +1135,6 @@ export default function AttackPatternsDoc({ search }) {
         </p>
       </div>
 
-      {/* Kill chain */}
       {!search && tacticFilter === 'Tous' && (
         <div style={{ marginBottom: 14, overflowX: 'auto' }}>
           <div style={{ display: 'flex', alignItems: 'center', minWidth: 'max-content' }}>
@@ -1180,7 +1161,6 @@ export default function AttackPatternsDoc({ search }) {
         </div>
       )}
 
-      {/* Tactic filters */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 16 }}>
         {TACTICS.map(t => {
           const active = tacticFilter === t;

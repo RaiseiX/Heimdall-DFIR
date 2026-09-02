@@ -1,4 +1,3 @@
-// Pure reaction to a socket `evidence:ready` event. Kept out of the component so it is unit-testable.
 export function makeEvidenceReadyHandler({ activeCaseId, refetchEvidence, refetchParsers, toast, t }) {
   return (data) => {
     if (!data || String(data.caseId) !== String(activeCaseId)) return;

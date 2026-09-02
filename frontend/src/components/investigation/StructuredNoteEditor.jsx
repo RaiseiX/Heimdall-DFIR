@@ -18,8 +18,6 @@ const TACTIC_COLOR = {
   'Exfiltration': 'var(--fl-danger)', 'Impact': 'var(--fl-danger)',
 };
 
-// Hex literals (not CSS vars): the chosen color is persisted to the DB and
-// later drawn by the PDF report renderer, which cannot resolve var(--fl-*).
 const PALETTE = ['#4d82c0', '#D7263D', '#E8730C', '#C99A06', '#2E9E5B', '#6E56CF', '#D6336C'];
 
 const EMPTY = {
@@ -35,13 +33,6 @@ const field = {
 
 const lbl = { fontSize: 9, color: 'var(--fl-subtle)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', textTransform: 'uppercase', letterSpacing: '0.05em' };
 
-/**
- * Reusable structured forensic note editor.
- * Props:
- *  - initial: finding object (or null for new)
- *  - findings: list of other findings (for the links_to selector)
- *  - onSave(form), onCancel()
- */
 export default function StructuredNoteEditor({ initial, findings = [], onSave, onCancel }) {
   const { t } = useTranslation();
   const [form, setForm] = useState({ ...EMPTY, ...(initial || {}) });

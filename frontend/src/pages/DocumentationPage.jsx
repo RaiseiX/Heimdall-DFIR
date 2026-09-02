@@ -31,7 +31,6 @@ const DOC_COMPONENTS = {
 };
 const SECTION_BY_ID = Object.fromEntries(SECTIONS.map(s => [s.id, s]));
 
-// Combined cross-section search index.
 const GLOBAL_INDEX = [
   ...IDX_artifacts.map(x => ({ ...x, section: 'artifacts' })),
   ...IDX_linux.map(x => ({ ...x, section: 'linux-artifacts' })),
@@ -43,7 +42,6 @@ const GLOBAL_INDEX = [
   ...IDX_methodo.map(x => ({ ...x, section: 'dfir-methodology' })),
 ];
 
-// ── Home / overview ─────────────────────────────────────────────────────
 function DocHome({ onOpen }) {
   const { t } = useTranslation();
   return (
@@ -83,7 +81,6 @@ function DocHome({ onOpen }) {
   );
 }
 
-// ── Global search results (across all sections) ─────────────────────────
 function GlobalResults({ query, onPick }) {
   const { t } = useTranslation();
   const q = query.trim().toLowerCase();
@@ -139,7 +136,6 @@ function GlobalResults({ query, onPick }) {
   );
 }
 
-// ── Right "On this page" TOC — scroll-spy over <h2> headings ─────────────
 function DocTOC({ mainRef, dep }) {
   const { t } = useTranslation();
   const [items, setItems] = useState([]);
@@ -211,7 +207,6 @@ export default function DocumentationPage() {
   const openSection = useCallback((id) => { setActiveSection(id); setQuery(''); setSearchMode(false); if (mainRef.current) mainRef.current.scrollTop = 0; }, []);
   const clearSearch = useCallback(() => { setQuery(''); setSearchMode(false); }, []);
   const onSearchChange = useCallback((v) => { setQuery(v); setSearchMode(v.trim().length >= 2); }, []);
-  // Pick a global result → open its section, keep the query as the in-section filter.
   const pickResult = useCallback((secId) => { setActiveSection(secId); setSearchMode(false); if (mainRef.current) mainRef.current.scrollTop = 0; }, []);
 
   useEffect(() => {
@@ -228,7 +223,6 @@ export default function DocumentationPage() {
   return (
     <div style={{ display: 'flex', height: '100%', overflow: 'hidden', background: 'var(--fl-bg)' }}>
 
-      {/* ── Left: section nav ── */}
       <aside style={{ width: 264, flexShrink: 0, display: 'flex', flexDirection: 'column', background: 'var(--fl-panel)', borderRight: '1px solid var(--fl-border)', overflow: 'hidden' }}>
         <div style={{ padding: '16px 16px 14px', borderBottom: '1px solid var(--fl-border)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 3 }}>
@@ -238,7 +232,6 @@ export default function DocumentationPage() {
           <p style={{ fontSize: 11.5, color: 'var(--fl-muted)', fontFamily: 'var(--f-ui, "Inter", sans-serif)' }}>{t('docs.nav_desc')}</p>
         </div>
 
-        {/* Global search */}
         <div style={{ padding: '12px', borderBottom: '1px solid var(--fl-border)' }}>
           <div style={{ position: 'relative' }}>
             <Search size={13} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--fl-muted)', pointerEvents: 'none' }} />
@@ -283,7 +276,6 @@ export default function DocumentationPage() {
         </div>
       </aside>
 
-      {/* ── Center: content ── */}
       <main ref={mainRef} style={{ flex: 1, overflowY: 'auto', background: 'var(--fl-bg)' }}>
         {searchMode
           ? <GlobalResults query={query} onPick={pickResult} />
@@ -292,7 +284,6 @@ export default function DocumentationPage() {
             : showEnglishFallback ? <EnglishDocFallback section={activeSection} /> : ActiveDoc ? <ActiveDoc search={query} /> : null}
       </main>
 
-      {/* ── Right: on-this-page TOC (only when reading a doc) ── */}
       {showingDoc && <DocTOC mainRef={mainRef} dep={`${activeSection}|${query}`} />}
     </div>
   );

@@ -1,6 +1,3 @@
-// Evidence Bridge — pinned forensic rows shared between Super Timeline and analyst review.
-// Keyed by caseId so switching cases swaps the visible set automatically.
-// Client-only (localStorage). Server sync is a later phase.
 
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
@@ -8,9 +5,6 @@ import { workbenchPinsAPI } from '../utils/api';
 
 const MAX_PINS_PER_CASE = 500;
 
-// Fire-and-forget server sync — errors are logged but don't block the UI.
-// localStorage stays authoritative client-side so the app keeps working offline;
-// on next `hydrateFromServer` the server merges in (server wins on conflict).
 const syncCreate = (caseId, pin) => {
   workbenchPinsAPI.create(caseId, pin).catch(err => {
     if (err?.response?.status !== 409) console.warn('[bridge] sync create failed:', err?.message);
@@ -47,7 +41,7 @@ function normalize(row, caseId, userId) {
     tags:          Array.isArray(row.tags) ? [...row.tags] : [],
     note:          '',
     color:         null,
-    status:        'triage',  // triage | confirmed | reported
+    status:        'triage',
   };
 }
 
@@ -109,7 +103,6 @@ export const useEvidenceBridge = create(persist(
       syncClear(cid);
     },
 
-    // Apply server-pushed events (from socket.io) WITHOUT re-emitting REST sync.
     applyServerPin: (caseId, pin) => set(s => {
       const cid = String(caseId);
       const list = s.pinned[cid] || [];
@@ -129,7 +122,6 @@ export const useEvidenceBridge = create(persist(
     }),
     applyServerClear: (caseId) => set(s => ({ pinned: { ...s.pinned, [String(caseId)]: [] } })),
 
-    // Pull server state on case switch, merge into local cache (server wins on conflict).
     hydrateFromServer: async (caseId) => {
       const cid = String(caseId);
       try {

@@ -23,13 +23,33 @@ function artifactRegex(pattern: string): RegExp {
   return new RegExp(`(?:^|-)${escaped}(?=$|[.-])`);
 }
 
+// Artifact names that are a strict extension of another artifact name, where the
+// delimiter cannot tell them apart. 'dev-dir-files' is followed by '-' inside
+// 'dev-dir-files-hashes', and that same '-' is what lets 'docker-inspect' match
+// 'docker-inspect-<container id>' — so the delimiter must stay permissive and the
+// exception must be declared.
+//
+// This was harmless while neither artifact produced anything. It stopped being
+// harmless once the registry declared both, with incompatible shapes: path_desc
+// for the file list, hash_list for the hashes. Feeding one to the other's parser
+// attributes rows to the wrong file, which is exactly what the coverage ledger
+// must be able to trust.
+const SIBLINGS: Record<string, string[]> = {
+  'dev-dir-files': ['dev-dir-files-hashes'],
+};
+
 export function findArtifactFiles(dir: string, ...patterns: string[]): string[] {
   if (!fs.existsSync(dir)) return [];
   let entries: string[];
   try { entries = fs.readdirSync(dir); } catch { return []; }
   const regexes = patterns.map(artifactRegex);
+  const excluded = patterns
+    .flatMap(p => SIBLINGS[p] ?? [])
+    .filter(s => !patterns.includes(s))
+    .map(artifactRegex);
   return entries
     .filter(e => regexes.some(r => r.test(e)))
+    .filter(e => !excluded.some(r => r.test(e)))
     .sort()
     .map(e => path.join(dir, e));
 }

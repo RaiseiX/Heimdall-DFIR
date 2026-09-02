@@ -1,0 +1,23 @@
+-- db/migrations/20260818150000_collection_timeline_nullable_timestamp.sql
+--
+-- The 63 `kind` values of catscale_state — lsof entries, memory mappings, package
+-- inventories, runlevel symlinks — describe objects that exist but carry no date
+-- of their own. They were therefore absent from the SuperTimeline entirely, which
+-- reads as "not collected" rather than "collected, undated".
+--
+-- They enter the timeline with timestamp_kind = 'inventory' and timestamp IS NULL.
+--
+-- NULL rather than a sentinel is the whole point. Anchoring them to the collection
+-- time would give 872,419 objects the identical stamp 2026-07-30 14:44, and a
+-- chronological view would render them as that many simultaneous events. NULL
+-- states what is actually known: the object existed, its age is unknown.
+--
+-- collection_timeline.timestamp has been NOT NULL since db/init.sql. Dropping the
+-- constraint is a catalogue-only change — no table rewrite, no row validation —
+-- so it is cheap even on the 340,952-row reference table. Existing rows are
+-- untouched and every one of them keeps a timestamp.
+--
+-- Readers that must not see undated rows filter on `timestamp IS NOT NULL`
+-- (the histogram does; the start_time/end_time range filters already exclude
+-- NULL by construction, since NULL >= x is unknown).
+ALTER TABLE collection_timeline ALTER COLUMN timestamp DROP NOT NULL;

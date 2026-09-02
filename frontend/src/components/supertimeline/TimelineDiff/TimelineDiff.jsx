@@ -16,7 +16,6 @@ export default function TimelineDiff({ caseId }) {
   const { sideA, sideB, counts, added, removed, loading, setSide, runDiff } = useTimelineDiffStore();
   const [evidences, setEvidences] = useState([]);
 
-  // reset sides + results when the case changes (panel stays mounted across case nav)
   useEffect(() => { useTimelineDiffStore.setState({ caseId, sideA: {}, sideB: {}, counts: null, added: [], removed: [] }); }, [caseId]);
   useEffect(() => { evidenceAPI.list(caseId).then(r => setEvidences(r.data || [])).catch(() => setEvidences([])); }, [caseId]);
 

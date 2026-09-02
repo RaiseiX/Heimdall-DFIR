@@ -539,7 +539,6 @@ export default function DFIRMethodologyDoc({ search }) {
         </p>
       </div>
 
-      {/* Severity Matrix */}
       {!search && (
         <div style={{ marginBottom: 22 }}>
           <div style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: T.dim, marginBottom: 10 }}>Matrice de Sévérité & Escalade</div>
@@ -557,7 +556,6 @@ export default function DFIRMethodologyDoc({ search }) {
         </div>
       )}
 
-      {/* IR Cycle visual */}
       {!search && (
         <div style={{ marginBottom: 20, overflowX: 'auto' }}>
           <div style={{ display: 'flex', alignItems: 'center', minWidth: 'max-content' }}>
@@ -583,7 +581,6 @@ export default function DFIRMethodologyDoc({ search }) {
         </div>
       )}
 
-      {/* Phase cards */}
       {filtered.map(phase => <PhaseCard key={phase.number} phase={phase} />)}
 
       {filtered.length === 0 && (

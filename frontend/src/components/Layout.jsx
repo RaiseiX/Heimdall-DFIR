@@ -94,8 +94,6 @@ export default function Layout({ user, onLogout, onTourStart, children }) {
     { path: '/',                    label: t('nav.dashboard'),    icon: LayoutDashboard },
     { path: '/triage',              label: t('nav.triage'),       icon: Inbox, badge: triageOpen > 0 ? triageOpen : null },
     { path: '/cases',               label: t('nav.cases'),        icon: FolderOpen },
-    // IOCs are admin-managed. Threat Hunting now lives inside each collection (evidence tab);
-    // rules are configured from the Settings panel.
     ...(user.role === 'admin' ? [
       { path: '/iocs',              label: t('nav.iocs'),         icon: Crosshair },
     ] : []),
@@ -163,7 +161,6 @@ export default function Layout({ user, onLogout, onTourStart, children }) {
             const sharedClass = "flex items-center gap-3 py-2 rounded-lg";
             const onEnter = (e) => { if (!active) { e.currentTarget.style.background = 'var(--fl-card)'; e.currentTarget.style.color = 'var(--fl-dim)'; } };
             const onLeave = (e) => { if (!active) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--fl-muted)'; } };
-            // Active = accent icon (the signal) + tinted pill — no colored side-bar (charter).
             const iconStyle = { flexShrink: 0, color: active ? 'var(--fl-accent)' : 'currentColor', transition: 'color 0.12s ease' };
             if (item.external) {
               return (
@@ -248,7 +245,6 @@ export default function Layout({ user, onLogout, onTourStart, children }) {
 
         <div style={{ borderTop: '1px solid var(--fl-border)' }}>
 
-          {/* ── Mode / UTC / theme ── */}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: collapsed ? '6px 8px' : '6px 10px' }}>
             {!collapsed && (
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -288,7 +284,6 @@ export default function Layout({ user, onLogout, onTourStart, children }) {
             </button>
           </div>
 
-          {/* ── Zebra / feedback / tour ── */}
           {!collapsed && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 2, padding: '2px 8px 4px' }}>
               <button onClick={() => setZebra(z => !z)} title="Zebra-striping"
@@ -308,7 +303,6 @@ export default function Layout({ user, onLogout, onTourStart, children }) {
             </div>
           )}
 
-          {/* ── User profile ── */}
           {!collapsed && (
             <button onClick={() => navigate('/settings')}
               style={{ display: 'flex', alignItems: 'center', gap: 9, width: '100%', padding: '6px 12px 8px', background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left' }}>
@@ -340,7 +334,6 @@ export default function Layout({ user, onLogout, onTourStart, children }) {
             </button>
           )}
 
-          {/* ── Logout ── */}
           <div style={{ padding: '2px 8px 8px' }}>
             <button onClick={onLogout} title={collapsed ? 'Logout' : undefined}
               style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%', padding: collapsed ? '6px' : '6px 10px', justifyContent: collapsed ? 'center' : 'flex-start', background: 'none', border: 'none', cursor: 'pointer', borderRadius: 3, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11, color: 'var(--fl-danger)', transition: 'background 0.12s' }}

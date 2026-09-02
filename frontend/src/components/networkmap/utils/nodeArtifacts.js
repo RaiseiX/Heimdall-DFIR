@@ -1,5 +1,3 @@
-// Pure helper: derive the IOC / finding / timeline payloads for a selected
-// network-map node. No I/O. Consumed by InvestigationDrawer's actions.
 
 const IPV4 = /^(?:\d{1,3}\.){3}\d{1,3}$/;
 const IPV6 = /^[0-9a-fA-F:]+:[0-9a-fA-F:]+$/;

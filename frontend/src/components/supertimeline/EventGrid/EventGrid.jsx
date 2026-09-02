@@ -1,4 +1,5 @@
 import { useRef, useMemo, useState, useCallback, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { Loader2, Palette, Columns } from 'lucide-react';
 import { useTimelineStore } from '../store/useTimelineStore';
@@ -7,29 +8,38 @@ import ColorRulesManager from '../../../components/timeline/ColorRulesManager';
 import { EventRow } from './EventRow';
 import { GroupRow } from './GroupRow';
 import { ColumnHeader } from './ColumnHeader';
-import { buildDynamicCols, computeRef } from '../utils/timelineUtils';
+import { buildDynamicCols, computeRef, readRawPath, constantColumns, rowHeightFor, stacksTimestamp, orderColumns, moveColumn, timestampColumnWidth, describeCount } from '../utils/timelineUtils';
 import { artifactColor } from '../../../constants/artifactColors';
 import GroupPanel from './GroupPanel';
 import ColumnManager from './ColumnManager';
 
 const PREFIX = '4px';
 const DEFAULT_PINNED = ['timestamp'];
-// Columns sorted server-side (reload from DB); all others are sorted client-side on loaded records
 const SERVER_SORTABLE_COLS = new Set(['timestamp', 'artifact_type', 'description', 'source']);
 
 const LEDGER_COLS = [
   { key: 'timestamp',      label: 'DateTime',    size: 110 },
   { key: 'timestamp_kind', label: 'TS Type',     size: 76  },
-  { key: 'artifact_type',  label: 'Artifact',    size: 86  },
-  { key: 'tool',           label: 'Tool',        size: 88  },
+  { key: 'artifact_type',  label: 'Artifact',    size: 130 },
+  { key: 'tool',           label: 'Tool',        size: 110 },
   { key: 'description',    label: 'Description', size: null, meta: { flex: true } },
-  { key: '_source',        label: 'DataPath',    size: 170 },
+  { key: '_source',        label: 'DataPath',    size: 300 },
   { key: 'user_name',      label: 'User',        size: 88  },
-  { key: 'host_name',      label: 'Computer',    size: 96  },
+  { key: 'host_name',      label: 'Computer',    size: 120 },
   { key: '_verdict',       label: 'Verdict',     size: 84  },
 ];
 
 export default function EventGrid() {
+  const { t, i18n } = useTranslation();
+  const tsLabels = useMemo(() => ({
+    inventory:      t('timeline.tsKind.inventory'),
+    inventoryTitle: t('timeline.tsKind.inventoryTitle'),
+    undatedCell:    t('timeline.tsKind.undatedCell'),
+    future:         t('timeline.ts_future'),
+    ancient:        t('timeline.ts_ancient'),
+  }), [t]);
+
+  const nowMs = useMemo(() => Date.now(), []);
   const {
     records, loading, total, search,
     sortCol, sortDir, multiSort,
@@ -37,43 +47,41 @@ export default function EventGrid() {
     tagData, notedRefs, colorRules,
     groupByFields, caseId, page, totalPages, pageSize, dynamicColsRev,
     setSelectedRow, setSort, loadMore,
-    artifactTypes, huntMessage,
+    artifactTypes, huntMessage, density,
   } = useTimelineStore();
+
+  const countState = describeCount({ loading, total });
 
   const scrollRef     = useRef(null);
   const scrollLeftRef = useRef(0);
   const groupRowEls   = useRef(new Map());
   const loadMoreRef   = useRef(null);
 
-  // ── Column prefs ──────────────────────────────────────────────────────
   const colKey = useCallback(k => caseId ? `supertl.${k}.${caseId}` : `supertl.${k}`, [caseId]);
   const [hiddenCols, setHiddenCols] = useState(() => new Set());
   const [colWidths,  setColWidths]  = useState(() => new Map());
   const [pinnedCols, setPinnedCols] = useState(() => DEFAULT_PINNED);
+  const [colOrder,   setColOrder]   = useState(() => []);
 
   useEffect(() => {
     if (!caseId) return;
-    try { setHiddenCols(new Set(JSON.parse(localStorage.getItem(colKey('hiddenCols')) || '[]'))); } catch { /**/ }
-    try { setColWidths(new Map(Object.entries(JSON.parse(localStorage.getItem(colKey('colWidths')) || '{}')))); } catch { /**/ }
+    try { setColOrder(JSON.parse(localStorage.getItem(colKey('colOrder')) || '[]')); } catch { }
+    try { setHiddenCols(new Set(JSON.parse(localStorage.getItem(colKey('hiddenCols')) || '[]'))); } catch { }
+    try { setColWidths(new Map(Object.entries(JSON.parse(localStorage.getItem(colKey('colWidths')) || '{}')))); } catch { }
     try {
       const saved = localStorage.getItem(colKey('pinnedCols'));
-      // saved=null → new user, keep DEFAULT_PINNED
-      // saved='[]' → old session before default-pin feature, fall back to DEFAULT_PINNED
-      // saved='["timestamp",...]' → explicit user preference, respect it
       if (saved !== null) {
         const parsed = JSON.parse(saved);
         setPinnedCols(parsed.length > 0 ? parsed : DEFAULT_PINNED);
       }
-    } catch { /**/ }
+    } catch { }
   }, [caseId, colKey]);
 
-  // Reset horizontal scroll when the data set changes so DateTime column is always fully visible
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollLeft = 0;
   }, [caseId, artifactTypes.join(',')]);
 
-  // ── Client-side sort (non-server columns) ────────────────────────────
-  const [clientSort, setClientSort] = useState(null); // { col, dir: 'asc'|'desc' }
+  const [clientSort, setClientSort] = useState(null);
 
   const handleColSort = useCallback((colKey, shiftKey) => {
     if (SERVER_SORTABLE_COLS.has(colKey)) {
@@ -98,15 +106,12 @@ export default function EventGrid() {
     });
   }, [records, clientSort]);
 
-  // ── Dynamic columns (single-artifact mode) ───────────────────────────
   const dynamicCols = useMemo(() => {
     if (artifactTypes.length !== 1) return [];
     return buildDynamicCols(records, artifactTypes[0], caseId);
   }, [artifactTypes, records, caseId, dynamicColsRev]);
 
   const visibleCols = useMemo(() => {
-    // Insert dynamic cols right after "description" so artifact-specific fields
-    // are visible without scrolling far right (instead of appended at the end)
     const descIdx = LEDGER_COLS.findIndex(c => c.key === 'description');
     const insertAt = descIdx !== -1 ? descIdx + 1 : LEDGER_COLS.length;
     const combined = [
@@ -114,21 +119,35 @@ export default function EventGrid() {
       ...dynamicCols,
       ...LEDGER_COLS.slice(insertAt),
     ];
-    const base = combined.filter(c => !hiddenCols.has(c.key));
+    const base = orderColumns(combined, colOrder).filter(c => !hiddenCols.has(c.key));
     return base.map(c => {
       const w = colWidths.get(c.key);
-      return w ? { ...c, size: w } : c;
+      if (w) return { ...c, size: w };
+      if (c.key === 'timestamp') return { ...c, size: timestampColumnWidth(density) };
+      return c;
     });
-  }, [dynamicCols, hiddenCols, colWidths]);
+  }, [dynamicCols, hiddenCols, colWidths, colOrder, density]);
+
+  const reorderCols = useCallback((fromKey, toKey) => {
+    setColOrder(prev => {
+      const current = prev.length ? prev : visibleCols.map(c => c.key);
+      const next = moveColumn(current.includes(fromKey) ? current : [...current, fromKey], fromKey, toKey);
+      try { localStorage.setItem(colKey('colOrder'), JSON.stringify(next)); } catch { }
+      return next;
+    });
+  }, [visibleCols, colKey]);
+
+  const constantCols = useMemo(
+    () => constantColumns(records, visibleCols.map(c => c.key)),
+    [records, visibleCols]);
 
   const gridTemplate = useMemo(() => {
-    // flex column uses 1fr only when user hasn't manually resized it (size still null)
     return `${PREFIX} ${visibleCols.map(c => (c.meta?.flex && c.size == null) ? '1fr' : `${c.size ?? 120}px`).join(' ')}`;
   }, [visibleCols]);
 
   const pinnedOffsets = useMemo(() => {
     const offsets = new Map();
-    let left = 4; // accent bar width (PREFIX = '4px')
+    let left = 4;
     for (const col of visibleCols) {
       if (pinnedCols.includes(col.key)) {
         offsets.set(col.key, left);
@@ -138,29 +157,22 @@ export default function EventGrid() {
     return offsets;
   }, [visibleCols, pinnedCols]);
 
-  // Minimum width for all virtual rows (GroupRow must be at least as wide as EventRow grid)
   const totalGridMinWidth = useMemo(() => {
     return 4 + visibleCols.reduce((sum, col) => sum + (col.meta?.flex ? 160 : (col.size ?? 120)), 0);
   }, [visibleCols]);
 
-  // ── Group expand ──────────────────────────────────────────────────────
   const [expandedGroups, setExpandedGroups] = useState({});
   const groupKey = groupByFields.map(f => f.key).join('|');
   const resetKey = `${caseId ?? ''}|${groupKey}`;
   const [prevResetKey, setPrevResetKey] = useState(resetKey);
 
-  // Derived-state reset: called during the render itself (not via useEffect) so React discards
-  // this render immediately and re-renders with expandedGroups={} — no intermediate painted frame
-  // where stale collapsed groups flash visible.
   if (prevResetKey !== resetKey) {
     setPrevResetKey(resetKey);
     setExpandedGroups({});
   }
 
-  // ── Flat row list ─────────────────────────────────────────────────────
-  // Accessor for any column key, including raw.* dynamic cols and _source alias
   function getGroupValue(record, colKey) {
-    if (colKey.startsWith('raw.')) return String(record.raw?.[colKey.slice(4)] ?? '—');
+    if (colKey.startsWith('raw.')) return String(readRawPath(record.raw, colKey.slice(4)) ?? '—');
     if (colKey === '_source')      return String(record.source ?? '—');
     return String(record[colKey] ?? '—');
   }
@@ -177,9 +189,19 @@ export default function EventGrid() {
         return 0;
       });
       const counts = new Map();
+      const spans  = new Map();
       sorted.forEach(r => {
+        const ts = r.timestamp ? new Date(r.timestamp).getTime() : NaN;
         let path = '';
-        fields.forEach(f => { path += '␟' + getGroupValue(r, f); counts.set(path, (counts.get(path) || 0) + 1); });
+        fields.forEach(f => {
+          path += '␟' + getGroupValue(r, f);
+          counts.set(path, (counts.get(path) || 0) + 1);
+          if (!Number.isNaN(ts)) {
+            const cur = spans.get(path);
+            if (!cur) spans.set(path, { first: ts, last: ts });
+            else { if (ts < cur.first) cur.first = ts; if (ts > cur.last) cur.last = ts; }
+          }
+        });
       });
       const result   = [];
       const prevVals = new Array(fields.length).fill(null);
@@ -200,7 +222,8 @@ export default function EventGrid() {
             const parentVis = lv === 0 ? true : vis[lv - 1] && expandedGroups[stack[lv - 1]] === true;
             vis[lv] = parentVis;
             const label = groupByFields[lv]?.label ?? fields[lv];
-            if (parentVis) result.push({ type: 'group', level: lv, field: label, value: val, id, count: counts.get(id) || 0 });
+            if (parentVis) result.push({ type: 'group', level: lv, field: label, value: val, id,
+              count: counts.get(id) || 0, span: spans.get(id) || null });
             for (let d = lv + 1; d < fields.length; d++) prevVals[d] = null;
           }
         }
@@ -218,22 +241,16 @@ export default function EventGrid() {
   const virt = useVirtualizer({
     count:            flatRows.length,
     getScrollElement: () => scrollRef.current,
-    estimateSize:     i => {
-      const it = flatRows[i];
-      if (!it) return 28;
-      if (it.type === 'group')    return it.level === 0 ? 28 : 24;
-      if (it.type === 'loadmore') return 40;
-      return 28;
-    },
+    estimateSize:     i => rowHeightFor(density, flatRows[i]),
     overscan: 12,
   });
 
-  // ── Keyboard nav ──────────────────────────────────────────────────────
+  useEffect(() => { virt.measure(); }, [density]); // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(() => {
     function onKey(e) {
       const tag = (e.target?.tagName || '').toLowerCase();
       if (tag === 'input' || tag === 'textarea' || e.target?.isContentEditable) return;
-      // Ctrl+C / Cmd+C — copy selected row as CSV line
       if ((e.key === 'c' || e.key === 'C') && (e.ctrlKey || e.metaKey) && selectedRowId != null) {
         e.preventDefault();
         const rec = records.find(r => r.id === selectedRowId);
@@ -277,7 +294,6 @@ export default function EventGrid() {
     return () => document.removeEventListener('keydown', onKey);
   }, [selectedRowId, flatRows, virt, setSelectedRow, visibleCols, records]);
 
-  // ── Auto-load when loadmore button enters viewport (works in grouped + flat mode) ──
   useEffect(() => {
     const el = loadMoreRef.current;
     if (!el || loading || page >= totalPages) return;
@@ -289,13 +305,11 @@ export default function EventGrid() {
     return () => obs.disconnect();
   }, [loadMoreRef.current, loading, page, totalPages, loadMore]);
 
-  // ── Row click ────────────────────────────────────────────────────────
   const handleRowClick = useCallback((record) => {
     const { selectedRowId: cur, setSelectedRow: set_ } = useTimelineStore.getState();
     set_(record.id === cur ? null : record.id);
   }, []);
 
-  // ── CSV export ────────────────────────────────────────────────────────
   const handleExportCsv = useCallback(async () => {
     const s = useTimelineStore.getState();
     const params = {
@@ -326,12 +340,10 @@ export default function EventGrid() {
     }
   }, []);
 
-  // ── Context menu ──────────────────────────────────────────────────────
   const [showColManager,   setShowColManager]   = useState(false);
   const [showRulesManager, setShowRulesManager] = useState(false);
   const [ctxMenu, setCtxMenu] = useState(null);
   useEffect(() => {
-    // Handler stable (deps vides) — ferme le menu sur tout mousedown hors menu
     const close = () => setCtxMenu(null);
     document.addEventListener('mousedown', close);
     return () => document.removeEventListener('mousedown', close);
@@ -347,7 +359,6 @@ export default function EventGrid() {
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: 'var(--fl-bg)' }}>
 
-      {/* Toolbar */}
       <div style={{ height: 28, background: 'var(--fl-bg)', borderBottom: '1px solid var(--fl-border)',
         display: 'flex', alignItems: 'center', padding: '0 10px', gap: 6, flexShrink: 0 }}>
         {loading && <Loader2 size={12} style={{ color: 'var(--fl-accent)', animation: 'spin 1s linear infinite', flexShrink: 0 }} />}
@@ -381,11 +392,14 @@ export default function EventGrid() {
           <span style={{ fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', padding: '1px 7px', borderRadius: 3,
             background: `color-mix(in srgb, ${artifactColor(artifactTypes[0])} 9%, transparent)`, color: artifactColor(artifactTypes[0]),
             border: `1px solid color-mix(in srgb, ${artifactColor(artifactTypes[0])} 25%, transparent)` }}>
-            {artifactTypes[0].toUpperCase()} SCHEMA · {visibleCols.length} cols
+            {artifactTypes[0].toUpperCase()} · {t('timeline.schema_hint')}
           </span>
         )}
-        <span style={{ fontSize: 9, color: 'var(--fl-muted)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}>{total.toLocaleString()} events</span>
-        {/* Columns toggle — right side, opens downward-left to avoid obstructing the grid */}
+        <span style={{ fontSize: 9, color: countState.kind === 'count' ? 'var(--fl-muted)' : 'var(--fl-subtle)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}>
+          {countState.kind === 'loading' ? t('timeline.count_loading')
+            : countState.kind === 'empty' ? t('timeline.count_empty')
+            : `${countState.total.toLocaleString(i18n.language)} events`}
+        </span>
         <div style={{ position: 'relative' }}>
           <button
             onClick={() => setShowColManager(v => !v)}
@@ -403,15 +417,16 @@ export default function EventGrid() {
             <ColumnManager
               allCols={[...LEDGER_COLS, ...dynamicCols]}
               hiddenCols={hiddenCols}
+              constantCols={constantCols}
               onToggle={key => setHiddenCols(prev => {
                 const next = new Set(prev);
                 next.has(key) ? next.delete(key) : next.add(key);
-                try { localStorage.setItem(colKey('hiddenCols'), JSON.stringify([...next])); } catch { /**/ }
+                try { localStorage.setItem(colKey('hiddenCols'), JSON.stringify([...next])); } catch { }
                 return next;
               })}
               onReset={() => {
                 setHiddenCols(new Set());
-                try { localStorage.removeItem(colKey('hiddenCols')); } catch { /**/ }
+                try { localStorage.removeItem(colKey('hiddenCols')); } catch { }
                 setShowColManager(false);
               }}
               onClose={() => setShowColManager(false)}
@@ -420,20 +435,16 @@ export default function EventGrid() {
         </div>
       </div>
 
-      {/* Group Panel — drag-to-group strip */}
       <GroupPanel />
 
-      {/* Data rows + sticky header share the same scroll container — header aligns with data naturally */}
       <div
         ref={scrollRef}
         onScroll={e => {
           const el = e.currentTarget;
-          // Horizontal sticky sync
           const sl = el.scrollLeft;
           scrollLeftRef.current = sl;
           groupRowEls.current.forEach(r => { if (r) r.style.transform = `translateX(${sl}px)`; });
           el.querySelectorAll('[data-sticky-left]').forEach(r => { r.style.transform = `translateX(${sl}px)`; });
-          // Auto-load next page when within 300px of bottom
           if (!loading && page < totalPages && el.scrollTop + el.clientHeight >= el.scrollHeight - 300) {
             loadMore();
           }
@@ -442,9 +453,9 @@ export default function EventGrid() {
           flex: 1,
           overflow: 'auto',
           position: 'relative',
+          '--tl-row-h': `${rowHeightFor(density, { type: 'row' })}px`,
         }}
       >
-        {/* Sticky column header — sticks to top of scrollRef viewport; scrolls left/right with data */}
         <div style={{
           position: 'sticky', top: 0, zIndex: 10,
           background: 'var(--fl-bg)', borderBottom: '2px solid var(--fl-border)',
@@ -456,19 +467,20 @@ export default function EventGrid() {
             <ColumnHeader key={col.key} col={col}
               sortState={{ col: sortCol, dir: sortDir }} multiSort={multiSort}
               onSort={(key, shift) => handleColSort(key, shift)}
+              onReorder={reorderCols}
               isPinned={pinnedCols.includes(col.key)}
               pinnedOffset={pinnedOffsets.get(col.key)}
               clientSort={clientSort}
               scrollLeftRef={scrollLeftRef}
               onPin={key => setPinnedCols(prev => {
                 const next = prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key];
-                try { localStorage.setItem(colKey('pinnedCols'), JSON.stringify(next)); } catch { /**/ }
+                try { localStorage.setItem(colKey('pinnedCols'), JSON.stringify(next)); } catch { }
                 return next;
               })}
               onResize={(key, width) => setColWidths(prev => {
                 const next = new Map(prev);
                 next.set(key, width);
-                try { localStorage.setItem(colKey('colWidths'), JSON.stringify(Object.fromEntries(next))); } catch { /**/ }
+                try { localStorage.setItem(colKey('colWidths'), JSON.stringify(Object.fromEntries(next))); } catch { }
                 return next;
               })}
             />
@@ -478,12 +490,11 @@ export default function EventGrid() {
           {vitems.map(vi => {
             const item = flatRows[vi.index];
             if (!item) return null;
-            // Base style for data/loadmore rows — minWidth forces horizontal scrollbar
             const style = { position: 'absolute', top: vi.start, left: 0, width: '100%', minWidth: totalGridMinWidth };
 
             if (item.type === 'loadmore') {
               return (
-                <div ref={loadMoreRef} key={vi.key} style={{ ...style, display: 'flex', alignItems: 'center', justifyContent: 'center', height: 40, borderTop: '1px solid var(--fl-border)', background: 'var(--fl-bg)' }}>
+                <div ref={loadMoreRef} key={vi.key} style={{ ...style, display: 'flex', alignItems: 'center', justifyContent: 'center', height: rowHeightFor(density, item), borderTop: '1px solid var(--fl-border)', background: 'var(--fl-bg)' }}>
                   {loading
                     ? <span style={{ fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-muted)', display: 'flex', alignItems: 'center', gap: 6 }}><Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> Loading…</span>
                     : <button
@@ -491,7 +502,7 @@ export default function EventGrid() {
                         style={{ padding: '5px 16px', borderRadius: 5, background: 'var(--fl-card)', border: '1px solid color-mix(in srgb, var(--fl-accent) 25%, transparent)', color: 'var(--fl-accent)', cursor: 'pointer', fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}
                       >
                         ↓ Load next {pageSize} events
-                        <span style={{ color: 'var(--fl-muted)', marginLeft: 6 }}>(showing {records.length.toLocaleString()} of {total.toLocaleString()})</span>
+                        <span style={{ color: 'var(--fl-muted)', marginLeft: 6 }}>(showing {records.length.toLocaleString(i18n.language)} of {total.toLocaleString(i18n.language)})</span>
                       </button>
                   }
                 </div>
@@ -499,8 +510,6 @@ export default function EventGrid() {
             }
 
             if (item.type === 'group') {
-              // Group rows stay pinned to the viewport left edge regardless of horizontal scroll.
-              // translateX is applied via DOM ref on scroll — no re-render cost.
               return (
                 <div
                   key={vi.key}
@@ -516,6 +525,9 @@ export default function EventGrid() {
                 >
                   <GroupRow
                     field={item.field} value={item.value} count={item.count} level={item.level}
+                    span={item.span}
+                    locale={i18n.language}
+                    height={rowHeightFor(density, item)}
                     isOpen={expandedGroups[item.id] === true}
                     onClick={() => setExpandedGroups(prev => ({ ...prev, [item.id]: prev[item.id] === true ? undefined : true }))}
                   />
@@ -528,6 +540,8 @@ export default function EventGrid() {
               <div key={vi.key} style={style}>
                 <EventRow
                   record={r}
+                  stacked={stacksTimestamp(density)}
+                  nowMs={nowMs}
                   gridTemplate={gridTemplate}
                   visibleCols={visibleCols}
                   isSelected={selectedRowId === r.id}
@@ -540,6 +554,7 @@ export default function EventGrid() {
                   pinnedCols={pinnedCols}
                   pinnedOffsets={pinnedOffsets}
                   scrollLeftRef={scrollLeftRef}
+                  tsLabels={tsLabels}
                 />
               </div>
             );
@@ -548,17 +563,11 @@ export default function EventGrid() {
 
         {!loading && records.length === 0 && (
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 200, color: 'var(--fl-muted)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11, textAlign: 'center', padding: '0 24px' }}>
-            {/* A hunt pivot (huntId) that comes back empty must say so explicitly
-               (huntMessage, sourced from collection.js's /timeline `message` field)
-               instead of falling through to the generic filter-mismatch copy — a
-               timeline purged since the hunt ran must not read as a blank screen
-               with no explanation. */}
             {huntMessage || 'No events match current filters'}
           </div>
         )}
       </div>
 
-      {/* ColorRulesManager modal */}
       {showRulesManager && (
         <div
           onClick={() => setShowRulesManager(false)}
@@ -581,7 +590,6 @@ export default function EventGrid() {
         </div>
       )}
 
-      {/* Context menu */}
       {ctxMenu && (
         <div onMouseDown={e => e.stopPropagation()} style={{
           position: 'fixed', top: ctxMenu.y, left: ctxMenu.x, zIndex: 2000,
@@ -607,7 +615,6 @@ export default function EventGrid() {
             </button>
           ))}
 
-          {/* Pivot section - separator + conditional actions */}
           {((ctxMenu.col.key === 'host_name' && ctxMenu.row.host_name) ||
             (ctxMenu.col.key === 'user_name' && ctxMenu.row.user_name) ||
             ctxMenu.row.process_name) && (

@@ -80,7 +80,6 @@ export default function KillChainView({ caseId, refreshKey }) {
   for (const b of findings) (byTactic[b.mitre_tactic] ||= []).push(b);
   const titleById = new Map(findings.map(f => [f.id, f.title]));
 
-  // confidence-weighted coverage
   const covered = Object.keys(byTactic).length;
   const weightSum = Object.entries(byTactic).reduce((acc, [, items]) => acc + Math.max(...items.map(i => weight(i.confidence))), 0);
   const score = weightSum / PHASES.length;
@@ -94,7 +93,7 @@ export default function KillChainView({ caseId, refreshKey }) {
       const a = document.createElement('a');
       a.href = url; a.download = `killchain-navigator-${caseId}.json`;
       a.click(); URL.revokeObjectURL(url);
-    } catch { /* noop */ }
+    } catch { }
   }
 
   return (

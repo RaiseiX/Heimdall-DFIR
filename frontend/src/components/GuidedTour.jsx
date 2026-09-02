@@ -7,9 +7,6 @@ import {
   CalendarDays, SlidersHorizontal, Activity, CheckCircle2, ArrowRight, ArrowLeft, X,
 } from 'lucide-react';
 
-// Each step optionally navigates to a page and spotlights a sidebar item.
-// Steps whose anchor doesn't exist in the DOM (e.g. admin-only items for an
-// analyst) are filtered out automatically at mount.
 function getTourSteps(t) {
   const steps = i18n.getResourceBundle(i18n.language || 'en', 'translation')?.tour?.steps
     || i18n.getResourceBundle('en', 'translation')?.tour?.steps
@@ -43,7 +40,6 @@ const CARD_W = 390;
 export default function GuidedTour({ onClose }) {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  // Keep only steps without an anchor, or whose anchor element is present.
   const steps = useMemo(
     () => getTourSteps(t).filter(s => !s.anchor || document.querySelector(s.anchor)),
     [t],
@@ -61,7 +57,6 @@ export default function GuidedTour({ onClose }) {
     setRect(el ? el.getBoundingClientRect() : null);
   }, [steps, idx]);
 
-  // On step change: navigate to the page, then measure the anchor once it renders.
   useEffect(() => {
     const s = steps[idx];
     if (s?.path) navigate(s.path);
@@ -69,7 +64,6 @@ export default function GuidedTour({ onClose }) {
     return () => clearTimeout(t);
   }, [idx]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Keep the spotlight aligned on resize/scroll.
   useEffect(() => {
     window.addEventListener('resize', measure);
     window.addEventListener('scroll', measure, true);
@@ -79,7 +73,6 @@ export default function GuidedTour({ onClose }) {
     };
   }, [measure]);
 
-  // Keyboard: ←/→ navigate, Esc closes.
   useEffect(() => {
     const onKey = (e) => {
       if (e.key === 'Escape') onClose();
@@ -90,7 +83,6 @@ export default function GuidedTour({ onClose }) {
     return () => window.removeEventListener('keydown', onKey);
   }, [idx, last, onClose]);
 
-  // Card position: beside the spotlight, else centred.
   let cardPos;
   if (rect) {
     let left = rect.right + 20;
@@ -105,10 +97,8 @@ export default function GuidedTour({ onClose }) {
 
   return (
     <>
-      {/* Click-blocker so the user follows the tour */}
       <div style={{ position: 'fixed', inset: 0, zIndex: 9997 }} onClick={(e) => e.stopPropagation()} />
 
-      {/* Dimming: spotlight cut-out if anchored, full dim otherwise */}
       {rect ? (
         <div style={{
           position: 'fixed', zIndex: 9998, pointerEvents: 'none',
@@ -123,7 +113,6 @@ export default function GuidedTour({ onClose }) {
         <div style={{ position: 'fixed', inset: 0, zIndex: 9998, pointerEvents: 'none', background: 'rgba(3,5,10,0.74)', backdropFilter: 'blur(5px)' }} />
       )}
 
-      {/* Coachmark card */}
       <div
         className="login-rise"
         style={{
@@ -133,13 +122,11 @@ export default function GuidedTour({ onClose }) {
           transition: 'left 0.32s cubic-bezier(.4,0,.2,1), top 0.32s cubic-bezier(.4,0,.2,1)',
         }}
       >
-        {/* Progress */}
         <div style={{ height: 3, background: 'var(--fl-border)' }}>
           <div style={{ height: '100%', width: `${pct}%`, background: 'linear-gradient(90deg, var(--fl-accent), var(--fl-purple))', transition: 'width 0.3s ease' }} />
         </div>
 
         <div style={{ padding: '20px 22px 18px' }}>
-          {/* Close */}
           <button onClick={onClose} aria-label={t('common.close')} style={{
             position: 'absolute', top: 12, right: 12, background: 'none', border: 'none',
             cursor: 'pointer', color: 'var(--fl-muted)', padding: 4, borderRadius: 6, display: 'flex',
@@ -149,7 +136,6 @@ export default function GuidedTour({ onClose }) {
             <X size={15} />
           </button>
 
-          {/* Header */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
             <div style={{
               width: 40, height: 40, borderRadius: 10, flexShrink: 0,
@@ -173,7 +159,6 @@ export default function GuidedTour({ onClose }) {
             {step.desc}
           </p>
 
-          {/* Controls */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <button onClick={onClose} style={{ fontSize: 11, color: 'var(--fl-muted)', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}>
               {t('tour.skip')}
@@ -207,7 +192,6 @@ export default function GuidedTour({ onClose }) {
             </div>
           </div>
 
-          {/* Dots */}
           <div style={{ display: 'flex', justifyContent: 'center', gap: 6, marginTop: 16 }}>
             {steps.map((_, i) => (
               <button key={i} onClick={() => setIdx(i)} aria-label={t('tour.dot_label', { step: i + 1 })} style={{

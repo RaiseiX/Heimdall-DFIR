@@ -13,7 +13,7 @@ import jwt from 'jsonwebtoken';
 import axios from 'axios';
 import type { AuthRequest } from '../types/index';
 import { validateRule, scanEvidence } from '../services/yaraService';
-import { parseRule, buildQuery } from '../services/sigmaService';
+import { parseRule, buildQuery, unreachableFields, presentFieldsQuery } from '../services/sigmaService';
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const { platformForArtifactType } = require('../services/artifactPlatform');
 
@@ -696,7 +696,10 @@ router.post('/sigma/hunt/:caseId', authenticate, (requireRole as any)('analyst',
       return res.status(400).json({ error: `Règle invalide : ${parsed.error}` });
     }
 
-    const { where, params } = buildQuery(parsed.parsed);
+    const { where, params, unsupported, fields } = buildQuery(parsed.parsed);
+    if (unsupported) {
+      return res.status(422).json({ error: `Règle non supportée : ${unsupported}` });
+    }
 
     const allParams: unknown[] = [caseId, ...params];
 
@@ -704,6 +707,17 @@ router.post('/sigma/hunt/:caseId', authenticate, (requireRole as any)('analyst',
 
     const { matchCount, sample: matchedEvents } = await huntMatches(pool, caseId, shiftedWhere, allParams);
     const sampleSize = matchedEvents.length;
+
+    let missingFields: string[] | null = null;
+    if (matchCount === 0 && fields.length > 0) {
+      try {
+        const cq = presentFieldsQuery(caseId);
+        const champs = await pool.query(cq.text, cq.values);
+        missingFields = unreachableFields(fields, new Set<string>(champs.rows.map((r: any) => r.champ)));
+      } catch {
+        missingFields = null;
+      }
+    }
 
     await pool.query(
       `INSERT INTO sigma_hunt_results (case_id, rule_id, rule_name, match_count, matched_events, sample_size)
@@ -718,6 +732,7 @@ router.post('/sigma/hunt/:caseId', authenticate, (requireRole as any)('analyst',
     res.json({
       rule_name:  rule.name,
       match_count: matchCount,
+      ...(missingFields ? { unreachable: true, missing_fields: missingFields } : {}),
       events:      matchedEvents,
       sample_size: sampleSize,
     });
@@ -776,7 +791,10 @@ router.get('/sigma/hunt/:caseId/:huntId/timeline-ids', authenticate, async (req:
       return res.status(500).json({ error: `Règle invalide au moment du pivot : ${parsed.error}` });
     }
 
-    const { where, params } = buildQuery(parsed.parsed);
+    const { where, params, unsupported } = buildQuery(parsed.parsed);
+    if (unsupported) {
+      return res.status(422).json({ error: `Règle non supportée : ${unsupported}` });
+    }
     const allParams: unknown[] = [caseId, ...params];
     const shiftedWhere = where.replace(/\$(\d+)/g, (_m, n) => `$${parseInt(n, 10) + 1}`);
 
@@ -897,6 +915,15 @@ router.post('/sigma/scan-case/:caseId', authenticate, (requireRole as any)('anal
       return res.end();
     }
 
+    const champsQ = presentFieldsQuery(caseId);
+    let presentFields: Set<string> | null = null;
+    try {
+      const champs = await pool.query(champsQ.text, champsQ.values);
+      presentFields = new Set<string>(champs.rows.map((r: any) => r.champ));
+    } catch {
+      presentFields = null;
+    }
+
     const summary: any[] = [];
     // Live tally for the UI's progress band — Sigma hunt UI rebuild,
     // 2026-08-11. A multi-minute sweep over 400+ rules used to tell the
@@ -925,7 +952,14 @@ router.post('/sigma/scan-case/:caseId', authenticate, (requireRole as any)('anal
         continue;
       }
       try {
-        const { where, params } = buildQuery(parsed.parsed);
+        const { where, params, unsupported, fields } = buildQuery(parsed.parsed);
+        if (unsupported) {
+          summary.push({
+            rule_id: rule.id, rule_name: rule.name, match_count: 0, error: unsupported,
+            level: rule.level, mitre_techniques: rule.mitre_techniques,
+          });
+          continue;
+        }
         const allParams: unknown[] = [caseId, ...params];
         const shiftedWhere = where.replace(/\$(\d+)/g, (_m: string, n: string) => `$${parseInt(n) + 1}`);
 
@@ -939,9 +973,11 @@ router.post('/sigma/scan-case/:caseId', authenticate, (requireRole as any)('anal
           matchedSoFar++;
           if (rule.level === 'critical') criticalSoFar++;
         }
+        const aveugle = matchCount === 0 ? unreachableFields(fields, presentFields) : null;
         summary.push({
           rule_id: rule.id, rule_name: rule.name, match_count: matchCount,
           level: rule.level, mitre_techniques: rule.mitre_techniques,
+          ...(aveugle ? { unreachable: true, missing_fields: aveugle } : {}),
         });
       } catch (err: any) {
         summary.push({
@@ -953,11 +989,16 @@ router.post('/sigma/scan-case/:caseId', authenticate, (requireRole as any)('anal
 
     const rulesMatched = summary.filter(s => s.match_count > 0).length;
     const totalMatches = summary.reduce((acc, s) => acc + (s.match_count || 0), 0);
+    const rulesUnreachable = summary.filter(s => s.unreachable).length;
+    const rulesUnsupported = summary.filter(s => s.error && !s.unreachable).length;
     const userId = (req as AuthRequest).user?.id;
     await auditLog(userId, 'run_sigma_scan_case', 'case', caseId,
-      { rules_checked: rulesResult.rows.length, rules_matched: rulesMatched, total_matches: totalMatches }, req.ip);
+      { rules_checked: rulesResult.rows.length, rules_matched: rulesMatched, total_matches: totalMatches,
+        rules_unreachable: rulesUnreachable, rules_unsupported: rulesUnsupported }, req.ip);
 
-    send({ type: 'done', case_id: caseId, rules_checked: rulesResult.rows.length, rules_matched: rulesMatched, total_matches: totalMatches, summary });
+    send({ type: 'done', case_id: caseId, rules_checked: rulesResult.rows.length, rules_matched: rulesMatched,
+           total_matches: totalMatches, rules_unreachable: rulesUnreachable, rules_unsupported: rulesUnsupported,
+           fields_inventoried: presentFields ? presentFields.size : null, summary });
     res.end();
   } catch (e: any) {
     send({ type: 'error', error: e.message });

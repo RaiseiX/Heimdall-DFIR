@@ -13,7 +13,7 @@ export default function TeamSection() {
   const [msg, setMsg]         = useState('');
   const [showCreate, setShowCreate] = useState(false);
   const [newUser, setNewUser] = useState({ username: '', full_name: '', password: '', role: 'analyst' });
-  const [pwdFor, setPwdFor]   = useState(null);   // user id being password-reset
+  const [pwdFor, setPwdFor]   = useState(null);
   const [pwdVal, setPwdVal]   = useState('');
   const [confirmDel, setConfirmDel] = useState(null);
 

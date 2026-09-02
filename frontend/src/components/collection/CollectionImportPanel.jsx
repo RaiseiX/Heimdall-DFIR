@@ -8,8 +8,6 @@ import ParsingMonitor from './ParsingMonitor';
 
 const ARTIFACT_EXTS = new Set(['.evtx', '.pf', '.lnk', '.dat', '.hve', '.db', '.sqlite', '.mdb', '.automaticDestinations-ms', '.pcap', '.pcapng', '.cap']);
 
-// Honest per-status rollup for the live parser run — each status stays visually distinct,
-// nothing here folds "skipped" or "error" into a green success count.
 const ROLLUP_STATUS_META = {
   queued:  { labelKey: 'collection.pm_queued',  color: 'var(--fl-muted)' },
   parsing: { labelKey: 'collection.pm_parsing', color: 'var(--fl-accent)' },
@@ -28,7 +26,6 @@ function rollupParserStates(parserStates) {
   return counts;
 }
 
-// Renders the computed rollup as distinct per-status badges — no collapsing into one "ok" count.
 function StatusRollup({ parserStates, t, style }) {
   const counts = rollupParserStates(parserStates);
   if (Object.keys(parserStates || {}).length === 0) return null;
@@ -52,7 +49,6 @@ function StatusRollup({ parserStates, t, style }) {
   );
 }
 
-// Traverse a FileSystemEntry recursively, resolving all File objects
 async function collectEntries(entry, prefix = '') {
   if (entry.isFile) {
     return new Promise((resolve) => {
@@ -62,7 +58,6 @@ async function collectEntries(entry, prefix = '') {
   if (entry.isDirectory) {
     const reader = entry.createReader();
     const all = [];
-    // readEntries returns max 100 at a time — must loop
     while (true) {
       const batch = await new Promise((resolve) => reader.readEntries(resolve, () => resolve([])));
       if (!batch.length) break;
@@ -91,7 +86,7 @@ async function buildZipFromItems(dataTransferItems) {
   await Promise.all(allFiles.map(({ file, path }) =>
     file.arrayBuffer().then(buf => { fileMap[path] = new Uint8Array(buf); })
   ));
-  const zipped = zipSync(fileMap, { level: 0 }); // level 0 = store, fast
+  const zipped = zipSync(fileMap, { level: 0 });
   return new File([zipped], 'artifacts.zip', { type: 'application/zip' });
 }
 
@@ -188,9 +183,9 @@ export default function CollectionImportPanel({ caseId, caseObj, onDone }) {
   const [copiedHash,      setCopiedHash]      = useState(null);
   const [catscaleDetail,  setCatscaleDetail]  = useState(null);
   const [catscaleStep,    setCatscaleStep]    = useState(null);
-  const [parserStates,    setParserStates]    = useState({}); // key -> { status, records }
-  const doneCountRef = useRef(0);   // parsers finished (parallel-safe progress)
-  const totalRef     = useRef(0);   // total parsers in this run
+  const [parserStates,    setParserStates]    = useState({});
+  const doneCountRef = useRef(0);
+  const totalRef     = useRef(0);
   const locale = i18n.language === 'fr' ? 'fr-FR' : 'en-US';
   const artifactLabel = (type) => {
     const artifact = ARTIFACTS[type];
@@ -201,7 +196,6 @@ export default function CollectionImportPanel({ caseId, caseObj, onDone }) {
     return stepMeta?.labelKey ? t(stepMeta.labelKey) : stepMeta?.label || key;
   };
 
-  // Auto-scroll the pipeline journal to the latest line.
   useEffect(() => { if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight; }, [pipelineLog.length]);
 
   const keyFromEventName = (name) => {
@@ -222,8 +216,6 @@ export default function CollectionImportPanel({ caseId, caseObj, onDone }) {
         doneCountRef.current = 0;
         totalRef.current = data.total || 0;
       } else if (data.type === 'artifact_start') {
-        // Don't derive % from data.current — with parallel parsing it's a start index,
-        // not a completion count. Progress advances only on artifact_done below.
         addLog('→ ' + data.name + '…');
         const _k = keyFromEventName(data.name);
         if (_k) setParserStates(p => ({ ...p, [_k]: { ...(p[_k] || {}), status: 'parsing' } }));
@@ -466,9 +458,6 @@ export default function CollectionImportPanel({ caseId, caseObj, onDone }) {
   const toggle = (t) => setSelected(p => p.includes(t) ? p.filter(x => x !== t) : [...p, t]);
   const isProcessing = ['uploading', 'extracting', 'detecting', 'parsing', 'hayabusa'].includes(step);
 
-  // Hayabusa scans Windows event logs. The parse already skips it unless EVTX is
-  // present (`if (hasEvtx)`), so showing it for a Linux collection announces a
-  // step that will never run — the pipeline drawn must be the pipeline executed.
   const willRunHayabusa = !isCatScaleCollection && selected.includes('evtx');
   const pipelineSteps = PIPELINE_STEPS.filter(s => s.key !== 'hayabusa' || willRunHayabusa);
 
@@ -498,9 +487,7 @@ export default function CollectionImportPanel({ caseId, caseObj, onDone }) {
             const items = [...(e.dataTransfer.items || [])];
             const files = [...(e.dataTransfer.files || [])];
 
-            // Check if any item is a directory
             const hasDirectory = items.some(it => it.webkitGetAsEntry?.()?.isDirectory);
-            // Check if multiple artifact files dropped
             const allArtifacts = files.length > 1 && files.every(f => {
               const ext = '.' + f.name.split('.').pop().toLowerCase();
               return ARTIFACT_EXTS.has(ext);
@@ -581,7 +568,6 @@ export default function CollectionImportPanel({ caseId, caseObj, onDone }) {
               const MONO = 'var(--f-mono, "JetBrains Mono", monospace)';
               return (
                 <div key={ps.key} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', position: 'relative', minWidth: 0 }}>
-                  {/* connector line to the next node (flowing gradient on the active step) */}
                   {i < pipelineSteps.length - 1 && (
                     <div className={isActive ? 'fl-flow' : ''} style={{ position: 'absolute', top: 13, left: '50%', width: '100%', height: 2, zIndex: 0, transition: 'background 0.4s',
                       background: isDone ? 'var(--fl-ok)'
@@ -716,7 +702,6 @@ export default function CollectionImportPanel({ caseId, caseObj, onDone }) {
                       opacity: disabled ? 0.4 : 1 }}
                     onMouseEnter={e => { if (!disabled && !sel) { e.currentTarget.style.borderColor = 'var(--fl-border3)'; e.currentTarget.style.background = 'var(--fl-card)'; } }}
                     onMouseLeave={e => { if (!disabled && !sel) { e.currentTarget.style.borderColor = 'var(--fl-border2)'; e.currentTarget.style.background = 'var(--fl-bg)'; } }}>
-                    {/* Uniform accent checkbox — selection reads as one signal, not 16 rainbow colors */}
                     <div className="flex-shrink-0 flex items-center justify-center"
                       style={{ width: 16, height: 16, borderRadius: 4,
                         border: `1.5px solid ${sel ? 'var(--fl-accent)' : 'var(--fl-border3)'}`,
@@ -725,7 +710,6 @@ export default function CollectionImportPanel({ caseId, caseObj, onDone }) {
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2" style={{ marginBottom: 2 }}>
-                        {/* Square category dot — the only place the artifact color reads as signal */}
                         <span style={{ width: 7, height: 7, borderRadius: 2, flexShrink: 0, background: color, display: 'inline-block' }} />
                         <span className="text-sm font-semibold truncate" style={{ color: 'var(--fl-text)' }}>{artifactLabel(type)}</span>
                         {type === 'evtx' && (

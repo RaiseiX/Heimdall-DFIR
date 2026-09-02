@@ -5,7 +5,6 @@ import { casesAPI } from '../../utils/api';
 const MONO = 'var(--f-mono, "JetBrains Mono", monospace)';
 const initials = (u) => (u.full_name || u.username || '?').split(/\s+/).map(s => s[0]).slice(0, 2).join('').toUpperCase();
 
-// Case assignment chip-bar. Read-only for analysts; admin / team lead can add/remove.
 export default function AssigneesControl({ caseId, user }) {
   const canManage = user?.role === 'admin' || user?.role === 'team_lead';
   const [assignees, setAssignees] = useState([]);
@@ -25,8 +24,8 @@ export default function AssigneesControl({ caseId, user }) {
     return () => document.removeEventListener('mousedown', h);
   }, [open, canManage, pool.length]);
 
-  const add = async (uid) => { try { await casesAPI.assignUser(caseId, uid); load(); } catch { /* ignore */ } };
-  const remove = async (uid) => { try { await casesAPI.unassignUser(caseId, uid); load(); } catch { /* ignore */ } };
+  const add = async (uid) => { try { await casesAPI.assignUser(caseId, uid); load(); } catch { } };
+  const remove = async (uid) => { try { await casesAPI.unassignUser(caseId, uid); load(); } catch { } };
 
   const assignedIds = new Set(assignees.map(a => a.id));
 

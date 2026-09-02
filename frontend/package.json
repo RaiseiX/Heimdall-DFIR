@@ -8,6 +8,8 @@
     "preview": "vite preview",
     "i18n:check": "node scripts/check-i18n.mjs",
     "design:check": "node scripts/check-design-system.mjs",
+    "comments:check": "node scripts/strip-comments.mjs",
+    "comments:strip": "node scripts/strip-comments.mjs --write",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },

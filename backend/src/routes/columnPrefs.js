@@ -6,6 +6,8 @@ const { authenticate } = require('../middleware/auth');
 const logger = require('../config/logger').default;
 const router = express.Router();
 
+const { subtypesOf } = require('../services/artifactSubtype');
+
 const VALID_ARTIFACT_TYPES = [
   'evtx',
   'hayabusa',
@@ -19,6 +21,8 @@ const VALID_ARTIFACT_TYPES = [
   'jumplist',
   'bits',
   'recyclebin',
+  ...subtypesOf('amcache'),
+  ...subtypesOf('jumplist'),
 ];
 
 router.get('/', authenticate, async (req, res) => {

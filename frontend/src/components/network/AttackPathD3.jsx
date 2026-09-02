@@ -42,9 +42,6 @@ export default function AttackPathD3({ svgRef: externalSvgRef, caseId, nodes, ed
   const bgColor    = theme?.bg    || 'var(--fl-bg)';
   const panelColor = theme?.panel || 'var(--fl-panel)';
   const dimColor   = theme?.dim   || 'var(--fl-muted)';
-  // Les tokens couvrent les deux thèmes : les ternaires clair/sombre ne sont
-  // plus nécessaires. `var()` et `color-mix()` sont résolus dans les attributs
-  // de présentation SVG (vérifié sur Chrome 141 et Firefox 140 ESR).
   const inactiveColBg  = 'var(--fl-bg)';
   const inactiveColHdr = 'var(--fl-raised)';
   const inactiveColTxt = 'var(--fl-subtle)';
@@ -109,8 +106,6 @@ export default function AttackPathD3({ svgRef: externalSvgRef, caseId, nodes, ed
     const nodePos = new Map();
 
     const allCols = [...TACTIC_ORDER, ...(unknownNodes.length > 0 ? ['Autres'] : [])];
-    // Only draw the kill-chain scaffold when there's data — an empty grid of 14 hollow
-    // columns reads as unfinished. The empty state is a clean HTML overlay instead.
     if (nodes.length > 0) allCols.forEach((tactic, colIdx) => {
       const colNodes = tactic === 'Autres' ? unknownNodes : (tacticNodes[tactic] || []);
       const color = TACTIC_COLORS[tactic] || 'var(--fl-muted)';

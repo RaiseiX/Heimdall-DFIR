@@ -178,7 +178,6 @@ export default function MemoryUploadPanel({ caseId, onDone, onClose }) {
         )}
       </div>
 
-      {/* Main file drop zone */}
       {status === 'idle' && !file && (
         <div
           ref={dropRef}
@@ -205,7 +204,6 @@ export default function MemoryUploadPanel({ caseId, onDone, onClose }) {
         </div>
       )}
 
-      {/* Selected main file */}
       {file && status === 'idle' && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', background: '#0a0f1a', borderRadius: 6, border: '1px solid var(--fl-card)' }}>
           <FileArchive size={14} style={{ color: 'var(--fl-accent)', flexShrink: 0 }} />
@@ -223,7 +221,6 @@ export default function MemoryUploadPanel({ caseId, onDone, onClose }) {
         </div>
       )}
 
-      {/* OS selector */}
       {file && status === 'idle' && (
         <div style={s.osRow}>
           <span>{t('upload.target_os')}</span>
@@ -244,7 +241,6 @@ export default function MemoryUploadPanel({ caseId, onDone, onClose }) {
         </div>
       )}
 
-      {/* Additional files (symbols, snapshots…) */}
       {file && status === 'idle' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-dim)' }}>
@@ -290,7 +286,6 @@ export default function MemoryUploadPanel({ caseId, onDone, onClose }) {
         </div>
       )}
 
-      {/* Progress */}
       {(isRunning || status === 'done' || status === 'error') && (
         <div>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>

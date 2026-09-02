@@ -15,7 +15,6 @@ const LEVEL_COLOR = {
   critical: 'var(--fl-danger)', high: 'var(--fl-warn)', medium: 'var(--fl-warn)', low: 'var(--fl-ok)', informational: 'var(--fl-accent)',
 };
 
-// ── Diagnostic banner ─────────────────────────────────────────────────────────
 function DiagnosticBanner({ diagnostic }) {
   return (
     <div style={{ margin: '6px 12px 0', padding: '10px 14px', borderRadius: 6, flexShrink: 0,
@@ -54,9 +53,7 @@ function DiagnosticBanner({ diagnostic }) {
   );
 }
 
-// ── Page ──────────────────────────────────────────────────────────────────────
 export default function HayabusaPage() {
-  // Hayabusa-specific state (case selector, run button, metadata)
   const [cases, setCases]             = useState([]);
   const [selectedCase, setSelectedCase] = useState('');
   const [running, setRunning]         = useState(false);
@@ -66,13 +63,11 @@ export default function HayabusaPage() {
 
   const [activeLevel, setActiveLevel] = useState('');
 
-  // SuperTimeline store — powers the grid
   const {
     setCaseId, setFilter, setColorRules, loadTimeline, applyFilters,
     total, loading,
   } = useTimelineStore();
 
-  // ── Load cases ──────────────────────────────────────────────────────────────
   useEffect(() => {
     casesAPI.list({}).then(({ data }) => {
       const list = data.cases || [];
@@ -81,16 +76,13 @@ export default function HayabusaPage() {
     }).catch(() => {});
   }, []);
 
-  // ── When selected case changes ──────────────────────────────────────────────
   useEffect(() => {
     if (!selectedCase) return;
 
-    // Init timeline store locked to hayabusa
     setActiveLevel('');
     setCaseId(selectedCase);
     setFilter('artifactTypes', ['hayabusa']);
 
-    // Load color rules, then timeline data
     timelineRulesAPI.list(selectedCase)
       .then(r => {
         const rules = r.data?.rules || r.data || [];
@@ -99,7 +91,6 @@ export default function HayabusaPage() {
       .catch(() => setColorRules([]))
       .finally(() => loadTimeline());
 
-    // Fetch Hayabusa metadata (stats, diagnostic) from the dedicated endpoint
     collectionAPI.getHayabusa(selectedCase, { limit: 1 }).then(({ data }) => {
       setHayMeta({
         stats:           data.stats           || {},
@@ -110,7 +101,6 @@ export default function HayabusaPage() {
       setHasRun((data.total_detections || 0) > 0);
     }).catch(() => { setHasRun(false); setHayMeta(null); });
 
-    // Restore unfiltered store when navigating away
     return () => {
       useTimelineStore.getState().setFilter('artifactTypes', []);
       useTimelineStore.getState().setFilter('search', '');
@@ -118,22 +108,17 @@ export default function HayabusaPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedCase]);
 
-  // ── Level quick-filter ────────────────────────────────────────────────────────
   useEffect(() => {
-    // No-op on empty level — case-change effect already calls loadTimeline()
     if (!activeLevel) {
       setFilter('search', '');
       return;
     }
-    // Match both full name ([critical]) and Hayabusa abbreviation ([crit], [med], [info]).
-    // Using the abbreviated prefix covers both: "[crit" matches "[crit]" AND "[critical]".
     const LEVEL_PREFIX = { critical: '[crit', medium: '[med', informational: '[info', high: '[high', low: '[low' };
     setFilter('search', LEVEL_PREFIX[activeLevel] || `[${activeLevel}`);
     applyFilters();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeLevel]);
 
-  // ── Run Hayabusa analysis ───────────────────────────────────────────────────
   const runHayabusa = useCallback(async () => {
     if (!selectedCase || running) return;
     setRunning(true);
@@ -147,7 +132,6 @@ export default function HayabusaPage() {
         diagnostic:      data.diagnostic        || null,
       });
       setHasRun(true);
-      // Reload the grid
       setCaseId(selectedCase);
       setFilter('artifactTypes', ['hayabusa']);
       loadTimeline();
@@ -160,14 +144,12 @@ export default function HayabusaPage() {
   const { stats = {}, evtxCount = 0, diagnostic = null } = hayMeta || {};
   const showContent = hasRun || loading || running;
 
-  // ─────────────────────────────────────────────────────────────────────────────
   return (
     <div style={{
       height: '100%', background: '#0a0c11',
       display: 'flex', flexDirection: 'column', overflow: 'hidden',
     }}>
 
-      {/* ── Header strip ── */}
       <div style={{ height: 32, background: '#0a0c11', borderBottom: '1px solid #1a1f2c',
         display: 'flex', alignItems: 'center', padding: '0 14px', gap: 10,
         flexShrink: 0, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}>
@@ -198,7 +180,6 @@ export default function HayabusaPage() {
         <TipsButton />
       </div>
 
-      {/* ── Control bar — case selector + action buttons ── */}
       <div style={{ background: '#0a0c11', borderBottom: '1px solid #1a1f2c',
         padding: '6px 14px', display: 'flex', gap: 6, alignItems: 'center',
         flexShrink: 0, flexWrap: 'wrap' }}>
@@ -240,7 +221,6 @@ export default function HayabusaPage() {
           </button>
         )}
 
-        {/* Level filter badges — always visible when data is loaded, clickable to filter */}
         {hasRun && (
           <>
             <span style={{ width: 1, height: 18, background: '#1a1f2c', flexShrink: 0 }} />
@@ -279,7 +259,6 @@ export default function HayabusaPage() {
         )}
       </div>
 
-      {/* ── Error banner ── */}
       {error && (
         <div style={{ margin: '0 12px', padding: '5px 10px', borderRadius: 5, fontSize: 11,
           background: '#1a0505', border: '1px solid #3a1010', color: 'var(--fl-danger)',
@@ -292,7 +271,6 @@ export default function HayabusaPage() {
         </div>
       )}
 
-      {/* ── Diagnostic banners ── */}
       {hasRun && !loading && total === 0 && diagnostic && (
         <DiagnosticBanner diagnostic={diagnostic} />
       )}
@@ -306,7 +284,6 @@ export default function HayabusaPage() {
         </div>
       )}
 
-      {/* ── Empty state ── */}
       {!showContent && (
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column',
           alignItems: 'center', justifyContent: 'center', gap: 12 }}>
@@ -328,7 +305,6 @@ export default function HayabusaPage() {
         </div>
       )}
 
-      {/* ── SuperTimeline grid — CommandBar + EventGrid + DetailPanel + StatusBar ── */}
       {showContent && (
         <>
           <CommandBar />

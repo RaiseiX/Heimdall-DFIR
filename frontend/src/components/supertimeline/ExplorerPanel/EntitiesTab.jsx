@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 import { useTimelineStore } from '../store/useTimelineStore';
+import { formatCount } from '../../../utils/formatCount';
 
 function countBy(records, key) {
   const map = new Map();
@@ -25,7 +26,7 @@ function EntitySection({ title, items, onSelect, activeValue }) {
           : <ChevronRight size={9} style={{ color: 'var(--fl-muted)' }} />}
         <span style={{ flex: 1, fontSize: 8, fontWeight: 700, letterSpacing: '0.14em',
           textTransform: 'uppercase', color: 'var(--fl-subtle)' }}>{title}</span>
-        <span style={{ fontSize: 8, color: 'var(--fl-raised)' }}>{items.length}</span>
+        <span style={{ fontSize: 8, color: 'var(--fl-dim)' }}>{items.length}</span>
       </div>
       {open && items.map(({ value, count }) => {
         const active = activeValue === value;
@@ -42,7 +43,7 @@ function EntitySection({ title, items, onSelect, activeValue }) {
               overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {value}
             </span>
-            <span style={{ fontSize: 9, color: 'var(--fl-muted)' }}>{count.toLocaleString()}</span>
+            <span style={{ fontSize: 9, color: 'var(--fl-muted)' }}>{formatCount(count)}</span>
           </div>
         );
       })}
@@ -74,7 +75,6 @@ export default function EntitiesTab() {
 
   const EXEC_RE = /\.(exe|dll|sys|com|bat|cmd|ps1|msi|py|sh|vbs|jar|appx|apk|bin)$/i;
   const processes = useMemo(() => {
-    // Extraire le nom de fichier seul (strip \Device\HarddiskVolume3\...\foo.exe → foo.exe)
     const map = new Map();
     records.forEach(r => {
       if (!r.process_name) return;

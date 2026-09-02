@@ -3,6 +3,7 @@ const logger = require('../config/logger').default;
 const router = express.Router();
 const { authenticate } = require('../middleware/auth');
 const { caseAccessParam } = require('../middleware/caseAccess');
+const { caseTechniquesQuery, techniquesFromHunts } = require('../services/attackTechniques');
 
 router.use(authenticate);
 router.param('caseId', caseAccessParam);
@@ -31,7 +32,7 @@ router.get('/:caseId', authenticate, async (req, res) => {
     const techniqueSets = await Promise.allSettled([
       pool.query(`SELECT DISTINCT technique_id FROM case_mitre_techniques WHERE case_id = $1 AND technique_id IS NOT NULL`, [caseId]),
       pool.query(`SELECT DISTINCT mitre_technique AS technique_id FROM timeline_bookmarks WHERE case_id = $1 AND mitre_technique IS NOT NULL`, [caseId]),
-      pool.query(`SELECT matched_events FROM sigma_hunt_results WHERE case_id = $1`, [caseId]),
+      (() => { const q = caseTechniquesQuery(caseId); return pool.query(q.text, q.values); })(),
     ]);
 
     const caseSet = new Set();
@@ -45,18 +46,8 @@ router.get('/:caseId', authenticate, async (req, res) => {
     }
 
     if (techniqueSets[2].status === 'fulfilled') {
-      const mitreTagRe = /attack\.(t\d{4}(?:\.\d{3})?)/gi;
-      techniqueSets[2].value.rows.forEach(r => {
-        const events = Array.isArray(r.matched_events) ? r.matched_events : [];
-        events.forEach(ev => {
-          const tags = ev.Tags || ev.tags || [];
-          const tagStr = Array.isArray(tags) ? tags.join(' ') : String(tags || '');
-          let m;
-          while ((m = mitreTagRe.exec(tagStr)) !== null) {
-            caseSet.add(m[1].toUpperCase());
-          }
-        });
-      });
+      techniquesFromHunts(techniqueSets[2].value.rows)
+        .forEach(t => caseSet.add(t.technique_id));
     }
 
     const caseTechniques = [...caseSet];

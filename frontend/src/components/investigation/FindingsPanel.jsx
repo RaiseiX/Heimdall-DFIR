@@ -49,7 +49,7 @@ export default function FindingsPanel({ caseId, onChange }) {
     setEditId(null); load(); onChange?.();
   }
   async function remove(id) {
-    try { await bookmarksAPI.remove(caseId, id); load(); onChange?.(); } catch { /* noop */ }
+    try { await bookmarksAPI.remove(caseId, id); load(); onChange?.(); } catch { }
   }
 
   async function generateNarrative() {

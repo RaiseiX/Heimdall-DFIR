@@ -1,9 +1,4 @@
 /* eslint-disable no-restricted-globals */
-// Chunked client-side grouping worker — fallback for offline / small datasets.
-// Protocol:
-//   post { type: 'group', rows, by: string[], chunk?: 5000 }
-//   recv { type: 'progress', processed, total }
-//   recv { type: 'done', groups: [{ key, count, first_ts, last_ts, sample_ids }] }
 
 const DEFAULT_CHUNK = 5000;
 

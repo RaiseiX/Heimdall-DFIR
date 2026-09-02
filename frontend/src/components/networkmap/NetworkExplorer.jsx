@@ -1,17 +1,25 @@
-// frontend/src/components/networkmap/NetworkExplorer.jsx
-import { useEffect, useRef, useCallback, useState } from 'react';
-import { Share2, CircleDot, GitBranch, RotateCcw } from 'lucide-react';
+import { useEffect, useRef, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import cytoscape from 'cytoscape';
 import coseBilkent from 'cytoscape-cose-bilkent';
 import dagre from 'cytoscape-dagre';
-import { buildCytoscapeStyle, LAYOUT_COSE, LAYOUT_CONCENTRIC, LAYOUT_DAGRE } from './utils/cytoscapeConfig';
+import { buildCytoscapeStyle, LAYOUT_COSE } from './utils/cytoscapeConfig';
 import { isDegenerateLayout } from './utils/layoutHealth';
+import { zoneBands } from './utils/zoneBands';
+import { edgeBow } from './utils/edgeBow';
+import { zonesLayout } from './utils/zonesLayout';
+import { peerSummary } from './utils/peerSummary';
 import { ZONE_DEFS_NORMAL, ZONE_DEFS_CB } from './ZoneOverlay';
 import ZoneOverlay from './ZoneOverlay';
-import CorrelationBadgeLayer from './CorrelationBadgeLayer';
 
 cytoscape.use(coseBilkent);
 cytoscape.use(dagre);
+
+const NON_GRAPH = '.manual, .zone, .zone-label, .band-rule, .band-label';
+
+const HUB_DEGREE = 3;
+
+const READABLE_ZOOM = 0.75;
 
 export default function NetworkExplorer({
   elements,
@@ -30,18 +38,25 @@ export default function NetworkExplorer({
   onAssetPlaced,
   savedPositions,
   onPositionsSave,
-  correlatedNodes,
   onCyReady,
+  layoutMode = 'zones',
+  relayoutNonce = 0,
+  zoneDeclarations,
+  machinesWithoutLink,
 }) {
+  const { t } = useTranslation();
   const containerRef        = useRef(null);
   const cyRef               = useRef(null);
-  // Refs allow the stale-closure tap handler to access latest placement state
+  const declarationsRef     = useRef(zoneDeclarations);
+  const machinesWithoutLinkRef = useRef(machinesWithoutLink);
+  const layoutModeRef       = useRef(layoutMode);
+  useEffect(() => { declarationsRef.current = zoneDeclarations; }, [zoneDeclarations]);
+  useEffect(() => { machinesWithoutLinkRef.current = machinesWithoutLink; }, [machinesWithoutLink]);
+  useEffect(() => { layoutModeRef.current = layoutMode; }, [layoutMode]);
   const placingAssetRef     = useRef(placingAsset);
   const onAssetPlacedRef    = useRef(onAssetPlaced);
-  // Refs for zoom handler — always current without triggering re-renders
   const zonesRef            = useRef(zones);
   const colorblindModeRef   = useRef(colorblindMode);
-  // Refs for position persistence — updated each render, readable from init-effect handlers
   const savedPositionsRef   = useRef(savedPositions);
   const onPositionsSaveRef  = useRef(onPositionsSave);
   const dragSaveTimerRef    = useRef(null);
@@ -52,7 +67,130 @@ export default function NetworkExplorer({
   useEffect(() => { savedPositionsRef.current  = savedPositions;  }, [savedPositions]);
   useEffect(() => { onPositionsSaveRef.current = onPositionsSave; }, [onPositionsSave]);
 
-  // ── Initialize Cytoscape ────────────────────────────────────────────
+  const hideNamedElsewhere = useCallback((cy) => {
+    if (!cy) return;
+    const named = new Set(machinesWithoutLinkRef.current || []);
+    cy.batch(() => {
+      cy.nodes().not(NON_GRAPH).forEach(n => n.toggleClass('band-hidden', named.has(n.id())));
+    });
+  }, []);
+
+  const applyEdgeBowsRef = useRef(null);
+  const applyEdgeBows = useCallback((cy) => {
+    if (!cy) return;
+    cy.batch(() => {
+      cy.edges().forEach(e => {
+        const s = e.source().position();
+        const t = e.target().position();
+        const bow = edgeBow(s.x, s.y, t.x, t.y);
+        e.data('_cpd', bow.distances);
+        e.data('_cpw', bow.weights);
+      });
+    });
+  }, []);
+  useEffect(() => { applyEdgeBowsRef.current = applyEdgeBows; }, [applyEdgeBows]);
+
+  const refreshDerived = useCallback((cy) => {
+    if (!cy) return;
+    applyDisplayLabelsRef.current?.(cy);
+    hideNamedElsewhere(cy);
+    applyEdgeBows(cy);
+  }, [hideNamedElsewhere, applyEdgeBows]);
+
+  const applyDisplayLabelsRef = useRef(null);
+
+  const applyDisplayLabels = useCallback((cy) => {
+    if (!cy) return;
+
+    const incident = new Map();
+    cy.edges().forEach(e => {
+      const d = { data: e.data() };
+      for (const end of [e.data('source'), e.data('target')]) {
+        if (!incident.has(end)) incident.set(end, []);
+        incident.get(end).push(d);
+      }
+    });
+
+    cy.batch(() => {
+      cy.nodes().not(NON_GRAPH).forEach(n => {
+        const s = peerSummary(n.id(), incident.get(n.id()) || []);
+        const degree = (incident.get(n.id()) || []).length;
+        const correlation = Number(n.data('correlationCount')) || 0;
+
+        const network = degree > HUB_DEGREE
+          ? `${t('networkMap.register.peers_count', { count: degree })} · ${t('networkMap.connections_count', { count: s.connections })}`
+          : [
+            s.ports.map(p => `:${p}`).join(' '),
+            s.processes.join(', ') + (s.truncated ? ` +${s.truncated}` : ''),
+            s.connections ? t('networkMap.graph.conn', { count: s.connections }) : '',
+          ].filter(Boolean).join(' · ');
+
+        const sub = [
+          (s.connections || s.ports.length) ? network : '',
+          correlation >= 2 ? t('networkMap.graph.correlated', { count: correlation }) : '',
+        ].filter(Boolean).join(' · ');
+
+        n.toggleClass('hub', degree > HUB_DEGREE);
+        if (!sub) { n.removeData('_display'); return; }
+        n.data('_display', `${n.data('label') || n.id()}\n${sub}`);
+      });
+    });
+  }, [t]);
+  useEffect(() => { applyDisplayLabelsRef.current = applyDisplayLabels; }, [applyDisplayLabels]);
+
+  const applyBands = useCallback((cy) => {
+    if (!cy) return;
+    cy.remove(cy.nodes('.band-rule, .band-label'));
+
+    const graphNodes = cy.nodes().not(NON_GRAPH);
+    if (!graphNodes.length) return;
+
+    const bands = zoneBands(graphNodes.map(n => ({ data: n.data() })), declarationsRef.current);
+    if (!bands.length) return;
+
+    let hub = null;
+    let best = 1;
+    graphNodes.forEach(n => { const d = n.degree(false); if (d > best) { best = d; hub = n.id(); } });
+
+    const geo = zonesLayout(bands, { hub, omit: new Set(machinesWithoutLinkRef.current || []) });
+    cy.batch(() => {
+      graphNodes.forEach(n => n.toggleClass('band-hidden', !geo.positions[n.id()]));
+      for (const [id, p] of Object.entries(geo.positions)) cy.$id(id).position(p);
+    });
+
+    const pad = 90;
+    const height = Math.max(geo.bottom - geo.top, 1) + pad * 2;
+    const midY = (geo.top + geo.bottom) / 2;
+    const extra = [];
+    geo.bands.forEach((b, i) => {
+      if (i > 0) {
+        const prev = geo.bands[i - 1];
+        extra.push({
+          data: { id: `band-rule-${b.zone}`, h: height },
+          classes: 'band-rule',
+          position: { x: (prev.x1 + b.x0) / 2, y: midY },
+          grabbable: false, selectable: false,
+        });
+      }
+      extra.push({
+        data: { id: `band-label-${b.zone}`, label: t(`networkMap.band.zone_title_${b.zone}`) },
+        classes: 'band-label',
+        position: { x: b.x0 - 24, y: geo.top - 44 },
+        grabbable: false, selectable: false,
+      });
+    });
+    cy.add(extra);
+
+    applyEdgeBows(cy);
+
+    cy.fit(undefined, 60);
+    if (cy.zoom() < READABLE_ZOOM) {
+      cy.zoom({ level: READABLE_ZOOM, renderedPosition: { x: cy.width() / 2, y: cy.height() / 2 } });
+      const anchor = hub ? cy.$id(hub) : cy.nodes().not(NON_GRAPH).first();
+      if (anchor && anchor.length) cy.center(anchor);
+    }
+  }, [t, applyEdgeBows]);
+
   useEffect(() => {
     if (!containerRef.current) return;
 
@@ -70,8 +208,6 @@ export default function NetworkExplorer({
     cyRef.current = cy;
     onCyReady?.(cy);
 
-    // Fold / unfold a hub's leaf children (nodes connected only to it).
-    // Hidden leaves + their edges are stored on the hub so we can restore them.
     const toggleCollapse = (node) => {
       const stored = node.data('_collapsedLeaves');
       if (stored && stored.length) {
@@ -97,7 +233,6 @@ export default function NetworkExplorer({
       }
     };
 
-    // Click on node → select. Double-click (≤350 ms on the same node) → fold/unfold.
     let lastTap = { id: null, t: 0 };
     cy.on('tap', 'node:not(.cluster)', e => {
       const node = e.target;
@@ -114,7 +249,6 @@ export default function NetworkExplorer({
       }
     });
 
-    // Click on cluster → toggle collapse
     cy.on('tap', '.cluster', e => {
       const cluster = e.target;
       const collapsed = cluster.data('collapsed');
@@ -127,7 +261,6 @@ export default function NetworkExplorer({
       }
     });
 
-    // Click background → place asset (if in placement mode) or deselect
     cy.on('tap', e => {
       if (e.target === cy) {
         if (placingAssetRef.current) {
@@ -139,9 +272,6 @@ export default function NetworkExplorer({
       }
     });
 
-    // Reposition zone labels on zoom so text-top always lands inside the zone.
-    // anchor_y = zone.y + (textHalfH_px + padding_px) / zoom
-    // → text_top_screen = zone.y_screen + padding (zoom-independent).
     cy.on('zoom', () => {
       const zoom_ = cy.zoom();
       (zonesRef.current || []).forEach(zone => {
@@ -149,28 +279,26 @@ export default function NetworkExplorer({
         if (!n.length) return;
         const label = n.data('label') || '';
         const lineCount = (label.match(/\n/g) || []).length + 1;
-        const textHalfH = lineCount * 7; // ~14px line-height → half = 7px
+        const textHalfH = lineCount * 7;
         n.position({ x: zone.x + zone.w / 2, y: zone.y + (textHalfH + 8) / zoom_ });
       });
     });
 
-    // Save positions after user drags a graph node (debounced 400 ms)
     cy.on('dragfree', 'node:not(.manual, .zone, .zone-label)', () => {
       clearTimeout(dragSaveTimerRef.current);
       dragSaveTimerRef.current = setTimeout(() => {
         const positions = {};
-        cy.nodes().not('.manual, .zone, .zone-label').forEach(n => {
+        cy.nodes().not(NON_GRAPH).forEach(n => {
           positions[n.id()] = { x: n.position('x'), y: n.position('y') };
         });
+        applyEdgeBowsRef.current?.(cy);
         onPositionsSaveRef.current?.(positions);
       }, 400);
     });
 
     return () => { cy.destroy(); cyRef.current = null; onCyReady?.(null); };
-  }, []); // only on mount
+  }, []);
 
-  // Resize Cytoscape when the container gains dimensions (handles flex/absolute layouts
-  // where height isn't resolved synchronously at mount time)
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
@@ -188,22 +316,18 @@ export default function NetworkExplorer({
     return () => ro.disconnect();
   }, []);
 
-  // ── Update elements when data changes ──────────────────────────────
   const prevNodeIdsRef = useRef(new Set());
 
   useEffect(() => {
     const cy = cyRef.current;
     if (!cy) return;
 
-    // Empty elements → clear all non-permanent nodes (filter wiped everything)
     if (!elements?.length) {
       prevNodeIdsRef.current = new Set();
       cy.elements().not('.manual, .zone, .zone-label').remove();
       return;
     }
 
-    // Compare node ID sets — if identical, it's an annotation-only change (zone drawn,
-    // type override, filter label); update data/classes in place without re-running layout.
     const newNodeIds = new Set(
       elements.filter(e => !e.data?.source && !e.data?._zone).map(e => e.data?.id).filter(Boolean)
     );
@@ -223,6 +347,7 @@ export default function NetworkExplorer({
           }
         });
       });
+      refreshDerived(cy);
       return;
     }
 
@@ -231,48 +356,51 @@ export default function NetworkExplorer({
       cy.add(elements);
     });
 
-    // Restore persisted positions if they cover the entire current graph — no layout needed.
-    // Fall back to cose-bilkent layout for any graph where positions are missing (first load,
-    // new nodes added, filter changed), then save the result so the next load is instant.
-    const graphNodes = cy.nodes().not('.manual, .zone, .zone-label');
+    const graphNodes = cy.nodes().not(NON_GRAPH);
     const saved = savedPositionsRef.current || {};
     const allSaved = graphNodes.length > 0 && graphNodes.every(n => saved[n.id()]);
 
-    // Restore only what applies to THIS graph — the saved map may still carry
-    // nodes that the current filter excluded.
     const restorable = allSaved
       ? Object.fromEntries(graphNodes.map(n => [n.id(), saved[n.id()]]))
       : null;
 
-    // A degenerate arrangement would otherwise be permanent: saved once, then
-    // restored verbatim on every load with no layout run to escape it.
+    applyDisplayLabels(cy);
+    hideNamedElsewhere(cy);
+
+    if (layoutModeRef.current === 'zones') {
+      applyBands(cy);
+      const positions = {};
+      cy.nodes().not(NON_GRAPH).forEach(n => {
+        positions[n.id()] = { x: n.position('x'), y: n.position('y') };
+      });
+      onPositionsSaveRef.current?.(positions);
+      return;
+    }
+
     if (restorable && !isDegenerateLayout(restorable)) {
       cy.batch(() => { graphNodes.forEach(n => n.position({ ...saved[n.id()] })); });
+      applyEdgeBows(cy);
       cy.fit(undefined, 40);
     } else {
       const layout = cy.layout(LAYOUT_COSE);
       layout.one('layoutstop', () => {
+        applyEdgeBows(cy);
         const positions = {};
-        cy.nodes().not('.manual, .zone, .zone-label').forEach(n => {
+        cy.nodes().not(NON_GRAPH).forEach(n => {
           positions[n.id()] = { x: n.position('x'), y: n.position('y') };
         });
         onPositionsSaveRef.current?.(positions);
       });
       layout.run();
     }
-  }, [elements]);
+  }, [elements, applyDisplayLabels, applyBands, hideNamedElsewhere, applyEdgeBows, refreshDerived]);
 
-  // ── Apply node color overrides dynamically (no layout re-run) ───────
-  // Uses cy.style(fullStylesheet) — an atomic full-stylesheet replacement — instead of
-  // incremental .selector().style().update() calls, which are unreliable in Cytoscape v3
-  // when called in a loop (each .update() can flush partial state before the next rule lands).
   useEffect(() => {
     const cy = cyRef.current;
     if (!cy) return;
     cy.style(buildCytoscapeStyle(nodeColorOverrides || {}, colorblindMode));
   }, [nodeColorOverrides, colorblindMode]);
 
-  // ── Highlight selected node from external control ──────────────────
   useEffect(() => {
     const cy = cyRef.current;
     if (!cy) return;
@@ -286,13 +414,11 @@ export default function NetworkExplorer({
     }
   }, [selectedNodeId]);
 
-  // ── Sync manually placed nodes (instance colors via inline style) ───
   useEffect(() => {
     const cy = cyRef.current;
     if (!cy) return;
     const nodes = manualNodes || [];
 
-    // Remove stale manual nodes
     cy.nodes('.manual').forEach(n => {
       if (!nodes.find(m => m.id === n.id())) cy.remove(n);
     });
@@ -315,10 +441,9 @@ export default function NetworkExplorer({
           classes: [mn.typeId, 'manual'].join(' '),
           position: { ...mn.position },
         });
-        el.lock(); // immune to layout
+        el.lock();
       }
 
-      // Instance color: inline style overrides stylesheet class rules
       const node = cy.$id(mn.id);
       if (mn.colorOverride) {
         node.style({
@@ -332,14 +457,12 @@ export default function NetworkExplorer({
     });
   }, [manualNodes]);
 
-  // ── Render zones as Cytoscape elements — perfectly in sync, zero lag ──
   useEffect(() => {
     const cy = cyRef.current;
     if (!cy) return;
     const ZONE_DEFS = colorblindMode ? ZONE_DEFS_CB : ZONE_DEFS_NORMAL;
     const zoneList = zones || [];
 
-    // Remove stale zone rect + label elements
     cy.nodes('.zone').forEach(n => {
       if (!zoneList.find(z => `zone:${z.id}` === n.id())) cy.remove(n);
     });
@@ -357,14 +480,10 @@ export default function NetworkExplorer({
       const label = zone.description
         ? `${def.label}\n${zone.description}`
         : def.label;
-      // Convert text half-height (screen px) to graph units at current zoom.
-      // Text is centered on anchor → anchor_y = zone.y + (textHalfH + 8px_padding) / zoom
-      // → text_top_screen = zone_top_screen + 8px, always inside.
       const lineCount  = (label.match(/\n/g) || []).length + 1;
       const textHalfH  = lineCount * 7;
       const labelPos   = { x: cx, y: zone.y + (textHalfH + 8) / cy.zoom() };
 
-      // Zone rectangle (no label)
       const existing = cy.$id(cyId);
       if (existing.length) {
         existing.data({ w: zone.w, h: zone.h, color: def.color });
@@ -379,7 +498,6 @@ export default function NetworkExplorer({
         el.lock();
       }
 
-      // Zone label (separate 1px invisible node — position recalculated on zoom via cy.on('zoom'))
       const existingLabel = cy.$id(labelId);
       if (existingLabel.length) {
         existingLabel.data({ label, color: def.color });
@@ -396,7 +514,6 @@ export default function NetworkExplorer({
     });
   }, [zones, colorblindMode]);
 
-  // ── Disable cy interaction while drawing zones or placing assets ─────
   useEffect(() => {
     const cy = cyRef.current;
     if (!cy) return;
@@ -405,108 +522,74 @@ export default function NetworkExplorer({
     cy.userZoomingEnabled(!blocked);
   }, [drawingZoneType, placingAsset]);
 
-  // ── Zoom controls ───────────────────────────────────────────────────
   const zoomIn  = useCallback(() => cyRef.current?.zoom({ level: cyRef.current.zoom() * 1.3, renderedPosition: { x: containerRef.current.offsetWidth / 2, y: containerRef.current.offsetHeight / 2 } }), []);
   const zoomOut = useCallback(() => cyRef.current?.zoom({ level: cyRef.current.zoom() / 1.3, renderedPosition: { x: containerRef.current.offsetWidth / 2, y: containerRef.current.offsetHeight / 2 } }), []);
   const fitAll  = useCallback(() => cyRef.current?.fit(undefined, 40), []);
 
-  // ── Layout switcher ─────────────────────────────────────────────────
-  // Re-run a layout on demand over the graph nodes only (manual/zone nodes stay locked).
-  // Persisted positions are updated so the chosen layout survives a reload.
-  const [layoutMode, setLayoutMode] = useState('organic');
   const runLayout = useCallback((mode) => {
     const cy = cyRef.current;
     if (!cy) return;
-    const graphNodes = cy.nodes().not('.manual, .zone, .zone-label');
+    const graphNodes = cy.nodes().not(NON_GRAPH);
     if (!graphNodes.length) return;
 
-    let opts;
-    if (mode === 'radial') {
-      opts = { ...LAYOUT_CONCENTRIC };
-    } else if (mode === 'hierarchical') {
-      // Layered top-down tree (dagre): external/hub at the top, internal nodes descending.
-      opts = { ...LAYOUT_DAGRE };
-    } else {
-      opts = { ...LAYOUT_COSE, animate: true, animationDuration: 450 };
+    if (mode === 'zones') {
+      applyBands(cy);
+      const positions = {};
+      cy.nodes().not(NON_GRAPH).forEach(n => {
+        positions[n.id()] = { x: n.position('x'), y: n.position('y') };
+      });
+      onPositionsSaveRef.current?.(positions);
+      return;
     }
 
-    // Layout the graph nodes *with the edges that connect them* — dagre/breadthfirst
-    // build their ranking from edges; a node-only collection collapses to one row.
+    const opts = { ...LAYOUT_COSE, animate: true, animationDuration: 450 };
+
     const eles = graphNodes.union(graphNodes.edgesWith(graphNodes));
     const layout = eles.layout(opts);
     layout.one('layoutstop', () => {
+      cy.remove(cy.nodes('.band-rule, .band-label'));
+      hideNamedElsewhere(cy);
+      applyEdgeBows(cy);
+
       const positions = {};
-      cy.nodes().not('.manual, .zone, .zone-label').forEach(n => {
+      cy.nodes().not(NON_GRAPH).forEach(n => {
         positions[n.id()] = { x: n.position('x'), y: n.position('y') };
       });
       onPositionsSaveRef.current?.(positions);
     });
     layout.run();
-  }, []);
+  }, [applyBands, hideNamedElsewhere, applyEdgeBows]);
 
-  const selectLayout = useCallback((mode) => { setLayoutMode(mode); runLayout(mode); }, [runLayout]);
-
-  const LAYOUTS = [
-    { id: 'organic',      label: 'Organique',    icon: Share2 },
-    { id: 'radial',       label: 'Radial',       icon: CircleDot },
-    { id: 'hierarchical', label: 'Hierarchical', icon: GitBranch },
-  ];
+  const lastLayoutRef = useRef(null);
+  useEffect(() => {
+    const asked = `${layoutMode}|${relayoutNonce}`;
+    if (lastLayoutRef.current === null) { lastLayoutRef.current = asked; return; }
+    if (lastLayoutRef.current === asked) return;
+    lastLayoutRef.current = asked;
+    runLayout(layoutMode);
+  }, [layoutMode, relayoutNonce, runLayout]);
 
   return (
     <div style={{ flex: 1, position: 'relative', background: '#0a0c11', overflow: 'hidden' }}>
-      {/* Cytoscape container */}
       <div ref={containerRef} style={{ width: '100%', height: '100%', cursor: placingAsset ? 'crosshair' : 'default' }} />
 
-      {/* Layout switcher — organic / radial / hierarchical.
-          Centred at top so it never collides with corner overlays (stats left, search right). */}
-      <div style={{
-        position: 'absolute', top: 12, left: '50%', transform: 'translateX(-50%)', zIndex: 10,
-        display: 'flex', gap: 2, padding: 3,
-        background: '#0e1118', border: '1px solid #1a1f2c', borderRadius: 8,
-        boxShadow: '0 2px 12px rgba(0,0,0,0.4)',
-      }}>
-        {LAYOUTS.map(({ id, label, icon: Icon }) => {
-          const active = layoutMode === id;
-          return (
-            <button key={id} onClick={() => selectLayout(id)} title={`Disposition ${label}`}
-              style={{
-                display: 'flex', alignItems: 'center', gap: 6,
-                padding: '5px 10px', borderRadius: 6, cursor: 'pointer',
-                fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11,
-                background: active ? 'color-mix(in srgb, var(--fl-purple) 20%, transparent)' : 'transparent',
-                border: `1px solid ${active ? 'color-mix(in srgb, var(--fl-purple) 38%, transparent)' : 'transparent'}`,
-                color: active ? 'var(--fl-purple)' : '#8089a0',
-                transition: 'all 0.12s',
-              }}
-              onMouseEnter={e => { if (!active) { e.currentTarget.style.background = '#161b27'; e.currentTarget.style.color = '#c2c8d4'; } }}
-              onMouseLeave={e => { if (!active) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#8089a0'; } }}
-            >
-              <Icon size={13} />
-              {label}
-            </button>
-          );
-        })}
+      {(machinesWithoutLink || []).length > 0 && (
+        <div style={{ position: 'absolute', top: 12, left: 14, zIndex: 5, pointerEvents: 'none', maxWidth: 240 }}>
+          <div style={{ fontSize: 11, color: 'var(--fl-muted)', lineHeight: 1.5 }}>
+            {t('networkMap.graph.without_link', { count: machinesWithoutLink.length })}
+          </div>
+          {machinesWithoutLink.map(name => (
+            <div key={name} style={{ display: 'flex', alignItems: 'center', gap: 7, marginTop: 4 }}>
+              <span style={{ width: 5, height: 5, borderRadius: '50%', background: 'var(--fl-border3)', flexShrink: 0 }} />
+              <span style={{
+                fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10,
+                color: 'var(--fl-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+              }}>{name}</span>
+            </div>
+          ))}
+        </div>
+      )}
 
-        {/* Escape hatch. Positions persist per case, so a graph the analyst dragged
-            into a mess — or that restored badly — has no way back without this. */}
-        <div style={{ width: 1, background: '#1a1f2c', margin: '2px 3px' }} />
-        <button onClick={() => runLayout(layoutMode)} title="Recalculer la disposition et écraser les positions enregistrées"
-          style={{
-            display: 'flex', alignItems: 'center', gap: 6,
-            padding: '5px 10px', borderRadius: 6, cursor: 'pointer',
-            fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11,
-            background: 'transparent', border: '1px solid transparent', color: '#8089a0',
-            transition: 'all 0.12s',
-          }}
-          onMouseEnter={e => { e.currentTarget.style.background = '#161b27'; e.currentTarget.style.color = '#c2c8d4'; }}
-          onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#8089a0'; }}
-        >
-          <RotateCcw size={13} />
-          Réorganiser
-        </button>
-      </div>
-
-      {/* Zone overlay — positioned absolutely over canvas */}
       <ZoneOverlay
         cyRef={cyRef}
         zones={zones ?? []}
@@ -517,10 +600,6 @@ export default function NetworkExplorer({
         colorblindMode={colorblindMode}
       />
 
-      {/* Correlation badges — HTML overlay for nodes seen in 2+ evidences */}
-      <CorrelationBadgeLayer cyRef={cyRef} correlatedNodes={correlatedNodes} />
-
-      {/* Zoom controls */}
       <div style={{ position: 'absolute', bottom: 12, left: 12, display: 'flex', flexDirection: 'column', gap: 2, zIndex: 10 }}>
         {[
           { label: '+', title: 'Zoom in',  fn: zoomIn  },
@@ -528,8 +607,8 @@ export default function NetworkExplorer({
           { label: '⊡', title: 'Fit all',  fn: fitAll  },
         ].map(({ label, title, fn }) => (
           <button key={label} onClick={fn} title={title} style={{
-            width: 26, height: 26, background: '#0e1118', border: '1px solid #1a1f2c',
-            borderRadius: 3, color: 'var(--fl-purple)', cursor: 'pointer', fontSize: 13,
+            width: 26, height: 26, background: 'var(--fl-panel)', border: '1px solid var(--fl-border)',
+            borderRadius: 3, color: 'var(--fl-muted)', cursor: 'pointer', fontSize: 13,
             display: 'flex', alignItems: 'center', justifyContent: 'center',
           }}>{label}</button>
         ))}

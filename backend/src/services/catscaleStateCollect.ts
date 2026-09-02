@@ -17,6 +17,7 @@ import { ARTIFACT_REGISTRY, applySpec } from './catscaleArtifactRegistry';
 import {
   parseIpAddr, parseRouteTable, parseIptables, parsePasswdCheck,
 } from './catscaleNetworkParsers';
+import { buildSourcePath } from './catscaleSourcePath';
 
 export interface TimelineRow {
   case_id: string;
@@ -109,6 +110,10 @@ export function collectStateArtifacts(
   caseId: string,
   hostName: string,
   collectedAt: Date,
+  /** The `<host>-<DTG>-` prefix for this collection, from outfilePrefix — passed
+   *  in rather than recomputed, so the caller's already-resolved hostname/time
+   *  stay the single source of truth. See catscaleSourcePath.ts. */
+  prefix: string,
   failures?: CatScaleFailure[],
 ): StateCollectResult {
   const stateRows: StateRow[] = [];
@@ -117,6 +122,11 @@ export function collectStateArtifacts(
   const dockerDir = path.join(catscaleRoot, 'Docker');
   const sysDir = path.join(catscaleRoot, 'System_Info');
   const procDir = path.join(catscaleRoot, 'Process_and_Network');
+
+  // Canonical path for every artifact this function reads — same rule as the
+  // timeline parsers in catscaleService.ts: no category, no bare basename may
+  // reach source_file (or, via timelineRow/finding below, collection_timeline.source).
+  const srcOf = (p: string) => buildSourcePath(catscaleRoot, p, prefix);
 
   const timelineRow = (
     timestamp: Date, kind: string, description: string,
@@ -162,7 +172,7 @@ export function collectStateArtifacts(
 
   // ── Docker containers ─────────────────────────────────────────────────────
   for (const fp of findArtifactFiles(dockerDir, 'docker-inspect')) {
-    const base = path.basename(fp);
+    const sourcePath = srcOf(fp);
     const content = readText(fp, failures);
     if (content === null) continue;
     const c = parseDockerInspect(content);
@@ -174,7 +184,7 @@ export function collectStateArtifacts(
     stateRows.push({
       kind: 'docker_container',
       label: c.name || c.container_id,
-      source_file: base,
+      source_file: sourcePath,
       raw: {
         container_id: c.container_id, full_id: c.full_id, name: c.name, image: c.image,
         status: c.status, pid: c.pid, command: c.command, privileged: c.privileged,
@@ -193,17 +203,17 @@ export function collectStateArtifacts(
     };
     if (c.created_at) {
       timelineRows.push(timelineRow(c.created_at, 'container_created',
-        `Container created: ${c.name || c.container_id} (${c.image})`, c, base, common));
+        `Container created: ${c.name || c.container_id} (${c.image})`, c, sourcePath, common));
     }
     if (c.started_at) {
       timelineRows.push(timelineRow(c.started_at, 'container_started',
-        `Container started: ${c.name || c.container_id} (${c.image})`, c, base, common));
+        `Container started: ${c.name || c.container_id} (${c.image})`, c, sourcePath, common));
     }
     // Docker keeps the previous exit time in FinishedAt across a restart, so a
     // running container carries a stop timestamp that never applied to this run.
     if (c.finished_at && c.status !== 'running') {
       timelineRows.push(timelineRow(c.finished_at, 'container_stopped',
-        `Container stopped: ${c.name || c.container_id} (${c.image})`, c, base, common));
+        `Container stopped: ${c.name || c.container_id} (${c.image})`, c, sourcePath, common));
     }
 
     // A privileged container shares the host's kernel capabilities: escaping it
@@ -211,26 +221,27 @@ export function collectStateArtifacts(
     if (c.privileged) {
       timelineRows.push(finding('container_privileged', 'catscale_docker',
         `Container running privileged: ${c.name || c.container_id} (${c.image})`,
-        null, base, common));
+        null, sourcePath, common));
     }
     // A bind onto the host root or the Docker socket gives the container a route
     // back out — the canonical container escape.
     for (const m of c.suspicious_mounts) {
       timelineRows.push(finding('container_escape_mount', 'catscale_docker',
         `Container ${c.name || c.container_id} binds host path ${m}`,
-        m, base, { ...common, mount: m }));
+        m, sourcePath, { ...common, mount: m }));
     }
   }
 
   // ── Processes inside each container ───────────────────────────────────────
   for (const fp of findArtifactFiles(dockerDir, 'docker-top')) {
     const base = path.basename(fp);
+    const sourcePath = srcOf(fp);
     const content = readText(fp, failures);
     if (content === null) continue;
     const containerId = containerIdFromName(base, 'docker-top');
     for (const p of parseDockerTop(content)) {
       stateRows.push({
-        kind: 'docker_process', label: p.cmd.slice(0, 512), source_file: base,
+        kind: 'docker_process', label: p.cmd.slice(0, 512), source_file: sourcePath,
         raw: { ...p, container_id: containerId },
       });
     }
@@ -241,12 +252,13 @@ export function collectStateArtifacts(
   // entirely: it carries the same evidence in three orders of magnitude fewer rows.
   for (const fp of findArtifactFiles(dockerDir, 'docker-container-diff')) {
     const base = path.basename(fp);
+    const sourcePath = srcOf(fp);
     const content = readText(fp, failures);
     if (content === null) continue;
     const containerId = containerIdFromName(base, 'docker-container-diff');
     for (const d of parseDockerDiff(content)) {
       stateRows.push({
-        kind: 'docker_diff', label: d.path, source_file: base,
+        kind: 'docker_diff', label: d.path, source_file: sourcePath,
         raw: { ...d, container_id: containerId },
       });
       // A deletion inside a container is anti-forensic by nature; an addition or
@@ -256,7 +268,7 @@ export function collectStateArtifacts(
       const sensitive = CONTAINER_SENSITIVE_RE.test(d.path);
       if (d.change === 'deleted' || sensitive) {
         timelineRows.push(finding('container_file_change', 'catscale_docker',
-          `Container ${containerId}: ${d.change} ${d.path}`, d.path, base,
+          `Container ${containerId}: ${d.change} ${d.path}`, d.path, sourcePath,
           { ...d, container_id: containerId }));
       }
     }
@@ -265,6 +277,7 @@ export function collectStateArtifacts(
   // ── Published ports ───────────────────────────────────────────────────────
   for (const fp of findArtifactFiles(dockerDir, 'docker-container-port')) {
     const base = path.basename(fp);
+    const sourcePath = srcOf(fp);
     const content = readText(fp, failures);
     if (content === null) continue;
     const containerId = containerIdFromName(base, 'docker-container-port');
@@ -273,7 +286,7 @@ export function collectStateArtifacts(
     const reported = new Set<string>();
     for (const p of parseDockerPorts(content)) {
       stateRows.push({
-        kind: 'docker_port', label: `${p.host_ip}:${p.host_port}`, source_file: base,
+        kind: 'docker_port', label: `${p.host_ip}:${p.host_port}`, source_file: sourcePath,
         raw: { ...p, container_id: containerId },
       });
       const key = `${p.container_port}/${p.protocol}->${p.host_port}`;
@@ -281,47 +294,47 @@ export function collectStateArtifacts(
         reported.add(key);
         timelineRows.push(finding('container_port_exposed', 'catscale_docker',
           `Container ${containerId} publishes ${p.container_port}/${p.protocol} on port ${p.host_port} — reachable from every interface`,
-          null, base, { ...p, container_id: containerId }));
+          null, sourcePath, { ...p, container_id: containerId }));
       }
     }
   }
 
   // ── Package integrity ─────────────────────────────────────────────────────
   for (const fp of findArtifactFiles(sysDir, 'deb-package-verify', 'rpm-package-verify')) {
-    const base = path.basename(fp);
+    const sourcePath = srcOf(fp);
     const content = readText(fp, failures);
     if (content === null) continue;
     for (const e of parsePackageVerify(content)) {
-      stateRows.push({ kind: 'package_verify', label: e.path, source_file: base, raw: { ...e } });
+      stateRows.push({ kind: 'package_verify', label: e.path, source_file: sourcePath, raw: { ...e } });
       // An md5 mismatch means the file on disk differs from what the package
       // shipped. Conffiles are excluded: local edits to /etc are the normal case
       // and would bury the one binary that was actually replaced.
       if (e.md5_mismatch && !e.is_conffile) {
         timelineRows.push(finding('package_tampered', 'catscale_package',
-          `Package file altered since install: ${e.path}`, e.path, base, { ...e }));
+          `Package file altered since install: ${e.path}`, e.path, sourcePath, { ...e }));
       }
     }
   }
 
   // ── Kernel modules ────────────────────────────────────────────────────────
   for (const fp of findArtifactFiles(sysDir, 'module-sha1')) {
-    const base = path.basename(fp);
+    const sourcePath = srcOf(fp);
     const content = readText(fp, failures);
     if (content === null) continue;
     for (const m of parseModuleHashes(content)) {
-      stateRows.push({ kind: 'kernel_module', label: m.module, source_file: base, raw: { ...m } });
+      stateRows.push({ kind: 'kernel_module', label: m.module, source_file: sourcePath, raw: { ...m } });
       // Kernel modules live under /lib/modules. One loaded from anywhere else is
       // not something a distribution does.
       if (m.outside_lib_modules) {
         timelineRows.push(finding('module_outside_lib', 'catscale_kernel_module',
-          `Kernel module outside /lib/modules: ${m.path}`, m.path, base, { ...m }));
+          `Kernel module outside /lib/modules: ${m.path}`, m.path, sourcePath, { ...m }));
       }
     }
   }
 
   // ── /proc/<pid>/exe ───────────────────────────────────────────────────────
   for (const fp of findArtifactFiles(procDir, 'process-exe-links')) {
-    const base = path.basename(fp);
+    const sourcePath = srcOf(fp);
     const content = readText(fp, failures);
     if (content === null) continue;
     for (const l of parseProcExeLinks(content)) {
@@ -329,7 +342,7 @@ export function collectStateArtifacts(
       stateRows.push({
         kind: 'proc_exe',
         label: l.exe ?? `pid:${l.pid}`,
-        source_file: base,
+        source_file: sourcePath,
         raw: { ...l, suspicious_path: suspicious },
       });
       // "Deleted binary still running" alone is not a finding: on a real host it
@@ -338,7 +351,7 @@ export function collectStateArtifacts(
       if (suspicious) {
         timelineRows.push(finding('deleted_binary_running', 'catscale_proc_exe',
           `Running process ${l.pid} executes deleted binary from ${l.exe}`,
-          l.exe, base, { ...l, suspicious_path: true }));
+          l.exe, sourcePath, { ...l, suspicious_path: true }));
       }
     }
   }
@@ -346,45 +359,45 @@ export function collectStateArtifacts(
   // ── Network configuration and account check ───────────────────────────────
   // Singular formats, so they stay hand-written rather than bent into a shape.
   for (const fp of findArtifactFiles(procDir, 'ip-a')) {
-    const base = path.basename(fp);
+    const sourcePath = srcOf(fp);
     const content = readText(fp, failures);
     if (content === null) continue;
     for (const iface of parseIpAddr(content)) {
-      stateRows.push({ kind: 'net_interface', label: iface.name, source_file: base, raw: { ...iface } });
+      stateRows.push({ kind: 'net_interface', label: iface.name, source_file: sourcePath, raw: { ...iface } });
       // PROMISC means the interface accepts frames not addressed to it — a packet
       // capture, which on a server is worth knowing about.
       if (iface.promiscuous) {
         timelineRows.push(finding('interface_promiscuous', 'catscale_network_config',
           `Interface ${iface.name} is in promiscuous mode — traffic capture possible`,
-          null, base, { ...iface }));
+          null, sourcePath, { ...iface }));
       }
     }
   }
 
   for (const fp of findArtifactFiles(procDir, 'routetable')) {
-    const base = path.basename(fp);
+    const sourcePath = srcOf(fp);
     const content = readText(fp, failures);
     if (content === null) continue;
     for (const r of parseRouteTable(content)) {
-      stateRows.push({ kind: 'route', label: r.destination, source_file: base, raw: { ...r } });
+      stateRows.push({ kind: 'route', label: r.destination, source_file: sourcePath, raw: { ...r } });
     }
   }
 
   for (const fp of findArtifactFiles(procDir, 'iptables-numerical', 'iptables')) {
-    const base = path.basename(fp);
+    const sourcePath = srcOf(fp);
     const content = readText(fp, failures);
     if (content === null) continue;
     for (const c of parseIptables(content)) {
-      stateRows.push({ kind: 'firewall_chain', label: c.chain, source_file: base, raw: { ...c } });
+      stateRows.push({ kind: 'firewall_chain', label: c.chain, source_file: sourcePath, raw: { ...c } });
     }
   }
 
   for (const fp of findArtifactFiles(path.join(catscaleRoot, 'Logs'), 'passwd-check')) {
-    const base = path.basename(fp);
+    const sourcePath = srcOf(fp);
     const content = readText(fp, failures);
     if (content === null) continue;
     for (const e of parsePasswdCheck(content)) {
-      stateRows.push({ kind: 'passwd_check', label: e.user, source_file: base, raw: { ...e } });
+      stateRows.push({ kind: 'passwd_check', label: e.user, source_file: sourcePath, raw: { ...e } });
     }
   }
 
@@ -393,15 +406,15 @@ export function collectStateArtifacts(
   // module — which is what keeps the remaining families tractable.
   for (const spec of ARTIFACT_REGISTRY) {
     for (const fp of findArtifactFiles(path.join(catscaleRoot, spec.dir), spec.pattern)) {
-      const base = path.basename(fp);
+      const sourcePath = srcOf(fp);
       const content = readText(fp, failures);
       if (content === null) continue;
-      const applied = applySpec(spec, content, base);
+      const applied = applySpec(spec, content, sourcePath);
       // Not `push(...rows)`: spreading passes every element as an argument, and
       // the engine caps that around 65k. lsof alone carries 525,000 rows.
       for (const row of applied.stateRows) stateRows.push(row);
       for (const f of applied.findings) {
-        timelineRows.push(finding(f.kind, `catscale_${spec.kind}`, f.description, f.path, base, f.raw));
+        timelineRows.push(finding(f.kind, `catscale_${spec.kind}`, f.description, f.path, sourcePath, f.raw));
       }
     }
   }
