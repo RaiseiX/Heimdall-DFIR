@@ -53,7 +53,7 @@ function ResultItem({ item, active, onSelect }) {
         )}
       </div>
       {item.categoryLabel && (
-        <span style={{ fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: item.category === 'ioc' ? 'var(--fl-gold)' : 'var(--fl-border)', flexShrink: 0 }}>{item.categoryLabel}</span>
+        <span style={{ fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: item.categoryColor || (item.category === 'ioc' ? 'var(--fl-gold)' : 'var(--fl-border)'), flexShrink: 0 }}>{item.categoryLabel}</span>
       )}
     </div>
   );
@@ -70,7 +70,21 @@ function SectionHeader({ label }) {
   );
 }
 
-export default function CommandPalette({ open, onClose, items, onSelect, placeholder, title }) {
+const GENERIC_RENDER_CAP = 50;
+
+const MONO = 'var(--f-mono, "JetBrains Mono", monospace)';
+const FS_MICRO = 9;
+const FS_XS = 10;
+
+const TOOLBAR_STYLE = { display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6,
+  padding: '9px 14px', borderBottom: '1px solid var(--fl-border)' };
+const TALLY_STYLE = { display: 'flex', justifyContent: 'space-between', gap: 12,
+  padding: '7px 15px 3px', fontFamily: MONO, fontSize: FS_MICRO,
+  textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--fl-muted)' };
+const NOTE_STYLE = { padding: '9px 15px 3px', margin: '5px 4px 0', fontFamily: MONO,
+  fontSize: FS_XS, color: 'var(--fl-muted)', borderTop: '1px solid var(--fl-border)' };
+
+export default function CommandPalette({ open, onClose, items, onSelect, placeholder, title, toolbar, tally, note, onQueryChange }) {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const [query, setQuery] = useState('');
@@ -78,6 +92,7 @@ export default function CommandPalette({ open, onClose, items, onSelect, placeho
   const [activeIdx, setActiveIdx] = useState(0);
   const inputRef = useRef(null);
   const genericMode = Array.isArray(items);
+  const callerFiltered = typeof onQueryChange === 'function';
 
   useEffect(() => {
     if (!open) return;
@@ -88,14 +103,18 @@ export default function CommandPalette({ open, onClose, items, onSelect, placeho
     casesAPI.list({ limit: 30 }).then(r => setCases(r.data?.cases || [])).catch(() => {});
   }, [open, genericMode]);
 
-  const results = useMemo(() => {
+  const [results, genericHidden] = useMemo(() => {
     const q = query.trim().toLowerCase();
 
     if (genericMode) {
-      const filtered = q
-        ? items.filter(i => i.label?.toLowerCase().includes(q) || i.sub?.toLowerCase().includes(q))
-        : items;
-      return filtered.length ? [{ key: 'generic', label: title ?? t('commandPalette.title'), items: filtered }] : [];
+      const filtered = callerFiltered || !q
+        ? items
+        : items.filter(i => i.label?.toLowerCase().includes(q) || i.sub?.toLowerCase().includes(q));
+      const shown = filtered.slice(0, GENERIC_RENDER_CAP);
+      const sections = shown.length
+        ? [{ key: 'generic', label: title ?? t('commandPalette.title'), items: shown }]
+        : [];
+      return [sections, filtered.length - shown.length];
     }
 
     const navItems = NAV_ITEMS.map(item => ({ ...item, label: t(item.labelKey) }));
@@ -146,8 +165,8 @@ export default function CommandPalette({ open, onClose, items, onSelect, placeho
       });
     }
 
-    return sections;
-  }, [query, cases, t, genericMode, items, title]);
+    return [sections, 0];
+  }, [query, cases, t, genericMode, items, title, callerFiltered]);
 
   const flatItems = useMemo(() => results.flatMap(s => s.items), [results]);
 
@@ -202,7 +221,7 @@ export default function CommandPalette({ open, onClose, items, onSelect, placeho
           <input
             ref={inputRef}
             value={query}
-            onChange={e => setQuery(e.target.value)}
+            onChange={e => { setQuery(e.target.value); onQueryChange?.(e.target.value); }}
             onKeyDown={handleKeyDown}
             placeholder={placeholder ?? t('commandPalette.placeholder')}
             style={{
@@ -215,6 +234,10 @@ export default function CommandPalette({ open, onClose, items, onSelect, placeho
             ESC
           </kbd>
         </div>
+
+        {toolbar && <div style={TOOLBAR_STYLE}>{toolbar}</div>}
+
+        {tally && <div style={TALLY_STYLE}>{tally}</div>}
 
         <div style={{ maxHeight: 380, overflowY: 'auto', padding: '6px 0 8px' }}>
           {flatItems.length === 0 ? (
@@ -229,7 +252,7 @@ export default function CommandPalette({ open, onClose, items, onSelect, placeho
                   const idx = globalIdx++;
                   return (
                     <ResultItem
-                      key={`${section.key}-${item.label}`}
+                      key={item.id ?? `${section.key}-${item.label}`}
                       item={item}
                       active={idx === activeIdx}
                       onSelect={handleSelect}
@@ -240,6 +263,12 @@ export default function CommandPalette({ open, onClose, items, onSelect, placeho
             ))
           )}
         </div>
+
+        {(note || genericHidden > 0) && (
+          <div style={NOTE_STYLE}>
+            {note ?? t('commandPalette.more_hidden', { count: genericHidden })}
+          </div>
+        )}
 
         <div style={{ display: 'flex', gap: 14, padding: '6px 14px', borderTop: '1px solid var(--fl-panel)',
           background: 'var(--fl-bg)', fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-border)' }}>

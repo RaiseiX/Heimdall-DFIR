@@ -19,6 +19,16 @@ function cleanProcess(v) {
   return /\.(exe|dll|sys|bat|cmd|ps1|msi|sh|py)$/i.test(name) ? name : null;
 }
 
+const FS_PILL = 8;
+
+const SOURCE_PILL_STYLE = {
+  padding: '1px 5px', borderRadius: 3, fontSize: FS_PILL, fontWeight: 700,
+  fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', textTransform: 'uppercase',
+  background: 'color-mix(in srgb, var(--fl-accent) 12%, transparent)',
+  color: 'var(--fl-accent)',
+  border: '1px solid color-mix(in srgb, var(--fl-accent) 26%, transparent)',
+};
+
 const RAW_FIELD_PRIORITY = [
   'process_name','ProcessName','Image','process_path','command_line','CommandLine',
   'ParentImage','ParentCommandLine','ParentProcessName',
@@ -220,6 +230,7 @@ export default function DetailsTab({ record: r }) {
                     {(d.severity || '?').toUpperCase()}
                   </span>
                   <span style={{ fontSize: 10, color: '#c0a0a0' }}>{d.name}</span>
+                  {d.source && <span style={SOURCE_PILL_STYLE}>{d.source}</span>}
                 </div>
                 <div style={{ fontSize: 9, color: '#5a3a3a', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}>
                   {d.category} {d.mitre?.length ? `· ${d.mitre.join(', ')}` : ''}

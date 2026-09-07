@@ -25,23 +25,14 @@ import {
   SIGMA_UPSTREAM_STATUSES,
 } from './sigmaRulesTable';
 import { isRuleDimmed } from './ruleDimming';
-
-const C = {
-  yara:    'var(--fl-accent)',
-  sigma:   'var(--fl-purple)',
-  warn:    'var(--fl-warn)',
-  surface: 'var(--fl-card)',
-  border:  'var(--fl-border)',
-};
+import { resolveThreatHuntTab } from './threatHuntTabs';
+import GitHubImportModal from '../components/threathunt/GitHubImportModal';
+import { C, fmtDate } from '../components/threathunt/shared';
 
 function localeFor(lang) {
   return lang?.startsWith('en') ? 'en-US' : 'fr-FR';
 }
 
-function fmtDate(d, lang = 'fr') {
-  if (!d) return '—';
-  return new Date(d).toLocaleDateString(localeFor(lang), { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
-}
 function fmtSize(b) {
   if (!b) return '0 B';
   const k = 1024, s = ['B', 'KB', 'MB', 'GB'];
@@ -49,588 +40,8 @@ function fmtSize(b) {
   return `${(b / Math.pow(k, i)).toFixed(1)} ${s[i]}`;
 }
 
-function GitHubImportModal({ open, type, onClose, onImported }) {
-  const { t } = useTranslation();
-  const accentColor = type === 'sigma' ? C.sigma : C.yara;
 
-  const [step, setStep]       = useState('repos');
-  const [repos, setRepos]     = useState([]);
-  const [selRepo, setSelRepo] = useState(null);
-  const [result, setResult]   = useState(null);
 
-  useEffect(() => {
-    if (!open) return;
-    setStep('repos'); setSelRepo(null); setResult(null);
-    threatHuntingAPI.githubRepos(type)
-      .then(r => setRepos(r.data.repos ?? []))
-      .catch(() => {});
-  }, [open, type]);
-
-  async function doImport() {
-    setStep('importing');
-    try {
-      const r = await threatHuntingAPI.githubImportZip({
-        owner: selRepo.owner, repo: selRepo.repo,
-        branch: selRepo.branch, type,
-      });
-      setResult(r.data);
-      onImported?.();
-    } catch (e) {
-      setResult({ total: 0, imported: 0, skipped: 0, errors: [e.response?.data?.error || e.message] });
-    }
-    setStep('done');
-  }
-
-  if (!open) return null;
-
-  return (
-    <div style={{
-      position: 'fixed', inset: 0, zIndex: 1000,
-      background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(4px)',
-      display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20,
-    }} onClick={e => { if (e.target === e.currentTarget && step !== 'importing') onClose(); }}>
-      <div style={{
-        background: 'var(--fl-panel)', border: `1px solid color-mix(in srgb, ${accentColor} 25%, transparent)`,
-        borderRadius: 12, width: '100%', maxWidth: 560,
-        display: 'flex', flexDirection: 'column',
-        boxShadow: 'var(--fl-shadow-lg)',
-      }}>
-        
-        <div style={{ padding: '16px 20px', borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', gap: 10 }}>
-          <Github size={18} style={{ color: accentColor }} />
-          <span style={{ fontWeight: 700, fontSize: 15, color: 'var(--fl-text)' }}>
-            {t('threat_hunt.github.title', { type: type === 'sigma' ? t('threat_hunt.sigma_rules_lower') : t('threat_hunt.yara_rules_lower') })}
-          </span>
-          {step !== 'importing' && (
-            <button onClick={onClose} style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--fl-dim)', padding: 4 }}>
-              <X size={16} />
-            </button>
-          )}
-        </div>
-
-        <div style={{ padding: '20px' }}>
-
-          {step === 'repos' && (
-            <div>
-              <p style={{ margin: '0 0 14px', fontSize: 13, color: 'var(--fl-dim)' }}>
-                {t('threat_hunt.github.select_repo_desc')}
-              </p>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                {repos.map(r => (
-                  <button key={`${r.owner}/${r.repo}`}
-                    onClick={() => { setSelRepo(r); setStep('confirm'); }}
-                    style={{
-                      background: C.surface, border: `1px solid ${C.border}`,
-                      borderRadius: 8, padding: '14px 16px', cursor: 'pointer',
-                      textAlign: 'left', transition: 'border-color 0.15s',
-                    }}
-                    onMouseEnter={e => e.currentTarget.style.borderColor = accentColor + '80'}
-                    onMouseLeave={e => e.currentTarget.style.borderColor = C.border}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                      <Github size={14} style={{ color: accentColor }} />
-                      <span style={{ fontWeight: 700, fontSize: 13, color: 'var(--fl-text)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}>
-                        {r.owner}/{r.repo}
-                      </span>
-                    </div>
-                    <p style={{ margin: 0, fontSize: 12, color: 'var(--fl-dim)' }}>{r.description}</p>
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          
-          {step === 'confirm' && selRepo && (
-            <div style={{ textAlign: 'center', padding: '8px 0' }}>
-              <Download size={32} style={{ color: accentColor, marginBottom: 14 }} />
-              <p style={{ margin: '0 0 6px', fontWeight: 700, fontSize: 15, color: 'var(--fl-text)' }}>
-                {t('threat_hunt.github.confirm_title')}
-              </p>
-              <p style={{ margin: '0 0 4px', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 13, color: accentColor }}>
-                {selRepo.owner}/{selRepo.repo}
-              </p>
-              <p style={{ margin: '0 0 20px', fontSize: 12, color: 'var(--fl-dim)' }}>
-                {selRepo.description}
-              </p>
-              <div style={{ padding: '10px 14px', background: 'var(--fl-card)', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 12, color: 'var(--fl-dim)', textAlign: 'left' }}>
-                {t('threat_hunt.github.confirm_desc_before')}
-                <strong style={{ color: 'var(--fl-text)' }}>{t('threat_hunt.github.confirm_desc_emphasis')}</strong>
-                {t('threat_hunt.github.confirm_desc_after')}
-              </div>
-            </div>
-          )}
-
-          {step === 'importing' && (
-            <div style={{ textAlign: 'center', padding: '32px 0' }}>
-              <Spinner size={32} />
-              <p style={{ marginTop: 16, fontWeight: 600, fontSize: 14, color: 'var(--fl-text)' }}>
-                {t('threat_hunt.github.importing')}
-              </p>
-              <p style={{ margin: '6px 0 0', fontSize: 12, color: 'var(--fl-dim)' }}>
-                {t('threat_hunt.github.importing_steps')}
-              </p>
-              <p style={{ margin: '4px 0 0', fontSize: 12, color: 'var(--fl-muted)' }}>
-                {t('threat_hunt.github.keep_open')}
-              </p>
-            </div>
-          )}
-
-          {step === 'done' && result && (
-            <div>
-              <div style={{ display: 'flex', gap: 10, marginBottom: 16 }}>
-                <div style={{ flex: 1, textAlign: 'center', padding: '14px 10px', background: 'color-mix(in srgb, var(--fl-ok) 8%, transparent)', border: '1px solid color-mix(in srgb, var(--fl-ok) 22%, transparent)', borderRadius: 8 }}>
-                  <div style={{ fontSize: 26, fontWeight: 700, color: 'var(--fl-ok)' }}>{result.imported}</div>
-                  <div style={{ fontSize: 12, color: 'var(--fl-dim)' }}>{t('threat_hunt.github.imported')}</div>
-                </div>
-                <div style={{ flex: 1, textAlign: 'center', padding: '14px 10px', background: 'rgba(217,124,32,0.08)', border: '1px solid rgba(217,124,32,0.25)', borderRadius: 8 }}>
-                  <div style={{ fontSize: 26, fontWeight: 700, color: 'var(--fl-warn)' }}>{result.skipped}</div>
-                  <div style={{ fontSize: 12, color: 'var(--fl-dim)' }}>{t('threat_hunt.github.skipped_invalid')}</div>
-                </div>
-                {result.total > 0 && (
-                  <div style={{ flex: 1, textAlign: 'center', padding: '14px 10px', background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8 }}>
-                    <div style={{ fontSize: 26, fontWeight: 700, color: 'var(--fl-dim)' }}>{result.total}</div>
-                    <div style={{ fontSize: 12, color: 'var(--fl-dim)' }}>{t('threat_hunt.github.found')}</div>
-                  </div>
-                )}
-              </div>
-              {result.errors?.length > 0 && (
-                <div>
-                  <p style={{ fontSize: 12, color: 'var(--fl-dim)', margin: '0 0 6px' }}>
-                    {t('threat_hunt.github.errors_count', { count: result.errors.length })}
-                  </p>
-                  <div style={{ maxHeight: 140, overflowY: 'auto', background: C.surface, borderRadius: 6, padding: '8px 12px', border: `1px solid ${C.border}` }}>
-                    {result.errors.map((e, i) => (
-                      <div key={i} style={{ fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-danger)', marginBottom: 3 }}>
-                        {e}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-
-        <div style={{ padding: '12px 20px', borderTop: `1px solid ${C.border}`, display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-          {step === 'repos' && (
-            <Button variant="secondary" onClick={onClose}>{t('common.close')}</Button>
-          )}
-          {step === 'confirm' && (
-            <>
-              <Button variant="secondary" onClick={() => setStep('repos')}>{t('common.back')}</Button>
-              <Button variant="primary" onClick={doImport} style={{ background: accentColor }}>
-                {t('threat_hunt.github.import_all')}
-              </Button>
-            </>
-          )}
-          {step === 'importing' && (
-            <Button variant="secondary" disabled>{t('threat_hunt.github.importing')}</Button>
-          )}
-          {step === 'done' && (
-            <Button variant="primary" onClick={onClose}>{t('common.close')}</Button>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-const YARA_TEMPLATE = `rule ExempleMalware {
-    meta:
-        description = "Detects the MZ signature (PE executable)"
-        author      = "Heimdall DFIR"
-    strings:
-        $mz = { 4D 5A }
-        $pe = "This program cannot be run in DOS mode"
-    condition:
-        $mz at 0 and $pe
-}`;
-
-function YaraRulesTab() {
-  const { t, i18n } = useTranslation();
-  const [rules, setRules]        = useState([]);
-  const [ruleStats, setRuleStats] = useState([]);
-  const [loading, setLoading]    = useState(true);
-  const [loadError, setLoadError] = useState('');
-  const [statsError, setStatsError] = useState('');
-  const [showModal, setShowModal] = useState(false);
-  const [showGithub, setShowGithub] = useState(false);
-  const [editing, setEditing]    = useState(null);
-  const [form, setForm]          = useState({ name: '', description: '', content: '', tags: '' });
-  const [saving, setSaving]      = useState(false);
-  const [error, setError]        = useState('');
-
-  const [search, setSearch]       = useState('');
-  const [filter, setFilter]       = useState('all');
-  const [restoredScope, setRestoredScope] = useState(() => new Set());
-
-  const [pendingDelete, setPendingDelete] = useState(null);
-  const [deleteConfirmText, setDeleteConfirmText] = useState('');
-  const [deleting, setDeleting] = useState(false);
-
-  const load = useCallback(async () => {
-    setLoading(true); setLoadError(''); setStatsError('');
-    try {
-      const rulesRes = await threatHuntingAPI.yaraRules();
-      setRules(rulesRes.data.rules ?? []);
-    } catch (e) {
-      setLoadError(e.response?.data?.error || e.message || t('threat_hunt.errors.load_rules'));
-      setLoading(false);
-      return;
-    }
-    try {
-      const statsRes = await threatHuntingAPI.yaraRuleStats();
-      setRuleStats(statsRes.data.stats ?? []);
-    } catch (e) {
-      setRuleStats([]);
-      setStatsError(e.response?.data?.error || e.message || t('threat_hunt.errors.load_rule_stats'));
-    }
-    setLoading(false);
-  }, []);
-
-  useEffect(() => { load(); }, [load]);
-
-  const rows = useMemo(() => mergeRuleStats(rules, ruleStats), [rules, ruleStats]);
-  const stats = useMemo(() => computeYaraRuleStats(rows), [rows]);
-  const segmentCounts = useMemo(() => ({
-    all: rows.length,
-    matched: rows.filter(r => r.match_count > 0).length,
-    muted: rows.filter(r => r.match_count === 0).length,
-    inactive: rows.filter(r => !r.is_active).length,
-  }), [rows]);
-  const visibleRows = useMemo(
-    () => sortByMatchCountDesc(filterYaraRules(rows, { search, filter })),
-    [rows, search, filter],
-  );
-
-  const constantKeys = useMemo(() => constantColumns(rows, SCOPE_CANDIDATE_COLUMNS), [rows]);
-  const liftedKeys = useMemo(
-    () => constantKeys.filter(key => !restoredScope.has(key)),
-    [constantKeys, restoredScope],
-  );
-
-  function restoreScopeColumn(...keys) {
-    setRestoredScope(prev => {
-      const next = new Set(prev);
-      keys.forEach(k => next.add(k));
-      return next;
-    });
-  }
-
-  const scopeTokens = useMemo(() => {
-    const first = rows[0];
-    if (!first) return [];
-    const tokens = [];
-
-    if (liftedKeys.includes('description')) {
-      tokens.push({
-        key: 'description',
-        label: t('threat_hunt.yara.columns.description'),
-        value: first.description || '—',
-        onRemove: () => restoreScopeColumn('description'),
-      });
-    }
-    if (liftedKeys.includes('tagsKey')) {
-      tokens.push({
-        key: 'tagsKey',
-        label: t('threat_hunt.yara.columns.tags'),
-        value: (first.tags || []).join(', ') || '—',
-        onRemove: () => restoreScopeColumn('tagsKey'),
-      });
-    }
-    const authorLifted = liftedKeys.includes('author_username');
-    const dateLifted   = liftedKeys.includes('created_at');
-    if (authorLifted && dateLifted) {
-      tokens.push({
-        key: 'author_date',
-        label: t('threat_hunt.yara.columns.author'),
-        value: t('threat_hunt.by_author', { author: first.author_username || '—', date: fmtDate(first.created_at, i18n.language) }),
-        onRemove: () => restoreScopeColumn('author_username', 'created_at'),
-      });
-    } else {
-      if (authorLifted) {
-        tokens.push({
-          key: 'author_username',
-          label: t('threat_hunt.yara.columns.author'),
-          value: first.author_username || '—',
-          onRemove: () => restoreScopeColumn('author_username'),
-        });
-      }
-      if (dateLifted) {
-        tokens.push({
-          key: 'created_at',
-          label: t('threat_hunt.yara.columns.created_at'),
-          value: fmtDate(first.created_at, i18n.language),
-          onRemove: () => restoreScopeColumn('created_at'),
-        });
-      }
-    }
-    return tokens;
-  }, [liftedKeys, rows, t, i18n.language]);
-
-  function openCreate() {
-    setEditing(null);
-    setForm({ name: '', description: '', content: YARA_TEMPLATE, tags: '' });
-    setError(''); setShowModal(true);
-  }
-  function openEdit(r) {
-    setEditing(r);
-    setForm({ name: r.name, description: r.description || '', content: r.content, tags: (r.tags || []).join(', ') });
-    setError(''); setShowModal(true);
-  }
-
-  async function save() {
-    if (!form.name.trim() || !form.content.trim()) { setError(t('threat_hunt.errors.name_content_required')); return; }
-    setSaving(true); setError('');
-    try {
-      const tags = form.tags.split(',').map(t => t.trim()).filter(Boolean);
-      const data = { name: form.name, description: form.description, content: form.content, tags };
-      if (editing) await threatHuntingAPI.updateYaraRule(editing.id, data);
-      else         await threatHuntingAPI.createYaraRule(data);
-      setShowModal(false); load();
-    } catch (e) {
-      setError(e.response?.data?.error || t('threat_hunt.errors.save_failed'));
-    } finally { setSaving(false); }
-  }
-
-  function requestDelete(r) {
-    setPendingDelete(r);
-    setDeleteConfirmText('');
-  }
-
-  async function confirmDelete() {
-    if (!pendingDelete) return;
-    setDeleting(true);
-    try { await threatHuntingAPI.deleteYaraRule(pendingDelete.id); setPendingDelete(null); load(); }
-    catch (_e) { }
-    finally { setDeleting(false); }
-  }
-
-  async function toggle(r) {
-    try { await threatHuntingAPI.updateYaraRule(r.id, { is_active: !r.is_active }); load(); }
-    catch (_e) {}
-  }
-
-  const columns = useMemo(() => {
-    const cols = [
-      {
-        key: 'state', width: 34,
-        header: <span className="sr-only">{t('threat_hunt.yara.columns.state')}</span>,
-        render: r => <span className={`rt-state-dot${r.is_active ? ' rt-state-dot--active' : ''}`} aria-hidden="true" />,
-      },
-      {
-        key: 'name', header: t('threat_hunt.yara.columns.rule'), mono: true,
-        render: r => <span className={isRuleDimmed(r) ? 'rt-name-muted' : undefined}>{r.name}</span>,
-      },
-    ];
-
-    if (restoredScope.has('description')) {
-      cols.push({ key: 'description', header: t('threat_hunt.yara.columns.description') });
-    }
-    if (restoredScope.has('tagsKey')) {
-      cols.push({
-        key: 'tagsDisplay', header: t('threat_hunt.yara.columns.tags'),
-        render: r => (r.tags || []).join(', ') || '—',
-      });
-    }
-    if (restoredScope.has('author_username')) {
-      cols.push({ key: 'author_username', header: t('threat_hunt.yara.columns.author') });
-    }
-    if (restoredScope.has('created_at')) {
-      cols.push({
-        key: 'created_at_display', header: t('threat_hunt.yara.columns.created_at'), mono: true,
-        render: r => fmtDate(r.created_at, i18n.language),
-      });
-    }
-
-    cols.push(
-      {
-        key: 'match_count', header: t('threat_hunt.yara.columns.matches'), width: 120, align: 'right', mono: true,
-        render: r => r.match_count > 0
-          ? <span className="yara-match-count">{r.match_count}</span>
-          : <span className="yara-match-count--zero">—</span>,
-      },
-      {
-        key: 'last_matched_at', header: t('threat_hunt.yara.columns.last'), width: 150, mono: true,
-        render: r => r.last_matched_at
-          ? fmtDate(r.last_matched_at, i18n.language)
-          : <span className="yara-last-never">{t('threat_hunt.yara.never_matched')}</span>,
-      },
-      {
-        key: 'actions', width: 110,
-        header: <span className="sr-only">{t('threat_hunt.yara.columns.actions')}</span>,
-        render: r => (
-          <div className="dt-row-actions">
-            <button
-              type="button" className="rt-action-btn"
-              aria-label={t(r.is_active ? 'threat_hunt.yara.aria.disable_rule' : 'threat_hunt.yara.aria.enable_rule', { name: r.name })}
-              onClick={() => toggle(r)}
-            >
-              {r.is_active ? <ToggleRight size={14} /> : <ToggleLeft size={14} />}
-            </button>
-            <button
-              type="button" className="rt-action-btn"
-              aria-label={t('threat_hunt.yara.aria.edit_rule', { name: r.name })}
-              onClick={() => openEdit(r)}
-            >
-              <Pencil size={12} />
-            </button>
-            <button
-              type="button" className="rt-action-btn rt-action-btn--danger"
-              aria-label={t('threat_hunt.yara.aria.delete_rule', { name: r.name })}
-              onClick={() => requestDelete(r)}
-            >
-              <Trash2 size={12} />
-            </button>
-          </div>
-        ),
-      },
-    );
-    return cols;
-  }, [restoredScope, t, i18n.language]);
-
-  return (
-    <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-        <p style={{ margin: 0, fontSize: 13, color: 'var(--fl-dim)' }}>
-          {t('threat_hunt.yara.rules_count', { count: rules.length })}
-        </p>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <Button variant="secondary" size="sm" icon={Github} onClick={() => setShowGithub(true)}>{t('threat_hunt.buttons.import_github')}</Button>
-          <Button variant="primary" size="sm" icon={Plus} onClick={openCreate}>{t('threat_hunt.buttons.new_rule')}</Button>
-        </div>
-      </div>
-
-      <GitHubImportModal open={showGithub} type="yara" onClose={() => setShowGithub(false)} onImported={load} />
-
-      {loading ? (
-        <div style={{ textAlign: 'center', padding: 40 }}>
-          <Spinner size={24} />
-        </div>
-      ) : loadError ? (
-        <Alert variant="danger" message={loadError} />
-      ) : rows.length === 0 ? (
-        <EmptyState icon={Shield} title={t('threat_hunt.no_yara')} />
-      ) : (
-        <>
-          {statsError && <Alert variant="warn" message={statsError} />}
-
-          <div className="rt-stat-row">
-            <span>{t('threat_hunt.yara.stat_rules', { count: stats.total })}</span>
-            <span>{t('threat_hunt.yara.stat_active', { count: stats.active })}</span>
-            <span>{t('threat_hunt.yara.stat_matched', { count: stats.matched })}</span>
-            <span>{t('threat_hunt.yara.stat_muted', { count: stats.muted })}</span>
-            <span>{t('threat_hunt.yara.stat_matches', { count: stats.totalMatches })}</span>
-          </div>
-
-          <ScopeBar tokens={scopeTokens} />
-
-          <div className="rt-toolbar">
-            <SearchInput
-              value={search}
-              onChange={setSearch}
-              onClear={() => setSearch('')}
-              placeholder={t('threat_hunt.yara.search_placeholder')}
-              style={{ minWidth: 240 }}
-            />
-            <div className="rt-toolbar-filters">
-              <FilterChip active={filter === 'all'} onClick={() => setFilter('all')} count={segmentCounts.all}>
-                {t('threat_hunt.yara.filter_all')}
-              </FilterChip>
-              <FilterChip active={filter === 'matched'} color="var(--fl-warn)" onClick={() => setFilter('matched')} count={segmentCounts.matched}>
-                {t('threat_hunt.yara.filter_matched')}
-              </FilterChip>
-              <FilterChip active={filter === 'muted'} onClick={() => setFilter('muted')} count={segmentCounts.muted}>
-                {t('threat_hunt.yara.filter_muted')}
-              </FilterChip>
-              <FilterChip active={filter === 'inactive'} color="var(--fl-subtle)" onClick={() => setFilter('inactive')} count={segmentCounts.inactive}>
-                {t('threat_hunt.yara.filter_inactive')}
-              </FilterChip>
-            </div>
-          </div>
-
-          {visibleRows.length === 0 ? (
-            <EmptyState icon={Search} title={t('threat_hunt.yara.no_search_results')} />
-          ) : (
-            <div className="rt-table-wrap">
-              <DataTable columns={columns} rows={visibleRows} rowKey={r => r.id} density="compact" />
-            </div>
-          )}
-        </>
-      )}
-
-      <Modal
-        open={showModal}
-        title={editing ? t('threat_hunt.yara.edit_title') : t('threat_hunt.yara.new_title')}
-        onClose={() => setShowModal(false)}
-        size="lg"
-        accentColor={C.yara}
-      >
-        <Modal.Body>
-          <div style={{ marginBottom: 14 }}>
-            <label className="fl-label" style={{ display: 'block', marginBottom: 5 }}>{t('threat_hunt.form.name')}</label>
-            <input className="fl-input" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder={t('threat_hunt.yara.name_ph')} />
-          </div>
-          <div style={{ marginBottom: 14 }}>
-            <label className="fl-label" style={{ display: 'block', marginBottom: 5 }}>{t('threat_hunt.form.description_optional')}</label>
-            <input className="fl-input" value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} placeholder={t('threat_hunt.form.description_ph')} />
-          </div>
-          <div style={{ marginBottom: 14 }}>
-            <label className="fl-label" style={{ display: 'block', marginBottom: 5 }}>{t('threat_hunt.form.tags_csv')}</label>
-            <input className="fl-input" value={form.tags} onChange={e => setForm(f => ({ ...f, tags: e.target.value }))} placeholder={t('threat_hunt.yara.tags_ph')} />
-          </div>
-          <div style={{ marginBottom: 14 }}>
-            <label className="fl-label" style={{ display: 'block', marginBottom: 5 }}>{t('threat_hunt.yara.content')}</label>
-            <textarea className="fl-input" value={form.content} onChange={e => setForm(f => ({ ...f, content: e.target.value }))} rows={14} style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', resize: 'vertical' }} />
-          </div>
-          {error && (
-            <div style={{ background: 'color-mix(in srgb, var(--fl-danger) 12%, transparent)', border: '1px solid color-mix(in srgb, var(--fl-danger) 30%, transparent)', borderRadius: 6, padding: '8px 12px', marginBottom: 12, fontSize: 12, color: 'var(--fl-danger)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}>
-              {error}
-            </div>
-          )}
-        </Modal.Body>
-        <Modal.Footer>
-          <Button variant="secondary" onClick={() => setShowModal(false)}>{t('common.cancel')}</Button>
-          <Button variant="primary" loading={saving} onClick={save}>{t('common.save')}</Button>
-        </Modal.Footer>
-      </Modal>
-
-      <Modal
-        open={!!pendingDelete}
-        title={t('threat_hunt.yara.delete_modal_title')}
-        onClose={() => setPendingDelete(null)}
-        size="sm"
-        accentColor="var(--fl-danger)"
-      >
-        <Modal.Body>
-          <p className="rt-delete-warning">{t('threat_hunt.yara.delete_modal_warning')}</p>
-          <label className="fl-label" style={{ display: 'block', marginBottom: 5 }}>
-            {t('threat_hunt.yara.delete_modal_type_prompt', { name: pendingDelete?.name })}
-          </label>
-          <input
-            className="fl-input"
-            value={deleteConfirmText}
-            onChange={e => setDeleteConfirmText(e.target.value)}
-            autoComplete="off"
-          />
-        </Modal.Body>
-        <Modal.Footer>
-          <Button variant="secondary" disabled={deleting} onClick={() => setPendingDelete(null)}>{t('common.cancel')}</Button>
-          <Button
-            variant="danger"
-            icon={deleting ? undefined : Trash2}
-            loading={deleting}
-            disabled={!isDestructionConfirmed(deleteConfirmText, pendingDelete?.name)}
-            onClick={confirmDelete}
-          >
-            {t('common.delete')}
-          </Button>
-        </Modal.Footer>
-      </Modal>
-    </div>
-  );
-}
 
 function ScanProgressBar({ progress, color }) {
   if (!progress) return null;
@@ -940,6 +351,7 @@ function SigmaRulesTab() {
   const [form, setForm]           = useState({ name: '', content: '', tags: '' });
   const [saving, setSaving]       = useState(false);
   const [error, setError]         = useState('');
+  const [loadingRule, setLoadingRule] = useState(false);
 
   const [search, setSearch]       = useState('');
   const [filter, setFilter]       = useState('all');
@@ -1010,10 +422,18 @@ function SigmaRulesTab() {
     setForm({ name: '', content: SIGMA_TEMPLATE, tags: '' });
     setError(''); setShowModal(true);
   }
-  function openEdit(r) {
+  async function openEdit(r) {
     setEditing(r);
-    setForm({ name: r.name, content: r.content, tags: (r.tags || []).join(', ') });
-    setError(''); setShowModal(true);
+    setForm({ name: r.name, content: '', tags: (r.tags || []).join(', ') });
+    setError(''); setLoadingRule(true); setShowModal(true);
+    try {
+      const res = await threatHuntingAPI.sigmaRule(r.id);
+      setForm(f => ({ ...f, content: res.data.rule?.content || '' }));
+    } catch (e) {
+      setError(e.response?.data?.error || t('threat_hunt.errors.load_rule_content'));
+    } finally {
+      setLoadingRule(false);
+    }
   }
 
   async function save() {
@@ -1222,7 +642,9 @@ function SigmaRulesTab() {
           </div>
           <div style={{ marginBottom: 14 }}>
             <label className="fl-label" style={{ display: 'block', marginBottom: 5 }}>{t('threat_hunt.sigma.content')}</label>
-            <textarea className="fl-input" value={form.content} onChange={e => setForm(f => ({ ...f, content: e.target.value }))} rows={16} style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', resize: 'vertical' }} />
+            <textarea className="fl-input" value={form.content} disabled={loadingRule}
+              placeholder={loadingRule ? t('common.loading') : undefined}
+              onChange={e => setForm(f => ({ ...f, content: e.target.value }))} rows={16} style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', resize: 'vertical' }} />
           </div>
           {error && (
             <div style={{ background: 'color-mix(in srgb, var(--fl-danger) 12%, transparent)', border: '1px solid color-mix(in srgb, var(--fl-danger) 30%, transparent)', borderRadius: 6, padding: '8px 12px', marginBottom: 12, fontSize: 12, color: 'var(--fl-danger)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}>
@@ -1232,7 +654,7 @@ function SigmaRulesTab() {
         </Modal.Body>
         <Modal.Footer>
           <Button variant="secondary" onClick={() => setShowModal(false)}>{t('common.cancel')}</Button>
-          <Button variant="primary" loading={saving} onClick={save}>{t('common.save')}</Button>
+          <Button variant="primary" loading={saving} disabled={loadingRule} onClick={save}>{t('common.save')}</Button>
         </Modal.Footer>
       </Modal>
 
@@ -1638,7 +1060,6 @@ function SigmaHuntTab() {
 
 function getTabs(t) {
   return [
-    { id: 'yara-rules',  label: t('threat_hunt.tabs.yara_rules'),  icon: Shield,    color: C.yara,  to: '/threat-hunt/yara-rules' },
     { id: 'yara-scan',   label: t('threat_hunt.tabs.yara_scan'),   icon: Scan,      color: C.yara,  to: '/threat-hunt/yara-scan' },
     { id: 'sigma-rules', label: t('threat_hunt.tabs.sigma_rules'), icon: FileCode2, color: C.sigma, to: '/threat-hunt/sigma-rules' },
     { id: 'sigma-hunt',  label: t('threat_hunt.tabs.sigma_hunt'),  icon: Search,    color: C.sigma, to: '/threat-hunt/sigma-hunt' },
@@ -2005,8 +1426,13 @@ function RunAllTab() {
 export default function ThreatHuntPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { tab = 'yara-rules' } = useParams();
+  const { tab } = useParams();
+  const active = resolveThreatHuntTab(tab);
   const tabs = getTabs(t);
+
+  useEffect(() => {
+    if (active !== tab) navigate(`/threat-hunt/${active}`, { replace: true });
+  }, [active, tab, navigate]);
 
   return (
     <div style={{ padding: '24px', maxWidth: 1100, margin: '0 auto' }}>
@@ -2022,7 +1448,7 @@ export default function ThreatHuntPage() {
 
       <div style={{ display: 'inline-flex', gap: 2, padding: 3, marginBottom: 22, borderRadius: 9, background: 'var(--fl-bg)', border: '1px solid var(--fl-border)', maxWidth: '100%', overflowX: 'auto' }}>
         {tabs.map(it => {
-          const on = tab === it.id; const Ico = it.icon;
+          const on = active === it.id; const Ico = it.icon;
           return (
             <button key={it.id} onClick={() => navigate(it.to)}
               style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '6px 13px', borderRadius: 7, border: 'none', cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0,
@@ -2037,12 +1463,11 @@ export default function ThreatHuntPage() {
         })}
       </div>
 
-      {tab === 'yara-rules'  && <YaraRulesTab />}
-      {tab === 'yara-scan'   && <YaraScanTab />}
-      {tab === 'sigma-rules' && <SigmaRulesTab />}
-      {tab === 'sigma-hunt'  && <SigmaHuntTab />}
-      {tab === 'sysmon'      && <SysmonTab />}
-      {tab === 'run-all'     && <RunAllTab />}
+      {active === 'yara-scan'   && <YaraScanTab />}
+      {active === 'sigma-rules' && <SigmaRulesTab />}
+      {active === 'sigma-hunt'  && <SigmaHuntTab />}
+      {active === 'sysmon'      && <SysmonTab />}
+      {active === 'run-all'     && <RunAllTab />}
     </div>
   );
 }

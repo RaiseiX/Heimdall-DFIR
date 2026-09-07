@@ -9,6 +9,7 @@ import { zoneBands } from './utils/zoneBands';
 import { edgeBow } from './utils/edgeBow';
 import { zonesLayout } from './utils/zonesLayout';
 import { peerSummary } from './utils/peerSummary';
+import { applyHidden } from './utils/hiddenNodes';
 import { ZONE_DEFS_NORMAL, ZONE_DEFS_CB } from './ZoneOverlay';
 import ZoneOverlay from './ZoneOverlay';
 
@@ -43,6 +44,7 @@ export default function NetworkExplorer({
   relayoutNonce = 0,
   zoneDeclarations,
   machinesWithoutLink,
+  hiddenNodeIds,
 }) {
   const { t } = useTranslation();
   const containerRef        = useRef(null);
@@ -315,6 +317,10 @@ export default function NetworkExplorer({
     ro.observe(container);
     return () => ro.disconnect();
   }, []);
+
+  useEffect(() => {
+    applyHidden(cyRef.current, hiddenNodeIds);
+  }, [hiddenNodeIds, elements]);
 
   const prevNodeIdsRef = useRef(new Set());
 

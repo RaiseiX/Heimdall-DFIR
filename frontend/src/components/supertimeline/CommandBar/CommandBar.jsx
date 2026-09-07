@@ -2,9 +2,46 @@ import { useRef, useState, useEffect, useCallback } from 'react';
 import { Search, X, ChevronDown, Save, Share2, Trash2, Pencil, Crosshair } from 'lucide-react';
 import { useTimelineStore } from '../store/useTimelineStore';
 import { useTranslation } from 'react-i18next';
-import { rankTypes } from '../utils/timelineUtils';
 import { tabColor } from '../utils/timelineUtils';
+import { groupArtifactTypes, stripTypes, sumRows } from '../utils/artifactGroups';
 import { currentUser } from '../../../utils/auth';
+
+const FS_TINY = 9;
+const FS_XS = 10;
+const MONO = 'var(--f-mono, "JetBrains Mono", monospace)';
+
+const FAM_ROW_STYLE = { display: 'flex', flexWrap: 'wrap', gap: 14, marginTop: 6, alignItems: 'baseline' };
+const FAM_LABEL_STYLE = { fontSize: FS_TINY, fontFamily: MONO, textTransform: 'uppercase',
+  letterSpacing: '.12em', color: 'var(--fl-subtle)', paddingRight: 12,
+  borderRight: '1px solid var(--fl-border2)' };
+const FAM_COUNT_STYLE = { fontSize: FS_TINY, color: 'var(--fl-muted)' };
+const SEARCH_WRAP_STYLE = { display: 'flex', alignItems: 'baseline', gap: 6, marginLeft: 'auto',
+  paddingLeft: 12, borderLeft: '1px solid var(--fl-border2)' };
+const SEARCH_INPUT_STYLE = { background: 'none', border: 'none', outline: 'none', fontFamily: MONO,
+  fontSize: FS_XS, color: 'var(--fl-text)', width: 130 };
+const SEARCH_ICON_STYLE = { color: 'var(--fl-muted)', alignSelf: 'center' };
+const TALLY_STYLE = { fontSize: FS_TINY, fontFamily: MONO, color: 'var(--fl-muted)', marginTop: 8 };
+const TALLY_KEY_STYLE = { color: 'var(--fl-text)' };
+const TALLY_PIN_STYLE = { color: 'var(--fl-warn)' };
+const TYPE_COUNT_STYLE = { fontSize: FS_TINY, color: 'var(--fl-muted)' };
+
+const famBtnStyle = (active, col) => ({
+  padding: '2px 0', fontSize: FS_XS, fontFamily: MONO, cursor: 'pointer',
+  display: 'flex', alignItems: 'baseline', gap: 5,
+  background: 'transparent', border: 'none',
+  borderBottom: `1px solid ${active ? col : 'transparent'}`,
+  color: active ? 'var(--fl-text)' : col,
+});
+
+const typeBtnStyle = (active, solo, col) => ({
+  padding: '2px 0', fontSize: FS_XS, fontFamily: MONO, cursor: 'pointer',
+  display: 'flex', alignItems: 'baseline', gap: 5,
+  background: 'transparent', border: 'none',
+  borderBottom: `1px solid ${solo ? col : 'transparent'}`,
+  color: active ? col : 'var(--fl-subtle)',
+  opacity: active ? 1 : 0.55,
+  textDecoration: active ? 'none' : 'line-through',
+});
 
 const CHIP_STYLES = {
   search:       { bg: '#112030', color: '#6aabdb', border: '#1e3a50' },
@@ -63,6 +100,8 @@ export default function CommandBar() {
   const [inputVal, setInputVal] = useState('');
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [showAllTypes, setShowAllTypes] = useState(false);
+  const [typeFamily, setTypeFamily] = useState(null);
+  const [typeSearch, setTypeSearch] = useState('');
   const { t: tr, i18n } = useTranslation();
   const advancedRef = useRef(null);
   const [showSearches, setShowSearches] = useState(false);
@@ -325,6 +364,30 @@ export default function CommandBar() {
       </div>
 
       {availTypes.length > 0 && (
+        <div style={FAM_ROW_STYLE}>
+          <span style={FAM_LABEL_STYLE}>{tr('timeline.types.families')}</span>
+          {groupArtifactTypes(availTypes, typeCounts).map(g => (
+            <button key={g.family}
+              onClick={() => setTypeFamily(f => (f === g.family ? null : g.family))}
+              style={famBtnStyle(typeFamily === g.family, tabColor(g.types[0].type))}>
+              {g.label}
+              <span style={FAM_COUNT_STYLE}>{g.typeCount}</span>
+            </button>
+          ))}
+          <span style={SEARCH_WRAP_STYLE}>
+            <Search size={10} style={SEARCH_ICON_STYLE} />
+            <input
+              value={typeSearch}
+              onChange={e => setTypeSearch(e.target.value)}
+              placeholder={tr('timeline.types.filter_placeholder')}
+              aria-label={tr('timeline.types.filter_placeholder')}
+              style={SEARCH_INPUT_STYLE}
+            />
+          </span>
+        </div>
+      )}
+
+      {availTypes.length > 0 && (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, marginTop: 6, alignItems: 'baseline' }}>
           <span style={{ display: 'flex', alignItems: 'baseline', gap: 9, paddingRight: 12,
             borderRight: '1px solid var(--fl-border2)' }}>
@@ -347,8 +410,9 @@ export default function CommandBar() {
             )}
           </span>
           {(() => {
-            const { shown, hidden } = rankTypes(availTypes, typeCounts, 12, artifactTypes);
-            const visible = showAllTypes ? [...shown, ...hidden] : shown;
+            const strip = stripTypes({ availTypes, typeCounts, family: typeFamily,
+              search: typeSearch, selected: artifactTypes, visible: 12 });
+            const visible = showAllTypes ? [...strip.shown, ...strip.hidden] : strip.shown;
             return (<>
           {visible.map(t => {
             const col    = tabColor(t);
@@ -356,34 +420,50 @@ export default function CommandBar() {
             const solo   = artifactTypes.length === 1 && artifactTypes[0] === t;
             const count  = typeCounts[t];
             return (
-              <button key={t} onClick={e => e.ctrlKey || e.metaKey ? soloArtifactType(t) : toggleArtifactType(t)} title={tr('timeline.type_toggle_hint')} style={{
-                padding: '2px 0', fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', cursor: 'pointer',
-                display: 'flex', alignItems: 'baseline', gap: 5,
-                background: 'transparent', border: 'none',
-                borderBottom: `1px solid ${solo ? col : 'transparent'}`,
-                color: active ? col : 'var(--fl-subtle)',
-                opacity: active ? 1 : 0.55,
-                textDecoration: active ? 'none' : 'line-through',
-              }}>
+              <button key={t} onClick={e => e.ctrlKey || e.metaKey ? soloArtifactType(t) : toggleArtifactType(t)}
+                title={tr('timeline.type_toggle_hint')}
+                style={typeBtnStyle(active, solo, col)}>
                 {t}
-                {count != null && <span style={{ fontSize: 9, color: 'var(--fl-muted)' }}>{count.toLocaleString(i18n.language)}</span>}
+                {count != null && <span style={TYPE_COUNT_STYLE}>{count.toLocaleString(i18n.language)}</span>}
               </button>
             );
           })}
-          {hidden.length > 0 && (
+          {strip.hidden.length > 0 && (
             <button onClick={() => setShowAllTypes(v => !v)}
-              title={showAllTypes ? undefined : hidden.slice(0, 12).join(', ')}
+              title={showAllTypes ? undefined : strip.hidden.slice(0, 12).join(', ')}
               style={{ padding: '2px 0', fontSize: 10, cursor: 'pointer',
                 fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', background: 'transparent',
                 color: 'var(--fl-muted)', border: 'none', textDecoration: 'underline',
                 textUnderlineOffset: 3 }}>
-              {showAllTypes ? tr('timeline.types.collapse') : tr('timeline.types.more', { count: hidden.length })}
+              {showAllTypes ? tr('timeline.types.collapse') : tr('timeline.types.more', { count: strip.hidden.length })}
             </button>
           )}
             </>);
           })()}
         </div>
       )}
+
+      {availTypes.length > 0 && (() => {
+        const strip = stripTypes({ availTypes, typeCounts, family: typeFamily,
+          search: typeSearch, selected: artifactTypes, visible: 12 });
+        if (!strip.filtering && !strip.restricting) return null;
+        const rows = sumRows(strip.shown, typeCounts);
+        return (
+          <p style={TALLY_STYLE}>
+            {strip.filtering && (
+              <span style={TALLY_KEY_STYLE}>
+                {tr('timeline.types.tally', { shown: strip.matched, total: strip.total })}
+              </span>
+            )}
+            {strip.filtering && rows != null && ` · ${tr('timeline.types.rows', { n: rows.toLocaleString(i18n.language) })}`}
+            {strip.restricting && (
+              <span style={TALLY_PIN_STYLE}>
+                {`${strip.filtering ? ' · ' : ''}${tr('timeline.types.restricted', { included: strip.included, total: strip.total })}`}
+              </span>
+            )}
+          </p>
+        );
+      })()}
     </div>
   );
 }

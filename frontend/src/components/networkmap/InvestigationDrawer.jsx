@@ -6,6 +6,7 @@ import { detectNodeType } from './utils/nodeTypeRegistry';
 import { iocsAPI, bookmarksAPI } from '../../utils/api';
 import { buildNodeArtifacts } from './utils/nodeArtifacts';
 import { ZONES, zoneOf } from './utils/zoneDeclaration';
+import { Action } from './MapControls';
 import { peerSummary } from './utils/peerSummary';
 import { portService, isCleartextPort } from './utils/registerGroups';
 import EventsTab      from './tabs/EventsTab';
@@ -44,7 +45,7 @@ function Row({ label, children, notes = [] }) {
   );
 }
 
-export default function InvestigationDrawer({ nodeData, caseId, allEdges, onClose, onSelectPeer, nodeOverrides, onOverrideType, onResetType, onDeleteManualNode, zoneDeclarations, onDeclareZone, onWithdrawZone }) {
+export default function InvestigationDrawer({ nodeData, caseId, allEdges, onClose, onSelectPeer, nodeOverrides, onOverrideType, onResetType, onDeleteManualNode, zoneDeclarations, onDeclareZone, onWithdrawZone, onHideNode }) {
   const [tab, setTab] = useState('events');
   const navigate = useNavigate();
   const { t } = useTranslation();
@@ -116,6 +117,11 @@ export default function InvestigationDrawer({ nodeData, caseId, allEdges, onClos
             title={nodeData.id}>
             {nodeData.label || nodeData.id}
           </span>
+          {onHideNode && (
+            <Action onClick={() => onHideNode(nodeData.id)} title={t('networkMap.hidden.hide_hint')}>
+              {t('networkMap.hidden.hide')}
+            </Action>
+          )}
           <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--fl-muted)', cursor: 'pointer', fontSize: 13, lineHeight: 1, padding: '0 2px' }}>✕</button>
         </div>
 

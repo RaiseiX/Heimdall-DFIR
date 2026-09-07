@@ -10,7 +10,14 @@ import { useTranslation } from 'react-i18next';
 const MONO = 'var(--f-mono, "JetBrains Mono", monospace)';
 const UI   = 'var(--f-ui, "Inter", sans-serif)';
 
+const CRUMB_FILE_STYLE = {
+  fontFamily: MONO, fontSize: 10.5, color: 'var(--fl-subtle)',
+  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+  flex: '1 1 auto', minWidth: 0,
+};
+
 export default function CaseShell({ user }) {
+  const [collectionName, setCollectionName] = useState('');
   const { t } = useTranslation();
   const { id } = useParams();
   const navigate = useNavigate();
@@ -69,10 +76,16 @@ export default function CaseShell({ user }) {
             <span style={{
               fontFamily: UI, fontSize: 12, color: 'var(--fl-dim)',
               overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-              flex: 1, minWidth: 0,
+              flex: collectionName ? '0 1 auto' : 1, minWidth: 0,
             }}>
               {caseData.title}
             </span>
+            {collectionName && (
+              <>
+                <span style={{ color: 'var(--fl-subtle)', fontSize: 13, flexShrink: 0 }}>›</span>
+                <span style={CRUMB_FILE_STYLE} title={collectionName}>{collectionName}</span>
+              </>
+            )}
             {caseData.priority && <PriorityPill priority={caseData.priority} />}
             <AssigneesControl caseId={id} user={user} />
           </>
@@ -87,6 +100,7 @@ export default function CaseShell({ user }) {
           caseStatus:   caseData?.status   || '',
           casePriority: caseData?.priority || '',
           user,
+          setCollectionName,
         }} />
       </div>
     </div>

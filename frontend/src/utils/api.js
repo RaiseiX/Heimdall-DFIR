@@ -315,6 +315,7 @@ export const threatHuntingAPI = {
   yaraResultsEvidence: (evidenceId) => api.get(`/threat-hunting/yara/results/evidence/${evidenceId}`),
 
   sigmaRules:      ()              => api.get('/threat-hunting/sigma/rules'),
+  sigmaRule:       (id)            => api.get(`/threat-hunting/sigma/rules/${id}`),
   createSigmaRule: (data)          => api.post('/threat-hunting/sigma/rules', data),
   updateSigmaRule: (id, data)      => api.put(`/threat-hunting/sigma/rules/${id}`, data),
   deleteSigmaRule: (id)            => api.delete(`/threat-hunting/sigma/rules/${id}`),
@@ -322,6 +323,8 @@ export const threatHuntingAPI = {
   sigmaHunt:       (caseId, ruleId) => api.post(`/threat-hunting/sigma/hunt/${caseId}`, { ruleId }),
   sigmaScanCase:   (caseId)         => api.post(`/threat-hunting/sigma/scan-case/${caseId}`, {}, { timeout: 600_000 }),
   sigmaHunts:      (caseId)         => api.get(`/threat-hunting/sigma/hunts/${caseId}`),
+  sigmaSetVerdict: (caseId, ruleId, status, note) =>
+    api.put(`/threat-hunting/sigma/verdict/${caseId}/${ruleId}`, { status, note }),
 
   githubRepos:     (type)                        => api.get(`/threat-hunting/github/repos?type=${type}`),
   githubTree:      (owner, repo, branch, type)   => api.get(`/threat-hunting/github/tree?owner=${encodeURIComponent(owner)}&repo=${encodeURIComponent(repo)}&branch=${encodeURIComponent(branch)}&type=${type}`),

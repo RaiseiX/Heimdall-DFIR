@@ -13,6 +13,7 @@ import ApiKeysSection from '../components/settings/ApiKeysSection';
 import SessionsSection from '../components/settings/SessionsSection';
 import IntegrationsSection from '../components/settings/IntegrationsSection';
 import SecuritySection from '../components/settings/SecuritySection';
+import RulesImportSection from '../components/settings/RulesImportSection';
 import { useTranslation } from 'react-i18next';
 
 const CHAT_COLORS = ['var(--fl-accent)', 'var(--fl-ok)', 'var(--fl-warn)', 'var(--fl-danger)', 'var(--fl-purple)', 'var(--fl-pink)', 'var(--fl-gold)'];
@@ -34,6 +35,7 @@ const buildGroups = (t) => [
     { id: 'retention',    label: t('settings.nav.retention') },
     { id: 'integrations', label: t('settings.nav.integrations') },
     { id: 'sla',          label: t('settings.nav.sla') },
+    { id: 'rules_import', label: t('settings.nav.rules_import') },
   ]},
   { id: 'appearance', label: t('settings.groups.appearance'), admin: false, items: [
     { id: 'theme',     label: t('settings.nav.theme') },
@@ -221,6 +223,7 @@ export default function SettingsPage() {
       case 'retention':    return <RetentionSection />;
       case 'integrations': return <IntegrationsSection />;
       case 'sla':          return <SlaSection />;
+      case 'rules_import': return <RulesImportSection />;
       case 'theme':
         return (
           <>

@@ -13,6 +13,7 @@ import TriagePanel from '../components/networkmap/TriagePanel';
 import InvestigationDrawer from '../components/networkmap/InvestigationDrawer';
 import ColorblindToggle from '../components/networkmap/ColorblindToggle';
 import { Segment, Action } from '../components/networkmap/MapControls';
+import { toggleHidden, hiddenEntries } from '../components/networkmap/utils/hiddenNodes';
 import { triageStats } from '../components/networkmap/utils/triageStats';
 import { foldUrlNodes, URL_SCOPES } from '../components/networkmap/utils/foldUrlNodes';
 import { collectionLabel } from '../components/networkmap/utils/collectionLabel';
@@ -302,6 +303,8 @@ export default function CaseIntelligencePage({ collectionId }) {
   }, [view, id, caseInfo]);
 
   const activeView = VIEWS.find(v => v.id === view) || VIEWS[0];
+  const [hiddenNodeIds, setHiddenNodeIds] = useState(() => new Set());
+  const hiddenList = useMemo(() => hiddenEntries(cytoscapeElements, hiddenNodeIds), [cytoscapeElements, hiddenNodeIds]);
   const isLoading = loading || (view === 'lateral' && loadingLateral);
 
   return (
@@ -416,6 +419,15 @@ export default function CaseIntelligencePage({ collectionId }) {
             <Action onClick={exportPng} title={t('caseIntelligence.export_png_title', { view: t(activeView.labelKey) })}>
               PNG
             </Action>
+            {hiddenList.length > 0 && (
+              <Action
+                onClick={() => setHiddenNodeIds(new Set())}
+                active
+                title={hiddenList.map(e => e.label).join(', ')}
+              >
+                {t('networkMap.hidden.band', { count: hiddenList.length })}
+              </Action>
+            )}
           </div>
         </div>
       )}
@@ -465,6 +477,7 @@ export default function CaseIntelligencePage({ collectionId }) {
                 relayoutNonce={relayout}
                 zoneDeclarations={annotations.zone_declarations}
                 machinesWithoutLink={graphData.network?.identity?.machines_without_link || []}
+                hiddenNodeIds={hiddenNodeIds}
                 savedPositions={annotations.node_positions || {}}
                 onPositionsSave={handlePositionsSave}
                 onCyReady={setCyInstance}
@@ -492,6 +505,7 @@ export default function CaseIntelligencePage({ collectionId }) {
                   onResetType={handleResetType}
                   onDeleteManualNode={nodeId => { handleDeleteManualNode(nodeId); setSelectedNode(null); }}
                   zoneDeclarations={annotations.zone_declarations}
+                  onHideNode={nodeId => { setHiddenNodeIds(h => toggleHidden(h, nodeId)); setSelectedNode(null); }}
                   onDeclareZone={handleDeclareZone}
                   onWithdrawZone={handleWithdrawZone}
                 />

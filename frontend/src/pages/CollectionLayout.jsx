@@ -1,12 +1,7 @@
-import { useState, useEffect } from 'react';
-import { useParams, NavLink, Outlet, useOutletContext, useNavigate } from 'react-router-dom';
+import { useState, useEffect, Fragment } from 'react';
+import { useParams, NavLink, Outlet, useOutletContext } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import {
-  FolderOpen, Clock, Crosshair, AlertTriangle, Network,
-  Shield, ScrollText, FileText, Activity, FlaskConical, ChevronLeft,
-  Brain, ExternalLink, ListChecks,
-} from 'lucide-react';
-import UiIcon from '../components/ui/Icon';
+import { ExternalLink } from 'lucide-react';
 import { evidenceAPI } from '../utils/api';
 import CaseIntelligencePage from './CaseIntelligencePage';
 import HayabusaPage from './HayabusaPage';
@@ -14,14 +9,33 @@ import CyberChefPage from './CyberChefPage';
 import CollectionThreatHuntTab from '../components/collection/CollectionThreatHuntTab';
 import CollectionOverview from '../components/collection/CollectionOverview';
 import { resolveCollectionPane } from './collectionPane';
+import { COLLECTION_TAB_GROUPS, EXTERNAL_TABS } from './collectionTabs';
+
+const FS_TAB = 10.5;
+
+const BAR_STYLE = {
+  position: 'sticky', top: 36, zIndex: 101,
+  display: 'flex', alignItems: 'center',
+  height: 36, padding: '0 12px', gap: 18,
+  background: 'var(--fl-bg)',
+  borderBottom: '1px solid var(--fl-border)',
+  flexShrink: 0, overflowX: 'auto', scrollbarWidth: 'none',
+};
+const GROUP_SEP_STYLE = { width: 1, height: 13, background: 'var(--fl-border2)', alignSelf: 'center', flexShrink: 0 };
+const EXT_ICON_STYLE = { opacity: 0.55, alignSelf: 'center' };
 
 export default function CollectionLayout() {
   const { t } = useTranslation();
   const { id, collectionId, tab: collectionTab } = useParams();
   const pane = resolveCollectionPane(collectionTab);
   const shellCtx = useOutletContext() || {};
-  const navigate = useNavigate();
+  const setCollectionName = shellCtx.setCollectionName;
   const [collName, setCollName] = useState('');
+
+  useEffect(() => {
+    setCollectionName?.(collName);
+    return () => setCollectionName?.('');
+  }, [collName, setCollectionName]);
 
   const base = `/cases/${id}/collections/${collectionId}`;
   const volwebUrl = `${window.location.protocol}//${window.location.hostname}:8888`;
@@ -33,141 +47,47 @@ export default function CollectionLayout() {
       .catch(() => {});
   }, [id, collectionId]);
 
-  const tabSt = (isActive, accent = 'var(--fl-accent)') => ({
-    display: 'flex', alignItems: 'center', gap: 6,
-    padding: '0 11px', height: 27, alignSelf: 'center',
-    fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10.5,
+  const tabSt = (isActive) => ({
+    display: 'inline-flex', alignItems: 'baseline', gap: 4,
+    padding: '0 0 3px', alignSelf: 'center',
+    fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: FS_TAB,
     fontWeight: isActive ? 600 : 400,
-    outline: 'none', cursor: 'pointer', borderRadius: 7,
-    background: isActive ? `color-mix(in srgb, ${accent} 14%, transparent)` : 'transparent',
-    border: `1px solid ${isActive ? `color-mix(in srgb, ${accent} 28%, transparent)` : 'transparent'}`,
-    color: isActive ? accent : 'var(--fl-dim)',
-    transition: 'all 0.12s',
-    flexShrink: 0,
-    whiteSpace: 'nowrap',
-    textDecoration: 'none',
+    background: 'none', border: 'none', outline: 'none', cursor: 'pointer',
+    borderBottom: `1px solid ${isActive ? 'var(--fl-accent)' : 'transparent'}`,
+    color: isActive ? 'var(--fl-text)' : 'var(--fl-muted)',
+    textDecoration: 'none', whiteSpace: 'nowrap', flexShrink: 0,
+    transition: 'color 0.12s, border-color 0.12s',
   });
-  const tabHoverIn  = e => { if (e.currentTarget.getAttribute('aria-current') !== 'page') { e.currentTarget.style.background = 'var(--fl-card)'; e.currentTarget.style.color = 'var(--fl-dim)'; } };
-  const tabHoverOut = e => { if (e.currentTarget.getAttribute('aria-current') !== 'page') { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--fl-subtle)'; } };
-
-  const TABS = [
-    { id: 'evidence',   label: 'Evidence',    icon: FolderOpen },
-    { id: 'iocs',       label: 'IOCs',        icon: Crosshair },
-    { id: 'detections', label: 'Detections',   icon: AlertTriangle },
-    { id: 'network',    label: 'Network',      icon: Network },
-    { id: 'mitre',      label: 'MITRE',       icon: Shield },
-    { id: 'audit',      label: 'Audit',       icon: ScrollText },
-  ];
+  const tabHoverIn  = e => { if (e.currentTarget.getAttribute('aria-current') !== 'page') e.currentTarget.style.color = 'var(--fl-dim)'; };
+  const tabHoverOut = e => { if (e.currentTarget.getAttribute('aria-current') !== 'page') e.currentTarget.style.color = 'var(--fl-muted)'; };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: 0, flex: 1 }}>
 
-      <div style={{
-        position: 'sticky', top: 36, zIndex: 101,
-        display: 'flex', alignItems: 'center',
-        height: 36, padding: '0 10px',
-        background: 'var(--fl-bg)',
-        borderBottom: '1px solid var(--fl-border)',
-        flexShrink: 0,
-        overflowX: 'auto',
-        scrollbarWidth: 'none',
-        gap: 2,
-      }}>
-
-        <button onClick={() => navigate(`/cases/${id}/evidence`)} title="Back to case evidence"
-          style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--fl-muted)', padding: '0 6px', height: '100%', flexShrink: 0 }}
-          onMouseEnter={e => { e.currentTarget.style.color = 'var(--fl-dim)'; }}
-          onMouseLeave={e => { e.currentTarget.style.color = 'var(--fl-muted)'; }}>
-          <ChevronLeft size={13} />
-        </button>
-        <span style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '0 8px', flexShrink: 0, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 9.5, color: 'var(--fl-dim)', whiteSpace: 'nowrap', maxWidth: 420, overflow: 'hidden', textOverflow: 'ellipsis' }} title={collName || 'Collection'}>
-          <UiIcon name="case" size={11} style={{ color: 'var(--fl-purple)', flexShrink: 0 }} />
-          {collName || 'Collection'}
-        </span>
-        <span style={{ width: 1, height: 16, background: 'var(--fl-border)', flexShrink: 0, margin: '0 6px' }} />
-
-        {TABS.map(({ id: tid, label, icon: Icon }) => (
-          <NavLink
-            key={tid}
-            to={`${base}/${tid}`}
-            style={({ isActive }) => tabSt(isActive)}
-            onMouseEnter={tabHoverIn} onMouseLeave={tabHoverOut}
-          >
-            <Icon size={12} />
-            {label}
-          </NavLink>
+      <div style={BAR_STYLE}>
+        {COLLECTION_TAB_GROUPS.map((groupe, gi) => (
+          <Fragment key={groupe.id}>
+            {gi > 0 && <span style={GROUP_SEP_STYLE} />}
+            {groupe.tabs.map(({ id: tid, label }) => (
+              EXTERNAL_TABS.has(tid) ? (
+                <a key={tid} href={volwebUrl} target="_blank" rel="noopener noreferrer"
+                  title={t('collection.tabs.volweb_hint')}
+                  style={tabSt(false)}
+                  onMouseEnter={tabHoverIn} onMouseLeave={tabHoverOut}>
+                  {label}
+                  <ExternalLink size={8} style={EXT_ICON_STYLE} />
+                </a>
+              ) : (
+                <NavLink key={tid} to={`${base}/${tid}`}
+                  style={({ isActive }) => tabSt(isActive)}
+                  onMouseEnter={tabHoverIn} onMouseLeave={tabHoverOut}>
+                  {label}
+                </NavLink>
+              )
+            ))}
+          </Fragment>
         ))}
 
-        <span style={{ width: 1, height: 16, background: 'var(--fl-border)', flexShrink: 0, margin: '0 4px' }} />
-
-        <NavLink
-          to={`${base}/timeline`}
-          style={({ isActive }) => tabSt(isActive, 'var(--fl-ok)')}
-          onMouseEnter={tabHoverIn} onMouseLeave={tabHoverOut}
-        >
-          <Clock size={12} />
-          Super Timeline
-        </NavLink>
-
-        <NavLink
-          to={`${base}/logs`}
-          style={({ isActive }) => tabSt(isActive)}
-          onMouseEnter={tabHoverIn} onMouseLeave={tabHoverOut}
-        >
-          <FileText size={12} />
-          Logs
-        </NavLink>
-
-        <NavLink
-          to={`${base}/coverage`}
-          style={({ isActive }) => tabSt(isActive)}
-          onMouseEnter={tabHoverIn} onMouseLeave={tabHoverOut}
-        >
-          <ListChecks size={12} />
-          {t('coverage.tab')}
-        </NavLink>
-
-        <span style={{ width: 1, height: 16, background: 'var(--fl-border)', flexShrink: 0, margin: '0 4px' }} />
-
-        <NavLink
-          to={`${base}/hayabusa`}
-          style={({ isActive }) => tabSt(isActive, 'var(--fl-danger)')}
-          onMouseEnter={tabHoverIn} onMouseLeave={tabHoverOut}
-        >
-          <Activity size={12} />
-          Hayabusa
-        </NavLink>
-
-        <NavLink
-          to={`${base}/cyberchef`}
-          style={({ isActive }) => tabSt(isActive)}
-          onMouseEnter={tabHoverIn} onMouseLeave={tabHoverOut}
-        >
-          <FlaskConical size={12} />
-          CyberChef
-        </NavLink>
-
-        <NavLink
-          to={`${base}/threathunt`}
-          style={({ isActive }) => tabSt(isActive)}
-          onMouseEnter={tabHoverIn} onMouseLeave={tabHoverOut}
-        >
-          <Crosshair size={12} />
-          Threat Hunting
-        </NavLink>
-
-        <a
-          href={volwebUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          title="Open VolWeb (Volatility 3 memory analysis) in a new tab"
-          style={tabSt(false)}
-          onMouseEnter={tabHoverIn} onMouseLeave={tabHoverOut}
-        >
-          <Brain size={12} />
-          VolWeb
-          <ExternalLink size={8} style={{ opacity: 0.6 }} />
-        </a>
       </div>
 
       <div key={collectionTab || 'outlet'} style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, animation: 'fl-fade 120ms var(--ease, ease)' }}>

@@ -577,6 +577,7 @@ body.fl-density-comfortable th {
 .dt-root {
   display: flex;
   flex-direction: column;
+  height: 100%;
   min-height: 0;
   font-family: var(--f-ui);
   color: var(--fl-text);

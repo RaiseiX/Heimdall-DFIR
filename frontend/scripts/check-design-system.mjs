@@ -30,12 +30,21 @@ const srcDir = path.join(root, 'src');
  * 2026-08-13, lot « login photo nue » : les styles inline et les tailles littérales de la
  * carte de connexion sont passés en classes CSS. Mesures réelles 4759 -> 4734 et 1965 -> 1960.
  * Les plafonds sont abaissés du même montant, la marge existante est conservée telle quelle.
+ * 2026-09-07, quatre motifs anti-cliché : `pulseDecor`, `glowColored`, `gradientDecor`,
+ * `aiSparkle`. Contrairement aux quatre premiers, leurs plafonds sont posés EXACTEMENT
+ * sur la mesure du jour — 3, 8, 14, 27 — sans marge : une occurrence de plus échoue
+ * immédiatement. `emojiAsIcon`, cinquième motif envisagé le 2026-08-12, n'a pas été
+ * ajouté : `pictogramCode` compte déjà exactement les mêmes octets.
  */
 export const CEILINGS = {
   inlineStyle: 4869,
   halfPixel: 203,
   literalFontSize: 2009,
   pictogramCode: 377,
+  pulseDecor: 3,
+  glowColored: 8,
+  gradientDecor: 14,
+  aiSparkle: 27,
 };
 
 /**
@@ -44,12 +53,32 @@ export const CEILINGS = {
  * un commentaire JSDoc (ex. `utils/theme.jsx:7`). C'est auto-cohérent pour un
  * cliquet — la même règle s'applique avant et après un lot de migration —
  * mais le compte n'est pas littéralement « N attributs style inline ».
+ *
+ * Les quatre motifs du 2026-09-07 comptent eux aussi du texte, avec ces limites.
+ * `pulseDecor` compte `fl-pulse` et `fl-pulse-dot`, jamais `fl-tile-pulse` (flash joué
+ * deux fois, qui rapporte une transition) ni `fl-skeleton` / `fl-loading-pulse` (attente
+ * en cours). Les trois sites comptés — AdminPage l. 131 et 524, ParsingMonitor l. 160 —
+ * portent `className="fl-pulse"`, une classe qu'`index.css` ne définit nulle part :
+ * ces points ne pulsent pas, la classe ne résout rien.
+ * `glowColored` compte une ombre teintée d'une couleur sémantique, sur une seule ligne
+ * (une déclaration coupée en plusieurs lignes échappe au compte). Cinq des huit sont
+ * légitimes — le halo y marque l'anomalie, `ok ? 'none' : halo` ; trois ne le sont pas :
+ * AdminPage l. 798 et 938 posent un halo `--fl-ok` sur l'état sain, WorkbenchEvidenceTab
+ * l. 487 en pose un sans condition. Le plancher de ce compteur n'est donc pas 0.
+ * `gradientDecor` ne distingue pas la jauge du fond décoratif : la charte refuse les deux,
+ * la longueur d'une jauge portant déjà sa valeur sans qu'un dégradé y ajoute quoi que ce soit.
+ * `aiSparkle` compte l'import autant que le rendu — 27 mentions pour 14 rendus.
+ * `src/index.css` n'est balayé par aucun d'eux : `sourceFiles()` ne lit que .js/.jsx/.ts/.tsx.
  */
 export const PATTERNS = {
   inlineStyle: /style=\{\{/g,
   halfPixel: /fontSize:\s*'?\d+\.5\b/g,
   literalFontSize: /fontSize:\s*'?\d/g,
   pictogramCode: /[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}]/gu,
+  pulseDecor: /\bfl-pulse\b/g,
+  glowColored: /boxShadow:[^,;\n]{0,170}(?:var\(--fl-(?:accent|ok|warn|danger)|color-mix)/g,
+  gradientDecor: /(?:linear|radial|conic)-gradient\(/g,
+  aiSparkle: /\bSparkles\b/g,
 };
 
 /**
@@ -58,7 +87,9 @@ export const PATTERNS = {
  * motifs qu'il cherche disparaît par construction.
  */
 export const FIXTURES = {
-  violating: 'const a = <div ' + 'style={{ fontSize: 10.5 }}>' + String.fromCodePoint(0x1f6a8) + '</div>;',
+  violating: 'const a = <div ' + 'className="fl-pulse" ' + 'style={{ fontSize: 10.5, '
+    + "boxShadow: '0 0 6px var(--fl-ok)', background: 'linear-gradient(90deg, #000, #111)'"
+    + ' }}>' + String.fromCodePoint(0x1f6a8) + '<Sparkles /></div>;',
   clean: 'const a = <div className="fl-card">texte</div>;',
 };
 

@@ -79,6 +79,10 @@ export function buildCytoscapeStyle(nodeColorOverrides = {}, colorblindMode = fa
       style: { 'display': 'none' },
     },
     {
+      selector: '.analyst-hidden',
+      style: { 'display': 'none' },
+    },
+    {
       selector: 'node.band-rule',
       style: {
         'shape': 'rectangle',

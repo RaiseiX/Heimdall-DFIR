@@ -54,6 +54,8 @@ const FAMILY_PREFIXES: Array<[string, readonly string[]]> = [
                    'catscale_hidden', 'catscale_dev_file', 'catscale_var_log', 'catscale_user_file']],
 ];
 
+export const FAMILY_ORDER: readonly string[] = FAMILY_PREFIXES.map(([family]) => family);
+
 export function artifactFamily(type?: string): string | null {
   const t = String(type ?? '');
   if (!t.startsWith('catscale_')) return null;

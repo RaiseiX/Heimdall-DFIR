@@ -12,8 +12,11 @@ import { authenticate, requireRole, auditLog, JWT_SECRET } from '../middleware/a
 import jwt from 'jsonwebtoken';
 import axios from 'axios';
 import type { AuthRequest } from '../types/index';
-import { validateRule, scanEvidence } from '../services/yaraService';
-import { parseRule, buildQuery, unreachableFields, presentFieldsQuery } from '../services/sigmaService';
+import { validateRule, scanEvidence, yaraScanOutcome } from '../services/yaraService';
+import { clearRuleDetections, applyRuleDetection } from '../services/huntDetections';
+import { decorateHit, ruleFingerprint, isValidVerdictStatus, VERDICT_STATUSES, huntHistoryQuery } from '../services/huntVerdict';
+import { ruleSelect } from '../services/sigmaRuleFields';
+import { parseRule, buildQuery, huntPlan, presentFieldsQuery } from '../services/sigmaService';
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const { platformForArtifactType } = require('../services/artifactPlatform');
 
@@ -223,9 +226,13 @@ router.post('/yara/scan/:evidenceId', authenticate, (requireRole as any)('analys
     await pool.query('DELETE FROM yara_scan_results WHERE evidence_id = $1', [evidenceId]);
 
     const matches: any[] = [];
+    let rulesErrored = 0;
+    const errorReasons = new Map<string, number>();
     for (const rule of rulesResult.rows) {
       const scanResult = await scanEvidence(ev.file_path, rule.content);
       if (scanResult.error) {
+        rulesErrored++;
+        errorReasons.set(scanResult.error, (errorReasons.get(scanResult.error) || 0) + 1);
         logger.warn(`[YARA] Scan error (${rule.name}): ${scanResult.error}`);
         continue;
       }
@@ -239,14 +246,26 @@ router.post('/yara/scan/:evidenceId', authenticate, (requireRole as any)('analys
       }
     }
 
+    const outcome = yaraScanOutcome({
+      rulesChecked: rulesResult.rows.length,
+      rulesErrored,
+      matchCount: matches.length,
+    });
+    const topReason = [...errorReasons.entries()].sort((a, b) => b[1] - a[1])[0];
+
     const userId = (req as AuthRequest).user?.id;
     await auditLog(userId, 'run_yara_scan', 'evidence', evidenceId,
-      { evidence_name: ev.name, rules_checked: rulesResult.rows.length, match_count: matches.length }, req.ip);
+      { evidence_name: ev.name, rules_checked: rulesResult.rows.length, rules_errored: rulesErrored,
+        match_count: matches.length, status: outcome.status }, req.ip);
 
     res.json({
       evidence_id: evidenceId,
       evidence_name: ev.name,
       rules_checked: rulesResult.rows.length,
+      rules_errored: rulesErrored,
+      status: outcome.status,
+      message: outcome.message,
+      error_reason: topReason ? topReason[0] : null,
       matches,
     });
   } catch (e: any) {
@@ -434,21 +453,29 @@ router.get('/yara/rule-stats', authenticate, async (req, res) => {
 
 router.get('/sigma/rules', authenticate, async (req, res) => {
   try {
-    // level / mitre_techniques / upstream_status added here (Sigma hunt UI
-    // rebuild, 2026-08-11) — purely additive columns on an existing SELECT.
-    // SigmaRulesTab.jsx (the caller left untouched by this change) simply
-    // ignores the extra fields; the Sigma hunt tab's rule picker and its
-    // results table are the actual consumers, and need them to show
-    // severity/technique without shipping the raw rule content.
     const result = await poolMig(req).query(
-      `SELECT r.id, r.name, r.description, r.content, r.logsource_category, r.logsource_product,
-              r.tags, r.level, r.mitre_techniques, r.upstream_status, r.is_active, r.created_at, r.updated_at,
-              u.username AS author_username
+      `SELECT ${ruleSelect(false)}
          FROM sigma_rules r
          LEFT JOIN users u ON u.id = r.author_id
         ORDER BY r.created_at DESC`,
     );
     res.json({ rules: result.rows });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+router.get('/sigma/rules/:id', authenticate, async (req, res) => {
+  try {
+    const result = await poolMig(req).query(
+      `SELECT ${ruleSelect(true)}
+         FROM sigma_rules r
+         LEFT JOIN users u ON u.id = r.author_id
+        WHERE r.id = $1`,
+      [req.params.id],
+    );
+    if (result.rows.length === 0) return res.status(404).json({ error: 'Règle introuvable' });
+    res.json({ rule: result.rows[0] });
   } catch (e: any) {
     res.status(500).json({ error: e.message });
   }
@@ -676,6 +703,33 @@ async function huntMatches(
   return { matchCount: countResult.rows[0].count, sample: sampleResult.rows };
 }
 
+async function markTimelineForRule(
+  pool: any,
+  caseId: string,
+  rule: any,
+  where: string,
+  params: unknown[],
+  matchCount: number,
+): Promise<number> {
+  const clear = clearRuleDetections(caseId, 'sigma', rule.name);
+  await pool.query(clear.text, clear.values);
+  if (!(matchCount > 0)) return 0;
+
+  const mitre = Array.isArray(rule.mitre_techniques)
+    ? rule.mitre_techniques
+    : (typeof rule.mitre_techniques === 'string' && rule.mitre_techniques ? [rule.mitre_techniques] : []);
+
+  const apply = applyRuleDetection(caseId, where, params, {
+    id:       rule.name,
+    name:     rule.name,
+    mitre,
+    severity: rule.level || 'low',
+    source:   'sigma',
+  });
+  const res = await pool.query(apply.text, apply.values);
+  return res.rowCount || 0;
+}
+
 router.post('/sigma/hunt/:caseId', authenticate, (requireRole as any)('analyst', 'admin'), async (req: express.Request, res: express.Response) => {
   try {
     const { caseId } = req.params;
@@ -705,17 +759,36 @@ router.post('/sigma/hunt/:caseId', authenticate, (requireRole as any)('analyst',
 
     const shiftedWhere = where.replace(/\$(\d+)/g, (_m, n) => `$${parseInt(n) + 1}`);
 
-    const { matchCount, sample: matchedEvents } = await huntMatches(pool, caseId, shiftedWhere, allParams);
-    const sampleSize = matchedEvents.length;
-
-    let missingFields: string[] | null = null;
-    if (matchCount === 0 && fields.length > 0) {
+    let presentFields: Set<string> | null = null;
+    if (fields.length > 0) {
       try {
         const cq = presentFieldsQuery(caseId);
         const champs = await pool.query(cq.text, cq.values);
-        missingFields = unreachableFields(fields, new Set<string>(champs.rows.map((r: any) => r.champ)));
+        presentFields = new Set<string>(champs.rows.map((r: any) => r.champ));
       } catch {
-        missingFields = null;
+        presentFields = null;
+      }
+    }
+
+    const plan = huntPlan(fields, presentFields);
+    let missingFields: string[] | null = null;
+    let matchCount = 0;
+    let matchedEvents: any[] = [];
+    if (plan.run) {
+      const found = await huntMatches(pool, caseId, shiftedWhere, allParams);
+      matchCount = found.matchCount;
+      matchedEvents = found.sample;
+    } else {
+      missingFields = plan.missingFields;
+    }
+    const sampleSize = matchedEvents.length;
+
+    let markedRows = 0;
+    if (plan.run) {
+      try {
+        markedRows = await markTimelineForRule(pool, caseId, rule, where, params, matchCount);
+      } catch (e: any) {
+        logger.warn(`[sigma] marquage timeline impossible (${rule.name}): ${e.message}`);
       }
     }
 
@@ -960,10 +1033,27 @@ router.post('/sigma/scan-case/:caseId', authenticate, (requireRole as any)('anal
           });
           continue;
         }
+        const plan = huntPlan(fields, presentFields);
+        if (!plan.run) {
+          summary.push({
+            rule_id: rule.id, rule_name: rule.name, match_count: 0,
+            level: rule.level, mitre_techniques: rule.mitre_techniques,
+            unreachable: true, missing_fields: plan.missingFields,
+          });
+          continue;
+        }
+
         const allParams: unknown[] = [caseId, ...params];
         const shiftedWhere = where.replace(/\$(\d+)/g, (_m: string, n: string) => `$${parseInt(n) + 1}`);
 
         const { matchCount, sample } = await huntMatches(pool, caseId, shiftedWhere, allParams);
+
+        try {
+          await markTimelineForRule(pool, caseId, rule, where, params, matchCount);
+        } catch (e: any) {
+          logger.warn(`[sigma] marquage timeline impossible (${rule.name}): ${e.message}`);
+        }
+
         if (matchCount > 0) {
           await pool.query(
             `INSERT INTO sigma_hunt_results (case_id, rule_id, rule_name, match_count, matched_events, sample_size)
@@ -973,11 +1063,9 @@ router.post('/sigma/scan-case/:caseId', authenticate, (requireRole as any)('anal
           matchedSoFar++;
           if (rule.level === 'critical') criticalSoFar++;
         }
-        const aveugle = matchCount === 0 ? unreachableFields(fields, presentFields) : null;
         summary.push({
           rule_id: rule.id, rule_name: rule.name, match_count: matchCount,
           level: rule.level, mitre_techniques: rule.mitre_techniques,
-          ...(aveugle ? { unreachable: true, missing_fields: aveugle } : {}),
         });
       } catch (err: any) {
         summary.push({
@@ -1016,17 +1104,54 @@ router.post('/sigma/scan-case/:caseId', authenticate, (requireRole as any)('anal
 router.get('/sigma/hunts/:caseId', authenticate, async (req, res) => {
   try {
     const { caseId } = req.params;
-    const result = await poolMig(req).query(
-      `SELECT h.id, h.rule_id, h.rule_name, h.match_count, h.matched_events, h.sample_size, h.hunted_at,
-              r.level, r.mitre_techniques
-         FROM sigma_hunt_results h
-         LEFT JOIN sigma_rules r ON r.id = h.rule_id
-        WHERE h.case_id = $1
-        ORDER BY h.hunted_at DESC
-        LIMIT 50`,
-      [caseId],
+    const q = huntHistoryQuery(caseId, Number(req.query.limit) || 50);
+    const result = await poolMig(req).query(q.text, q.values);
+
+    const hunts = result.rows.map((row: any) => {
+      const { rule_content, verdict_status_raw, verdict_fingerprint, verdict_note_raw,
+              verdict_decided_at, verdict_by_name, ...hit } = row;
+      const verdict = verdict_status_raw
+        ? { status: verdict_status_raw, rule_fingerprint: verdict_fingerprint,
+            note: verdict_note_raw, decided_by_name: verdict_by_name, decided_at: verdict_decided_at }
+        : null;
+      return decorateHit(hit, verdict, ruleFingerprint(rule_content));
+    });
+
+    res.json({ hunts });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+router.put('/sigma/verdict/:caseId/:ruleId', authenticate, (requireRole as any)('analyst', 'admin'), async (req: express.Request, res: express.Response) => {
+  try {
+    const { caseId, ruleId } = req.params;
+    const { status, note } = req.body || {};
+    if (!isValidVerdictStatus(status)) {
+      return res.status(400).json({ error: `Statut invalide. Attendu : ${VERDICT_STATUSES.join(', ')}` });
+    }
+
+    const pool = poolMig(req);
+    const ruleRow = await pool.query('SELECT id, name, content FROM sigma_rules WHERE id = $1', [ruleId]);
+    if (ruleRow.rows.length === 0) return res.status(404).json({ error: 'Règle Sigma introuvable' });
+
+    const fingerprint = ruleFingerprint(ruleRow.rows[0].content);
+    const userId = (req as AuthRequest).user?.id;
+
+    const saved = await pool.query(
+      `INSERT INTO hunt_verdicts (case_id, rule_id, status, rule_fingerprint, note, decided_by, decided_at)
+       VALUES ($1, $2, $3, $4, $5, $6, NOW())
+       ON CONFLICT (case_id, rule_id) DO UPDATE
+         SET status = EXCLUDED.status, rule_fingerprint = EXCLUDED.rule_fingerprint,
+             note = EXCLUDED.note, decided_by = EXCLUDED.decided_by, decided_at = NOW()
+       RETURNING id, status, rule_fingerprint, note, decided_at`,
+      [caseId, ruleId, status, fingerprint, note || null, userId || null],
     );
-    res.json({ hunts: result.rows });
+
+    await auditLog(userId, 'set_hunt_verdict', 'case', caseId,
+      { rule_id: ruleId, rule_name: ruleRow.rows[0].name, status }, req.ip);
+
+    res.json({ verdict: saved.rows[0] });
   } catch (e: any) {
     res.status(500).json({ error: e.message });
   }

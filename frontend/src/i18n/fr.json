@@ -121,7 +121,8 @@
       "sla": "SLA",
       "theme": "Thème",
       "density": "Densité",
-      "shortcuts": "Raccourcis clavier"
+      "shortcuts": "Raccourcis clavier",
+      "rules_import": "Import de règles"
     },
     "messages": {
       "saved": "✓ Enregistré",
@@ -422,6 +423,16 @@
       "type_to_confirm_prefix": "Tapez",
       "type_to_confirm_suffix": "pour confirmer l'effacement définitif.",
       "purge_forever": "Purger définitivement"
+    },
+    "rules_import": {
+      "title": "Import de règles",
+      "desc": "Importer des règles YARA et Sigma depuis un dépôt GitHub. La bibliothèque est partagée par tous les cas.",
+      "yara_label": "Règles YARA",
+      "sigma_label": "Règles Sigma",
+      "yara_count": "{{total}} règles en bibliothèque · {{active}} actives",
+      "sigma_count": "{{total}} règles en bibliothèque",
+      "count_unavailable": "Comptage indisponible",
+      "action": "Importer depuis GitHub"
     }
   },
   "case": {
@@ -452,7 +463,8 @@
       "hayabusa": "Hayabusa",
       "audit": "Audit",
       "timeline": "Super Timeline",
-      "logs": "Logs Parser"
+      "logs": "Logs Parser",
+      "volweb_hint": "Ouvrir VolWeb (analyse mémoire Volatility 3) dans un nouvel onglet"
     },
     "parsing_monitor": "Suivi du parsing",
     "pm_queued": "en attente",
@@ -694,7 +706,12 @@
     "types": {
       "more_one": "{{count}} autre type",
       "more_other": "{{count}} autres types",
-      "collapse": "réduire"
+      "collapse": "réduire",
+      "families": "familles",
+      "filter_placeholder": "filtrer les types…",
+      "tally": "{{shown}} types sur {{total}}",
+      "rows": "{{n}} lignes",
+      "restricted": "filtre actif : {{included}} types sur {{total}}"
     },
     "colHint": {
       "constant": "constante sur cette page"
@@ -1195,7 +1212,8 @@
       "name_content_required": "Nom et contenu requis",
       "save_failed": "Erreur lors de l'enregistrement",
       "hunt_failed": "Erreur lors de la chasse",
-      "scan_failed": "Erreur lors du scan"
+      "scan_failed": "Erreur lors du scan",
+      "load_rule_content": "Impossible de charger le contenu de la règle — ne pas enregistrer sans l'avoir relu."
     },
     "github": {
       "title": "Importer depuis GitHub — {{type}}",
@@ -1266,7 +1284,7 @@
       "stat_matches": "{{count}} correspondance",
       "stat_matches_other": "{{count}} correspondances",
       "delete_modal_title": "Supprimer la règle YARA",
-      "delete_modal_warning": "Cette action est irréversible. Pour confirmer, tapez le nom exact de la règle ci-dessous.",
+      "delete_modal_warning": "Cette règle est partagée par tous les cas. La supprimer effacera aussi ses résultats de scan, y compris dans des investigations closes. Cette action est irréversible : pour confirmer, tapez le nom exact de la règle ci-dessous.",
       "delete_modal_type_prompt": "Tapez « {{name}} » pour confirmer",
       "aria": {
         "enable_rule": "Activer la règle {{name}}",
@@ -2295,6 +2313,7 @@
     "nav_short": "nav",
     "case_short": "cas",
     "no_results": "Aucun résultat",
+    "more_hidden": "{{count}} autres correspondances non affichées — affinez la recherche ou une facette.",
     "navigate_hint": "naviguer",
     "open_hint": "ouvrir",
     "close_hint": "fermer"
@@ -2866,7 +2885,13 @@
       "reorganize": "réorganiser",
       "reorganize_hint": "Recalculer la disposition et écraser les positions enregistrées"
     },
-    "presence_live": "Sur la carte, en direct"
+    "presence_live": "Sur la carte, en direct",
+    "hidden": {
+      "hide": "masquer",
+      "hide_hint": "Masquer ce nœud de la vue — la preuve et les comptes ne changent pas",
+      "band_one": "{{count}} masqué · tout afficher",
+      "band_other": "{{count}} masqués · tout afficher"
+    }
   },
   "detections": {
     "actions": {

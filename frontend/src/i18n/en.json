@@ -121,7 +121,8 @@
       "sla": "SLA",
       "theme": "Theme",
       "density": "Density",
-      "shortcuts": "Keyboard shortcuts"
+      "shortcuts": "Keyboard shortcuts",
+      "rules_import": "Rule import"
     },
     "messages": {
       "saved": "✓ Saved",
@@ -422,6 +423,16 @@
       "type_to_confirm_prefix": "Type",
       "type_to_confirm_suffix": "to confirm permanent deletion.",
       "purge_forever": "Purge permanently"
+    },
+    "rules_import": {
+      "title": "Rule import",
+      "desc": "Import YARA and Sigma rules from a GitHub repository. The library is shared by every case.",
+      "yara_label": "YARA rules",
+      "sigma_label": "Sigma rules",
+      "yara_count": "{{total}} rules in library · {{active}} active",
+      "sigma_count": "{{total}} rules in library",
+      "count_unavailable": "Count unavailable",
+      "action": "Import from GitHub"
     }
   },
   "case": {
@@ -452,7 +463,8 @@
       "hayabusa": "Hayabusa",
       "audit": "Audit",
       "timeline": "Super Timeline",
-      "logs": "Parser Logs"
+      "logs": "Parser Logs",
+      "volweb_hint": "Open VolWeb (Volatility 3 memory analysis) in a new tab"
     },
     "parsing_monitor": "Parsing monitor",
     "pm_queued": "queued",
@@ -694,7 +706,12 @@
     "types": {
       "more_one": "{{count}} more type",
       "more_other": "{{count}} more types",
-      "collapse": "collapse"
+      "collapse": "collapse",
+      "families": "families",
+      "filter_placeholder": "filter types…",
+      "tally": "{{shown}} types of {{total}}",
+      "rows": "{{n}} rows",
+      "restricted": "active filter: {{included}} of {{total}} types"
     },
     "colHint": {
       "constant": "constant on this page"
@@ -1186,7 +1203,8 @@
       "save_failed": "Save failed",
       "name_content_required": "Name and content required",
       "hunt_failed": "Hunt failed",
-      "scan_failed": "Scan failed"
+      "scan_failed": "Scan failed",
+      "load_rule_content": "Could not load the rule content — do not save without reading it back."
     },
     "form": {
       "name": "Name",
@@ -1345,7 +1363,7 @@
       "stat_matches": "{{count}} match",
       "stat_matches_other": "{{count}} matches",
       "delete_modal_title": "Delete YARA rule",
-      "delete_modal_warning": "This action is irreversible. To confirm, type the rule's exact name below.",
+      "delete_modal_warning": "This rule is shared by every case. Deleting it also erases its scan results, including in closed investigations. This cannot be undone: to confirm, type the exact rule name below.",
       "delete_modal_type_prompt": "Type \"{{name}}\" to confirm",
       "aria": {
         "enable_rule": "Enable rule {{name}}",
@@ -2295,6 +2313,7 @@
     "nav_short": "nav",
     "case_short": "case",
     "no_results": "No results",
+    "more_hidden": "{{count}} more matches not shown — refine the search or a facet.",
     "navigate_hint": "navigate",
     "open_hint": "open",
     "close_hint": "close"
@@ -2866,7 +2885,13 @@
       "reorganize": "rearrange",
       "reorganize_hint": "Recompute the layout and overwrite the saved positions"
     },
-    "presence_live": "On the map, live"
+    "presence_live": "On the map, live",
+    "hidden": {
+      "hide": "hide",
+      "hide_hint": "Hide this node from the view — the evidence and the counts do not change",
+      "band_one": "{{count}} hidden · show all",
+      "band_other": "{{count}} hidden · show all"
+    }
   },
   "detections": {
     "actions": {

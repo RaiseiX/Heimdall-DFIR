@@ -4,9 +4,10 @@ import { artifactColor } from '../../../constants/artifactColors';
 import { evaluateColorRules } from '../../../utils/colorRulesEngine';
 import {
   fmtDesc, fmtSrc, CONFIDENCE_MAP, FORENSIC_TAGS,
-  topDetectionSeverity, DETECTION_SEV_COLOR, readRawPath,
+  DETECTION_SEV_COLOR, readRawPath,
   isInventoryRow, tsTypeLabel, timestampPlausibility, splitPathTail,
 } from '../utils/timelineUtils';
+import { gridSeverity, detectionLabel, detectionSummary } from './detectionTiers';
 
 const FORENSIC_TAG_MAP = Object.fromEntries(FORENSIC_TAGS.map(t => [t.key, t]));
 
@@ -65,7 +66,7 @@ export const EventRow = memo(function EventRow({
   const lvl        = td.level ? CONFIDENCE_MAP[td.level] : null;
   const hayLevel   = !lvl && r.artifact_type === 'hayabusa' ? (r.raw?.level || null) : null;
   const colorMatch = colorRules?.length ? evaluateColorRules(r, colorRules) : null;
-  const detSev     = topDetectionSeverity(r.detections);
+  const detSev     = gridSeverity(r.detections);
   const accent     = accentColor({ detSev, lvl, colorMatch, isSelected, acol });
   const bg         = rowBg({ isSelected, lvl, colorMatch, hayLevel });
 
@@ -161,10 +162,10 @@ export const EventRow = memo(function EventRow({
           const chip = lvl
             ? { label: lvl.label, bg: lvl.bg, color: lvl.color, border: `1px solid color-mix(in srgb, ${lvl.color} 30%, transparent)` }
             : detSev
-              ? { label: detSev, bg: `color-mix(in srgb, ${DETECTION_SEV_COLOR[detSev]} 12%, transparent)`, color: DETECTION_SEV_COLOR[detSev], border: `1px solid color-mix(in srgb, ${DETECTION_SEV_COLOR[detSev]} 30%, transparent)` }
+              ? { label: detectionLabel(r.detections) || detSev, title: detectionSummary(r.detections).tooltip, bg: `color-mix(in srgb, ${DETECTION_SEV_COLOR[detSev]} 12%, transparent)`, color: DETECTION_SEV_COLOR[detSev], border: `1px solid color-mix(in srgb, ${DETECTION_SEV_COLOR[detSev]} 30%, transparent)` }
               : null;
           content = chip
-            ? <span style={{ padding: '1px 6px', borderRadius: 3, fontSize: 9, fontWeight: 700, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', background: chip.bg, color: chip.color, border: chip.border, whiteSpace: 'nowrap' }}>{chip.label}</span>
+            ? <span title={chip.title} style={{ padding: '1px 6px', borderRadius: 3, fontSize: 9, fontWeight: 700, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', background: chip.bg, color: chip.color, border: chip.border, whiteSpace: 'nowrap' }}>{chip.label}</span>
             : null;
 
         } else if (col.meta?.dynamic) {
