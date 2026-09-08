@@ -138,12 +138,14 @@ http:
     #   /api/collection/  — 10 GB+ CSV imports, up to 2 hours
     #   /api/evidence/    — 5 GB memory dumps
     #   /api/volweb/      — Volatility analysis triggers
+    # idleConnTimeout governs how long an UNUSED pooled connection is kept, not how
+    # long a request may run — responseHeaderTimeout does that. Holding dead upstream
+    # connections for an hour only delays recovery after the backend is recreated.
     heavy:
       forwardingTimeouts:
         dialTimeout: "30s"
         responseHeaderTimeout: "7200s"
-        idleConnTimeout: "3600s"
-        readIdleTimeout: "3600s"
+        idleConnTimeout: "90s"
 
 tls:
   options:

@@ -123,43 +123,6 @@ services:
     # Port 4000 NOT exposed on host — access via Traefik reverse proxy only.
     security_opt:
       - no-new-privileges:false  # gosu requires setuid; privilege drop in entrypoint.sh
-    labels:
-      - "traefik.enable=true"
-      # Tell Traefik which network to use for routing to this container
-      - "traefik.docker.network=heimdall-net"
-      # ── Service: heavy transport for 10 GB+ forensic uploads (7200 s timeout) ──
-      - "traefik.http.services.backend-svc.loadbalancer.server.port=4000"
-      - "traefik.http.services.backend-svc.loadbalancer.passHostHeader=true"
-      - "traefik.http.services.backend-svc.loadbalancer.serverstransport=heavy@file"
-      # ── Router: credential submission — 5 req/min brute-force protection (priority 30) ──
-      # /me, /refresh and /logout are session traffic and fall through to heimdall-api.
-      - "traefik.http.routers.heimdall-auth.rule=Host(`${DOMAIN}`) && (Path(`/api/auth/login`) || Path(`/api/auth/register`))"
-      - "traefik.http.routers.heimdall-auth.entrypoints=websecure"
-      - "traefik.http.routers.heimdall-auth.tls=true"
-      - "traefik.http.routers.heimdall-auth.middlewares=security-headers@file,auth-ratelimit@file"
-      - "traefik.http.routers.heimdall-auth.service=backend-svc"
-      - "traefik.http.routers.heimdall-auth.priority=30"
-      # ── Router: ingestion writes — 3 req/s, burst 20 (priority 15) ──
-      - "traefik.http.routers.heimdall-upload.rule=Host(`${DOMAIN}`) && Method(`POST`) && (PathPrefix(`/api/collection`) || PathPrefix(`/api/evidence`) || PathPrefix(`/api/upload`))"
-      - "traefik.http.routers.heimdall-upload.entrypoints=websecure"
-      - "traefik.http.routers.heimdall-upload.tls=true"
-      - "traefik.http.routers.heimdall-upload.middlewares=security-headers@file,upload-ratelimit@file"
-      - "traefik.http.routers.heimdall-upload.service=backend-svc"
-      - "traefik.http.routers.heimdall-upload.priority=15"
-      # ── Router: socket.io WebSocket (priority 20) ──
-      - "traefik.http.routers.heimdall-socket.rule=Host(`${DOMAIN}`) && PathPrefix(`/socket.io`)"
-      - "traefik.http.routers.heimdall-socket.entrypoints=websecure"
-      - "traefik.http.routers.heimdall-socket.tls=true"
-      - "traefik.http.routers.heimdall-socket.middlewares=security-headers@file"
-      - "traefik.http.routers.heimdall-socket.service=backend-svc"
-      - "traefik.http.routers.heimdall-socket.priority=20"
-      # ── Router: general API — 30 req/s, burst 50 (priority 10) ──
-      - "traefik.http.routers.heimdall-api.rule=Host(`${DOMAIN}`) && PathPrefix(`/api`)"
-      - "traefik.http.routers.heimdall-api.entrypoints=websecure"
-      - "traefik.http.routers.heimdall-api.tls=true"
-      - "traefik.http.routers.heimdall-api.middlewares=security-headers@file,api-ratelimit@file"
-      - "traefik.http.routers.heimdall-api.service=backend-svc"
-      - "traefik.http.routers.heimdall-api.priority=10"
     depends_on:
       db:
         condition: service_healthy
@@ -527,18 +490,6 @@ services:
       network: host
     container_name: asgard
     restart: unless-stopped
-    labels:
-      - "traefik.enable=true"
-      - "traefik.docker.network=frontend-net"
-      # ── Service ──
-      - "traefik.http.services.frontend-svc.loadbalancer.server.port=3000"
-      # ── Router: catch-all SPA (priority 1 — lowest, backend routers win) ──
-      - "traefik.http.routers.heimdall-frontend.rule=Host(`${DOMAIN}`)"
-      - "traefik.http.routers.heimdall-frontend.entrypoints=websecure"
-      - "traefik.http.routers.heimdall-frontend.tls=true"
-      - "traefik.http.routers.heimdall-frontend.middlewares=security-headers@file"
-      - "traefik.http.routers.heimdall-frontend.service=frontend-svc"
-      - "traefik.http.routers.heimdall-frontend.priority=1"
     networks:
       - frontend-net
     healthcheck:
