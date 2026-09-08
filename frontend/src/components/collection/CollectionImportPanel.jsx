@@ -1,10 +1,15 @@
 import { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useSocket } from '../../hooks/useSocket';
-import { Upload, CheckCircle2, Loader2, Package, Cpu, Shield, ChevronRight, AlertTriangle, X, Terminal, Network, Lock, Clock, HardDrive, Server, Copy } from 'lucide-react';
+import { Upload, CheckCircle2, Loader2, Package, Cpu, Shield, AlertTriangle, X, Terminal, Network, Lock, Clock, HardDrive, Server, Copy } from 'lucide-react';
 import { collectionAPI } from '../../utils/api';
 import { zipSync } from 'fflate';
 import ParsingMonitor from './ParsingMonitor';
+import { markStyle } from '../ui/tableIdiom';
+import { probeFile } from '../../utils/fileProbe';
+
+const FS_MARK_SM = 9;
+const MARK_ROW = { display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'baseline' };
 
 const ARTIFACT_EXTS = new Set(['.evtx', '.pf', '.lnk', '.dat', '.hve', '.db', '.sqlite', '.mdb', '.automaticDestinations-ms', '.pcap', '.pcapng', '.cap']);
 
@@ -30,17 +35,13 @@ function StatusRollup({ parserStates, t, style }) {
   const counts = rollupParserStates(parserStates);
   if (Object.keys(parserStates || {}).length === 0) return null;
   return (
-    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, ...style }}>
+    <div style={{ ...MARK_ROW, ...style }}>
       {ROLLUP_STATUS_ORDER.map(status => {
         const count = counts[status] || 0;
         if (count === 0) return null;
         const meta = ROLLUP_STATUS_META[status];
         return (
-          <span key={status} style={{ display: 'inline-flex', alignItems: 'center', gap: 5,
-            fontSize: 10.5, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontWeight: 700,
-            padding: '2px 9px', borderRadius: 4,
-            background: `color-mix(in srgb, ${meta.color} 10%, transparent)`, color: meta.color,
-            border: `1px solid color-mix(in srgb, ${meta.color} 22%, transparent)` }}>
+          <span key={status} style={markStyle(meta.color)}>
             {count} {t(meta.labelKey)}
           </span>
         );
@@ -258,6 +259,15 @@ export default function CollectionImportPanel({ caseId, caseObj, onDone }) {
     setResults(null);
 
     if (!socket) { setError(t('collection.import.errors.socket_required')); return; }
+
+    const probe = await probeFile(file);
+    if (!probe.readable) {
+      setError(probe.reason === 'empty'
+        ? t('collection.import.errors.file_empty', { name: file.name })
+        : t('collection.import.errors.file_unreadable', { name: file.name }));
+      setStep('idle');
+      return;
+    }
 
     const formData = new FormData();
     formData.append('collection', file);
@@ -522,11 +532,11 @@ export default function CollectionImportPanel({ caseId, caseObj, onDone }) {
                 {t('collection.import.target_case')} <strong style={{ color: 'var(--fl-accent)' }}>{caseObj.case_number}</strong>
               </p>
             )}
-            <div style={{ display: 'flex', justifyContent: 'center', gap: 12, marginBottom: 10 }}>
-              <span style={{ fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', padding: '2px 8px', borderRadius: 3, background: 'color-mix(in srgb, var(--fl-accent) 9%, transparent)', color: 'var(--fl-accent)', border: '1px solid color-mix(in srgb, var(--fl-accent) 19%, transparent)' }}>
+            <div style={{ ...MARK_ROW, justifyContent: 'center', marginBottom: 10 }}>
+              <span style={markStyle('var(--fl-muted)')}>
                 Windows — KAPE · Velociraptor · Magnet · CyLR
               </span>
-              <span style={{ fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', padding: '2px 8px', borderRadius: 3, background: 'color-mix(in srgb, var(--fl-ok) 9%, transparent)', color: 'var(--fl-ok)', border: '1px solid color-mix(in srgb, var(--fl-ok) 19%, transparent)' }}>
+              <span style={markStyle('var(--fl-muted)')}>
                 Linux — CatScale
               </span>
             </div>
@@ -606,7 +616,7 @@ export default function CollectionImportPanel({ caseId, caseObj, onDone }) {
           </div>
           <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--fl-panel)' }}>
             <div className="h-full rounded-full transition-all duration-500"
-              style={{ width: `${progress}%`, background: 'linear-gradient(90deg, var(--fl-accent), var(--fl-purple))' }} />
+              style={{ width: `${progress}%`, background: 'var(--fl-accent)' }} />
           </div>
           {step === 'parsing' && <StatusRollup parserStates={parserStates} t={t} style={{ marginTop: 12 }} />}
         </div>
@@ -619,16 +629,14 @@ export default function CollectionImportPanel({ caseId, caseObj, onDone }) {
               {t('collection.import.integrity_title', { fileName })}
             </p>
             <span style={{ flex: 1 }} />
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 9.5, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
-              padding: '2px 9px', borderRadius: 4, background: 'color-mix(in srgb, var(--fl-ok) 10%, transparent)',
-              color: 'var(--fl-ok)', border: '1px solid color-mix(in srgb, var(--fl-ok) 25%, transparent)' }}>
-              <CheckCircle2 size={11} /> {t('collection.import.integrity_verified', { date: new Date().toLocaleString(locale, { hour12: false }) })}
+            <span style={markStyle('var(--fl-ok)', FS_MARK_SM)}>
+              {t('collection.import.integrity_verified', { date: new Date().toLocaleString(locale, { hour12: false }) })}
             </span>
           </div>
           <div className="space-y-1.5">
             {[['MD5', fileHashes.md5, 'var(--fl-muted)'], ['SHA-1', fileHashes.sha1, 'var(--fl-gold)'], ['SHA-256', fileHashes.sha256, 'var(--fl-accent)']].map(([label, value, color]) => value && (
               <div key={label} className="flex items-center gap-3 rounded-md px-3 py-2" style={{ background: 'var(--fl-bg)', border: '1px solid var(--fl-border2)' }}>
-                <span className="font-mono flex-shrink-0" style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: '0.06em', padding: '2px 7px', borderRadius: 4, background: `color-mix(in srgb, ${color} 10%, transparent)`, color, border: `1px solid color-mix(in srgb, ${color} 22%, transparent)`, minWidth: 56, textAlign: 'center' }}>{label}</span>
+                <span className="flex-shrink-0" style={{ ...markStyle(color, FS_MARK_SM), minWidth: 56 }}>{label}</span>
                 <span className="font-mono text-xs flex-1 break-all" style={{ color: 'var(--fl-dim)' }}>{value}</span>
                 <button onClick={() => { navigator.clipboard.writeText(value); setCopiedHash(label); setTimeout(() => setCopiedHash(c => c === label ? null : c), 1400); }}
                   className="flex-shrink-0 inline-flex items-center gap-1 text-xs px-2 py-1 rounded font-mono"
@@ -713,7 +721,7 @@ export default function CollectionImportPanel({ caseId, caseObj, onDone }) {
                         <span style={{ width: 7, height: 7, borderRadius: 2, flexShrink: 0, background: color, display: 'inline-block' }} />
                         <span className="text-sm font-semibold truncate" style={{ color: 'var(--fl-text)' }}>{artifactLabel(type)}</span>
                         {type === 'evtx' && (
-                          <span className="flex-shrink-0" style={{ fontSize: 8.5, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', padding: '1px 5px', borderRadius: 3, background: 'color-mix(in srgb, var(--fl-accent) 12%, transparent)', color: 'var(--fl-accent)', border: '1px solid color-mix(in srgb, var(--fl-accent) 24%, transparent)' }}>Hayabusa</span>
+                          <span className="flex-shrink-0" style={markStyle('var(--fl-muted)', FS_MARK_SM)}>Hayabusa</span>
                         )}
                       </div>
                       <div className="text-xs font-mono" style={{ color: 'var(--fl-muted)', fontFeatureSettings: '"tnum"' }}>

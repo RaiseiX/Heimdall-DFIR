@@ -539,7 +539,9 @@
         "parsing_timeout": "Parsing timeout (> 2h)",
         "parsing": "Parsing error",
         "unavailable": "unavailable",
-        "no_file_to_archive": "No file to archive"
+        "no_file_to_archive": "No file to archive",
+        "file_unreadable": "\"{{name}}\" is no longer readable: the file was moved, deleted or unmounted after it was picked. Reload the page and select it again from its current location.",
+        "file_empty": "\"{{name}}\" is empty: there is nothing to import."
       },
       "drop_title": "Drop your collection archive here",
       "drop_subtitle": "or click to select",
@@ -1775,7 +1777,32 @@
       "install_ollama_note": "The image may take several minutes to download.",
       "active_model_badge": "Active model",
       "downloading_model": "Downloading model…",
-      "connecting_hint": "Connecting to the Ollama environment…"
+      "connecting_hint": "Connecting to the Ollama environment…",
+      "models": {
+        "qwen25_3b": "Light, no GPU needed. A good starting point.",
+        "qwen35_4b": "Newer generation, contained footprint.",
+        "qwen35_2b": "The smallest in the catalogue.",
+        "lfm25": "Geared to tool-calling chains.",
+        "gemma4_e4b": "Google, moderate footprint.",
+        "granite41_3b": "IBM, compact.",
+        "llama32_3b": "Meta, compact.",
+        "qwen25_7b": "Twice the 3B in memory.",
+        "qwen35_9b": "Above the 7B in memory.",
+        "granite41_8b": "IBM, 8B build.",
+        "gpt_oss_20b": "The heaviest in the catalogue: plan for a GPU.",
+        "foundation_sec_8b_q4": "Cisco, security-specialised. Third-party quant, fits a workstation.",
+        "foundation_sec_8b_q8": "Cisco, security-specialised. Official quant, plan for a GPU.",
+        "imperum_cyber_35b": "35B with 3B active: fast for its size, server-class."
+      },
+      "tags": {
+        "recommended": "recommended",
+        "recent": "recent",
+        "light": "light",
+        "agent": "agent",
+        "quality": "quality",
+        "powerful": "powerful",
+        "security": "security"
+      }
     }
   },
   "dashboard": {

@@ -539,7 +539,9 @@
         "parsing_timeout": "Timeout parsing (> 2h)",
         "parsing": "Erreur parsing",
         "unavailable": "non disponible",
-        "no_file_to_archive": "Aucun fichier à archiver"
+        "no_file_to_archive": "Aucun fichier à archiver",
+        "file_unreadable": "« {{name}} » n'est plus lisible : le fichier a été déplacé, supprimé ou démonté depuis sa sélection. Rechargez la page et sélectionnez-le à nouveau depuis son emplacement actuel.",
+        "file_empty": "« {{name}} » est vide : aucun octet à importer."
       },
       "drop_title": "Glissez votre archive de collecte ici",
       "drop_subtitle": "ou cliquez pour sélectionner",
@@ -1775,7 +1777,32 @@
       "install_ollama_note": "L'image peut prendre plusieurs minutes à télécharger.",
       "active_model_badge": "Modèle actif",
       "downloading_model": "Téléchargement du modèle…",
-      "connecting_hint": "Connexion à l'environnement Ollama…"
+      "connecting_hint": "Connexion à l'environnement Ollama…",
+      "models": {
+        "qwen25_3b": "Léger, sans GPU. Bon point de départ.",
+        "qwen35_4b": "Génération plus récente, empreinte contenue.",
+        "qwen35_2b": "Le plus petit du catalogue.",
+        "lfm25": "Orienté enchaînement d'outils.",
+        "gemma4_e4b": "Google, empreinte modérée.",
+        "granite41_3b": "IBM, compact.",
+        "llama32_3b": "Meta, compact.",
+        "qwen25_7b": "Deux fois le 3B en mémoire.",
+        "qwen35_9b": "Au-dessus du 7B en mémoire.",
+        "granite41_8b": "IBM, version 8B.",
+        "gpt_oss_20b": "Le plus lourd du catalogue : prévoir un GPU.",
+        "foundation_sec_8b_q4": "Cisco, spécialisé sécurité. Quantification tierce, tient sur un poste.",
+        "foundation_sec_8b_q8": "Cisco, spécialisé sécurité. Quantification officielle, prévoir un GPU.",
+        "imperum_cyber_35b": "35 B dont 3 B actifs : rapide malgré sa taille, pour un serveur."
+      },
+      "tags": {
+        "recommended": "recommandé",
+        "recent": "récent",
+        "light": "léger",
+        "agent": "agent",
+        "quality": "qualité",
+        "powerful": "puissant",
+        "security": "sécurité"
+      }
     }
   },
   "dashboard": {
