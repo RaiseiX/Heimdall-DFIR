@@ -90,3 +90,5 @@ db/migrations/20260807010000_collection_platform.sql
 # only — backend/scripts/backfillSigmaMetadata.js re-parses the existing
 # rows' stored content afterwards (idempotent, run separately).
 db/migrations/20260810000000_sigma_rule_metadata.sql
+db/migrations/20260814090000_ingestion_files_coverage_status.sql
+db/migrations/20260818150000_collection_timeline_nullable_timestamp.sql
