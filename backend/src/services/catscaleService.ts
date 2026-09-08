@@ -96,7 +96,7 @@ function procName(command: string): string | null {
 // from here.
 export { findArtifactFiles, findArtifactFile };
 
-function extractTarGz(archivePath: string, destDir: string, failures?: CatScaleFailure[]): boolean {
+function extractTarArchive(archivePath: string, destDir: string, failures?: CatScaleFailure[]): boolean {
   const note = (reason: string) => {
     logger.warn(`[CatScale] cannot open ${path.basename(archivePath)}: ${reason}`);
     failures?.push({ stage: 'extract', target: archivePath, reason });
@@ -104,7 +104,7 @@ function extractTarGz(archivePath: string, destDir: string, failures?: CatScaleF
   };
   if (!fs.existsSync(archivePath)) return note('archive missing');
   try { fs.mkdirSync(destDir, { recursive: true }); } catch (e: any) { return note(`cannot create temp dir: ${e.message}`); }
-  const r = spawnSync('tar', ['xzf', archivePath, '-C', destDir], {
+  const r = spawnSync('tar', ['xf', archivePath, '-C', destDir], {
     timeout: 300_000,
     maxBuffer: 200 * 1024 * 1024,
   });
@@ -1006,7 +1006,7 @@ export async function parseCatScale(
   for (const varLogTar of findArtifactFiles(logsDir, 'var-log.tar.gz')) {
     const varLogTmp = path.join(os.tmpdir(), `catscale-varlog-${caseId}-${Date.now()}`);
     tempDirs.push(varLogTmp);
-    if (extractTarGz(varLogTar, varLogTmp, failures)) {
+    if (extractTarArchive(varLogTar, varLogTmp, failures)) {
       await walkDir(varLogTmp, async (fp) => {
         const base = path.basename(fp);
         if (/^(auth\.log|secure|messages|syslog)(\.1)?$/.test(base)) {
@@ -1064,7 +1064,7 @@ export async function parseCatScale(
   if (fs.existsSync(homeTar)) {
     const homeTmp = path.join(os.tmpdir(), `catscale-home-${caseId}-${Date.now()}`);
     tempDirs.push(homeTmp);
-    if (extractTarGz(homeTar, homeTmp, failures)) {
+    if (extractTarArchive(homeTar, homeTmp, failures)) {
       await walkDir(homeTmp, async (fp) => {
         const base = path.basename(fp);
         if (/^\.?(bash_history|zsh_history|sh_history|fish_history|ksh_history|history)$/.test(base)) {
@@ -1089,7 +1089,7 @@ export async function parseCatScale(
   for (const cronFolderTar of findArtifactFiles(persistDir, 'cron-folder.tar.gz')) {
     const cronTmp = path.join(os.tmpdir(), `catscale-cron-${caseId}-${Date.now()}`);
     tempDirs.push(cronTmp);
-    if (extractTarGz(cronFolderTar, cronTmp, failures)) {
+    if (extractTarArchive(cronFolderTar, cronTmp, failures)) {
       await walkDir(cronTmp, async (fp) => {
         const base = path.basename(fp);
         if (!base.includes('.') || base.endsWith('.txt')) {
@@ -1153,7 +1153,7 @@ export async function parseCatScale(
     for (const arch of findArtifactFiles(path.join(catscaleRoot, dirName), pattern)) {
       const tmp = path.join(os.tmpdir(), `catscale-arch-${caseId}-${Date.now()}-${path.basename(arch)}`);
       tempDirs.push(tmp);
-      if (!extractTarGz(arch, tmp, failures)) continue;
+      if (!extractTarArchive(arch, tmp, failures)) continue;
       const archSrc = srcOf(arch);
       if (link.evidenceId) {
         try {

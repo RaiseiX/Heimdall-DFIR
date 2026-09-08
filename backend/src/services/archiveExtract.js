@@ -6,7 +6,7 @@ const TAR_EXT = new Set(['.tar', '.gz', '.tgz']);
 
 function extractArgs(ext, archivePath, destDir) {
   if (TAR_EXT.has(ext)) {
-    return ['tar', 'xzf', archivePath, '--no-same-owner', '--no-same-permissions', '-C', destDir];
+    return ['tar', 'xf', archivePath, '--no-same-owner', '--no-same-permissions', '-C', destDir];
   }
   if (ext === '.zip') return ['unzip', '-o', '-q', archivePath, '-d', destDir];
   return ['7z', 'x', archivePath, `-o${destDir}`, '-y'];
