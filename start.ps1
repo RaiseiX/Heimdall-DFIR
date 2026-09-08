@@ -280,6 +280,17 @@ foreach ($rel in $manifestEntries) {
 
 Write-Ok "All migrations applied (manifest-driven)"
 
+# The six official DFIQ scenarios ship inside the image (data/dfiq/catalog.json)
+# but nothing ever loaded them: the dfiq_* tables stayed empty on every install.
+# loadCatalog() is idempotent (ON CONFLICT DO UPDATE); non-fatal on purpose.
+Write-Host "  Seeding the DFIQ catalogue..."
+docker exec odin node scripts/seedDfiq.js
+if ($LASTEXITCODE -eq 0) {
+    Write-Ok "DFIQ catalogue loaded"
+} else {
+    Write-Warn "DFIQ seeding failed - load it later with: docker exec odin node scripts/seedDfiq.js"
+}
+
 # ─── [6/7] VolWeb + MinIO ─────────────────────────────────────────────────────
 
 Write-Step "[6/7] Initializing VolWeb + MinIO..."

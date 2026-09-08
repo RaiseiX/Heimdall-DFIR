@@ -219,6 +219,20 @@ fi
 echo -e "\n${CYAN}[5/7] Applying database migrations...${NC}"
 bash db/migrate.sh
 
+# ─── DFIQ catalogue ───────────────────────────────────────────────
+# The six official DFIQ scenarios ship inside the image (data/dfiq/catalog.json)
+# but nothing ever loaded them: the dfiq_* tables stayed empty on every install,
+# which reads as "the feature is broken" rather than "the catalogue is missing".
+# loadCatalog() is idempotent (ON CONFLICT DO UPDATE), so this is safe on reruns.
+# Non-fatal on purpose: reference data must not abort an installation.
+echo -e "${CYAN}  Seeding the DFIQ catalogue...${NC}"
+if docker exec odin node scripts/seedDfiq.js; then
+    echo -e "${GREEN}  ✓ DFIQ catalogue loaded${NC}"
+else
+    echo -e "${YELLOW}  ⚠ DFIQ seeding failed — load it later with:${NC}"
+    echo -e "${YELLOW}    docker exec odin node scripts/seedDfiq.js${NC}"
+fi
+
 # ─── VolWeb & MinIO ───────────────────────────────────────────────────────────
 
 echo -e "\n${CYAN}[6/7] Initializing VolWeb + MinIO...${NC}"
@@ -315,7 +329,7 @@ echo ""
 echo -e "${BOLD}  Local AI (Ollama):${NC}"
 echo "    → Set OLLAMA_URL=http://ollama:11434 in .env"
 echo "    → Then: docker compose up -d ollama"
-echo "    → Pull a model: docker exec ollama ollama pull qwen2.5:3b   # léger, recommandé"
+echo "    → Pull a model: docker exec ollama ollama pull qwen3:14b"
 echo ""
 echo -e "${CYAN}  Useful commands:${NC}"
 echo "    docker compose logs -f backend   # API logs"
