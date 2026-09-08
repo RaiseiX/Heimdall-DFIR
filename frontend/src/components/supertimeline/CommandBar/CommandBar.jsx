@@ -1,7 +1,8 @@
 import { useRef, useState, useEffect, useCallback } from 'react';
-import { Search, X, ChevronDown, Save, Share2, Trash2, Pencil, Crosshair } from 'lucide-react';
+import { Search, X, Save, Share2, Trash2, Pencil, Crosshair } from 'lucide-react';
 import { useTimelineStore } from '../store/useTimelineStore';
 import { useTranslation } from 'react-i18next';
+import { controlStyle, controlHover, fieldStyle } from '../../ui/controlIdiom';
 import { tabColor } from '../utils/timelineUtils';
 import { groupArtifactTypes, stripTypes, sumRows } from '../utils/artifactGroups';
 import { currentUser } from '../../../utils/auth';
@@ -194,8 +195,7 @@ export default function CommandBar() {
 
   return (
     <div style={{ background: 'var(--fl-bg)', borderBottom: '1px solid var(--fl-raised)', padding: '7px 14px', flexShrink: 0 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'var(--fl-panel)',
-        border: '1px solid var(--fl-subtle)', borderRadius: 6, padding: '0 10px', height: 34 }}>
+      <div style={fieldStyle()}>
         <Search size={13} style={{ color: 'var(--fl-muted)', flexShrink: 0 }} />
         <div style={{ display: 'flex', alignItems: 'center', gap: 5, flex: 1, flexWrap: 'nowrap', overflow: 'hidden' }}>
           {chips.map((c, i) => <Chip key={i} kind={c.kind} label={c.label} onRemove={c.remove} />)}
@@ -215,13 +215,9 @@ export default function CommandBar() {
           </button>
         )}
         <div ref={searchesRef} style={{ position: 'relative' }}>
-          <button onClick={() => setShowSearches(v => !v)} style={{
-            padding: '4px 10px', borderRadius: 4, fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
-            background: showSearches ? 'var(--fl-card)' : 'transparent',
-            border: `1px solid ${showSearches ? 'color-mix(in srgb, var(--fl-purple) 38%, transparent)' : 'var(--fl-raised)'}`,
-            color: showSearches ? 'var(--fl-purple)' : 'var(--fl-muted)', cursor: 'pointer',
-          }}>
-            Recherches <ChevronDown size={9} style={{ verticalAlign: 'middle' }} />
+          <button onClick={() => setShowSearches(v => !v)} aria-pressed={showSearches}
+            style={controlStyle(showSearches)} {...controlHover(showSearches)}>
+            Recherches
           </button>
           {showSearches && (
             <div style={{ position: 'absolute', top: '100%', right: 0, zIndex: 500, marginTop: 4,
@@ -304,13 +300,9 @@ export default function CommandBar() {
         </div>
         <div style={{ width: 1, height: 18, background: 'var(--fl-raised)', flexShrink: 0 }} />
         <div ref={advancedRef} style={{ position: 'relative' }}>
-          <button onClick={() => setShowAdvanced(v => !v)} style={{
-            padding: '4px 10px', borderRadius: 4, fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
-            background: showAdvanced ? 'var(--fl-card)' : 'transparent',
-            border: `1px solid ${showAdvanced ? 'color-mix(in srgb, var(--fl-accent) 38%, transparent)' : 'var(--fl-raised)'}`,
-            color: showAdvanced ? 'var(--fl-accent)' : 'var(--fl-muted)', cursor: 'pointer',
-          }}>
-            Filters <ChevronDown size={9} style={{ verticalAlign: 'middle' }} />
+          <button onClick={() => setShowAdvanced(v => !v)} aria-pressed={showAdvanced}
+            style={controlStyle(showAdvanced)} {...controlHover(showAdvanced)}>
+            Filters
           </button>
           {showAdvanced && (
             <div style={{ position: 'absolute', top: '100%', right: 0, zIndex: 500, marginTop: 4,

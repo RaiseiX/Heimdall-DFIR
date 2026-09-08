@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import { controlStyle, controlHover } from '../components/ui/controlIdiom';
 import { useTheme } from '../utils/theme';
 import { Settings, Plus, Shield, UserCheck, UserX, ScrollText, Trash2, Search, CheckCircle2, XCircle, RefreshCw, ShieldAlert, Activity, Database, Download, Cpu, MessageSquare, Bot, FileText } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
@@ -56,18 +57,13 @@ export default function AdminPage() {
         </div>
       </div>
 
-      <div style={{ display: 'inline-flex', gap: 2, padding: 3, marginBottom: 22, borderRadius: 9,
-        background: 'var(--fl-bg)', border: '1px solid var(--fl-border)', maxWidth: '100%', overflowX: 'auto' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 18, marginBottom: 22, maxWidth: '100%', overflowX: 'auto' }}>
         {ADMIN_TABS.map(it => {
           const on = tab === it.id;
           const Ico = it.icon;
           return (
             <button key={it.id} onClick={() => navigate(it.to)}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '6px 13px', borderRadius: 7, border: 'none', cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0,
-                fontFamily: 'var(--f-ui, "Inter", sans-serif)', fontSize: 12.5, fontWeight: on ? 600 : 500,
-                background: on ? 'var(--fl-card)' : 'transparent',
-                color: on ? 'var(--fl-accent)' : 'var(--fl-muted)',
-                boxShadow: on ? 'var(--fl-shadow-sm)' : 'none', transition: 'color 0.12s, background 0.12s' }}
+              style={{ ...controlStyle(on), gap: 7 }} {...controlHover(on)}
               onMouseEnter={e => { if (!on) e.currentTarget.style.color = 'var(--fl-dim)'; }}
               onMouseLeave={e => { if (!on) e.currentTarget.style.color = 'var(--fl-muted)'; }}>
               <Ico size={13} style={{ flexShrink: 0 }} />
@@ -128,7 +124,6 @@ function HealthTab() {
         <span style={{ flex: 1 }} />
         {lastAt && (
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 10.5, fontFamily: MONO, color: 'var(--fl-muted)' }}>
-            <span className="fl-pulse" style={{ width: 5, height: 5, borderRadius: '50%', background: 'var(--fl-ok)' }} />
             {lastAt.toLocaleTimeString(i18n.language)} · 30s
           </span>
         )}
@@ -521,7 +516,7 @@ function DockerTab() {
           </span>
         )}
         <span style={{ flex: 1 }} />
-        {data && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 10.5, fontFamily: MONO, color: 'var(--fl-muted)' }}><span className="fl-pulse" style={{ width: 5, height: 5, borderRadius: '50%', background: 'var(--fl-ok)' }} />{new Date(data.timestamp).toLocaleTimeString(i18n.language)} · 15s</span>}
+        {data && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 10.5, fontFamily: MONO, color: 'var(--fl-muted)' }}>{new Date(data.timestamp).toLocaleTimeString(i18n.language)} · 15s</span>}
         <button onClick={load} title={t('common.refresh')} style={{ display: 'flex', alignItems: 'center', padding: '5px 9px', borderRadius: 6, cursor: 'pointer', background: 'transparent', color: 'var(--fl-muted)', border: '1px solid var(--fl-border)' }}>
           <RefreshCw size={12} style={{ animation: loading ? 'fl-spin 0.8s linear infinite' : 'none' }} />
         </button>
@@ -795,7 +790,7 @@ function AiSettingsTab() {
         borderRadius: 8, padding: '16px 20px',
       }}>
         <div className="flex items-center gap-3 mb-3">
-          <div style={{ width: 10, height: 10, borderRadius: '50%', background: ollamaRunning ? 'var(--fl-ok)' : ollamaExists ? 'var(--fl-warn)' : 'var(--fl-danger)', boxShadow: ollamaRunning ? '0 0 6px var(--fl-ok)' : 'none', flexShrink: 0 }} />
+          <div style={{ width: 10, height: 10, borderRadius: '50%', background: ollamaRunning ? 'var(--fl-ok)' : ollamaExists ? 'var(--fl-warn)' : 'var(--fl-danger)', flexShrink: 0 }} />
           <h4 style={{ fontWeight: 600, fontSize: 14, color: 'var(--fl-text)', margin: 0 }}>{t('admin.ai.ollama_service')}</h4>
           <span style={{ fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: ollamaRunning ? 'var(--fl-ok)' : ollamaExists ? 'var(--fl-warn)' : 'var(--fl-muted)' }}>
             {ollamaStatus === null ? '…' : ollamaRunning ? t('admin.ai.running') : ollamaExists ? t('admin.ai.stopped_state', { state: ollamaStatus.state }) : t('admin.ai.not_installed')}
@@ -935,7 +930,7 @@ function AiSettingsTab() {
               borderRadius: 8, padding: '12px 16px',
             }}>
               
-              <div style={{ width: 9, height: 9, borderRadius: '50%', flexShrink: 0, background: isInstalled ? 'var(--fl-ok)' : ps?.pulling ? 'var(--fl-warn)' : ps?.done ? 'var(--fl-ok)' : 'var(--fl-border)', boxShadow: isInstalled ? '0 0 5px var(--fl-ok)' : 'none' }} />
+              <div style={{ width: 9, height: 9, borderRadius: '50%', flexShrink: 0, background: isInstalled ? 'var(--fl-ok)' : ps?.pulling ? 'var(--fl-warn)' : ps?.done ? 'var(--fl-ok)' : 'var(--fl-border)' }} />
 
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 2 }}>

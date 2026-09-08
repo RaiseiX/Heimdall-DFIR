@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import { controlStyle, controlHover } from '../components/ui/controlIdiom';
 import { Globe, Plus, Trash2, RefreshCw, Search, AlertTriangle, CheckCircle, Loader, ChevronLeft, ChevronRight, ShieldAlert, Rss, List, GitMerge } from 'lucide-react';
 import { useTheme } from '../utils/theme';
 import { threatIntelAPI, casesAPI } from '../utils/api';
@@ -617,15 +618,12 @@ export default function ThreatIntelPage() {
         </div>
       </div>
 
-      <div style={{ display: 'inline-flex', gap: 2, padding: 3, marginBottom: 22, borderRadius: 9, background: 'var(--fl-bg)', border: '1px solid var(--fl-border)', maxWidth: '100%', overflowX: 'auto' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 18, marginBottom: 22, maxWidth: '100%', overflowX: 'auto' }}>
         {TABS.map(it => {
           const on = tab === it.id; const Ico = it.icon;
           return (
             <button key={it.id} onClick={() => navigate(it.to)}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '6px 13px', borderRadius: 7, border: 'none', cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0,
-                fontFamily: 'var(--f-ui, "Inter", sans-serif)', fontSize: 12.5, fontWeight: on ? 600 : 500,
-                background: on ? 'var(--fl-card)' : 'transparent', color: on ? 'var(--fl-accent)' : 'var(--fl-muted)',
-                boxShadow: on ? 'var(--fl-shadow-sm)' : 'none', transition: 'color 0.12s, background 0.12s' }}
+              style={{ ...controlStyle(on), gap: 7 }} {...controlHover(on)}
               onMouseEnter={e => { if (!on) e.currentTarget.style.color = 'var(--fl-dim)'; }}
               onMouseLeave={e => { if (!on) e.currentTarget.style.color = 'var(--fl-muted)'; }}>
               <Ico size={13} strokeWidth={1.6} style={{ flexShrink: 0 }} />{t(it.labelKey)}

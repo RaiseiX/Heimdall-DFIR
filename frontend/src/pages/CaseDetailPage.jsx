@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import * as Y from 'yjs';
 import { useTranslation } from 'react-i18next';
+import { controlStyle, controlHover } from '../components/ui/controlIdiom';
 import { useTheme } from '../utils/theme';
 import { useParams, useNavigate, useOutletContext } from 'react-router-dom';
 import { FolderOpen, Clock, Globe, FileDown, Star, Plus, AlertTriangle, Download, Loader2, Shield, Trash2, Cpu, Copy, RefreshCw, CalendarDays, Pencil, Wifi, Lock, Activity, FileJson, Sparkles, X, Info, BookOpen, Crosshair } from 'lucide-react';
@@ -112,7 +113,7 @@ function HexStringsPreview({ evId }) {
     <div style={{ borderRadius: 3, border: '1px solid color-mix(in srgb, var(--fl-danger) 19%, transparent)', background: '#1a0f0f', overflow: 'hidden' }}>
       <div style={{ display: 'flex', borderBottom: '1px solid color-mix(in srgb, var(--fl-danger) 15%, transparent)' }}>
         {[['hex', 'Hex'], ['strings', 'Strings']].map(([key, label]) => (
-          <button key={key} onClick={() => setActiveTab(key)} style={{ padding: '5px 14px', fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', background: 'none', border: 'none', outline: 'none', cursor: 'pointer', borderBottom: `2px solid ${activeTab === key ? 'var(--fl-danger)' : 'transparent'}`, color: activeTab === key ? 'var(--fl-danger)' : 'var(--fl-muted)', marginBottom: -1, transition: 'color 0.1s' }}>{label}</button>
+          <button key={key} onClick={() => setActiveTab(key)} style={{ ...controlStyle(activeTab === key), padding: '5px 0 4px' }} {...controlHover(activeTab === key)}>{label}</button>
         ))}
         <span style={{ marginLeft: 'auto', padding: '5px 10px', fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'color-mix(in srgb, var(--fl-danger) 38%, transparent)', alignSelf: 'center' }}>SUSPECT</span>
       </div>
@@ -1085,7 +1086,7 @@ export default function CaseDetailPage({ user }) {
               </div>
             )}
 
-            <div style={{ display: 'flex', alignItems: 'center', gap: 2, marginBottom: 10, borderBottom: '1px solid var(--fl-border2)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 18, marginBottom: 10, borderBottom: '1px solid var(--fl-border2)' }}>
               {VERDICT_TABS.map(tb => {
                 const active = iocVerdictFilter === tb.key;
                 return (

@@ -157,7 +157,7 @@ export default function ParsingMonitor({ fileName, parsers, states, globalPct, l
               {t('collection.parsing_monitor')}
             </span>
             {live && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 9.5, fontFamily: MONO, color: 'var(--fl-accent)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-              <span className="fl-pulse" style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--fl-accent)' }} /> live
+              live
             </span>}
           </div>
           {fileName && <div style={{ fontSize: 10.5, fontFamily: MONO, color: 'var(--fl-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: 2 }}>{fileName}</div>}

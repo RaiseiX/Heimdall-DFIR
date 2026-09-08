@@ -15,6 +15,7 @@ import NotesTab   from './tabs/NotesTab';
 import AiTab      from './tabs/AiTab';
 import TagsTab    from './tabs/TagsTab';
 import SchemaTab  from './tabs/SchemaTab';
+import { controlStyle, controlHover } from '../../ui/controlIdiom';
 
 const FORENSIC_TAG_MAP = Object.fromEntries(FORENSIC_TAGS.map(t => [t.key, t]));
 
@@ -25,7 +26,7 @@ const TABS = [
   { key: 'notes',   label: 'Notes'   },
   { key: 'raw',     label: 'Raw'     },
   { key: 'schema',  label: 'Schema'  },
-  { key: 'ai',      label: 'AI', accent: 'var(--fl-ok)' },
+  { key: 'ai',      label: 'AI' },
 ];
 
 export default function DetailPanel() {
@@ -176,21 +177,12 @@ export default function DetailPanel() {
           </div>
         )}
 
-        <div style={{ display: 'flex', gap: 0, flexWrap: 'nowrap', overflowX: 'auto' }}>
+        <div style={{ display: 'flex', gap: 14, flexWrap: 'nowrap', overflowX: 'auto' }}>
           {TABS.map(tab => {
             const active = detailTab === tab.key;
-            const color  = tab.accent || acol;
             return (
-              <button key={tab.key} onClick={() => setDetailTab(tab.key)} style={{
-                padding: '3px 8px', borderRadius: '4px 4px 0 0', fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
-                background: active ? 'var(--fl-panel)' : 'transparent',
-                border: `1px solid ${active ? 'var(--fl-border)' : 'transparent'}`,
-                borderBottom: active ? '1px solid var(--fl-panel)' : '1px solid transparent',
-                marginBottom: active ? -1 : 0,
-                color: active ? color : 'var(--fl-muted)', cursor: 'pointer',
-                fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase',
-                whiteSpace: 'nowrap', flexShrink: 0,
-              }}>{tab.label}</button>
+              <button key={tab.key} onClick={() => setDetailTab(tab.key)} aria-pressed={active}
+                style={controlStyle(active)} {...controlHover(active)}>{tab.label}</button>
             );
           })}
         </div>

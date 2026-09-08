@@ -484,7 +484,6 @@ function BoardView({ pins, caseId, updatePin, unpin, navigate }) {
             }}>
               <span style={{
                 width: 8, height: 8, borderRadius: '50%', background: col.color,
-                boxShadow: `0 0 6px color-mix(in srgb, ${col.color} 50%, transparent)`,
               }} />
               <span style={{ fontSize: 11, color: col.color, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                 {col.label}

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import { controlStyle, controlHover } from '../ui/controlIdiom';
 import { NODE_TYPES } from '../../constants/nodeTypes';
 import { detectNodeType } from './utils/nodeTypeRegistry';
 import { iocsAPI, bookmarksAPI } from '../../utils/api';
@@ -285,15 +286,11 @@ export default function InvestigationDrawer({ nodeData, caseId, allEdges, onClos
         )}
       </div>
 
-      <div style={{ display: 'flex', borderBottom: '1px solid #131722', flexShrink: 0 }}>
+      <div style={{ display: 'flex', borderBottom: '1px solid var(--fl-card)', flexShrink: 0 }}>
         {TABS.map(t => (
-          <button key={t.key} onClick={() => setTab(t.key)} style={{
-            flex: 1, padding: '6px 5px', background: 'none', border: 'none',
-            borderBottom: tab === t.key ? `2px solid ${acol}` : '2px solid transparent',
-            color: tab === t.key ? acol : 'var(--fl-muted)',
-            fontSize: 12, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', cursor: 'pointer',
-            letterSpacing: '0.06em',
-          }}>{t.label}</button>
+          <button key={t.key} onClick={() => setTab(t.key)} aria-pressed={tab === t.key}
+            style={{ ...controlStyle(tab === t.key), flex: 1, justifyContent: 'center', padding: '7px 0 5px' }}
+            {...controlHover(tab === t.key)}>{t.label}</button>
         ))}
       </div>
 

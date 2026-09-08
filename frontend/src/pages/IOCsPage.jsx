@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
+import { controlStyle, controlHover } from '../components/ui/controlIdiom';
 import {
   Crosshair, Plus, AlertTriangle, Globe, Hash, FileText,
   User, Server, Search, X, Shield, ShieldAlert, RefreshCw,
@@ -423,15 +424,12 @@ export default function IOCsPage() {
         <Button variant="ghost" size="sm" icon={RefreshCw} onClick={loadData} title={t('iocs.tooltip_refresh')} />
       </div>
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 14, borderBottom: '1px solid var(--fl-border2)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 18, marginBottom: 14, borderBottom: '1px solid var(--fl-border2)' }}>
         {VERDICT_TABS.map(tab => {
           const active = verdictFilter === tab.key;
           return (
             <button key={tab.key} onClick={() => setVerdictFilter(tab.key)}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '8px 12px', background: 'none', border: 'none', cursor: 'pointer',
-                fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 12, fontWeight: 600,
-                color: active ? 'var(--fl-text)' : 'var(--fl-muted)',
-                borderBottom: `2px solid ${active ? 'var(--fl-accent)' : 'transparent'}`, marginBottom: -1 }}>
+              style={{ ...controlStyle(active), gap: 7, padding: '8px 0 6px' }} {...controlHover(active)}>
               {tab.color && <span style={{ width: 7, height: 7, borderRadius: 2, background: tab.color, flexShrink: 0 }} />}
               {tab.label}
               <span style={{ fontSize: 10.5, color: active ? 'var(--fl-dim)' : 'var(--fl-subtle)', fontFeatureSettings: '"tnum"' }}>{tab.count.toLocaleString(i18n.language)}</span>

@@ -10,8 +10,7 @@ import CollectionThreatHuntTab from '../components/collection/CollectionThreatHu
 import CollectionOverview from '../components/collection/CollectionOverview';
 import { resolveCollectionPane } from './collectionPane';
 import { COLLECTION_TAB_GROUPS, EXTERNAL_TABS } from './collectionTabs';
-
-const FS_TAB = 10.5;
+import { controlStyle, controlHover, separatorStyle } from '../components/ui/controlIdiom';
 
 const BAR_STYLE = {
   position: 'sticky', top: 36, zIndex: 101,
@@ -21,7 +20,6 @@ const BAR_STYLE = {
   borderBottom: '1px solid var(--fl-border)',
   flexShrink: 0, overflowX: 'auto', scrollbarWidth: 'none',
 };
-const GROUP_SEP_STYLE = { width: 1, height: 13, background: 'var(--fl-border2)', alignSelf: 'center', flexShrink: 0 };
 const EXT_ICON_STYLE = { opacity: 0.55, alignSelf: 'center' };
 
 export default function CollectionLayout() {
@@ -47,19 +45,6 @@ export default function CollectionLayout() {
       .catch(() => {});
   }, [id, collectionId]);
 
-  const tabSt = (isActive) => ({
-    display: 'inline-flex', alignItems: 'baseline', gap: 4,
-    padding: '0 0 3px', alignSelf: 'center',
-    fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: FS_TAB,
-    fontWeight: isActive ? 600 : 400,
-    background: 'none', border: 'none', outline: 'none', cursor: 'pointer',
-    borderBottom: `1px solid ${isActive ? 'var(--fl-accent)' : 'transparent'}`,
-    color: isActive ? 'var(--fl-text)' : 'var(--fl-muted)',
-    textDecoration: 'none', whiteSpace: 'nowrap', flexShrink: 0,
-    transition: 'color 0.12s, border-color 0.12s',
-  });
-  const tabHoverIn  = e => { if (e.currentTarget.getAttribute('aria-current') !== 'page') e.currentTarget.style.color = 'var(--fl-dim)'; };
-  const tabHoverOut = e => { if (e.currentTarget.getAttribute('aria-current') !== 'page') e.currentTarget.style.color = 'var(--fl-muted)'; };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: 0, flex: 1 }}>
@@ -67,20 +52,19 @@ export default function CollectionLayout() {
       <div style={BAR_STYLE}>
         {COLLECTION_TAB_GROUPS.map((groupe, gi) => (
           <Fragment key={groupe.id}>
-            {gi > 0 && <span style={GROUP_SEP_STYLE} />}
+            {gi > 0 && <span style={separatorStyle} />}
             {groupe.tabs.map(({ id: tid, label }) => (
               EXTERNAL_TABS.has(tid) ? (
                 <a key={tid} href={volwebUrl} target="_blank" rel="noopener noreferrer"
                   title={t('collection.tabs.volweb_hint')}
-                  style={tabSt(false)}
-                  onMouseEnter={tabHoverIn} onMouseLeave={tabHoverOut}>
+                  style={controlStyle(false)} {...controlHover(false)}>
                   {label}
                   <ExternalLink size={8} style={EXT_ICON_STYLE} />
                 </a>
               ) : (
                 <NavLink key={tid} to={`${base}/${tid}`}
-                  style={({ isActive }) => tabSt(isActive)}
-                  onMouseEnter={tabHoverIn} onMouseLeave={tabHoverOut}>
+                  style={({ isActive }) => controlStyle(isActive)}
+                  {...controlHover(false)}>
                   {label}
                 </NavLink>
               )

@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
+import { controlStyle, controlHover } from '../components/ui/controlIdiom';
 import { useParams, useSearchParams, useOutletContext } from 'react-router-dom';
 import { useTimelineStore } from '../components/supertimeline/store/useTimelineStore';
 import { splitCounts } from '../components/supertimeline/utils/timelineUtils';
@@ -12,6 +13,8 @@ import DetailPanel from '../components/supertimeline/DetailPanel/DetailPanel';
 import ContextPanel from '../components/supertimeline/ContextPanel/ContextPanel';
 import TipsTab     from '../components/supertimeline/ExplorerPanel/TipsTab';
 import TimelineDiff from '../components/supertimeline/TimelineDiff/TimelineDiff';
+
+const SEGMENT_ROW = { display: 'flex', alignItems: 'center', gap: 16 };
 
 export default function SuperTimelinePage() {
   const { id: routeId, caseId: routeCaseId_, collectionId: routeEvidenceId } = useParams();
@@ -96,18 +99,12 @@ function HeaderStrip({ showDiff, setShowDiff }) {
         </span>
       )}
       {caseId && undated > 0 && (
-        <div style={{ display: 'flex', border: '1px solid var(--fl-border)', borderRadius: 6, overflow: 'hidden' }}
-          role="group" aria-label={t('timeline.nature_label')}>
+        <div style={SEGMENT_ROW} role="group" aria-label={t('timeline.nature_label')}>
           {['all', 'dated', 'undated'].map(key => {
             const on = (nature || 'all') === key;
             return (
               <button key={key} onClick={() => setNature(key)} aria-pressed={on}
-                style={{
-                  fontSize: 11, padding: '3px 11px', cursor: 'pointer', whiteSpace: 'nowrap',
-                  border: 'none', borderRight: key === 'undated' ? 'none' : '1px solid var(--fl-border)',
-                  background: on ? 'color-mix(in srgb, var(--fl-accent) 13%, transparent)' : 'transparent',
-                  color: on ? 'var(--fl-accent)' : 'var(--fl-dim)',
-                }}>
+                style={controlStyle(on)} {...controlHover(on)}>
                 {t(`timeline.nature_${key}`)}
               </button>
             );
@@ -118,26 +115,15 @@ function HeaderStrip({ showDiff, setShowDiff }) {
       <button
         onClick={() => setShowDiff(v => !v)}
         title="Comparer deux collectes"
-        style={{
-          padding: '3px 10px', borderRadius: 6, border: `1px solid ${showDiff ? 'color-mix(in srgb, var(--fl-accent) 30%, transparent)' : 'var(--fl-border)'}`,
-          background: showDiff ? 'var(--fl-card)' : 'transparent',
-          color: showDiff ? 'var(--fl-accent)' : 'var(--fl-muted)',
-          cursor: 'pointer', fontFamily: MONO, fontSize: 11, fontWeight: 600,
-        }}
+        aria-pressed={showDiff}
+        style={controlStyle(showDiff)} {...controlHover(showDiff)}
       >Diff</button>
       <div ref={panelRef} style={{ position: 'relative' }}>
         <button
           onClick={() => setTipsOpen(v => !v)}
           title="Help - search & filters"
-          style={{
-            width: 24, height: 24, borderRadius: 6, border: `1px solid ${tipsOpen ? 'color-mix(in srgb, var(--fl-accent) 30%, transparent)' : 'var(--fl-border)'}`,
-            background: tipsOpen ? 'var(--fl-card)' : 'transparent',
-            color: tipsOpen ? 'var(--fl-accent)' : 'var(--fl-muted)',
-            cursor: 'pointer', fontFamily: MONO, fontSize: 12, fontWeight: 700,
-            display: 'flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1,
-          }}
-          onMouseEnter={e => { if (!tipsOpen) e.currentTarget.style.color = 'var(--fl-dim)'; }}
-          onMouseLeave={e => { if (!tipsOpen) e.currentTarget.style.color = 'var(--fl-muted)'; }}
+          aria-pressed={tipsOpen}
+          style={controlStyle(tipsOpen)} {...controlHover(tipsOpen)}
         >?</button>
         {tipsOpen && (
           <div style={{

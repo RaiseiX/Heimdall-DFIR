@@ -35,14 +35,20 @@ const srcDir = path.join(root, 'src');
  * sur la mesure du jour — 3, 8, 14, 27 — sans marge : une occurrence de plus échoue
  * immédiatement. `emojiAsIcon`, cinquième motif envisagé le 2026-08-12, n'a pas été
  * ajouté : `pictogramCode` compte déjà exactement les mêmes octets.
+ * 2026-09-07, lot « anti-cliché » : `pulseDecor` 3 -> 0 et `glowColored` 8 -> 5. Les trois
+ * `className="fl-pulse"` ne résolvaient aucune règle CSS et ont été retirés avec leurs
+ * pastilles ; les deux halos `--fl-ok` posés sur l'état sain d'AdminPage et le halo sans
+ * condition de WorkbenchEvidenceTab aussi. Les cinq halos restants marquent une anomalie
+ * (`ok ? 'none' : halo`) : c'est l'usage juste, le plancher de ce compteur est 5.
+ * `inlineStyle` 4869 -> 4866, du montant exact de la baisse mesurée.
  */
 export const CEILINGS = {
-  inlineStyle: 4869,
+  inlineStyle: 4866,
   halfPixel: 203,
   literalFontSize: 2009,
   pictogramCode: 377,
-  pulseDecor: 3,
-  glowColored: 8,
+  pulseDecor: 0,
+  glowColored: 5,
   gradientDecor: 14,
   aiSparkle: 27,
 };
