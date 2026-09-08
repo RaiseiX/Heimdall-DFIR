@@ -63,13 +63,26 @@ http:
   # ── Routers ───────────────────────────────────────────────────────────────
 
   routers:
+    # Only credential submission is brute-forceable. /me, /refresh and /logout are
+    # session traffic and fall through to heimdall-api: a 5/min budget shared with
+    # them locked analysts out of their own session mid-upload.
     heimdall-auth:
-      rule: "Host(`localhost`) && PathPrefix(`/api/auth`)"
+      rule: "Host(`localhost`) && (Path(`/api/auth/login`) || Path(`/api/auth/register`))"
       entryPoints: [websecure]
       tls: {}
       middlewares: [security-headers, auth-ratelimit]
       service: backend-svc
       priority: 30
+
+    # Ingestion writes. upload-ratelimit existed but was wired to nothing, so large
+    # imports ran under the general 30 req/s budget.
+    heimdall-upload:
+      rule: "Host(`localhost`) && Method(`POST`) && (PathPrefix(`/api/collection`) || PathPrefix(`/api/evidence`) || PathPrefix(`/api/upload`))"
+      entryPoints: [websecure]
+      tls: {}
+      middlewares: [security-headers, upload-ratelimit]
+      service: backend-svc
+      priority: 15
 
     heimdall-socket:
       rule: "Host(`localhost`) && PathPrefix(`/socket.io`)"
