@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { shouldDestroySession } from './session';
 
 const api = axios.create({
   baseURL: '/api',
@@ -27,7 +28,7 @@ api.interceptors.response.use(
   async (error) => {
     const orig = error.config;
     if (orig?.url?.includes('/auth/refresh') || orig?.url?.includes('/auth/logout')) {
-      if (error.response?.status === 401) _forceLogout();
+      if (shouldDestroySession(error)) _forceLogout();
       return Promise.reject(error);
     }
     if (error.response?.status === 401 && !orig._retry) {
@@ -43,8 +44,8 @@ api.interceptors.response.use(
           if (data.refreshToken) localStorage.setItem('heimdall_refresh_token', data.refreshToken);
           orig.headers.Authorization = `Bearer ${data.token}`;
           return api(orig);
-        } catch {
-          _forceLogout();
+        } catch (refreshError) {
+          if (shouldDestroySession(refreshError)) _forceLogout();
           return Promise.reject(error);
         }
       }
