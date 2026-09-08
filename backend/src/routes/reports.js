@@ -6,6 +6,9 @@ const path = require('path');
 const { pool } = require('../config/database');
 const { authenticate, auditLog } = require('../middleware/auth');
 const { caseAccessParam } = require('../middleware/caseAccess');
+const {
+  HAYABUSA_REPORT_FILTER_SQL, HAYABUSA_REPORT_ORDER_SQL, hayabusaReportRow,
+} = require('../services/hayabusaSeverity');
 
 const logger = require('../config/logger').default;
 const router = express.Router();
@@ -86,7 +89,7 @@ router.post('/:caseId/ai-draft', authenticate, async (req, res) => {
       pool.query('SELECT id, is_highlighted FROM evidence WHERE case_id=$1', [caseId]).catch(() => ({ rows: [] })),
       pool.query('SELECT value, is_malicious FROM iocs WHERE case_id=$1', [caseId]).catch(() => ({ rows: [] })),
       pool.query('SELECT technique_id, tactic FROM case_mitre_techniques WHERE case_id=$1', [caseId]).catch(() => ({ rows: [] })),
-      pool.query(`SELECT raw->>'level' AS level, raw->>'rule_title' AS rule_title, description FROM collection_timeline WHERE case_id=$1 AND artifact_type='hayabusa' AND raw->>'level' IN ('critical','high') LIMIT 50`, [caseId]).catch(() => ({ rows: [] })),
+      pool.query(`SELECT description, raw FROM collection_timeline WHERE case_id=$1 AND artifact_type='hayabusa' AND (${HAYABUSA_REPORT_FILTER_SQL}) LIMIT 50`, [caseId]).catch(() => ({ rows: [] })),
       pool.query(`SELECT sr.rule_name, s.severity FROM sigma_hunt_results sr LEFT JOIN sigma_rules s ON s.id=sr.rule_id WHERE sr.case_id=$1 LIMIT 30`, [caseId]).catch(() => ({ rows: [] })),
       pool.query('SELECT rule_name FROM yara_scan_results WHERE case_id=$1 LIMIT 30', [caseId]).catch(() => ({ rows: [] })),
       pool.query('SELECT hostname, risk_level, score FROM triage_scores WHERE case_id=$1 ORDER BY score DESC LIMIT 10', [caseId]).catch(() => ({ rows: [] })),
@@ -95,7 +98,7 @@ router.post('/:caseId/ai-draft', authenticate, async (req, res) => {
       pool.query('SELECT note FROM artifact_notes WHERE case_id=$1 ORDER BY created_at LIMIT 25', [caseId]).catch(() => ({ rows: [] })),
     ]);
     const ctx = reportAi.buildContext(caseData, {
-      evidence: evi.rows, iocs: iocs.rows, mitre: mitre.rows, hayabusa: hay.rows,
+      evidence: evi.rows, iocs: iocs.rows, mitre: mitre.rows, hayabusa: hay.rows.map(hayabusaReportRow),
       sigma: sig.rows, yara: yar.rows, triage: tri.rows,
       bookmarks: bms.rows, pins: pins.rows, notes: anotes.rows,
       analystNote: req.body && req.body.notes,   // free-text note the analyst typed in the composer
@@ -323,12 +326,11 @@ router.post('/:caseId/generate', authenticate, async (req, res) => {
       ).catch(() => ({ rows: [] })),
 
       pool.query(
-        `SELECT timestamp, description, raw->>'level' AS level, raw->>'rule_title' AS rule_title,
-                raw->>'mitre_tactics' AS tactics, host_name
+        `SELECT timestamp, description, raw, raw->>'mitre_tactics' AS tactics, host_name
          FROM collection_timeline
          WHERE case_id = $1 AND artifact_type = 'hayabusa'
-           AND raw->>'level' IN ('critical', 'high')
-         ORDER BY CASE raw->>'level' WHEN 'critical' THEN 1 WHEN 'high' THEN 2 ELSE 3 END, timestamp
+           AND (${HAYABUSA_REPORT_FILTER_SQL})
+         ORDER BY ${HAYABUSA_REPORT_ORDER_SQL}, timestamp
          LIMIT 200`,
         [caseId]
       ).catch(() => ({ rows: [] })),
@@ -343,6 +345,10 @@ router.post('/:caseId/generate', authenticate, async (req, res) => {
       ).catch(() => ({ rows: [] })),
     ]);
 
+    const hayabusaRows = hayabusaResult.rows.map((r) => ({
+      ...hayabusaReportRow(r), timestamp: r.timestamp, host_name: r.host_name, tactics: r.tactics,
+    }));
+
     const reportAi = require('../services/reportAi');
     // An analyst-edited narrative (from the code editor) is authoritative — use it as-is.
     let aiNarrative = reportAi.sanitizeNarrative(bodyAiNarrative);
@@ -352,7 +358,7 @@ router.post('/:caseId/generate', authenticate, async (req, res) => {
           evidence: evidenceResult.rows,
           iocs: iocResult.rows,
           mitre: mitreResult.rows,
-          hayabusa: hayabusaResult.rows,
+          hayabusa: hayabusaRows,
           sigma: sigmaResult.rows,
           yara: yaraResult.rows,
           triage: triageResult.rows,
@@ -397,7 +403,7 @@ router.post('/:caseId/generate', authenticate, async (req, res) => {
       triage: triageResult.rows,
       yara: yaraResult.rows,
       correl: correlResult.rows,
-      hayabusa: hayabusaResult.rows,
+      hayabusa: hayabusaRows,
       sigma: sigmaResult.rows,
       bookmarks: bookmarkFlagResult.rows,
       pins: pinFlagResult.rows,
