@@ -1,7 +1,7 @@
 import { useRef, useMemo, useState, useCallback, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { Loader2, Palette, Columns } from 'lucide-react';
+import { Loader2, Palette, Columns, Download } from 'lucide-react';
 import { useTimelineStore } from '../store/useTimelineStore';
 import { collectionAPI } from '../../../utils/api';
 import ColorRulesManager from '../../../components/timeline/ColorRulesManager';
@@ -12,6 +12,8 @@ import { buildDynamicCols, computeRef, readRawPath, constantColumns, rowHeightFo
 import { artifactColor } from '../../../constants/artifactColors';
 import GroupPanel from './GroupPanel';
 import ColumnManager from './ColumnManager';
+
+const INLINE_PICTO = { verticalAlign: '-1px' };
 
 const PREFIX = '4px';
 const DEFAULT_PINNED = ['timestamp'];
@@ -385,7 +387,7 @@ export default function EventGrid() {
           onMouseEnter={e => { e.currentTarget.style.color = 'var(--fl-accent)'; e.currentTarget.style.background = 'var(--fl-panel)'; }}
           onMouseLeave={e => { e.currentTarget.style.color = 'var(--fl-subtle)'; e.currentTarget.style.background = 'none'; }}
         >
-          ⬇ CSV
+          <Download size={11} style={INLINE_PICTO} /> CSV
         </button>
         <div style={{ flex: 1 }} />
         {artifactTypes.length === 1 && (

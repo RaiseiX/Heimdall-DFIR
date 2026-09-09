@@ -31,12 +31,21 @@ const srcDir = path.join(root, 'src');
  * 2026-08-13, lot « login photo nue » : les styles inline et les tailles littérales de la
  * carte de connexion sont passés en classes CSS. Mesures réelles 4759 -> 4734 et 1965 -> 1960.
  * Les plafonds sont abaissés du même montant, la marge existante est conservée telle quelle.
+ * 2026-09-08 : une densite de ligne unique pour 11 tableaux. 4857 -> 4820, 203 -> 198,
+ * 2009 -> 1984, du montant exact des baisses mesurees.
+ * 2026-09-08, lot 4 : les pastilles des quatre derniers ecrans deviennent des mots colores
+ * (markStyle). Mesures 4605 -> 4558, 158 -> 154, 1876 -> 1837, 149 -> 145 ; les plafonds
+ * baissent de 47, 4, 39 et 4, la marge existante restant inchangee.
+ * 2026-09-08, lot 4 bis : deux des quatre composants convertis n'etaient importes par rien
+ * (absents du bundle). Supprimes, et le meme traitement porte sur les ecrans reellement
+ * servis, HayabusaPage et TriagePage. Mesures 4558 -> 4433, 154 -> 153, 1837 -> 1788 ;
+ * les plafonds baissent de 125, 1 et 49. pictogramCode inchange a 145.
  */
 export const CEILINGS = {
-  inlineStyle: 4857,
-  halfPixel: 203,
-  literalFontSize: 2009,
-  pictogramCode: 165,
+  inlineStyle: 4641,
+  halfPixel: 193,
+  literalFontSize: 1896,
+  pictogramCode: 161,
 };
 
 /**

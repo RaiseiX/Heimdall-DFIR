@@ -2,6 +2,15 @@ import { useState, useEffect, useMemo } from 'react';
 import { Shield, Plus, X, Search, ChevronDown, ChevronRight, Trash2, Edit2, Check } from 'lucide-react';
 import { TACTICS, TACTIC_MAP, TECHNIQUES } from '../../data/mitreData';
 import { mitreAPI } from '../../utils/api';
+import { markStyle } from '../ui/tableIdiom';
+import { controlStyle, controlHover } from '../ui/controlIdiom';
+
+const FS_MARK_SM = 9;
+const FS_STAT = 18;
+const STAT_NUM = { fontSize: FS_STAT };
+const STAT_ROW = { display: 'flex', gap: 16, alignItems: 'baseline', flexWrap: 'wrap', marginBottom: 14 };
+const SEG_ROW = { display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'baseline' };
+const COUNT_STYLE = { opacity: 0.6 };
 
 const CONFIDENCE = [
   { key: 'confirmed', label: 'Confirmed', color: 'var(--fl-danger)' },
@@ -21,8 +30,7 @@ function ConfBadge({ level }) {
   const c = CONF_MAP[level];
   if (!c) return null;
   return (
-    <span style={{ padding: '1px 7px', borderRadius: 8, fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
-      fontWeight: 700, background: `color-mix(in srgb, ${c.color} 13%, transparent)`, color: c.color, border: `1px solid color-mix(in srgb, ${c.color} 21%, transparent)` }}>
+    <span style={markStyle(c.color)}>
       {c.label}
     </span>
   );
@@ -136,17 +144,14 @@ function TechniqueModal({ onAdd, onClose, alreadyMapped }) {
                       background: isSel ? '#142030' : 'transparent',
                       border: `1px solid ${isSel ? 'color-mix(in srgb, var(--fl-accent) 25%, transparent)' : 'var(--fl-border)'}` }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <span style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10, fontWeight: 700,
-                        color: '#4a9ebb', minWidth: 80 }}>
+                      <span style={{ ...markStyle('var(--fl-muted)'), minWidth: 80 }}>
                         {t.id}
                       </span>
-                      <span style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11, color: '#d0daf0', flex: 1 }}>
+                      <span style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11, color: 'var(--fl-text)', flex: 1 }}>
                         {t.name}
                       </span>
                       {ta && (
-                        <span style={{ padding: '1px 6px', borderRadius: 8, fontSize: 9,
-                          fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', background: `color-mix(in srgb, ${ta.color} 9%, transparent)`,
-                          color: ta.color, border: `1px solid color-mix(in srgb, ${ta.color} 15%, transparent)`, flexShrink: 0 }}>
+                        <span style={{ ...markStyle(ta.color, FS_MARK_SM), flexShrink: 0 }}>
                           {ta.name}
                         </span>
                       )}
@@ -171,14 +176,10 @@ function TechniqueModal({ onAdd, onClose, alreadyMapped }) {
                   marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.07em' }}>
                   Confidence level
                 </div>
-                <div style={{ display: 'flex', gap: 5 }}>
+                <div style={SEG_ROW}>
                   {CONFIDENCE.map(c => (
                     <button key={c.key} onClick={() => setConf(c.key)}
-                      style={{ padding: '3px 10px', borderRadius: 6, fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
-                        cursor: 'pointer', fontWeight: 600,
-                        background: confidence === c.key ? `color-mix(in srgb, ${c.color} 13%, transparent)` : 'transparent',
-                        color: confidence === c.key ? c.color : 'var(--fl-card)',
-                        border: `1px solid ${confidence === c.key ? c.color + '50' : 'var(--fl-border)'}` }}>
+                      style={controlStyle(confidence === c.key)} {...controlHover(confidence === c.key)}>
                       {c.label}
                     </button>
                   ))}
@@ -236,15 +237,14 @@ function TechRow({ tech, onDelete, onUpdate }) {
       
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px',
         borderLeft: `3px solid ${ta?.color || 'var(--fl-card)'}` }}>
-        <span style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10, fontWeight: 700, color: '#4a9ebb', minWidth: 80 }}>
+        <span style={{ ...markStyle('var(--fl-muted)'), minWidth: 80 }}>
           {tech.technique_id}
         </span>
-        <span style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11, color: '#d0daf0', flex: 1 }}>
+        <span style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11, color: 'var(--fl-text)', flex: 1 }}>
           {tech.technique_name}
         </span>
         {ta && (
-          <span style={{ padding: '1px 6px', borderRadius: 8, fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
-            background: `color-mix(in srgb, ${ta.color} 8%, transparent)`, color: ta.color, border: `1px solid color-mix(in srgb, ${ta.color} 15%, transparent)` }}>
+          <span style={markStyle(ta.color, FS_MARK_SM)}>
             {ta.name}
           </span>
         )}
@@ -261,9 +261,9 @@ function TechRow({ tech, onDelete, onUpdate }) {
       </div>
 
       {!editing && (tech.notes || tech.significance) && (
-        <div style={{ padding: '3px 10px 5px 13px', borderTop: '1px solid #1c2333', display: 'flex', flexDirection: 'column', gap: 3 }}>
+        <div style={{ padding: '3px 10px 5px 13px', borderTop: '1px solid var(--fl-border)', display: 'flex', flexDirection: 'column', gap: 3 }}>
           {tech.notes && (
-            <div style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10, color: '#4a6080' }}>{tech.notes}</div>
+            <div style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10, color: 'var(--fl-dim)' }}>{tech.notes}</div>
           )}
           {tech.significance && (
             <div style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10, color: 'var(--fl-subtle)', fontStyle: 'italic' }}>
@@ -275,14 +275,10 @@ function TechRow({ tech, onDelete, onUpdate }) {
 
       {editing && (
         <div style={{ padding: '8px 12px', borderTop: '1px solid var(--fl-border)', background: 'var(--fl-bg)' }}>
-          <div style={{ display: 'flex', gap: 4, marginBottom: 6 }}>
+          <div style={{ ...SEG_ROW, marginBottom: 8 }}>
             {CONFIDENCE.map(c => (
               <button key={c.key} onClick={() => setConf(c.key)}
-                style={{ padding: '2px 8px', borderRadius: 5, fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
-                  cursor: 'pointer', fontWeight: 600,
-                  background: conf === c.key ? `color-mix(in srgb, ${c.color} 13%, transparent)` : 'transparent',
-                  color: conf === c.key ? c.color : 'var(--fl-card)',
-                  border: `1px solid ${conf === c.key ? c.color + '50' : 'var(--fl-border)'}` }}>
+                style={controlStyle(conf === c.key)} {...controlHover(conf === c.key)}>
                 {c.label}
               </button>
             ))}
@@ -394,8 +390,7 @@ export default function MitreAttackTab({ caseId }) {
             Cartographie MITRE ATT&amp;CK
           </span>
           {techniques.length > 0 && (
-            <span style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11, padding: '2px 8px', borderRadius: 4,
-              background: 'color-mix(in srgb, var(--fl-accent) 7%, transparent)', color: 'var(--fl-accent)', border: '1px solid color-mix(in srgb, var(--fl-accent) 15%, transparent)' }}>
+            <span style={markStyle('var(--fl-muted)')}>
               {techniques.length} technique{techniques.length > 1 ? 's' : ''}
             </span>
           )}
@@ -406,36 +401,26 @@ export default function MitreAttackTab({ caseId }) {
       </div>
 
       {techniques.length > 0 && (
-        <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
+        <div style={STAT_ROW}>
           {CONFIDENCE.map(c => {
             const n = stats[c.key] || 0;
             if (!n) return null;
             return (
-              <div key={c.key} style={{ padding: '6px 12px', borderRadius: 7,
-                background: `color-mix(in srgb, ${c.color} 7%, transparent)`, border: `1px solid color-mix(in srgb, ${c.color} 15%, transparent)`,
-                display: 'flex', flexDirection: 'column', alignItems: 'center', minWidth: 80 }}>
-                <span style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 18, fontWeight: 700, color: c.color }}>{n}</span>
-                <span style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 9, color: c.color, opacity: 0.8 }}>{c.label}</span>
-              </div>
+              <span key={c.key} style={markStyle(c.color)}>
+                <span style={STAT_NUM}>{n}</span> {c.label}
+              </span>
             );
           })}
-          <div style={{ padding: '6px 12px', borderRadius: 7, background: 'var(--fl-bg)',
-            border: '1px solid var(--fl-border)', display: 'flex', flexDirection: 'column', alignItems: 'center', minWidth: 80 }}>
-            <span style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 18, fontWeight: 700, color: 'var(--fl-dim)' }}>
-              {Object.keys(grouped).length}
-            </span>
-            <span style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 9, color: 'var(--fl-muted)' }}>Tactiques</span>
-          </div>
+          <span style={markStyle('var(--fl-muted)')}>
+            <span style={STAT_NUM}>{Object.keys(grouped).length}</span> Tactiques
+          </span>
         </div>
       )}
 
       {techniques.length > 0 && (
-        <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginBottom: 14 }}>
+        <div style={{ ...SEG_ROW, marginBottom: 14 }}>
           <button onClick={() => setTacticFilter(null)}
-            style={{ padding: '2px 10px', borderRadius: 10, fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
-              cursor: 'pointer', background: !tacticFilter ? 'color-mix(in srgb, var(--fl-accent) 9%, transparent)' : 'transparent',
-              color: !tacticFilter ? 'var(--fl-accent)' : 'var(--fl-dim)',
-              border: `1px solid ${!tacticFilter ? 'color-mix(in srgb, var(--fl-accent) 19%, transparent)' : 'var(--fl-border)'}` }}>
+            style={controlStyle(!tacticFilter)} {...controlHover(!tacticFilter)}>
             All
           </button>
           {tacticOrder.map(tacId => {
@@ -443,14 +428,9 @@ export default function MitreAttackTab({ caseId }) {
             const active = tacticFilter === tacId;
             return (
               <button key={tacId} onClick={() => setTacticFilter(active ? null : tacId)}
-                style={{ padding: '2px 10px', borderRadius: 10, fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
-                  cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4,
-                  background: active ? `color-mix(in srgb, ${ta.color} 9%, transparent)` : 'transparent',
-                  color: active ? ta.color : 'var(--fl-dim)',
-                  border: `1px solid ${active ? ta.color + '30' : 'var(--fl-border)'}` }}>
-                <span style={{ width: 6, height: 6, borderRadius: '50%', background: ta.color, display: 'inline-block' }} />
+                style={controlStyle(active)} {...controlHover(active)}>
                 {ta.name}
-                <span style={{ opacity: 0.6 }}>({grouped[tacId]?.length})</span>
+                <span style={COUNT_STYLE}>{grouped[tacId]?.length}</span>
               </button>
             );
           })}

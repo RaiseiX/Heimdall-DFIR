@@ -1,3 +1,4 @@
+import { headStyle, cellStyle } from '../ui/tableIdiom';
 export const MONO = 'var(--f-mono, "JetBrains Mono", monospace)';
 export const UI   = 'var(--f-ui, "Inter", sans-serif)';
 
@@ -70,8 +71,8 @@ export function Input(props) {
   );
 }
 
-const TH = { textAlign: 'left', padding: '7px 10px', fontSize: 9.5, fontFamily: MONO, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--fl-muted)', fontWeight: 600, whiteSpace: 'nowrap' };
-const TD = { padding: '0 10px', height: 40, borderBottom: '1px solid var(--fl-border2)', verticalAlign: 'middle', fontSize: 11.5, fontFamily: UI, color: 'var(--fl-text)' };
+const TH = headStyle(false);
+const TD = { ...cellStyle(), verticalAlign: 'middle' };
 
 export function Table({ cols, children }) {
   return (

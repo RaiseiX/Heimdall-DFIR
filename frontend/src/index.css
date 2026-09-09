@@ -506,17 +506,17 @@ body.fl-density-comfortable th {
    TABLES
    ═══════════════════════════════════════════════════════════ */
 
-.fl-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.fl-table { width: 100%; border-collapse: collapse; font-size: 11px; }
 
 .fl-table thead th {
   position: sticky; top: 0; z-index: 1;
   text-align: left;
-  padding: 8px 14px;
-  font-size: 9.5px;
+  padding: 6px 10px;
+  font-size: 10px;
   font-family: var(--f-mono, 'JetBrains Mono', monospace);
   text-transform: uppercase;
-  letter-spacing: 0.1em;
-  font-weight: 600;
+  letter-spacing: 0.06em;
+  font-weight: 400;
   color: var(--fl-muted);
   background: var(--fl-panel);
   border-bottom: 1px solid var(--fl-border);
@@ -524,10 +524,10 @@ body.fl-density-comfortable th {
 }
 
 .fl-table tbody td {
-  padding: 8px 14px;
-  border-bottom: 1px solid var(--fl-border2);
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--fl-border);
   vertical-align: middle;
-  font-size: 12.5px;
+  font-size: 11px;
   color: var(--fl-text);
 }
 

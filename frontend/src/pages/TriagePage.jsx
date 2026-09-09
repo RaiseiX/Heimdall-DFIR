@@ -4,9 +4,14 @@ import { useTranslation } from 'react-i18next';
 import { Crosshair, AlertTriangle, Clock, RefreshCw, ShieldCheck, ChevronRight } from 'lucide-react';
 import { triageAPI } from '../utils/api';
 import AlertInbox from '../components/triage/AlertInbox';
+import { markStyle } from '../components/ui/tableIdiom';
+import { controlStyle, controlHover } from '../components/ui/controlIdiom';
 
 const MONO = 'var(--f-mono, "JetBrains Mono", monospace)';
 const UI   = 'var(--f-ui, "Inter", sans-serif)';
+
+const SEG_ROW  = { display: 'flex', gap: 14, alignItems: 'baseline', margin: '4px 0 18px' };
+const SEV_HEAD = { display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 8 };
 
 const SEV = {
   critical: { key: 'triage.severity.critical', color: 'var(--fl-danger)' },
@@ -53,19 +58,16 @@ export default function TriagePage() {
         <span style={{ flex: 1 }} />
         {tab === 'queue' && (
           <button onClick={load} title={t('common.refresh')}
-            style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '4px 10px', borderRadius: 6, cursor: 'pointer', background: 'transparent', color: 'var(--fl-muted)', border: '1px solid var(--fl-border)', fontFamily: MONO, fontSize: 11 }}>
+            style={controlStyle(false)} {...controlHover(false)}>
             <RefreshCw size={12} strokeWidth={1.6} style={{ animation: loading ? 'fl-spin 0.8s linear infinite' : 'none' }} /> {t('common.refresh')}
           </button>
         )}
       </div>
 
-      <div style={{ display: 'flex', gap: 6, margin: '4px 0 18px' }}>
+      <div style={SEG_ROW}>
         {[['inbox', 'triage.inbox.tab'], ['queue', 'triage.queue_tab']].map(([k, lbl]) => (
           <button key={k} onClick={() => setTab(k)}
-            style={{ padding: '6px 14px', borderRadius: 7, cursor: 'pointer', fontFamily: MONO, fontSize: 12,
-              background: tab === k ? 'color-mix(in srgb, var(--fl-accent) 13%, transparent)' : 'transparent',
-              color: tab === k ? 'var(--fl-text)' : 'var(--fl-muted)',
-              border: `1px solid ${tab === k ? 'color-mix(in srgb, var(--fl-accent) 45%, transparent)' : 'var(--fl-border)'}` }}>
+            style={controlStyle(tab === k)} {...controlHover(tab === k)}>
             {t(lbl)}
           </button>
         ))}
@@ -90,18 +92,17 @@ export default function TriagePage() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
           {grouped.map(({ sev, list }) => (
             <div key={sev}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                <span style={{ width: 8, height: 8, borderRadius: 2, background: SEV[sev].color }} />
-                <span style={{ fontSize: 10.5, fontFamily: MONO, textTransform: 'uppercase', letterSpacing: '0.12em', color: SEV[sev].color, fontWeight: 700 }}>{t(SEV[sev].key)}</span>
-                <span style={{ fontSize: 10, fontFamily: MONO, color: 'var(--fl-muted)' }}>{list.length}</span>
+              <div style={SEV_HEAD}>
+                <span style={markStyle(SEV[sev].color)}>{t(SEV[sev].key)}</span>
+                <span style={markStyle('var(--fl-muted)')}>{list.length}</span>
               </div>
-              <div style={{ border: '1px solid var(--fl-border)', borderRadius: 8, overflow: 'hidden' }}>
+              <div style={{ borderTop: '1px solid var(--fl-border)' }}>
                 {list.map((it, i) => {
                   const TIcon = TYPE_ICON[it.type] || Crosshair;
                   return (
                     <div key={i}
                       onClick={() => navigate(`/cases/${it.case_id}/${it.tab || 'evidence'}`)}
-                      style={{ display: 'grid', gridTemplateColumns: 'auto 1fr auto', alignItems: 'center', gap: 12, padding: '10px 14px', cursor: 'pointer', borderLeft: `3px solid ${SEV[sev].color}`, borderBottom: i < list.length - 1 ? '1px solid var(--fl-border2)' : 'none' }}
+                      style={{ display: 'grid', gridTemplateColumns: 'auto 1fr auto', alignItems: 'center', gap: 12, padding: '10px 14px', cursor: 'pointer', borderLeft: `3px solid ${SEV[sev].color}`, borderBottom: '1px solid var(--fl-border2)' }}
                       onMouseEnter={e => { e.currentTarget.style.background = 'var(--fl-surface-hover)'; }}
                       onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}>
                       <TIcon size={15} strokeWidth={1.6} style={{ color: SEV[sev].color }} />

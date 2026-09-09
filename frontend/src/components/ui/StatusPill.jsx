@@ -1,5 +1,7 @@
-import { AlertTriangle, ShieldAlert } from 'lucide-react';
+import { AlertTriangle, Clock, ShieldAlert } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+
+const FS_STATUT = 10;
 
 const STATUS_MAP = {
   active:  { key: 'case.status_active',  color: 'var(--fl-accent)' },
@@ -27,10 +29,8 @@ export function StatusPill({ status }) {
   return (
     <span style={{
       display: 'inline-flex', alignItems: 'center',
-      padding: '2px 8px', borderRadius: 4,
-      fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontWeight: 600,
-      background: `color-mix(in srgb, ${m.color} 9%, transparent)`, color: m.color,
-      border: `1px solid color-mix(in srgb, ${m.color} 21%, transparent)`,
+      fontSize: FS_STATUT, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
+      color: m.color,
     }}>
       {m.key ? t(m.key) : status}
     </span>
@@ -43,11 +43,8 @@ export function PriorityPill({ priority }) {
   return (
     <span style={{
       display: 'inline-flex', alignItems: 'center', gap: 3,
-      padding: '2px 8px', borderRadius: 4,
-      fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontWeight: 700,
-      background: `color-mix(in srgb, ${m.color} 9%, transparent)`, color: m.color,
-      border: `1px solid color-mix(in srgb, ${m.color} 21%, transparent)`,
-      textTransform: 'uppercase',
+      fontSize: FS_STATUT, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
+      color: m.color,
     }}>
       {m.Icon && <m.Icon size={9} />}
       {m.key ? t(m.key) : priority}
@@ -61,10 +58,8 @@ export function RiskPill({ riskLevel, riskScore }) {
   return (
     <span style={{
       display: 'inline-flex', alignItems: 'center', gap: 4,
-      padding: '2px 7px', borderRadius: 4,
-      fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontWeight: 700,
-      background: `color-mix(in srgb, ${m.color} 8%, transparent)`, color: m.color,
-      border: `1px solid color-mix(in srgb, ${m.color} 19%, transparent)`,
+      fontSize: FS_STATUT, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
+      color: m.color,
     }}>
       {m.Icon && <m.Icon size={9} />}
       {riskLevel}{riskScore != null ? ` ${riskScore}` : ''}
@@ -88,12 +83,10 @@ export function TimePill({ totalSeconds, analystCount, compact = false }) {
     <span title={`${analystLabel} · ${fmtDuration(totalSeconds)}`}
       style={{
         display: 'inline-flex', alignItems: 'center', gap: 4,
-        padding: '2px 7px', borderRadius: 4,
-        fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
-        background: 'var(--fl-card)', color: 'var(--fl-dim)',
-        border: '1px solid var(--fl-border)',
+        fontSize: FS_STATUT, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
+        color: 'var(--fl-dim)',
       }}>
-      ⏱ {fmtDuration(totalSeconds)}
+      <Clock size={10} /> {fmtDuration(totalSeconds)}
       {!compact && analystCount > 0 && (
         <span style={{ color: 'var(--fl-subtle)', fontSize: 9 }}>· {analystCount}</span>
       )}
