@@ -5,11 +5,16 @@ import { useTranslation } from 'react-i18next';
 import {
   Plus, Search, AlertTriangle, FolderOpen, X, FileText,
   Crosshair, Trash2, CheckCircle2, XCircle, ShieldAlert, Clock, User,
+  Check,
 } from 'lucide-react';
 import { casesAPI } from '../utils/api';
 import { isDestructionConfirmed } from '../utils/destructiveConfirm';
 import { Button, Modal, Badge, EmptyState, Spinner } from '../components/ui';
+import { tableStyle, headStyle, cellStyle } from '../components/ui/tableIdiom';
+import { controlStyle, controlHover } from '../components/ui/controlIdiom';
 import { StatusPill, PriorityPill, RiskPill, TimePill, fmtDuration } from '../components/ui/StatusPill';
+
+const INLINE_PICTO = { verticalAlign: '-1px' };
 
 function minDeadline() {
   const d = new Date();
@@ -187,24 +192,18 @@ export default function CasesPage({ user }) {
           />
         </div>
 
-        <div style={{ display: 'flex', gap: 4, alignItems: 'center', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap' }}>
           <span style={{ fontSize: 10, color: 'var(--fl-subtle)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}>{t('cases.status_filter_label')}</span>
           {[['', t('common.all')], ['active', t('case.status_active')], ['pending', t('case.status_pending')], ['closed', t('case.status_closed')]].map(([val, lbl]) => (
             <button key={val} onClick={() => setFilterStatus(val)}
-              style={{
-                padding: '3px 10px', borderRadius: 20, fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
-                cursor: 'pointer', border: '1px solid',
-                background: filterStatus === val ? (val === '' ? 'var(--fl-accent)' : val === 'active' ? 'var(--fl-accent)' : val === 'pending' ? 'var(--fl-warn)' : 'var(--fl-dim)') + '20' : 'transparent',
-                color: filterStatus === val ? (val === '' ? 'var(--fl-accent)' : val === 'active' ? 'var(--fl-accent)' : val === 'pending' ? 'var(--fl-warn)' : 'var(--fl-dim)') : 'var(--fl-muted)',
-                borderColor: filterStatus === val ? (val === '' ? 'var(--fl-accent)' : val === 'active' ? 'var(--fl-accent)' : val === 'pending' ? 'var(--fl-warn)' : 'var(--fl-dim)') + '50' : 'var(--fl-border)',
-                fontWeight: filterStatus === val ? 700 : 400,
-              }}>
+              aria-pressed={filterStatus === val}
+              style={controlStyle(filterStatus === val)} {...controlHover(filterStatus === val)}>
               {lbl}
             </button>
           ))}
         </div>
 
-        <div style={{ display: 'flex', gap: 4, alignItems: 'center', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap' }}>
           <span style={{ fontSize: 10, color: 'var(--fl-subtle)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}>{t('cases.priority_filter_label')}</span>
           {[
             ['', t('common.all'), 'var(--fl-dim)'],
@@ -214,14 +213,8 @@ export default function CasesPage({ user }) {
             ['low', t('cases.prio_low'), 'var(--fl-ok)'],
           ].map(([val, lbl, col]) => (
             <button key={val} onClick={() => setFilterPriority(val)}
-              style={{
-                padding: '3px 10px', borderRadius: 20, fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
-                cursor: 'pointer', border: '1px solid',
-                background: filterPriority === val ? col + '20' : 'transparent',
-                color: filterPriority === val ? col : 'var(--fl-muted)',
-                borderColor: filterPriority === val ? col + '50' : 'var(--fl-border)',
-                fontWeight: filterPriority === val ? 700 : 400,
-              }}>
+              aria-pressed={filterPriority === val}
+              style={controlStyle(filterPriority === val)} {...controlHover(filterPriority === val)}>
               {lbl}
             </button>
           ))}
@@ -256,7 +249,7 @@ export default function CasesPage({ user }) {
         </div>
       ) : (
         <div style={{ border: '1px solid var(--fl-border)', borderRadius: 8, overflow: 'hidden' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: 'var(--f-ui, "Inter", sans-serif)' }}>
+          <table style={tableStyle}>
             <thead>
               <tr style={{ background: 'var(--fl-bg)', borderBottom: '1px solid var(--fl-border)' }}>
                 {isAdmin && <th style={{ width: 34 }} />}
@@ -266,11 +259,7 @@ export default function CasesPage({ user }) {
                   ['investigator', t('cases.col_investigator'), 140], ['evid', t('cases.col_evidence'), 58],
                   ['ioc', t('cases.col_iocs'), 58], ['deadline', t('cases.col_opened'), 90],
                 ].map(([k, label, w]) => (
-                  <th key={k} style={{
-                    textAlign: 'left', padding: '7px 10px', width: w || undefined,
-                    fontSize: 9.5, fontFamily: 'var(--f-mono, monospace)', textTransform: 'uppercase',
-                    letterSpacing: '0.1em', color: 'var(--fl-muted)', fontWeight: 600, whiteSpace: 'nowrap',
-                  }}>{label}</th>
+                  <th key={k} style={{ ...headStyle(false), width: w || undefined }}>{label}</th>
                 ))}
               </tr>
             </thead>
@@ -282,7 +271,7 @@ export default function CasesPage({ user }) {
                   : c.priority === 'medium' ? 'var(--fl-gold)'
                   : 'var(--fl-ok)';
                 const deadlineSoon = c.report_deadline && new Date(c.report_deadline) < new Date(Date.now() + 48 * 3600 * 1000);
-                const td = { padding: '0 10px', height: 40, borderBottom: '1px solid var(--fl-border2)', verticalAlign: 'middle' };
+                const td = { ...cellStyle(), verticalAlign: 'middle' };
                 return (
                   <tr key={c.id}
                     onClick={() => navigate(`/cases/${c.id}`)}
@@ -314,8 +303,8 @@ export default function CasesPage({ user }) {
                     <td style={{ ...td, fontSize: 11, fontFamily: 'var(--f-mono, monospace)', color: 'var(--fl-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 140 }}>
                       {c.investigator_name ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><User size={10} />{c.investigator_name}</span> : '—'}
                     </td>
-                    <td style={{ ...td, fontSize: 11, fontFamily: 'var(--f-mono, monospace)', color: (c.evidence_count || 0) > 0 ? 'var(--fl-accent)' : 'var(--fl-subtle)' }}>{c.evidence_count || 0}</td>
-                    <td style={{ ...td, fontSize: 11, fontFamily: 'var(--f-mono, monospace)', color: c.ioc_count > 0 ? 'var(--fl-warn)' : 'var(--fl-subtle)' }}>{c.ioc_count || 0}</td>
+                    <td style={{ ...td, ...cellStyle({ numeric: true }), fontSize: 11, fontFamily: 'var(--f-mono, monospace)', color: (c.evidence_count || 0) > 0 ? 'var(--fl-accent)' : 'var(--fl-subtle)' }}>{c.evidence_count || 0}</td>
+                    <td style={{ ...td, ...cellStyle({ numeric: true }), fontSize: 11, fontFamily: 'var(--f-mono, monospace)', color: c.ioc_count > 0 ? 'var(--fl-warn)' : 'var(--fl-subtle)' }}>{c.ioc_count || 0}</td>
                     <td style={{ ...td, fontSize: 10.5, fontFamily: 'var(--f-mono, monospace)', color: deadlineSoon ? 'var(--fl-danger)' : 'var(--fl-subtle)', whiteSpace: 'nowrap' }}>
                       {c.report_deadline
                         ? (deadlineSoon ? '⚠ ' : '') + new Date(c.report_deadline).toLocaleDateString(i18n.language)
@@ -441,14 +430,14 @@ export default function CasesPage({ user }) {
                     {r.ok && (
                       <div style={{ display: 'flex', gap: 16, marginLeft: 23, flexWrap: 'wrap' }}>
                         <span style={{ fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-ok)' }}>
-                          ✓ {t('cases.files_destroyed', { count: r.files_destroyed, n: r.files_destroyed })}
+                          <Check size={11} style={INLINE_PICTO} /> {t('cases.files_destroyed', { count: r.files_destroyed, n: r.files_destroyed })}
                         </span>
                         <span style={{ fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: r.verified ? 'var(--fl-ok)' : 'var(--fl-danger)' }}>
                           {r.verified ? `✓ ${t('cases.db_confirmed')}` : `⚠ ${t('cases.db_still_exists')}`}
                         </span>
                         {r.files_errors?.length > 0 && (
                           <span style={{ fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-gold)' }}>
-                            ⚠ {t('cases.file_errors', { n: r.files_errors.length })}
+                            <AlertTriangle size={11} style={INLINE_PICTO} /> {t('cases.file_errors', { n: r.files_errors.length })}
                           </span>
                         )}
                       </div>
@@ -464,16 +453,16 @@ export default function CasesPage({ user }) {
                   background: 'var(--fl-bg)', border: '1px solid var(--fl-border)',
                   fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-dim)', display: 'flex', gap: 20 }}>
                   <span style={{ color: 'var(--fl-ok)' }}>
-                    ✓ {t('cases.deleted_count', { count: deleteResults.filter(r => r.ok).length, n: deleteResults.filter(r => r.ok).length })}
+                    <Check size={11} style={INLINE_PICTO} /> {t('cases.deleted_count', { count: deleteResults.filter(r => r.ok).length, n: deleteResults.filter(r => r.ok).length })}
                   </span>
                   {deleteResults.filter(r => !r.ok).length > 0 && (
                     <span style={{ color: 'var(--fl-danger)' }}>
-                      ✗ {t('cases.error_count', { count: deleteResults.filter(r => !r.ok).length, n: deleteResults.filter(r => !r.ok).length })}
+                      <X size={11} style={INLINE_PICTO} /> {t('cases.error_count', { count: deleteResults.filter(r => !r.ok).length, n: deleteResults.filter(r => !r.ok).length })}
                     </span>
                   )}
                   {deleteResults.filter(r => r.ok && !r.verified).length > 0 && (
                     <span style={{ color: 'var(--fl-gold)' }}>
-                      ⚠ {t('cases.unverified_count', { count: deleteResults.filter(r => r.ok && !r.verified).length, n: deleteResults.filter(r => r.ok && !r.verified).length })}
+                      <AlertTriangle size={11} style={INLINE_PICTO} /> {t('cases.unverified_count', { count: deleteResults.filter(r => r.ok && !r.verified).length, n: deleteResults.filter(r => r.ok && !r.verified).length })}
                     </span>
                   )}
                 </div>

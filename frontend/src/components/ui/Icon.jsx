@@ -1,4 +1,28 @@
-import * as Lucide from 'lucide-react';
+import {
+  Shield,
+  LayoutDashboard,
+  Activity,
+  Network,
+  Crosshair,
+  FolderOpen,
+  Monitor,
+  Globe,
+  SlidersHorizontal,
+  FileText,
+  Settings,
+  Search,
+  Bell,
+  Filter,
+  Flag,
+  Link,
+  Upload,
+  Zap,
+  User,
+  ChevronRight,
+  Info,
+  ScrollText,
+  Circle,
+} from 'lucide-react';
 
 export const ICONS = {
   shield:    'Shield',
@@ -23,7 +47,33 @@ export const ICONS = {
   user:      'User',
 };
 
+export const BY_NAME = {
+  Shield,
+  LayoutDashboard,
+  Activity,
+  Network,
+  Crosshair,
+  FolderOpen,
+  Monitor,
+  Globe,
+  SlidersHorizontal,
+  FileText,
+  Settings,
+  Search,
+  Bell,
+  Filter,
+  Flag,
+  Link,
+  Upload,
+  Zap,
+  User,
+  ChevronRight,
+  Info,
+  ScrollText,
+  Circle,
+};
+
 export default function Icon({ name, size = 14, strokeWidth = 1.6, ...props }) {
-  const Cmp = Lucide[ICONS[name] || name] || Lucide.Circle;
+  const Cmp = BY_NAME[ICONS[name] || name] || Circle;
   return <Cmp size={size} strokeWidth={strokeWidth} {...props} />;
 }

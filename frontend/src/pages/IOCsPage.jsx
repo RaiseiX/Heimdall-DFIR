@@ -1,14 +1,13 @@
 import { useState, useEffect, useCallback } from 'react';
+import { tableStyle, headStyle, cellStyle } from '../components/ui/tableIdiom';
 import { useTranslation } from 'react-i18next';
 import { controlStyle, controlHover } from '../components/ui/controlIdiom';
-import {
-  Crosshair, Plus, AlertTriangle, Globe, Hash, FileText,
-  User, Server, Search, X, Shield, ShieldAlert, RefreshCw,
-  CheckCircle, HelpCircle, Zap, Download, GitBranch, Info, Trash2, Loader2
-} from 'lucide-react';
+import { AlertTriangle, CheckCircle, Crosshair, Dna, Download, FileText, GitBranch, Globe, Hash, HelpCircle, Info, Link2, Loader2, Plus, RefreshCw, Search, Server, Shield, ShieldAlert, Trash2, User, X, Zap } from 'lucide-react';
 import { iocsAPI, casesAPI, networkAPI } from '../utils/api';
 import { Button, Modal, Badge, EmptyState, Spinner } from '../components/ui';
 import { downloadCSV } from '../utils/csvExport';
+
+const INLINE_PICTO = { verticalAlign: '-1px' };
 
 const TYPE_ICON = {
   ip: Globe, domain: Globe, url: Server,
@@ -121,7 +120,7 @@ function DgaPanel({ caseId }) {
     <div style={{ marginTop: 16, background: 'var(--fl-panel)', border: '1px solid var(--fl-border)', borderRadius: 8, overflow: 'hidden' }}>
       <div style={{ padding: '10px 16px', borderBottom: '1px solid var(--fl-panel)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--fl-text)', display: 'flex', alignItems: 'center', gap: 6 }}>
-          <span>🧬</span> {t('iocs.dga_title')}
+          <Dna size={12} style={INLINE_PICTO} /> {t('iocs.dga_title')}
           {data && <span style={{ fontSize: 11, color: 'var(--fl-dim)', fontWeight: 400 }}>— {t('iocs.dga_summary', { total: data.total, suspicious: data.suspicious_count })}</span>}
         </div>
         <button onClick={analyze} disabled={loading} style={{ fontSize: 11, padding: '4px 10px', background: 'var(--fl-accent)', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer' }}>
@@ -129,22 +128,22 @@ function DgaPanel({ caseId }) {
         </button>
       </div>
       {data && data.domains.length > 0 && (
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+        <table style={tableStyle}>
           <thead>
             <tr style={{ background: 'var(--fl-bg)' }}>
               {[t('iocs.col_domain'), t('iocs.col_entropy'), t('iocs.col_consonants'), t('iocs.col_length'), t('iocs.col_dga_score'), t('iocs.col_status')].map(h => (
-                <th key={h} style={{ padding: '6px 12px', textAlign: 'left', color: 'var(--fl-dim)', fontWeight: 600, borderBottom: '1px solid var(--fl-panel)' }}>{h}</th>
+                <th key={h} style={headStyle(false)}>{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
             {data.domains.map((d, i) => (
               <tr key={d.domain} style={{ background: d.is_suspicious ? '#2d1515' : i % 2 === 0 ? 'var(--fl-panel)' : 'var(--fl-bg)', borderBottom: '1px solid #21303f10' }}>
-                <td style={{ padding: '5px 12px', color: 'var(--fl-text)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}>{d.domain}</td>
-                <td style={{ padding: '5px 12px', color: d.entropy > 3.5 ? 'var(--fl-warn)' : 'var(--fl-dim)' }}>{d.entropy}</td>
-                <td style={{ padding: '5px 12px', color: d.consonant_ratio > 0.65 ? 'var(--fl-warn)' : 'var(--fl-dim)' }}>{(d.consonant_ratio * 100).toFixed(0)}%</td>
-                <td style={{ padding: '5px 12px', color: 'var(--fl-dim)' }}>{d.length}</td>
-                <td style={{ padding: '5px 12px' }}>
+                <td style={{ ...cellStyle(), color: 'var(--fl-text)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}>{d.domain}</td>
+                <td style={{ ...cellStyle(), color: d.entropy > 3.5 ? 'var(--fl-warn)' : 'var(--fl-dim)' }}>{d.entropy}</td>
+                <td style={{ ...cellStyle(), color: d.consonant_ratio > 0.65 ? 'var(--fl-warn)' : 'var(--fl-dim)' }}>{(d.consonant_ratio * 100).toFixed(0)}%</td>
+                <td style={{ ...cellStyle(), color: 'var(--fl-dim)' }}>{d.length}</td>
+                <td style={cellStyle()}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                     <div style={{ flex: 1, height: 6, background: 'var(--fl-panel)', borderRadius: 3, overflow: 'hidden' }}>
                       <div style={{ height: '100%', width: `${d.dga_score}%`, background: d.dga_score >= 60 ? 'var(--fl-danger)' : d.dga_score >= 40 ? 'var(--fl-warn)' : 'var(--fl-ok)', borderRadius: 3 }} />
@@ -152,7 +151,7 @@ function DgaPanel({ caseId }) {
                     <span style={{ fontSize: 11, color: 'var(--fl-dim)', minWidth: 28 }}>{d.dga_score}</span>
                   </div>
                 </td>
-                <td style={{ padding: '5px 12px' }}>
+                <td style={cellStyle()}>
                   {d.is_suspicious
                     ? <span style={{ fontSize: 10, padding: '2px 6px', background: 'color-mix(in srgb, var(--fl-danger) 13%, transparent)', color: 'var(--fl-danger)', borderRadius: 4, border: '1px solid color-mix(in srgb, var(--fl-danger) 25%, transparent)' }}>SUSPECT</span>
                     : <span style={{ fontSize: 10, padding: '2px 6px', background: 'color-mix(in srgb, var(--fl-ok) 13%, transparent)', color: 'var(--fl-ok)', borderRadius: 4 }}>OK</span>
@@ -540,7 +539,7 @@ export default function IOCsPage() {
                             fontFamily: 'JetBrains Mono, monospace', fontWeight: 700,
                           }}
                         >
-                          🔗 {t('iocs.shared_cases_count', { count: sharedCountMap[ioc.value] })}
+                          <Link2 size={10} style={INLINE_PICTO} /> {t('iocs.shared_cases_count', { count: sharedCountMap[ioc.value] })}
                         </button>
                       )}
                     </td>
@@ -584,7 +583,7 @@ export default function IOCsPage() {
                               <button onClick={() => handleConfirmIOC(ioc)}
                                 style={{ fontSize: 10, padding: '2px 6px', background: 'color-mix(in srgb, var(--fl-ok) 13%, transparent)', color: 'var(--fl-ok)', border: '1px solid color-mix(in srgb, var(--fl-ok) 25%, transparent)', borderRadius: 3, cursor: 'pointer' }}>OK</button>
                               <button onClick={() => { setConfirmingId(null); setConfirmConf('confirmed'); setConfirmNote(''); }}
-                                style={{ fontSize: 10, padding: '2px 6px', background: 'transparent', color: 'var(--fl-dim)', border: '1px solid var(--fl-border)', borderRadius: 3, cursor: 'pointer' }}>✕</button>
+                                style={{ fontSize: 10, padding: '2px 6px', background: 'transparent', color: 'var(--fl-dim)', border: '1px solid var(--fl-border)', borderRadius: 3, cursor: 'pointer' }}><X size={10} /></button>
                             </div>
                           </div>
                         ) : (
@@ -753,15 +752,15 @@ export default function IOCsPage() {
                   <tbody>
                     {pivotResults.map((r, i) => (
                       <tr key={`${r.id}-${i}`} style={{ borderBottom: '1px solid var(--fl-border)' }}>
-                        <td style={{ padding: '6px 8px' }}>
+                        <td style={cellStyle()}>
                           <a href={`/cases/${r.id}`} style={{ color: 'var(--fl-accent)', textDecoration: 'none', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11 }} onClick={e => { e.preventDefault(); window.location.href = `/cases/${r.id}`; }}>
                             {r.case_number}
                           </a>
                         </td>
-                        <td style={{ padding: '6px 8px', color: 'var(--fl-dim)', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.title}</td>
-                        <td style={{ padding: '6px 8px', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10, color: 'var(--fl-muted)' }}>{r.status}</td>
-                        <td style={{ padding: '6px 8px', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10, color: 'var(--fl-dim)' }}>{t(`iocs.types.${r.ioc_type}`, { defaultValue: TYPE_LABEL[r.ioc_type] || r.ioc_type })}</td>
-                        <td style={{ padding: '6px 8px', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10, color: 'var(--fl-muted)', whiteSpace: 'nowrap' }}>
+                        <td style={{ ...cellStyle(), color: 'var(--fl-dim)', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.title}</td>
+                        <td style={{ ...cellStyle(), fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10, color: 'var(--fl-muted)' }}>{r.status}</td>
+                        <td style={{ ...cellStyle(), fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10, color: 'var(--fl-dim)' }}>{t(`iocs.types.${r.ioc_type}`, { defaultValue: TYPE_LABEL[r.ioc_type] || r.ioc_type })}</td>
+                        <td style={{ ...cellStyle(), fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10, color: 'var(--fl-muted)', whiteSpace: 'nowrap' }}>
                           {r.ioc_created_at ? new Date(r.ioc_created_at).toLocaleDateString(i18n.language) : '—'}
                         </td>
                       </tr>

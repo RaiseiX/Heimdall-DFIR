@@ -415,7 +415,7 @@ export default function CollectionPage() {
           <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--fl-panel)' }}>
             <div
               className="h-full rounded-full transition-all duration-500"
-              style={{ width: `${progress}%`, background: 'linear-gradient(90deg, var(--fl-accent), var(--fl-purple))' }}
+              style={{ width: `${progress}%`, background: 'var(--fl-accent)' }}
             />
           </div>
         </div>
@@ -459,11 +459,11 @@ export default function CollectionPage() {
               </p>
               {isCatScaleCollection ? (
                 <span className="text-xs font-mono px-2 py-0.5 rounded" style={{ background: 'color-mix(in srgb, var(--fl-ok) 9%, transparent)', color: 'var(--fl-ok)', border: '1px solid color-mix(in srgb, var(--fl-ok) 19%, transparent)' }}>
-                  🐧 Linux / CatScale
+                  Linux / CatScale
                 </span>
               ) : (
                 <span className="text-xs font-mono px-2 py-0.5 rounded" style={{ background: 'color-mix(in srgb, var(--fl-accent) 9%, transparent)', color: 'var(--fl-accent)', border: '1px solid color-mix(in srgb, var(--fl-accent) 19%, transparent)' }}>
-                  🪟 Windows
+                  Windows
                 </span>
               )}
             </div>

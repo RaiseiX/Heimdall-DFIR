@@ -154,7 +154,7 @@ export default function MemoryUploadPanel({ caseId, onDone, onClose }) {
       width: `${pct}%`,
       background: status === 'done' ? 'var(--fl-ok)'
         : status === 'error' ? 'var(--fl-danger)'
-        : 'linear-gradient(90deg, var(--fl-accent), var(--fl-purple))',
+        : 'var(--fl-accent)',
     }),
     uploadBtn: {
       display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7,

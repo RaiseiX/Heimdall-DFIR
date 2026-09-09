@@ -1,3 +1,4 @@
+import { tableStyle, headStyle, cellStyle } from './ui/tableIdiom';
 import { useState, useEffect } from 'react';
 import { X, MessageSquare, RefreshCw } from 'lucide-react';
 import { feedbackAPI } from '../utils/api';
@@ -69,11 +70,11 @@ export default function FeedbackMyRequests({ onClose }) {
             </div>
           )}
           {rows.length > 0 && (
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+            <table style={tableStyle}>
               <thead>
                 <tr style={{ borderBottom: `1px solid ${T.border}` }}>
                   {[t('feedback.col_type'), t('feedback.col_title'), t('feedback.col_status'), t('feedback.col_admin_reply'), t('feedback.col_date')].map(h => (
-                    <th key={h} style={{ textAlign: 'left', padding: '5px 8px', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10, color: T.muted, fontWeight: 700, textTransform: 'uppercase' }}>{h}</th>
+                    <th key={h} style={headStyle(false)}>{h}</th>
                   ))}
                 </tr>
               </thead>
@@ -82,13 +83,13 @@ export default function FeedbackMyRequests({ onClose }) {
                   const sc = STATUS_CONFIG[r.status] || STATUS_CONFIG.open;
                   return (
                     <tr key={r.id} style={{ borderBottom: `1px solid ${T.border}` }}>
-                      <td style={{ padding: '6px 8px', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: T.dim, whiteSpace: 'nowrap' }}>
+                      <td style={{ ...cellStyle(), fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: T.dim, whiteSpace: 'nowrap' }}>
                         {TYPE_LABEL_KEYS[r.type] ? t(TYPE_LABEL_KEYS[r.type]) : r.type}
                       </td>
-                      <td style={{ padding: '6px 8px', color: T.text, maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      <td style={{ ...cellStyle(), color: T.text, maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {r.title || r.description?.slice(0, 50) || '—'}
                       </td>
-                      <td style={{ padding: '6px 8px', whiteSpace: 'nowrap' }}>
+                      <td style={{ ...cellStyle(), whiteSpace: 'nowrap' }}>
                         <span style={{
                           padding: '2px 8px', borderRadius: 4, fontSize: 10, fontWeight: 700, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
                           background: `color-mix(in srgb, ${sc.color} 9%, transparent)`, color: sc.color, border: `1px solid color-mix(in srgb, ${sc.color} 19%, transparent)`,
@@ -96,10 +97,10 @@ export default function FeedbackMyRequests({ onClose }) {
                           {t(sc.key)}
                         </span>
                       </td>
-                      <td style={{ padding: '6px 8px', color: T.dim, maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      <td style={{ ...cellStyle(), color: T.dim, maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {r.admin_reply || <span style={{ color: T.muted }}>—</span>}
                       </td>
-                      <td style={{ padding: '6px 8px', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10, color: T.muted, whiteSpace: 'nowrap' }}>
+                      <td style={{ ...cellStyle(), fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10, color: T.muted, whiteSpace: 'nowrap' }}>
                         {new Date(r.created_at).toLocaleDateString(i18n.language)}
                       </td>
                     </tr>

@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react';
-import { ChevronLeft, ChevronRight, ShieldCheck } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ShieldCheck, X } from 'lucide-react';
 import { usersAPI } from '../../utils/api';
 import { MONO, SectionHead, Btn, Table, tdStyle, Skeletons, Empty } from './shared';
 import { useTranslation } from 'react-i18next';
+
+const INLINE_PICTO = { verticalAlign: '-1px' };
 
 const PAGE = 25;
 
@@ -83,7 +85,7 @@ export default function AuditSection() {
             {t('settings.audit.tampered_detected')}{integrity.tampered_ids?.length ? ` - IDs: ${integrity.tampered_ids.slice(0, 5).join(', ')}${integrity.tampered_ids.length > 5 ? '…' : ''}` : ''}
           </div>
         )}
-        {integrity?.error && <div style={{ marginTop: 8, fontSize: 11, fontFamily: MONO, color: 'var(--fl-danger)' }}>✗ {integrity.error}</div>}
+        {integrity?.error && <div style={{ marginTop: 8, fontSize: 11, fontFamily: MONO, color: 'var(--fl-danger)' }}><X size={11} style={INLINE_PICTO} /> {integrity.error}</div>}
       </div>
 
       {loading ? <Skeletons n={6} h={38} /> : rows.length === 0 ? <Empty text={t('settings.audit.none')} /> : (

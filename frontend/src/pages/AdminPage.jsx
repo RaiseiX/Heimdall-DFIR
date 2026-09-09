@@ -1,14 +1,18 @@
+import { tableStyle, headStyle, cellStyle } from '../components/ui/tableIdiom';
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import { resolveInstalledName } from '../utils/ollamaModels';
 import { controlStyle, controlHover } from '../components/ui/controlIdiom';
 import { useTheme } from '../utils/theme';
-import { Settings, Plus, Shield, UserCheck, UserX, ScrollText, Trash2, Search, CheckCircle2, XCircle, RefreshCw, ShieldAlert, Activity, Database, Download, Cpu, MessageSquare, Bot, FileText } from 'lucide-react';
+import { Settings, Plus, Shield, UserCheck, UserX, ScrollText, Trash2, Search, CheckCircle2, XCircle, RefreshCw, ShieldAlert, Activity, Database, Download, Cpu, MessageSquare, Bot, FileText , AlertTriangle, Check, X } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { usersAPI, authAPI, casesAPI, adminAPI, feedbackAPI, settingsAPI } from '../utils/api';
 import { Button, Modal, TabGroup, Spinner, EmptyState, Pagination } from '../components/ui';
 import { fmtLocal } from '../utils/formatters';
+
+const INLINE_PICTO = { verticalAlign: '-1px' };
 
 const ACTION_COLORS = {
   login: 'var(--fl-ok)', login_failed: 'var(--fl-danger)', login_blocked: 'var(--fl-gold)',
@@ -522,7 +526,7 @@ function DockerTab() {
         </button>
       </div>
 
-      {error && <div style={{ padding: '10px 14px', borderRadius: 6, marginBottom: 14, background: 'color-mix(in srgb, var(--fl-danger) 7%, transparent)', border: '1px solid color-mix(in srgb, var(--fl-danger) 22%, transparent)', fontSize: 12, fontFamily: MONO, color: 'var(--fl-danger)' }}>✗ {error}</div>}
+      {error && <div style={{ padding: '10px 14px', borderRadius: 6, marginBottom: 14, background: 'color-mix(in srgb, var(--fl-danger) 7%, transparent)', border: '1px solid color-mix(in srgb, var(--fl-danger) 22%, transparent)', fontSize: 12, fontFamily: MONO, color: 'var(--fl-danger)' }}><X size={11} style={INLINE_PICTO} /> {error}</div>}
       {loading && !data && <Spinner full text={t('admin.docker.loading_containers')} />}
 
       {running.length > 0 && (
@@ -588,6 +592,9 @@ const MODEL_CATALOG = [
   { id: 'qwen3.5:9b',    label: 'Qwen 3.5 9B',       size: '~6 GB',   descKey: 'qwen35_9b',    tag: 'quality' },
   { id: 'granite4.1:8b', label: 'Granite 4.1 8B',    size: '~5 GB',   descKey: 'granite41_8b', tag: 'recent' },
   { id: 'gpt-oss:20b',   label: 'GPT-OSS 20B',       size: '~13 GB',  descKey: 'gpt_oss_20b',  tag: 'powerful' },
+  { id: 'hf.co/mradermacher/Foundation-Sec-8B-Instruct-GGUF:Q4_K_M', label: 'Foundation-Sec 8B', size: '4.9 GB', descKey: 'foundation_sec_8b_q4', tag: 'security' },
+  { id: 'hf.co/fdtn-ai/Foundation-Sec-8B-Instruct-Q8_0-GGUF', label: 'Foundation-Sec 8B Q8', size: '8.5 GB', descKey: 'foundation_sec_8b_q8', tag: 'security' },
+  { id: 'hf.co/IMPERUM/Imperum-CybersecurityLLM-v1.0-GGUF:Q4_K_M', label: 'Imperum Cybersecurity 35B', size: '21 GB', descKey: 'imperum_cyber_35b', tag: 'security' },
 ];
 
 const TAG_COLOR = {
@@ -599,6 +606,7 @@ const TAG_COLOR = {
   recent:         'var(--fl-purple)',
   agent:          'var(--fl-accent)',
   powerful:       'var(--fl-danger)',
+  security:       'var(--fl-accent)',
 };
 
 const ACTIVE_MODEL_KEY = 'heimdall.ai.activeModel';
@@ -816,12 +824,12 @@ function AiSettingsTab() {
                   {ollamaInstall.pct > 0 && <span style={{ fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-warn)' }}>{ollamaInstall.pct}%</span>}
                 </div>
                 <div style={{ height: 5, background: 'var(--fl-border)', borderRadius: 3, overflow: 'hidden' }}>
-                  <div style={{ height: '100%', width: ollamaInstall.pct > 0 ? `${ollamaInstall.pct}%` : '100%', background: 'linear-gradient(90deg, var(--fl-warn), var(--fl-warn))', borderRadius: 3, transition: 'width 0.3s', animation: ollamaInstall.pct === 0 ? 'indeterminate 1.5s ease-in-out infinite' : 'none' }} />
+                  <div style={{ height: '100%', width: ollamaInstall.pct > 0 ? `${ollamaInstall.pct}%` : '100%', background: 'var(--fl-warn)', borderRadius: 3, transition: 'width 0.3s', animation: ollamaInstall.pct === 0 ? 'indeterminate 1.5s ease-in-out infinite' : 'none' }} />
                 </div>
               </div>
             )}
-            {ollamaInstall.phase === 'done' && <div style={{ fontSize: 11, color: 'var(--fl-ok)' }}>✓ {ollamaInstall.message}</div>}
-            {ollamaInstall.phase === 'error' && <div style={{ fontSize: 11, color: 'var(--fl-danger)' }}>⚠ {ollamaInstall.error}</div>}
+            {ollamaInstall.phase === 'done' && <div style={{ fontSize: 11, color: 'var(--fl-ok)' }}><Check size={11} style={INLINE_PICTO} /> {ollamaInstall.message}</div>}
+            {ollamaInstall.phase === 'error' && <div style={{ fontSize: 11, color: 'var(--fl-danger)' }}><AlertTriangle size={11} style={INLINE_PICTO} /> {ollamaInstall.error}</div>}
           </div>
         )}
 
@@ -920,7 +928,8 @@ function AiSettingsTab() {
       </h4>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {MODEL_CATALOG.map(m => {
-          const isInstalled = installed.has(m.id);
+          const installedName = resolveInstalledName(m.id, installed);
+          const isInstalled = installedName !== null;
           const ps = pullState[m.id];
           const isDel = deleting[m.id];
           return (
@@ -948,11 +957,11 @@ function AiSettingsTab() {
                       <span style={{ fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-warn)' }}>{ps.pct}%</span>
                     </div>
                     <div style={{ height: 4, background: 'var(--fl-border)', borderRadius: 2, overflow: 'hidden' }}>
-                      <div style={{ height: '100%', width: `${ps.pct}%`, background: 'linear-gradient(90deg, var(--fl-warn), var(--fl-warn))', borderRadius: 2, transition: 'width 0.3s' }} />
+                      <div style={{ height: '100%', width: `${ps.pct}%`, background: 'var(--fl-warn)', borderRadius: 2, transition: 'width 0.3s' }} />
                     </div>
                   </div>
                 )}
-                {ps?.error && <div style={{ fontSize: 10, color: 'var(--fl-danger)', marginTop: 4 }}>⚠ {ps.error}</div>}
+                {ps?.error && <div style={{ fontSize: 10, color: 'var(--fl-danger)', marginTop: 4 }}><AlertTriangle size={10} style={INLINE_PICTO} /> {ps.error}</div>}
                 {ps?.done && !isInstalled && <div style={{ fontSize: 10, color: 'var(--fl-ok)', marginTop: 4 }}>{t('admin.ai.install_done_refresh')}</div>}
               </div>
 
@@ -960,7 +969,7 @@ function AiSettingsTab() {
                 {isInstalled ? (
                   <>
                     <span style={{ fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-ok)', padding: '3px 8px', border: '1px solid color-mix(in srgb, var(--fl-ok) 30%, transparent)', borderRadius: 4 }}>{t('admin.ai.installed_badge')}</span>
-                    <Button variant="danger" size="sm" loading={isDel} onClick={() => removeModel(m.id)}>{t('common.delete')}</Button>
+                    <Button variant="danger" size="sm" loading={isDel} onClick={() => removeModel(installedName ?? m.id)}>{t('common.delete')}</Button>
                   </>
                 ) : ps?.pulling ? (
                   <Button variant="secondary" size="sm" onClick={() => { abortRefs.current[m.id]?.abort(); }}>{t('common.cancel')}</Button>
@@ -1254,7 +1263,7 @@ function LogsTab({ users }) {
                 <thead>
                   <tr style={{ background: 'var(--fl-panel)', borderBottom: '1px solid var(--fl-border)' }}>
                     {[t('admin.col_timestamp'), t('admin.col_user'), t('admin.logs.method'), 'Path', t('admin.col_status'), 'ms', 'IP'].map(h => (
-                      <th key={h} style={{ padding: '7px 10px', textAlign: 'left', fontSize: 10, fontWeight: 700, color: 'var(--fl-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{h}</th>
+                      <th key={h} style={{ ...headStyle(false), textAlign: 'left', fontSize: 10, fontWeight: 700, color: 'var(--fl-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{h}</th>
                     ))}
                   </tr>
                 </thead>
@@ -1289,29 +1298,29 @@ function LogsTab({ users }) {
                               borderBottom: '1px solid color-mix(in srgb, var(--fl-border) 50%, transparent)',
                             }}
                           >
-                            <td style={{ padding: '0 10px', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10, color: 'var(--fl-dim)', whiteSpace: 'nowrap', overflow: 'hidden' }}>
+                            <td style={{ ...cellStyle(), fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10, color: 'var(--fl-dim)', whiteSpace: 'nowrap', overflow: 'hidden' }}>
                               {fmtLocal(row.created_at)}
                             </td>
-                            <td style={{ padding: '0 10px', overflow: 'hidden' }}>
+                            <td style={{ ...cellStyle(), overflow: 'hidden' }}>
                               <span style={{ fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontWeight: 700, padding: '1px 6px', borderRadius: 3, background: 'color-mix(in srgb, var(--fl-accent) 8%, transparent)', color: 'var(--fl-accent)', border: '1px solid color-mix(in srgb, var(--fl-accent) 20%, transparent)' }}>
                                 {row.username || '—'}
                               </span>
                             </td>
-                            <td style={{ padding: '0 10px', overflow: 'hidden' }}>
+                            <td style={{ ...cellStyle(), overflow: 'hidden' }}>
                               <span style={{ fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontWeight: 700, padding: '1px 6px', borderRadius: 3, background: `color-mix(in srgb, ${mc} 8%, transparent)`, color: mc, border: `1px solid color-mix(in srgb, ${mc} 16%, transparent)`, textTransform: 'uppercase' }}>
                                 {row.method}
                               </span>
                             </td>
-                            <td style={{ padding: '0 10px', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10, color: 'var(--fl-text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={row.path}>
+                            <td style={{ ...cellStyle(), fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10, color: 'var(--fl-text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={row.path}>
                               {row.path}
                             </td>
-                            <td style={{ padding: '0 10px', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11, fontWeight: 700, color: sc }}>
+                            <td style={{ ...cellStyle(), fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11, fontWeight: 700, color: sc }}>
                               {row.status_code}
                             </td>
-                            <td style={{ padding: '0 10px', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10, color: row.response_ms > 1000 ? 'var(--fl-warn)' : 'var(--fl-dim)' }}>
+                            <td style={{ ...cellStyle(), fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10, color: row.response_ms > 1000 ? 'var(--fl-warn)' : 'var(--fl-dim)' }}>
                               {row.response_ms != null ? `${row.response_ms}` : '—'}
                             </td>
-                            <td style={{ padding: '0 10px', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10, color: 'var(--fl-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            <td style={{ ...cellStyle(), fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10, color: 'var(--fl-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                               {row.ip_address || '—'}
                             </td>
                           </tr>
@@ -1364,7 +1373,7 @@ function LogsTab({ users }) {
 
           {logNote && (
             <div style={{ marginBottom: 12, padding: '10px 14px', borderRadius: 8, background: 'color-mix(in srgb, var(--fl-warn) 6%, transparent)', border: '1px solid color-mix(in srgb, var(--fl-warn) 20%, transparent)', fontSize: 12, color: 'var(--fl-warn)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}>
-              ⚠ {logNote}
+              <AlertTriangle size={11} style={INLINE_PICTO} /> {logNote}
             </div>
           )}
 
@@ -1462,18 +1471,18 @@ function AboutTab() {
               <tbody>
                 {OPEN_SOURCE_CREDITS.map((c, i) => (
                   <tr key={c.name} style={{ borderBottom: i < OPEN_SOURCE_CREDITS.length - 1 ? '1px solid var(--fl-border)' : 'none' }}>
-                    <td style={{ padding: '10px 10px', verticalAlign: 'top' }}>
+                    <td style={{ ...cellStyle(), verticalAlign: 'top' }}>
                       <span style={{ fontWeight: 600, color: 'var(--fl-accent)', fontSize: 12 }}>{c.name}</span>
                     </td>
-                    <td style={{ padding: '10px 10px', verticalAlign: 'top', color: 'var(--fl-text)', whiteSpace: 'nowrap' }}>{c.author}</td>
-                    <td style={{ padding: '10px 10px', verticalAlign: 'top', whiteSpace: 'nowrap' }}>
+                    <td style={{ ...cellStyle(), verticalAlign: 'top', color: 'var(--fl-text)', whiteSpace: 'nowrap' }}>{c.author}</td>
+                    <td style={{ ...cellStyle(), verticalAlign: 'top', whiteSpace: 'nowrap' }}>
                       <span style={{
                         fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', padding: '2px 6px', borderRadius: 4,
                         background: 'var(--fl-card)',
                         color: 'var(--fl-muted)', border: '1px solid var(--fl-border)',
                       }}>{c.license}</span>
                     </td>
-                    <td style={{ padding: '10px 10px', verticalAlign: 'top', color: 'var(--fl-muted)', lineHeight: 1.5 }}>{t(`admin.about.credit_descriptions.${c.descriptionKey}`)}</td>
+                    <td style={{ ...cellStyle(), verticalAlign: 'top', color: 'var(--fl-muted)', lineHeight: 1.5 }}>{t(`admin.about.credit_descriptions.${c.descriptionKey}`)}</td>
                   </tr>
                 ))}
               </tbody>

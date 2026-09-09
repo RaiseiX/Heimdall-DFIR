@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 export const EVIDENCE_COLORS = [
@@ -197,7 +198,7 @@ export default function GlobalMapToolbar({
                         style={{ ...btnStyle, flexShrink: 0, padding: '0 2px' }}
                         onMouseEnter={e => { e.currentTarget.style.color = 'var(--fl-danger)'; }}
                         onMouseLeave={e => { e.currentTarget.style.color = 'var(--fl-muted)'; }}
-                      >✕</button>
+                      ><X size={11} /></button>
                     </div>
                   ))}
                 </div>

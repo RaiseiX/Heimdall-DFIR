@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { BookOpen, ChevronDown, ChevronRight, CheckSquare, Square, Plus, RefreshCw, FileText } from 'lucide-react';
+import { BookOpen, ChevronDown, ChevronRight, CheckSquare, Square, Plus, RefreshCw, FileText, X } from 'lucide-react';
 import { playbooksAPI } from '../../utils/api';
 import { Spinner } from '../ui';
 import { fmtLocal } from '../../utils/formatters';
@@ -164,7 +164,7 @@ function StepItem({ step, instanceId, caseId, onUpdated }) {
               style={{ fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', padding: '3px 8px', borderRadius: 4,
                 background: 'none', color: 'var(--fl-dim)', border: '1px solid var(--fl-border)', cursor: 'pointer' }}
             >
-              ✕
+              <X size={12} />
             </button>
           </div>
         </div>

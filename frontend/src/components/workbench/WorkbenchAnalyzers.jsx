@@ -1,5 +1,7 @@
 import { useMemo } from 'react';
-import { Shield, KeyRound, LogIn, AlertTriangle } from 'lucide-react';
+import { Shield, KeyRound, LogIn, AlertTriangle, Monitor, User } from 'lucide-react';
+
+const INLINE_PICTO = { verticalAlign: '-1px' };
 
 const PERSISTENCE_RULES = [
   { mitre: 'T1547.001', name: 'Registry Run Keys',       weight: 3, match: r => /\\(Run|RunOnce|RunOnceEx|RunServices|RunServicesOnce)(\\|$)/i.test(r._blob) || /HKLM.*CurrentVersion\\Run/i.test(r._blob) || r.artifact_type === 'registry' && /\\Run(Once)?\\/.test(r.source || '') },
@@ -190,8 +192,8 @@ export function LogonSessions({ pins, caseId, navigate }) {
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4, flexWrap: 'wrap' }}>
               <span style={{ fontSize: 9, padding: '1px 6px', borderRadius: 3, background: `color-mix(in srgb, ${statusColor(s.status)} 15%, transparent)`, color: statusColor(s.status), textTransform: 'uppercase', fontWeight: 700 }}>{s.status}</span>
               <span style={{ fontSize: 10, color: 'var(--fl-accent)' }}>{s.id}</span>
-              {s.user && <span style={{ fontSize: 10, color: 'var(--fl-on-dark)' }}>👤 {s.user}</span>}
-              {s.host && <span style={{ fontSize: 10, color: 'var(--fl-on-dark)' }}>⚙ {s.host}</span>}
+              {s.user && <span style={{ fontSize: 10, color: 'var(--fl-on-dark)' }}><User size={10} style={INLINE_PICTO} /> {s.user}</span>}
+              {s.host && <span style={{ fontSize: 10, color: 'var(--fl-on-dark)' }}><Monitor size={10} style={INLINE_PICTO} /> {s.host}</span>}
               {s.logonType != null && (
                 <span style={{ fontSize: 9, padding: '1px 5px', borderRadius: 3, background: 'var(--fl-card)', color: 'var(--fl-dim)' }}>
                   Type {s.logonType}{LOGON_TYPES[s.logonType] ? ` · ${LOGON_TYPES[s.logonType]}` : ''}

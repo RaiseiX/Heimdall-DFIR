@@ -1,5 +1,5 @@
 import { useMemo, useState, useEffect } from 'react';
-import { Pin, Trash2, ExternalLink, Search, Download, Copy, CheckCircle2, Circle, FileCheck2, LayoutList, LayoutGrid, FileText, Shield, LogIn, ShieldCheck } from 'lucide-react';
+import { CheckCircle2, Circle, Copy, Download, ExternalLink, FileCheck2, FileText, LayoutGrid, LayoutList, LogIn, Monitor, Pin, Search, Shield, ShieldCheck, Trash2, User } from 'lucide-react';
 import { PersistenceSweep, LogonSessions } from './WorkbenchAnalyzers';
 import WorkbenchAuditLedger from './WorkbenchAuditLedger';
 import { useNavigate } from 'react-router-dom';
@@ -8,6 +8,8 @@ import { artifactColor } from '../../constants/artifactColors';
 import { fmtTs as fmtTsUtil } from '../../utils/formatters';
 import { casesAPI } from '../../utils/api';
 import { useSocket, useSocketEvent } from '../../hooks/useSocket';
+
+const INLINE_PICTO = { verticalAlign: '-1px' };
 
 function escHtml(s) {
   return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
@@ -123,7 +125,7 @@ export default function WorkbenchEvidenceTab({ caseId }) {
           <div class="ts"><strong>Event timestamp:</strong> ${escHtml(fmtUtc(p.timestamp))}</div>
           <div class="desc">${escHtml(p.description || '(no description)')}</div>
           ${p.source ? `<div class="src"><strong>Source:</strong> <code>${escHtml(p.source)}</code></div>` : ''}
-          ${(p.host_name || p.user_name) ? `<div class="ctx">${p.host_name ? `<span>⚙ Host: <code>${escHtml(p.host_name)}</code></span>` : ''}${p.user_name ? `<span>👤 User: <code>${escHtml(p.user_name)}</code></span>` : ''}</div>` : ''}
+          ${(p.host_name || p.user_name) ? `<div class="ctx">${p.host_name ? `<span>Host: <code>${escHtml(p.host_name)}</code></span>` : ''}${p.user_name ? `<span>👤 User: <code>${escHtml(p.user_name)}</code></span>` : ''}</div>` : ''}
           ${p.note ? `<div class="note"><strong>Analyst note:</strong> ${escHtml(p.note)}</div>` : ''}
           <table class="coc">
             <tr><th>pin_id</th><td><code>${escHtml(p.pin_id)}</code></td></tr>
@@ -235,7 +237,7 @@ ${filtered.length === 0 ? '<p style="color:#888;font-style:italic">No pinned evi
         <Pin size={28} style={{ opacity: 0.5, marginBottom: 12 }} />
         <div style={{ fontSize: 13, color: 'var(--fl-on-dark)', marginBottom: 6 }}>No pinned evidence for this case</div>
         <div style={{ fontSize: 11 }}>
-          In the <b>Super Timeline</b>, right-click a cell → <span style={{ color: 'var(--fl-purple, #c96898)' }}>📌 Pin evidence</span>
+          In the <b>Super Timeline</b>, right-click a cell → <span style={{ color: 'var(--fl-purple, #c96898)' }}>Pin evidence</span>
           <br />or press <kbd style={{ padding: '1px 6px', border: '1px solid var(--fl-sep)', borderRadius: 3, background: 'var(--fl-card)' }}>P</kbd> on a selected row.
         </div>
       </div>
@@ -370,8 +372,8 @@ ${filtered.length === 0 ? '<p style="color:#888;font-style:italic">No pinned evi
                   <span style={{ fontSize: 10, color: 'var(--fl-on-dark)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}>
                     {p.timestamp ? fmtTsUtil(p.timestamp) : '—'}
                   </span>
-                  {p.host_name && <span style={{ fontSize: 10, color: 'var(--fl-dim)' }}>⚙ {p.host_name}</span>}
-                  {p.user_name && <span style={{ fontSize: 10, color: 'var(--fl-dim)' }}>👤 {p.user_name}</span>}
+                  {p.host_name && <span style={{ fontSize: 10, color: 'var(--fl-dim)' }}><Monitor size={10} style={INLINE_PICTO} /> {p.host_name}</span>}
+                  {p.user_name && <span style={{ fontSize: 10, color: 'var(--fl-dim)' }}><User size={10} style={INLINE_PICTO} /> {p.user_name}</span>}
                 </div>
 
                 <div style={{ fontSize: 11, color: 'var(--fl-on-dark)', marginBottom: 4, wordBreak: 'break-word' }}>
@@ -537,8 +539,8 @@ function BoardView({ pins, caseId, updatePin, unpin, navigate }) {
                     {(p.host_name || p.user_name || p.timestamp) && (
                       <div style={{ fontSize: 9, color: 'var(--fl-dim)', marginBottom: 4, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                         {p.timestamp && <span>⏱ {String(p.timestamp).replace('T', ' ').slice(0, 19)}</span>}
-                        {p.host_name && <span>⚙ {p.host_name}</span>}
-                        {p.user_name && <span>👤 {p.user_name}</span>}
+                        {p.host_name && <span><Monitor size={10} style={INLINE_PICTO} /> {p.host_name}</span>}
+                        {p.user_name && <span><User size={10} style={INLINE_PICTO} /> {p.user_name}</span>}
                       </div>
                     )}
                     {p.note && (
@@ -547,7 +549,7 @@ function BoardView({ pins, caseId, updatePin, unpin, navigate }) {
                         background: 'var(--fl-bg)', borderRadius: 3, border: '1px solid var(--fl-sep)',
                         marginBottom: 4, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical',
                       }}>
-                        📝 {p.note}
+                        <FileText size={10} style={INLINE_PICTO} /> {p.note}
                       </div>
                     )}
                     <div style={{ display: 'flex', gap: 4, marginTop: 4 }}>

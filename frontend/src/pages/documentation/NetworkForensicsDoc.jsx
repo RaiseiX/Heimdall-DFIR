@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { Copy, CheckCheck, ChevronDown, ChevronRight, AlertTriangle, Sparkles, Search } from 'lucide-react';
+import { Copy, CheckCheck, ChevronDown, ChevronRight, AlertTriangle, Search } from 'lucide-react';
 import { useTheme } from '../../utils/theme';
 
 function askAi(topic) {
@@ -459,7 +459,7 @@ function TopicCard({ topic, search, compact }) {
               border: `1px solid ${hover ? 'color-mix(in srgb, var(--fl-accent) 30%, transparent)' : 'var(--fl-border)'}`,
               transition: 'all 0.12s', opacity: hover || open ? 1 : 0.55,
             }}>
-            <Sparkles size={10} /> IA
+            IA
           </button>
         </div>
         <p style={{ fontSize: 11, marginTop: 5, marginLeft: 22, color: 'var(--fl-muted)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', lineHeight: 1.5 }}>{topic.summary}</p>

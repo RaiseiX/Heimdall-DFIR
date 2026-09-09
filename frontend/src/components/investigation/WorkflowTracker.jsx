@@ -85,7 +85,7 @@ export default function WorkflowTracker({ caseId }) {
 
       {steps.length > 0 && (
         <div style={{ height: 4, background: 'var(--fl-bg)', borderRadius: 2, overflow: 'hidden' }}>
-          <div style={{ height: '100%', borderRadius: 2, width: `${pct}%`, background: 'linear-gradient(90deg, var(--fl-accent), var(--fl-ok))', transition: 'width 0.4s' }} />
+          <div style={{ height: '100%', borderRadius: 2, width: `${pct}%`, background: 'var(--fl-accent)', transition: 'width 0.4s' }} />
         </div>
       )}
 

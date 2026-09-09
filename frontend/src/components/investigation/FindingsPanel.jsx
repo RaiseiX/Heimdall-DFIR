@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Plus, Pencil, Trash2, Crosshair, X, RefreshCw, FileText, Sparkles, ClipboardCopy, Check, ArrowRight } from 'lucide-react';
+import { Plus, Pencil, Trash2, Crosshair, X, RefreshCw, FileText, Loader2, ClipboardCopy, Check, ArrowRight } from 'lucide-react';
 import { bookmarksAPI, reportsAPI } from '../../utils/api';
 import { fmtLocal } from '../../utils/formatters';
 import StructuredNoteEditor from './StructuredNoteEditor';
@@ -106,7 +106,7 @@ export default function FindingsPanel({ caseId, onChange }) {
           {findings.length > 0 && <button onClick={exportCSV} style={btn}><FileText size={10} /> CSV</button>}
           {findings.length > 0 && (
             <button onClick={generateNarrative} disabled={narLoading} style={{ ...btn, color: 'var(--fl-purple)', borderColor: 'color-mix(in srgb, var(--fl-purple) 35%, transparent)', opacity: narLoading ? 0.6 : 1 }}>
-              <Sparkles size={10} style={{ animation: narLoading ? 'fl-spin 1.2s linear infinite' : 'none' }} />
+              {narLoading && <Loader2 size={10} style={{ animation: 'fl-spin 0.9s linear infinite' }} />}
               {narLoading ? t('bookmark.narrative_generating') : t('bookmark.narrative_btn')}
             </button>
           )}
@@ -124,7 +124,7 @@ export default function FindingsPanel({ caseId, onChange }) {
         <div style={{ border: '1px solid color-mix(in srgb, var(--fl-purple) 25%, transparent)', borderRadius: 8, background: 'color-mix(in srgb, var(--fl-purple) 5%, var(--fl-bg))', padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 8 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <span style={{ fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-purple)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-              <Sparkles size={9} style={{ marginRight: 4, verticalAlign: 'middle' }} />{t('bookmark.narrative_title')}
+              {t('bookmark.narrative_title')}
             </span>
             <div style={{ display: 'flex', gap: 4 }}>
               <button onClick={copyNarrative} style={{ ...btn, color: narCopied ? 'var(--fl-ok)' : 'var(--fl-subtle)' }}>

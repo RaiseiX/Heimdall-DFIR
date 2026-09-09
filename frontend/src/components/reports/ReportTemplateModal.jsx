@@ -1,6 +1,6 @@
 
 import { useState, useEffect } from 'react';
-import { X, Plus, Trash2, Save, FileText } from 'lucide-react';
+import { X, Plus, Trash2, Save, FileText, Check } from 'lucide-react';
 import { reportsAPI } from '../../utils/api';
 
 const ALL_SECTIONS = [
@@ -197,7 +197,7 @@ export default function ReportTemplateModal({ onClose, onSelect }) {
                         background: 'color-mix(in srgb, var(--fl-ok) 8%, transparent)', border: '1px solid color-mix(in srgb, var(--fl-ok) 21%, transparent)', color: 'var(--fl-ok)',
                       }}
                     >
-                      ✓
+                      <Check size={12} />
                     </button>
                   )}
                   <button

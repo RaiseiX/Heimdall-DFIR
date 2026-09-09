@@ -1,3 +1,4 @@
+import { tableStyle, headStyle, cellStyle } from '../components/ui/tableIdiom';
 import { useState, useEffect } from 'react';
 import { useOutletContext } from 'react-router-dom';
 import { FileText, ChevronDown, ChevronRight, RefreshCw, AlertCircle, CheckCircle2, AlertTriangle, MinusCircle, ShieldAlert, CopyX, Loader2, Download } from 'lucide-react';
@@ -242,11 +243,11 @@ export default function ParserLogsPage() {
                   {parseResults.length === 0 ? (
                     <p style={{ margin: 0, fontSize: 11, color: T.muted, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}>{t('parserLogs.no_details')}</p>
                   ) : (
-                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+                    <table style={tableStyle}>
                       <thead>
                         <tr style={{ borderBottom: `1px solid ${T.border}` }}>
                           {[t('parserLogs.col_parser'), t('parserLogs.col_status'), t('parserLogs.col_records'), t('parserLogs.col_error')].map(h => (
-                            <th key={h} style={{ textAlign: 'left', padding: '4px 8px', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10, color: T.muted, fontWeight: 700, textTransform: 'uppercase' }}>
+                            <th key={h} style={headStyle(false)}>
                               {h}
                             </th>
                           ))}
@@ -257,8 +258,8 @@ export default function ParserLogsPage() {
                           const pcfg = STATUS_CONFIG[pr.status] || STATUS_CONFIG.ok;
                           return (
                             <tr key={i} style={{ borderBottom: `1px solid ${T.border}` }}>
-                              <td style={{ padding: '4px 8px', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: T.dim }}>{pr.parser || pr.type || '—'}</td>
-                              <td style={{ padding: '4px 8px' }}>
+                              <td style={{ ...cellStyle(), fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: T.dim }}>{pr.parser || pr.type || '—'}</td>
+                              <td style={cellStyle()}>
                                 <span style={{
                                   padding: '1px 6px', borderRadius: 3, fontSize: 10, fontWeight: 700, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
                                   background: `color-mix(in srgb, ${pcfg.color} 9%, transparent)`, color: pcfg.color, border: `1px solid color-mix(in srgb, ${pcfg.color} 19%, transparent)`,
@@ -266,12 +267,12 @@ export default function ParserLogsPage() {
                                   {t(pcfg.key)}
                                 </span>
                               </td>
-                              <td style={{ padding: '4px 8px', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: T.text }}>
+                              <td style={{ ...cellStyle(), fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: T.text }}>
                                 {pr.record_count != null ? pr.record_count.toLocaleString() : '—'}
                               </td>
                               <td
                                 title={pr.error ? t('parserLogs.col_error') : pr.reason ? t('parserLogs.col_reason') : undefined}
-                                style={{ padding: '4px 8px', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: pr.error ? 'var(--fl-danger)' : pr.reason ? 'var(--fl-muted)' : 'var(--fl-danger)', fontSize: 10, maxWidth: 300, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                                style={{ ...cellStyle(), fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: pr.error ? 'var(--fl-danger)' : pr.reason ? 'var(--fl-muted)' : 'var(--fl-danger)', fontSize: 10, maxWidth: 300, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
                               >
                                 {pr.error || pr.reason || pr.warning || '—'}
                               </td>

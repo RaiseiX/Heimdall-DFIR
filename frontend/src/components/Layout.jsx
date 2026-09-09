@@ -366,9 +366,9 @@ export default function Layout({ user, onLogout, onTourStart, children }) {
         <Modal.Body style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <select value={fbForm.type} onChange={e => setFbForm(f => ({ ...f, type: e.target.value }))}
             style={{ padding: '5px 8px', borderRadius: 5, fontSize: 12, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', background: 'var(--fl-card)', color: 'var(--fl-text)', border: '1px solid var(--fl-border)' }}>
-            <option value="bug">🐛 Bug</option>
-            <option value="suggestion">💡 Suggestion</option>
-            <option value="autre">📝 {t('ui.feedback_type_other')}</option>
+            <option value="bug">Bug</option>
+            <option value="suggestion">Suggestion</option>
+            <option value="autre">{t('ui.feedback_type_other')}</option>
           </select>
 
           <input

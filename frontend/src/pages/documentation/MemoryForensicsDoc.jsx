@@ -1,3 +1,4 @@
+import { tableStyle, headStyle, cellStyle } from '../../components/ui/tableIdiom';
 import { useState, useMemo } from 'react';
 import { Copy, CheckCheck } from 'lucide-react';
 import { useTheme } from '../../utils/theme';
@@ -184,13 +185,11 @@ export default function MemoryForensicsDoc({ search }) {
       
       <div className="mb-8">
         <SectionTitle>Outils d'acquisition RAM</SectionTitle>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+        <table style={tableStyle}>
           <thead>
             <tr style={{ background: 'var(--fl-card)' }}>
               {['Outil', 'OS', 'Notes'].map(h => (
-                <th key={h} style={{ padding: '8px 12px', textAlign: 'left', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
-                  fontSize: 10, color: T.muted, fontWeight: 700, textTransform: 'uppercase',
-                  borderBottom: `1px solid ${T.border}` }}>{h}</th>
+                <th key={h} style={headStyle(false)}>{h}</th>
               ))}
             </tr>
           </thead>
@@ -198,15 +197,15 @@ export default function MemoryForensicsDoc({ search }) {
             {ACQ_TOOLS.filter(t => filter(t.tool) || filter(t.os) || filter(t.note)).map((t, i) => (
               <tr key={t.tool} style={{ background: i % 2 === 0 ? 'transparent' : `color-mix(in srgb, ${T.panel} 53%, transparent)`,
                 borderBottom: `1px solid color-mix(in srgb, ${T.border} 13%, transparent)` }}>
-                <td style={{ padding: '8px 12px' }}>
+                <td style={cellStyle()}>
                   <span className="font-mono font-semibold" style={{ color: T.text }}>{t.tool}</span>
                 </td>
-                <td style={{ padding: '8px 12px' }}>
+                <td style={cellStyle()}>
                   <span style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10, padding: '1px 6px',
                     borderRadius: 3, background: 'var(--fl-card)', color: T.muted,
                     border: `1px solid ${T.border}` }}>{t.os}</span>
                 </td>
-                <td style={{ padding: '8px 12px', color: T.muted }}>{t.note}</td>
+                <td style={cellStyle()}>{t.note}</td>
               </tr>
             ))}
           </tbody>

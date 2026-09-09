@@ -1,5 +1,27 @@
 
 import { useState, useRef, useEffect } from 'react';
+import {
+  ScrollText,
+  Zap,
+  HardDrive,
+  KeyRound,
+  Link2,
+  AlertTriangle,
+  BarChart3,
+  Globe,
+  MemoryStick,
+  Search,
+  CalendarClock,
+  Monitor,
+  User,
+  Shield,
+  Bot,
+  Check,
+  RotateCw,
+  X,
+} from 'lucide-react';
+
+const INLINE_ICON = { verticalAlign: '-1px' };
 
 function parseThink(raw) {
   const OPEN = '<think>', CLOSE = '</think>';
@@ -44,7 +66,7 @@ function LiveThinking({ content, isActive, collapsed, onToggle }) {
       }}>
         {isActive
           ? <span style={{ color: 'var(--fl-ok)', fontSize: 8, animation: 'blink 1s step-end infinite' }}>●</span>
-          : <span style={{ color: '#3a8a5a', fontSize: 8 }}>✓</span>}
+          : <Check size={9} style={{ color: '#3a8a5a' }} />}
         <span style={{ color: isActive ? 'var(--fl-ok)' : '#2a6a3a' }}>
           {isActive ? 'Thinking…' : 'Thinking complete'}
         </span>
@@ -72,15 +94,15 @@ You analyze forensic timeline events (Windows artifacts: EVTX, MFT, Prefetch, Re
 Respond in English. Be concise and precise. Identify suspicious behavior, IOCs, and MITRE ATT&CK techniques.`;
 
 const ARTIFACT_ICONS = {
-  evtx:        '📋', winevt: '📋', event: '📋',
-  prefetch:    '⚡', pf: '⚡',
-  mft:         '🗂️', usnjrnl: '🗂️', '$mft': '🗂️',
-  registry:    '🔑', reg: '🔑', amcache: '🔑',
-  lnk:         '🔗', shellbag: '🔗',
-  hayabusa:    '🚨', sigma: '🚨',
-  srum:        '📊', timeline: '📊',
-  network:     '🌐', dns: '🌐',
-  memory:      '💾', vol: '💾',
+  evtx:        ScrollText, winevt: ScrollText, event: ScrollText,
+  prefetch:    Zap, pf: Zap,
+  mft:         HardDrive, usnjrnl: HardDrive, '$mft': HardDrive,
+  registry:    KeyRound, reg: KeyRound, amcache: KeyRound,
+  lnk:         Link2, shellbag: Link2,
+  hayabusa:    AlertTriangle, sigma: AlertTriangle,
+  srum:        BarChart3, timeline: BarChart3,
+  network:     Globe, dns: Globe,
+  memory:      MemoryStick, vol: MemoryStick,
 };
 
 function artifactIcon(type) {
@@ -88,7 +110,7 @@ function artifactIcon(type) {
   for (const [key, icon] of Object.entries(ARTIFACT_ICONS)) {
     if (t.includes(key)) return icon;
   }
-  return '🔍';
+  return Search;
 }
 
 function ThinkingSteps({ steps, collapsed, onToggle }) {
@@ -123,7 +145,7 @@ function ThinkingSteps({ steps, collapsed, onToggle }) {
         <span style={{ color: 'var(--fl-subtle)', flexShrink: 0 }}>{collapsed ? '▶' : '▼'}</span>
         <span style={{ color: '#1a4a6a' }}>
           {isGenerating
-            ? <><span style={{ color: 'var(--fl-accent)' }}>🤖</span> Generating…</>
+            ? <><Bot size={10} style={{ color: 'var(--fl-accent)', verticalAlign: '-1px' }} /> Generating…</>
             : `Context read — ${doneCount}/${total} sources`}
         </span>
         {!collapsed && (
@@ -141,16 +163,16 @@ function ThinkingSteps({ steps, collapsed, onToggle }) {
                   : step.status === 'generating' ? 'var(--fl-accent)'
                   : 'var(--fl-muted)',
               }}>
-                {step.status === 'done' ? '✓'
+                {step.status === 'done' ? <Check size={10} />
                   : step.status === 'generating' ? '▌'
-                  : '⟳'}
+                  : <RotateCw size={10} />}
               </span>
               <span style={{
                 color: step.status === 'done' ? '#3a8a5a'
                   : step.status === 'generating' ? 'var(--fl-accent)'
                   : 'var(--fl-subtle)',
               }}>
-                {step.icon} {step.label}
+                {step.icon && <step.icon size={11} style={INLINE_ICON} />} {step.label}
               </span>
               {step.count !== undefined && (
                 <span style={{ color: '#1a4060' }}>[{step.count}]</span>
@@ -206,7 +228,7 @@ export default function AiAnalystPanel({ records, caseId, totalEvents = 0 }) {
     const steps = [];
 
     steps.push({
-      icon: '📅',
+      icon: CalendarClock,
       label: 'Super Timeline',
       status: 'done',
       count: totalEvents || recs.length,
@@ -220,17 +242,17 @@ export default function AiAnalystPanel({ records, caseId, totalEvents = 0 }) {
     const hosts = new Set(recs.map(r => r.host_name).filter(Boolean));
     const users = new Set(recs.map(r => r.user_name).filter(Boolean));
     if (hosts.size > 0)
-      steps.push({ icon: '🖥️', label: 'Machines', status: 'done', count: hosts.size, detail: [...hosts].slice(0, 3).join(', ') + (hosts.size > 3 ? '…' : '') });
+      steps.push({ icon: Monitor, label: 'Machines', status: 'done', count: hosts.size, detail: [...hosts].slice(0, 3).join(', ') + (hosts.size > 3 ? '…' : '') });
     if (users.size > 0)
-      steps.push({ icon: '👤', label: 'Utilisateurs', status: 'done', count: users.size, detail: [...users].slice(0, 3).join(', ') + (users.size > 3 ? '…' : '') });
+      steps.push({ icon: User, label: 'Utilisateurs', status: 'done', count: users.size, detail: [...users].slice(0, 3).join(', ') + (users.size > 3 ? '…' : '') });
 
     const mitreSet = new Set(
       recs.map(r => r.mitre_technique || r.mitre_technique_id).filter(Boolean)
     );
     if (mitreSet.size > 0)
-      steps.push({ icon: '🛡️', label: 'Techniques MITRE ATT&CK', status: 'done', count: mitreSet.size, detail: [...mitreSet].slice(0, 4).join(', ') + (mitreSet.size > 4 ? '…' : '') });
+      steps.push({ icon: Shield, label: 'Techniques MITRE ATT&CK', status: 'done', count: mitreSet.size, detail: [...mitreSet].slice(0, 4).join(', ') + (mitreSet.size > 4 ? '…' : '') });
 
-    steps.push({ icon: '🤖', label: "Generating analysis", status: 'generating' });
+    steps.push({ icon: Bot, label: "Generating analysis", status: 'generating' });
 
     return steps;
   }
@@ -469,7 +491,7 @@ export default function AiAnalystPanel({ records, caseId, totalEvents = 0 }) {
       
       <div style={{ flexShrink: 0, padding: '6px 12px', borderBottom: '1px solid var(--fl-bg)', display: 'flex', alignItems: 'center', gap: 8 }}>
         <span style={{ fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-ok)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-          ⚡ IA Locale
+          <Zap size={9} style={INLINE_ICON} /> IA Locale
         </span>
         <select value={model} onChange={e => setModel(e.target.value)}
           style={{ background: '#0e1118', border: '1px solid var(--fl-bg)', borderRadius: 4, color: 'var(--fl-dim)', fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', padding: '1px 4px' }}>
@@ -478,7 +500,7 @@ export default function AiAnalystPanel({ records, caseId, totalEvents = 0 }) {
         {messages.length > 0 && (
           <button onClick={() => { setMessages([]); setCollapsedMap({}); }}
             style={{ marginLeft: 'auto', fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-subtle)', background: 'none', border: 'none', cursor: 'pointer' }}>
-            ✕ Clear
+            <X size={9} style={INLINE_ICON} /> Clear
           </button>
         )}
       </div>

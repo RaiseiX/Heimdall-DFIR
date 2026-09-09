@@ -1,3 +1,4 @@
+import { tableStyle, headStyle, cellStyle } from '../ui/tableIdiom';
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Crosshair, Scan, Search, AlertCircle, CheckCircle2,
@@ -207,9 +208,9 @@ function YaraSection({ evidenceId }) {
                     <tbody>
                       {strings.map((s, i) => (
                         <tr key={i} style={{ borderBottom: `1px solid ${C.border}` }}>
-                          <td style={{ padding: '3px 8px', color: C.yara }}>{s.identifier}</td>
-                          <td style={{ padding: '3px 8px', color: 'var(--fl-dim)' }}>0x{Number(s.offset || 0).toString(16)}</td>
-                          <td style={{ padding: '3px 8px', color: 'var(--fl-text)', maxWidth: 380, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.data}</td>
+                          <td style={{ ...cellStyle(), color: C.yara }}>{s.identifier}</td>
+                          <td style={{ ...cellStyle(), color: 'var(--fl-dim)' }}>0x{Number(s.offset || 0).toString(16)}</td>
+                          <td style={{ ...cellStyle(), color: 'var(--fl-text)', maxWidth: 380, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.data}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -436,10 +437,10 @@ function SigmaSection({ caseId }) {
                 <tbody>
                   {result.events.map((e, i) => (
                     <tr key={i} style={{ borderBottom: `1px solid ${C.border}` }}>
-                      <td style={{ padding: '4px 8px', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-dim)', whiteSpace: 'nowrap' }}>{e.timestamp ? fmtLocal(e.timestamp) : '—'}</td>
-                      <td style={{ padding: '4px 8px' }}>{e.artifact_type && <Badge color={ac(e.artifact_type)}>{e.artifact_type}</Badge>}</td>
-                      <td style={{ padding: '4px 8px', color: 'var(--fl-dim)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.source || '—'}</td>
-                      <td style={{ padding: '4px 8px', color: 'var(--fl-text)', maxWidth: 400, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.description || '—'}</td>
+                      <td style={{ ...cellStyle(), fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-dim)', whiteSpace: 'nowrap' }}>{e.timestamp ? fmtLocal(e.timestamp) : '—'}</td>
+                      <td style={cellStyle()}>{e.artifact_type && <Badge color={ac(e.artifact_type)}>{e.artifact_type}</Badge>}</td>
+                      <td style={{ ...cellStyle(), color: 'var(--fl-dim)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.source || '—'}</td>
+                      <td style={{ ...cellStyle(), color: 'var(--fl-text)', maxWidth: 400, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.description || '—'}</td>
                     </tr>
                   ))}
                 </tbody>

@@ -1,7 +1,9 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Sparkles, X, Minimize2, Maximize2, Send, RotateCcw, ChevronDown, BookOpen, Copy, Check, RefreshCw } from 'lucide-react';
+import { HardDrive, Crosshair, Search, FileText, MessageCircle, X, Minimize2, Maximize2, Send, RotateCcw, ChevronDown, BookOpen, Copy, Check, RefreshCw } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import i18n from '../i18n/index.js';
+
+const INLINE_ICON = { verticalAlign: '-1px' };
 
 const MONO = 'var(--f-mono, "JetBrains Mono", monospace)';
 const UI   = 'var(--f-ui, Inter, sans-serif)';
@@ -14,19 +16,19 @@ function getPromptCategories(t) {
     || {};
   return [
     {
-      id: 'artefacts', label: categories.artefacts?.label || '', icon: '🗂',
+      id: 'artefacts', label: categories.artefacts?.label || '', icon: HardDrive,
       prompts: categories.artefacts?.prompts || [],
     },
     {
-      id: 'mitre', label: categories.mitre?.label || '', icon: '🎯',
+      id: 'mitre', label: categories.mitre?.label || '', icon: Crosshair,
       prompts: categories.mitre?.prompts || [],
     },
     {
-      id: 'detection', label: categories.detection?.label || '', icon: '🔍',
+      id: 'detection', label: categories.detection?.label || '', icon: Search,
       prompts: categories.detection?.prompts || [],
     },
     {
-      id: 'report', label: categories.report?.label || '', icon: '📋',
+      id: 'report', label: categories.report?.label || '', icon: FileText,
       prompts: categories.report?.prompts || [],
     },
   ];
@@ -110,9 +112,6 @@ function WelcomeScreen({ onPickCategory, t }) {
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', padding: '8px 6px', gap: 14 }}>
       <div style={{ textAlign: 'center' }}>
-        <div style={{ width: 38, height: 38, borderRadius: 10, margin: '0 auto 10px', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'color-mix(in srgb, var(--fl-accent) 12%, transparent)', border: '1px solid color-mix(in srgb, var(--fl-accent) 28%, transparent)' }}>
-          <Sparkles size={18} style={{ color: 'var(--fl-accent)' }} />
-        </div>
         <div style={{ fontFamily: UI, fontWeight: 600, fontSize: 14, color: 'var(--fl-text)' }}>{t('globalAi.title')}</div>
         <div style={{ fontFamily: MONO, fontSize: 10, color: 'var(--fl-muted)', marginTop: 4 }}>{t('globalAi.subtitle')}</div>
       </div>
@@ -122,7 +121,7 @@ function WelcomeScreen({ onPickCategory, t }) {
             style={{ textAlign: 'left', padding: '10px 11px', borderRadius: 8, cursor: 'pointer', background: 'var(--fl-bg)', border: '1px solid var(--fl-border)', transition: 'border-color 0.12s, background 0.12s' }}
             onMouseEnter={e => { e.currentTarget.style.borderColor = 'color-mix(in srgb, var(--fl-accent) 35%, transparent)'; e.currentTarget.style.background = 'color-mix(in srgb, var(--fl-accent) 5%, transparent)'; }}
             onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--fl-border)'; e.currentTarget.style.background = 'var(--fl-bg)'; }}>
-            <div style={{ fontSize: 16, marginBottom: 5 }}>{cat.icon}</div>
+            <div style={{ marginBottom: 5, color: 'var(--fl-muted)' }}><cat.icon size={16} /></div>
             <div style={{ fontFamily: UI, fontWeight: 600, fontSize: 11.5, color: 'var(--fl-text)' }}>{cat.label}</div>
             <div style={{ fontFamily: MONO, fontSize: 8.5, color: 'var(--fl-subtle)', marginTop: 2 }}>{t('globalAi.prompt_count', { count: cat.prompts.length })}</div>
           </button>
@@ -292,7 +291,7 @@ export default function GlobalAiChat() {
           style={{ position: 'fixed', zIndex: 9000, ...(btnPos ? { left: btnPos.x, top: btnPos.y } : { bottom: 24, right: 24 }), width: 46, height: 46, borderRadius: '50%', background: 'var(--fl-panel)', border: '1px solid var(--fl-accent)', boxShadow: 'var(--fl-shadow-md)', cursor: 'grab', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'transform 0.15s, box-shadow 0.15s' }}
           onMouseEnter={e => { e.currentTarget.style.transform = 'scale(1.1)'; e.currentTarget.style.boxShadow = 'var(--fl-shadow-lg)'; }}
           onMouseLeave={e => { e.currentTarget.style.transform = 'scale(1)'; e.currentTarget.style.boxShadow = 'var(--fl-shadow-md)'; }}>
-          <Sparkles size={18} style={{ color: 'var(--fl-accent)' }} />
+          <MessageCircle size={18} style={{ color: 'var(--fl-accent)' }} />
           {unread > 0 && (
             <span style={{ position: 'absolute', top: -4, right: -4, background: 'var(--fl-ok)', color: '#fff', borderRadius: '50%', width: 16, height: 16, fontSize: 9, fontFamily: MONO, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', border: '2px solid var(--fl-bg)' }}>{unread}</span>
           )}
@@ -304,9 +303,6 @@ export default function GlobalAiChat() {
 
           <div style={{ flexShrink: 0, height: 48, display: 'flex', alignItems: 'center', gap: 8, padding: '0 12px', background: 'var(--fl-bg)', borderBottom: minimized ? 'none' : '1px solid var(--fl-border)', cursor: minimized ? 'pointer' : 'default' }}
             onClick={minimized ? () => setMinimized(false) : undefined}>
-            <div style={{ width: 22, height: 22, borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'color-mix(in srgb, var(--fl-accent) 14%, transparent)', flexShrink: 0 }}>
-              <Sparkles size={12} style={{ color: 'var(--fl-accent)' }} />
-            </div>
             <span style={{ fontFamily: UI, fontSize: 12, fontWeight: 600, color: 'var(--fl-text)', flex: 1 }}>{t('globalAi.title')}</span>
             <span style={{ width: 6, height: 6, borderRadius: '50%', background: available ? 'var(--fl-ok)' : 'var(--fl-muted)' }} title={available ? t('common.online') : t('common.offline')} />
             {!minimized && (
@@ -344,9 +340,6 @@ export default function GlobalAiChat() {
                       <div key={i} style={{ display: 'flex', flexDirection: 'column', alignItems: isUser ? 'flex-end' : 'flex-start', maxWidth: '100%' }}>
                         {!isUser && (
                           <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 4 }}>
-                            <div style={{ width: 16, height: 16, borderRadius: 5, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'color-mix(in srgb, var(--fl-accent) 14%, transparent)' }}>
-                              <Sparkles size={9} style={{ color: 'var(--fl-accent)' }} />
-                            </div>
                             <span style={{ fontFamily: MONO, fontSize: 8.5, color: 'var(--fl-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{t('globalAi.title')}</span>
                           </div>
                         )}
@@ -385,7 +378,7 @@ export default function GlobalAiChat() {
                     {promptCategories.map(cat => (
                       <button key={cat.id} onClick={() => setActiveCategory(cat.id)}
                         style={{ flex: 1, padding: '6px 2px', fontSize: 8, fontFamily: MONO, background: 'none', border: 'none', cursor: 'pointer', borderBottom: `2px solid ${activeCategory === cat.id ? 'var(--fl-accent)' : 'transparent'}`, color: activeCategory === cat.id ? 'var(--fl-accent)' : 'var(--fl-muted)', transition: 'color 0.1s' }}>
-                        {cat.icon} {cat.label}
+                        <cat.icon size={11} style={INLINE_ICON} /> {cat.label}
                       </button>
                     ))}
                   </div>

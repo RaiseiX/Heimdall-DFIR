@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
-import { Target } from 'lucide-react';
+import { Target, Crosshair, Globe } from 'lucide-react';
 import { attributionAPI } from '../../utils/api';
+
+const INLINE_PICTO = { verticalAlign: '-1px' };
 
 export default function AptAttributionTab({ caseId }) {
   const [data, setData] = useState(null);
@@ -96,8 +98,8 @@ export default function AptAttributionTab({ caseId }) {
               </div>
 
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 8 }}>
-                <span style={{ fontSize: 10, padding: '2px 6px', background: 'var(--fl-panel)', color: 'var(--fl-dim)', borderRadius: 4 }}>🌍 {apt.origin}</span>
-                <span style={{ fontSize: 10, padding: '2px 6px', background: 'var(--fl-panel)', color: 'var(--fl-dim)', borderRadius: 4 }}>🎯 {apt.motivation}</span>
+                <span style={{ fontSize: 10, padding: '2px 6px', background: 'var(--fl-panel)', color: 'var(--fl-dim)', borderRadius: 4 }}><Globe size={10} style={INLINE_PICTO} /> {apt.origin}</span>
+                <span style={{ fontSize: 10, padding: '2px 6px', background: 'var(--fl-panel)', color: 'var(--fl-dim)', borderRadius: 4 }}><Crosshair size={10} style={INLINE_PICTO} /> {apt.motivation}</span>
               </div>
 
               <div style={{ fontSize: 11, color: 'var(--fl-dim)', marginBottom: 4 }}>Techniques correspondantes :</div>

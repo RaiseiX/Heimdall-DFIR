@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { Sparkles, RefreshCw, Loader2 } from 'lucide-react';
+import { RefreshCw, Loader2 } from 'lucide-react';
 import { bindTextareaToYText } from './collab/textareaBinding';
 
 const MONO = 'var(--f-mono, "JetBrains Mono", monospace)';
@@ -64,7 +64,6 @@ export default function ReportAiEditor({ value, onChange, onRegenerate, loading,
           <span style={{ width: 9, height: 9, borderRadius: '50%', background: '#E2B450' }} />
           <span style={{ width: 9, height: 9, borderRadius: '50%', background: '#6BA678' }} />
         </span>
-        <Sparkles size={12} style={{ color: 'var(--fl-accent)', marginLeft: 4 }} />
         <span style={{ fontFamily: MONO, fontSize: 11, color: '#C9CDD6' }}>analyse-ia.md</span>
         <span style={{ fontFamily: MONO, fontSize: 9.5, color: ED_DIM }}>- edit the text before including it in the report</span>
         <span style={{ flex: 1 }} />

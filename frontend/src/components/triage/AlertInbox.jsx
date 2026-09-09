@@ -1,8 +1,10 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { UserPlus, X, Trash2, ChevronRight, Inbox as InboxIcon } from 'lucide-react';
+import { UserPlus, X, Trash2, ChevronRight, Inbox as InboxIcon, User } from 'lucide-react';
 import { triageAPI } from '../../utils/api';
+
+const INLINE_PICTO = { verticalAlign: '-1px' };
 
 const MONO = 'var(--f-mono, "JetBrains Mono", monospace)';
 const UI   = 'var(--f-ui, "Inter", sans-serif)';
@@ -122,7 +124,7 @@ export default function AlertInbox() {
                   {a.entity_value && <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 260, whiteSpace: 'nowrap' }}>{a.entity_type ? `${a.entity_type}:` : ''}{a.entity_value}</span>}
                   {a.case_number && <span>· {a.case_number}</span>}
                   <span>· {age(a.last_seen || a.created_at)}</span>
-                  {a.assignee_name && <span>· 👤 {a.assignee_name}</span>}
+                  {a.assignee_name && <span>· <User size={10} style={INLINE_PICTO} /> {a.assignee_name}</span>}
                 </div>
               </div>
 

@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { controlStyle, controlHover } from '../components/ui/controlIdiom';
 import { useTheme } from '../utils/theme';
 import { useParams, useNavigate, useOutletContext } from 'react-router-dom';
-import { FolderOpen, Clock, Globe, FileDown, Star, Plus, AlertTriangle, Download, Loader2, Shield, Trash2, Cpu, Copy, RefreshCw, CalendarDays, Pencil, Wifi, Lock, Activity, FileJson, Sparkles, X, Info, BookOpen, Crosshair } from 'lucide-react';
+import { Activity, AlertTriangle, BookOpen, CalendarDays, Check, Clock, Copy, Cpu, Crosshair, Download, FileDown, FileJson, FolderOpen, Globe, Info, Loader2, Lock, MessageCircle, Paperclip, Pencil, Plus, RefreshCw, Shield, Star, Trash2, Wifi, X } from 'lucide-react';
 import api, { casesAPI, evidenceAPI, iocsAPI, collectionAPI, parsersAPI, pcapAPI, legalHoldAPI } from '../utils/api';
 import AiCopilotModal from '../components/ai/AiCopilotModal';
 import { Button, Modal, Spinner } from '../components/ui';
@@ -30,6 +30,8 @@ import { createReportCollabProvider } from '../components/reports/collab/reportC
 import GlobalNetworkMapPage from './GlobalNetworkMapPage';
 import NotebookPanel from '../components/notebook/NotebookPanel';
 import InvestigationWorkspace from '../components/investigation/InvestigationWorkspace';
+
+const INLINE_PICTO = { verticalAlign: '-1px' };
 
 const AI_FIELDS_KEYS = ['executive_summary', 'key_findings', 'ioc_analysis', 'mitre_analysis', 'timeline_narrative', 'recommendations'];
 
@@ -769,7 +771,7 @@ export default function CaseDetailPage({ user }) {
             <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
               <input type="datetime-local" value={deadlineVal} onChange={e => setDeadlineVal(e.target.value)} className="fl-input" style={{ fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', padding: '0 4px', height: 20 }} autoFocus />
               <Button variant="primary" size="xs" loading={deadlineSaving} onClick={saveDeadline}>{deadlineSaving ? '…' : 'OK'}</Button>
-              <Button variant="secondary" size="xs" onClick={() => setEditDeadline(false)}>✕</Button>
+              <Button variant="secondary" size="xs" onClick={() => setEditDeadline(false)}><X size={11} /></Button>
             </div>
           ) : (
             <button onClick={() => { setDeadlineVal(c.report_deadline ? c.report_deadline.slice(0,16) : ''); setEditDeadline(true); }} title={t('casedetail.edit_deadline')} style={{ display: 'flex', alignItems: 'center', gap: 3, background: 'none', border: 'none', cursor: 'pointer', padding: '1px 4px', borderRadius: 3, flexShrink: 0, color: c.report_deadline && new Date(c.report_deadline) < new Date(Date.now() + 48*3600*1000) ? 'var(--fl-danger)' : 'var(--fl-muted)' }}>
@@ -915,7 +917,7 @@ export default function CaseDetailPage({ user }) {
             TRIAGE
           </Button>
           <Button
-            variant="ghost" size="xs" icon={Sparkles}
+            variant="ghost" size="xs" icon={MessageCircle}
             onClick={() => setAiOpen(v => !v)}
             title={t('casedetail.ai_copilot_title')}
             style={{ color: 'var(--fl-accent)', borderColor: 'color-mix(in srgb, var(--fl-accent) 30%, transparent)', background: aiOpen ? 'color-mix(in srgb, var(--fl-accent) 18%, transparent)' : 'color-mix(in srgb, var(--fl-accent) 8%, transparent)' }}
@@ -1279,7 +1281,7 @@ export default function CaseDetailPage({ user }) {
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
                     {drawerEv.additional_files.map(f => (
                       <span key={f.name} style={{ fontSize: 9, fontFamily: 'var(--f-mono, monospace)', background: 'color-mix(in srgb, var(--fl-accent) 8%, transparent)', border: '1px solid color-mix(in srgb, var(--fl-accent) 18%, transparent)', borderRadius: 3, padding: '1px 6px', color: 'var(--fl-dim)' }}>
-                        📎 {f.original_name} · {fmtSize(f.size)}
+                        <Paperclip size={10} style={INLINE_PICTO} /> {f.original_name} · {fmtSize(f.size)}
                       </span>
                     ))}
                   </div>
@@ -1420,7 +1422,7 @@ export default function CaseDetailPage({ user }) {
                               borderRadius: 3, padding: '1px 6px',
                               color: 'var(--fl-dim)',
                             }}>
-                              📎 {f.original_name} · {fmtSize(f.size)}
+                              <Paperclip size={10} style={INLINE_PICTO} /> {f.original_name} · {fmtSize(f.size)}
                             </span>
                           ))}
                         </div>
@@ -1428,7 +1430,7 @@ export default function CaseDetailPage({ user }) {
                     </div>
                     {isParsed ? (
                       <span style={{ fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', padding: '2px 7px', borderRadius: 3, background: 'color-mix(in srgb, var(--fl-ok) 9%, transparent)', color: 'var(--fl-ok)', border: '1px solid color-mix(in srgb, var(--fl-ok) 19%, transparent)', flexShrink: 0 }}>
-                        ✓ {recordCount.toLocaleString()} {t('casedetail.records_short')}
+                        <Check size={10} style={INLINE_PICTO} /> {recordCount.toLocaleString()} {t('casedetail.records_short')}
                       </span>
                     ) : isAnalyzing ? (
                       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', padding: '2px 7px', borderRadius: 3, background: 'color-mix(in srgb, var(--fl-accent) 9%, transparent)', color: 'var(--fl-accent)', border: '1px solid color-mix(in srgb, var(--fl-accent) 22%, transparent)', flexShrink: 0 }}>
@@ -1647,7 +1649,7 @@ export default function CaseDetailPage({ user }) {
                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
                         {parsedEvNames.map(name => (
                           <span key={name} style={{ fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', padding: '2px 7px', borderRadius: 3, background: 'color-mix(in srgb, var(--fl-ok) 7%, transparent)', color: 'var(--fl-ok)', border: '1px solid color-mix(in srgb, var(--fl-ok) 15%, transparent)' }}>
-                            ✓ {name}
+                            <Check size={10} style={INLINE_PICTO} /> {name}
                           </span>
                         ))}
                         {evidence.filter(ev => !parsedEvNames.includes(ev.name)).map(ev => (
@@ -1753,7 +1755,7 @@ export default function CaseDetailPage({ user }) {
                           title={t('casedetail.ai_draft_title')}
                           style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 11px', borderRadius: 3, fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', cursor: aiLoading ? 'wait' : 'pointer',
                             background: 'color-mix(in srgb, var(--fl-accent) 12%, transparent)', border: '1px solid color-mix(in srgb, var(--fl-accent) 30%, transparent)', color: 'var(--fl-accent)' }}>
-                          {aiLoading ? <Loader2 size={11} style={{ animation: 'fl-spin 0.9s linear infinite' }} /> : <Sparkles size={11} />}
+                          {aiLoading && <Loader2 size={11} style={{ animation: 'fl-spin 0.9s linear infinite' }} />}
                           {aiDraft ? t('casedetail.regenerate_draft') : t('casedetail.generate_ai_draft')}
                         </button>
                       )}

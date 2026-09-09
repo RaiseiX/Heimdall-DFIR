@@ -1,4 +1,7 @@
 import { useTimelineStore } from '../../store/useTimelineStore';
+import { Search } from 'lucide-react';
+
+const INLINE_PICTO = { verticalAlign: '-1px' };
 
 export default function MitreTab({ record: r }) {
   const { setFilter, applyFilters } = useTimelineStore();
@@ -40,7 +43,7 @@ export default function MitreTab({ record: r }) {
         <button onClick={() => { setFilter('search', r.mitre_technique_id); applyFilters(); }}
           style={{ padding: '6px 12px', borderRadius: 5, background: 'color-mix(in srgb, var(--fl-accent) 7%, transparent)', border: '1px solid color-mix(in srgb, var(--fl-accent) 19%, transparent)',
             color: 'var(--fl-accent)', cursor: 'pointer', fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', textAlign: 'left' }}>
-          🔍 Filter timeline by {r.mitre_technique_id}
+          <Search size={11} style={INLINE_PICTO} /> Filter timeline by {r.mitre_technique_id}
         </button>
       )}
     </div>

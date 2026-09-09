@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { X } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { controlStyle, controlHover } from '../ui/controlIdiom';
@@ -123,7 +124,7 @@ export default function InvestigationDrawer({ nodeData, caseId, allEdges, onClos
               {t('networkMap.hidden.hide')}
             </Action>
           )}
-          <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--fl-muted)', cursor: 'pointer', fontSize: 13, lineHeight: 1, padding: '0 2px' }}>✕</button>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--fl-muted)', cursor: 'pointer', fontSize: 13, lineHeight: 1, padding: '0 2px' }}><X size={12} /></button>
         </div>
 
         <Row

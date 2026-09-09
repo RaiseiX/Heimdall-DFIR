@@ -1,3 +1,4 @@
+import { tableStyle, headStyle, cellStyle } from '../components/ui/tableIdiom';
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
@@ -177,25 +178,25 @@ function FeedsTab({ toast }) {
             <thead>
               <tr style={{ background: `color-mix(in srgb, ${T.accent} 6%, transparent)`, borderBottom: `1px solid ${T.border}` }}>
                 {[t('threat_intel.feeds.col_name'), t('threat_intel.feeds.col_url'), t('threat_intel.feeds.col_auth'), t('threat_intel.feeds.col_indicators'), t('threat_intel.feeds.col_sync'), t('threat_intel.feeds.col_actions')].map(h => (
-                  <th key={h} style={{ padding: '9px 12px', textAlign: 'left', color: T.muted, fontWeight: 600, fontSize: 11, textTransform: 'uppercase' }}>{h}</th>
+                  <th key={h} style={{ ...headStyle(false), textAlign: 'left', color: T.muted, fontWeight: 600, fontSize: 11, textTransform: 'uppercase' }}>{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {feeds.map((f, i) => (
                 <tr key={f.id} style={{ borderBottom: i < feeds.length - 1 ? `1px solid ${T.border}` : 'none' }}>
-                  <td style={{ padding: '10px 12px', color: T.text, fontWeight: 500 }}>{f.name}</td>
-                  <td style={{ padding: '10px 12px', color: T.dim, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 12, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  <td style={{ ...cellStyle(), color: T.text, fontWeight: 500 }}>{f.name}</td>
+                  <td style={{ ...cellStyle(), color: T.dim, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 12, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {f.url}
                   </td>
-                  <td style={{ padding: '10px 12px', color: T.muted, fontSize: 12 }}>{f.auth_type}</td>
-                  <td style={{ padding: '10px 12px', color: T.text, fontWeight: 600 }}>
+                  <td style={{ ...cellStyle(), color: T.muted, fontSize: 12 }}>{f.auth_type}</td>
+                  <td style={{ ...cellStyle(), color: T.text, fontWeight: 600 }}>
                     {f.indicator_count || 0}
                   </td>
-                  <td style={{ padding: '10px 12px', color: T.muted, fontSize: 12 }}>
+                  <td style={{ ...cellStyle(), color: T.muted, fontSize: 12 }}>
                     {f.last_fetched ? fmtLocal(f.last_fetched) : t('common.never')}
                   </td>
-                  <td style={{ padding: '10px 12px' }}>
+                  <td style={cellStyle()}>
                     <div style={{ display: 'flex', gap: 6 }}>
                       <button
                         onClick={() => handleFetch(f.id)}
@@ -396,33 +397,33 @@ function IndicatorsTab() {
               <thead>
                 <tr style={{ background: `color-mix(in srgb, ${T.accent} 6%, transparent)`, borderBottom: `1px solid ${T.border}` }}>
                   {[t('threat_intel.indicators.col_stix'), t('threat_intel.indicators.col_ioc_type'), t('threat_intel.indicators.col_value'), t('common.name'), t('threat_intel.indicators.col_labels'), t('threat_intel.indicators.col_confidence'), t('threat_intel.indicators.col_source'), t('threat_intel.indicators.col_modified')].map(h => (
-                    <th key={h} style={{ padding: '8px 10px', textAlign: 'left', color: T.muted, fontWeight: 600, fontSize: 10, textTransform: 'uppercase', whiteSpace: 'nowrap' }}>{h}</th>
+                    <th key={h} style={{ ...headStyle(false), textAlign: 'left', color: T.muted, fontWeight: 600, fontSize: 10, textTransform: 'uppercase', whiteSpace: 'nowrap' }}>{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
                 {data.records.map((r, i) => (
                   <tr key={r.stix_id || i} style={{ borderBottom: i < data.records.length - 1 ? `1px solid ${T.border}` : 'none' }}>
-                    <td style={{ padding: '8px 10px' }}><StixBadge type={r.stix_type} /></td>
-                    <td style={{ padding: '8px 10px' }}>{r.ioc_type ? <IocBadge type={r.ioc_type} /> : <span style={{ color: T.muted }}>—</span>}</td>
-                    <td style={{ padding: '8px 10px', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: T.text, maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    <td style={cellStyle()}><StixBadge type={r.stix_type} /></td>
+                    <td style={cellStyle()}>{r.ioc_type ? <IocBadge type={r.ioc_type} /> : <span style={{ color: T.muted }}>—</span>}</td>
+                    <td style={{ ...cellStyle(), fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: T.text, maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {r.ioc_value || '—'}
                     </td>
-                    <td style={{ padding: '8px 10px', color: T.text, maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    <td style={{ ...cellStyle(), color: T.text, maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {r.name}
                     </td>
-                    <td style={{ padding: '8px 10px', maxWidth: 140 }}>
+                    <td style={{ ...cellStyle(), maxWidth: 140 }}>
                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3 }}>
                         {(r.labels || []).slice(0, 2).map(l => (
                           <span key={l} style={{ background: `color-mix(in srgb, ${T.accent} 8%, transparent)`, color: T.accent, borderRadius: 3, padding: '0 5px', fontSize: 10 }}>{l}</span>
                         ))}
                       </div>
                     </td>
-                    <td style={{ padding: '8px 10px', color: r.confidence !== null ? T.text : T.muted, textAlign: 'center' }}>
+                    <td style={{ ...cellStyle(), color: r.confidence !== null ? T.text : T.muted, textAlign: 'center' }}>
                       {r.confidence !== null ? r.confidence : '—'}
                     </td>
-                    <td style={{ padding: '8px 10px', color: T.muted, whiteSpace: 'nowrap' }}>{r.source_name}</td>
-                    <td style={{ padding: '8px 10px', color: T.muted, whiteSpace: 'nowrap' }}>
+                    <td style={{ ...cellStyle(), color: T.muted, whiteSpace: 'nowrap' }}>{r.source_name}</td>
+                    <td style={{ ...cellStyle(), color: T.muted, whiteSpace: 'nowrap' }}>
                       {r.modified ? new Date(r.modified).toLocaleDateString('fr-FR') : '—'}
                     </td>
                   </tr>
@@ -561,22 +562,22 @@ function CorrelationsTab({ toast }) {
             <thead>
               <tr style={{ background: `color-mix(in srgb, ${IOC_COLORS.ipv4} 6%, transparent)`, borderBottom: `1px solid ${T.border}` }}>
                 {[t('threat_intel.correlations.col_type'), t('threat_intel.correlations.col_value'), t('threat_intel.correlations.col_indicator'), t('threat_intel.correlations.col_source'), t('threat_intel.correlations.col_detected')].map(h => (
-                  <th key={h} style={{ padding: '9px 12px', textAlign: 'left', color: T.muted, fontWeight: 600, fontSize: 10, textTransform: 'uppercase' }}>{h}</th>
+                  <th key={h} style={{ ...headStyle(false), textAlign: 'left', color: T.muted, fontWeight: 600, fontSize: 10, textTransform: 'uppercase' }}>{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {correlations.map((c, i) => (
                 <tr key={c.id} style={{ borderBottom: i < correlations.length - 1 ? `1px solid ${T.border}` : 'none' }}>
-                  <td style={{ padding: '9px 12px' }}><IocBadge type={c.ioc_type} /></td>
-                  <td style={{ padding: '9px 12px', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: IOC_COLORS[c.ioc_type] || T.text, fontWeight: 600 }}>
+                  <td style={cellStyle()}><IocBadge type={c.ioc_type} /></td>
+                  <td style={{ ...cellStyle(), fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: IOC_COLORS[c.ioc_type] || T.text, fontWeight: 600 }}>
                     {c.ioc_value}
                   </td>
-                  <td style={{ padding: '9px 12px', color: T.text, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  <td style={{ ...cellStyle(), color: T.text, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {c.indicator_name || c.stix_id || '—'}
                   </td>
-                  <td style={{ padding: '9px 12px', color: T.muted }}>{c.source_name || '—'}</td>
-                  <td style={{ padding: '9px 12px', color: T.muted, whiteSpace: 'nowrap' }}>
+                  <td style={{ ...cellStyle(), color: T.muted }}>{c.source_name || '—'}</td>
+                  <td style={{ ...cellStyle(), color: T.muted, whiteSpace: 'nowrap' }}>
                     {fmtLocal(c.matched_at)}
                   </td>
                 </tr>

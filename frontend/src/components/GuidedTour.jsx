@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import i18n from '../i18n/index.js';
 import {
-  Sparkles, LayoutDashboard, FolderOpen, Terminal, Crosshair, Library,
+  Compass, LayoutDashboard, FolderOpen, Terminal, Crosshair, Library,
   CalendarDays, SlidersHorizontal, Activity, CheckCircle2, ArrowRight, ArrowLeft, X,
 } from 'lucide-react';
 
@@ -12,7 +12,7 @@ function getTourSteps(t) {
     || i18n.getResourceBundle('en', 'translation')?.tour?.steps
     || {};
   return [
-    { key: 'welcome',   icon: Sparkles,         title: steps.welcome?.title || '',
+    { key: 'welcome',   icon: Compass,           title: steps.welcome?.title || '',
       desc: steps.welcome?.desc || '' },
     { key: 'dashboard', path: '/', anchor: '[data-tour="/"]', icon: LayoutDashboard, title: steps.dashboard?.title || '',
       desc: steps.dashboard?.desc || '' },
@@ -123,7 +123,7 @@ export default function GuidedTour({ onClose }) {
         }}
       >
         <div style={{ height: 3, background: 'var(--fl-border)' }}>
-          <div style={{ height: '100%', width: `${pct}%`, background: 'linear-gradient(90deg, var(--fl-accent), var(--fl-purple))', transition: 'width 0.3s ease' }} />
+          <div style={{ height: '100%', width: `${pct}%`, background: 'var(--fl-accent)', transition: 'width 0.3s ease' }} />
         </div>
 
         <div style={{ padding: '20px 22px 18px' }}>

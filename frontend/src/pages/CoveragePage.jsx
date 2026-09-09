@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
+import { tableStyle, headStyle, cellStyle } from '../components/ui/tableIdiom';
 import { useOutletContext } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { ListChecks, RefreshCw, Search, Loader2, AlertCircle } from 'lucide-react';
@@ -162,11 +163,11 @@ export default function CoveragePage() {
       )}
 
       <div style={{ borderRadius: 7, border: `1px solid ${T.border}`, overflow: 'hidden' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+        <table style={tableStyle}>
           <thead>
             <tr style={{ background: T.card, borderBottom: `1px solid ${T.border}` }}>
               {['path', 'status', 'detail', 'size'].map(h => (
-                <th key={h} style={{ textAlign: 'left', padding: '6px 9px', fontFamily: MONO, fontSize: 9, color: T.muted, fontWeight: 700, textTransform: 'uppercase' }}>
+                <th key={h} style={headStyle(false)}>
                   {t(`coverage.col_${h}`)}
                 </th>
               ))}
@@ -175,18 +176,18 @@ export default function CoveragePage() {
           <tbody>
             {files.map((f, i) => (
               <tr key={`${f.relative_path}-${i}`} style={{ borderBottom: `1px solid ${T.border}` }}>
-                <td title={f.relative_path} style={{ padding: '5px 9px', fontFamily: MONO, fontSize: 10, color: T.text, wordBreak: 'break-all' }}>
+                <td title={f.relative_path} style={{ ...cellStyle(), fontFamily: MONO, fontSize: 10, color: T.text, wordBreak: 'break-all' }}>
                   {f.relative_path}
                 </td>
-                <td style={{ padding: '5px 9px' }}>
+                <td style={cellStyle()}>
                   <span style={{ padding: '1px 6px', borderRadius: 3, fontFamily: MONO, fontSize: 9, fontWeight: 700, whiteSpace: 'nowrap', background: `color-mix(in srgb, ${toneOf(f.status)} 9%, transparent)`, color: toneOf(f.status), border: `1px solid color-mix(in srgb, ${toneOf(f.status)} 19%, transparent)` }}>
                     {t(`coverage.status.${f.status}`, { defaultValue: f.status })}
                   </span>
                 </td>
-                <td title={f.status_detail || ''} style={{ padding: '5px 9px', fontFamily: MONO, fontSize: 9, color: f.status_detail ? T.dim : T.muted, maxWidth: 420, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                <td title={f.status_detail || ''} style={{ ...cellStyle(), fontFamily: MONO, fontSize: 9, color: f.status_detail ? T.dim : T.muted, maxWidth: 420, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {f.status_detail || '—'}
                 </td>
-                <td style={{ padding: '5px 9px', fontFamily: MONO, fontSize: 9, color: T.dim, whiteSpace: 'nowrap' }}>
+                <td style={{ ...cellStyle(), fontFamily: MONO, fontSize: 9, color: T.dim, whiteSpace: 'nowrap' }}>
                   {fmtBytes(f.file_size)}
                 </td>
               </tr>

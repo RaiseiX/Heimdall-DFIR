@@ -139,7 +139,7 @@ export default function KillChainView({ caseId, refreshKey }) {
               <span style={{ fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-dim)' }}>{Math.round(score * 100)}%</span>
             </div>
             <div style={{ height: 4, background: 'var(--fl-bg)', borderRadius: 2, overflow: 'hidden' }}>
-              <div style={{ height: '100%', borderRadius: 2, width: `${score * 100}%`, background: 'linear-gradient(90deg, var(--fl-accent), var(--fl-danger))', transition: 'width 0.4s' }} />
+              <div style={{ height: '100%', borderRadius: 2, width: `${score * 100}%`, background: 'var(--fl-accent)', transition: 'width 0.4s' }} />
             </div>
           </div>
 

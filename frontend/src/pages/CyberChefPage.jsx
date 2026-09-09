@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 import i18n from '../i18n/index.js';
 import {
   FlaskConical, Wand2, Plus, X, ChevronDown, Copy,
-  AlertTriangle, Play, RotateCcw, ChevronRight, Sparkles, GripVertical,
+  AlertTriangle, Play, RotateCcw, ChevronRight, GripVertical,
 } from 'lucide-react';
 
 const tr = (key, options) => i18n.t(`cyberchef.${key}`, options);
@@ -1267,7 +1267,7 @@ export default function CyberChefPage() {
         {running && <span style={{ ...mono, fontSize:9, color:'var(--fl-warn)' }}>⟳ calcul…</span>}
         <button onClick={handleMagic} disabled={!input} title="Magic — recursively decodes detected obfuscation layers"
           style={{ display:'flex', alignItems:'center', gap:5, padding:'3px 10px', borderRadius:'var(--fl-radius-sm)', background:'color-mix(in srgb, var(--fl-purple) 15%, transparent)', border:'1px solid color-mix(in srgb, var(--fl-purple) 40%, transparent)', color:'var(--fl-purple)', cursor:input?'pointer':'default', opacity:input?1:0.5, ...mono, fontSize:10 }}>
-          <Sparkles size={10} /> Magic
+          Magic
         </button>
         <button onClick={handleDetect} style={{ display:'flex', alignItems:'center', gap:5, padding:'3px 10px', borderRadius:'var(--fl-radius-sm)', background:'color-mix(in srgb, var(--fl-accent) 15%, transparent)', border:'1px solid color-mix(in srgb, var(--fl-accent) 40%, transparent)', color:'var(--fl-accent)', cursor:'pointer', ...mono, fontSize:10 }}>
           <Wand2 size={10} /> Auto-detect

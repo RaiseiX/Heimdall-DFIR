@@ -4,8 +4,9 @@ import { useNavigate } from 'react-router-dom';
 import { parsersAPI } from '../../utils/api';
 import {
   Table2, FileText, Loader2, Hash, Calendar, User,
-  ChevronLeft, ChevronRight, RefreshCw, Info, Trash2, ExternalLink, Download,
-} from 'lucide-react';
+  ChevronLeft, ChevronRight, RefreshCw, Info, Trash2, ExternalLink, Download, AlertTriangle } from 'lucide-react';
+
+const INLINE_PICTO = { verticalAlign: '-1px' };
 
 const PAGE_SIZE = 50;
 const MAX_COLS  = 25;
@@ -429,7 +430,7 @@ export default function ParsedResultsViewer({ caseId, refreshKey = 0 }) {
             Loading…
           </div>
         ) : listError ? (
-          <div style={{ color: 'var(--fl-danger)', fontSize: 12 }}>⚠ {listError}</div>
+          <div style={{ color: 'var(--fl-danger)', fontSize: 12 }}><AlertTriangle size={12} style={INLINE_PICTO} /> {listError}</div>
         ) : results.length === 0 ? (
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 0' }}>
             <FileText size={20} style={{ color: 'var(--fl-muted)' }} />
@@ -578,7 +579,7 @@ export default function ParsedResultsViewer({ caseId, refreshKey = 0 }) {
               background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.2)',
               color: 'var(--fl-danger)',
             }}>
-              ⚠ {dataError}
+              <AlertTriangle size={12} style={INLINE_PICTO} /> {dataError}
             </div>
           )}
 

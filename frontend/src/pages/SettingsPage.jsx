@@ -1,3 +1,4 @@
+import { tableStyle, headStyle, cellStyle } from '../components/ui/tableIdiom';
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ChevronRight, ShieldCheck, Check, X as XIcon, ExternalLink } from 'lucide-react';
@@ -105,19 +106,19 @@ function RolesSection() {
     <>
       <SectionHead title={t('settings.roles.title')} desc={t('settings.roles.desc')} />
       <div style={{ border: '1px solid var(--fl-border)', borderRadius: 8, overflow: 'hidden', marginTop: 16 }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+        <table style={tableStyle}>
           <thead>
             <tr style={{ background: 'var(--fl-bg)', borderBottom: '1px solid var(--fl-border)' }}>
-              <th style={{ textAlign: 'left', padding: '7px 10px', fontSize: 9.5, fontFamily: MONO, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--fl-muted)' }}>{t('settings.roles.capability')}</th>
+              <th style={headStyle(false)}>{t('settings.roles.capability')}</th>
               {ROLE_COLS.map(r => (
-                <th key={r.key} style={{ width: 90, textAlign: 'center', padding: '7px 10px', fontSize: 9.5, fontFamily: MONO, textTransform: 'uppercase', letterSpacing: '0.1em', color: r.key === 'admin' ? 'var(--fl-accent)' : r.key === 'team_lead' ? 'var(--fl-purple)' : 'var(--fl-muted)' }}>{r.label}</th>
+                <th key={r.key} style={{ ...headStyle(false), width: 90, textAlign: 'center' }}>{r.label}</th>
               ))}
             </tr>
           </thead>
           <tbody>
             {capabilities.map(([cap, analyst, teamLead, admin], i) => (
               <tr key={cap}>
-                <td style={{ padding: '0 10px', height: 36, borderBottom: i < capabilities.length - 1 ? '1px solid var(--fl-border2)' : 'none', fontSize: 12, fontFamily: UI, color: 'var(--fl-text)' }}>{cap}</td>
+                <td style={{ ...cellStyle(), verticalAlign: 'middle' }}>{cap}</td>
                 {[analyst, teamLead, admin].map((ok, j) => (
                   <td key={j} style={{ textAlign: 'center', borderBottom: i < capabilities.length - 1 ? '1px solid var(--fl-border2)' : 'none' }}>
                     {ok ? <Check size={13} style={{ color: 'var(--fl-ok)' }} /> : <XIcon size={13} style={{ color: 'var(--fl-subtle)' }} />}

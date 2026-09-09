@@ -1,7 +1,9 @@
 import { useState } from 'react';
-import { Search } from 'lucide-react';
+import { Search, AlertTriangle } from 'lucide-react';
 import { NODE_TYPES } from '../../constants/nodeTypes';
 import { useTranslation } from 'react-i18next';
+
+const INLINE_PICTO = { verticalAlign: '-1px' };
 
 const FILTER_TYPES = ['server','workstation','laptop','domain_controller','external_ip','domain','firewall','proxy','router','switch','ioc'];
 
@@ -58,7 +60,7 @@ export default function Toolbar({ graphData, filters, onFilterChange, onSearch, 
 
       <div style={{ flex: 1 }} />
 
-      {iocCount > 0    && <span style={{ padding: '3px 9px', borderRadius: 4, fontSize: 12, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', background: 'color-mix(in srgb, var(--fl-danger) 6%, transparent)', color: 'var(--fl-danger)', border: '1px solid color-mix(in srgb, var(--fl-danger) 19%, transparent)', flexShrink: 0 }}>⚠ {iocCount} IOC</span>}
+      {iocCount > 0    && <span style={{ padding: '3px 9px', borderRadius: 4, fontSize: 12, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', background: 'color-mix(in srgb, var(--fl-danger) 6%, transparent)', color: 'var(--fl-danger)', border: '1px solid color-mix(in srgb, var(--fl-danger) 19%, transparent)', flexShrink: 0 }}><AlertTriangle size={11} style={INLINE_PICTO} /> {iocCount} IOC</span>}
       {beaconCount > 0 && <span style={{ padding: '3px 9px', borderRadius: 4, fontSize: 12, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', background: 'color-mix(in srgb, var(--fl-warn) 6%, transparent)', color: 'var(--fl-warn)', border: '1px solid color-mix(in srgb, var(--fl-warn) 19%, transparent)', flexShrink: 0 }}>◎ {t('networkMap.beacons', { count: beaconCount })}</span>}
       {dgaCount > 0    && <span style={{ padding: '3px 9px', borderRadius: 4, fontSize: 12, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', background: 'color-mix(in srgb, var(--fl-accent) 6%, transparent)', color: 'var(--fl-accent)', border: '1px solid color-mix(in srgb, var(--fl-accent) 19%, transparent)', flexShrink: 0 }}>⁉ {dgaCount} DGA</span>}
     </div>

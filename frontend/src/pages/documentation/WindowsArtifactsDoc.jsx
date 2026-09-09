@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { Copy, CheckCheck, ChevronDown, ChevronRight, Star, Sparkles, ArrowDownUp, Search } from 'lucide-react';
+import { Copy, CheckCheck, ChevronDown, ChevronRight, Star, ArrowDownUp, Search } from 'lucide-react';
 import { useTheme } from '../../utils/theme';
 
 function askAi(artifact) {
@@ -410,7 +410,7 @@ function ArtifactCard({ artifact, search, defaultOpen, compact }) {
                 transition: 'all 0.12s', opacity: hover || open ? 1 : 0.55,
               }}
             >
-              <Sparkles size={10} /> IA
+              IA
             </button>
           </div>
         </div>
@@ -447,7 +447,7 @@ function ArtifactCard({ artifact, search, defaultOpen, compact }) {
           {artifact.forensic && (
             <div className="mt-3 flex items-start gap-2 rounded-md p-2"
               style={{ background: 'color-mix(in srgb, var(--fl-danger) 8%, transparent)', border: '1px solid color-mix(in srgb, var(--fl-danger) 25%, transparent)' }}>
-              <span style={{ fontSize: 13 }}>🔎</span>
+              <Search size={13} />
               <p className="text-xs font-mono" style={{ color: 'color-mix(in srgb, var(--fl-danger) 90%, var(--fl-text))' }}>
                 {artifact.forensic}
               </p>
@@ -554,7 +554,7 @@ export default function WindowsArtifactsDoc({ search }) {
             ? `${totalVisible} artefact${totalVisible > 1 ? 's' : ''} trouvé${totalVisible > 1 ? 's' : ''} pour « ${search} »`
             : `${ARTIFACTS.length} artefacts · ${catNames.length} catégories`}
           {' · '}
-          <span style={{ color: 'var(--fl-gold)' }}>★ valeur forensique</span>
+          <span style={{ color: 'var(--fl-gold)' }}>valeur forensique</span>
         </p>
       </div>
 

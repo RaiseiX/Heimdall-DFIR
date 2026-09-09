@@ -3,13 +3,14 @@ import { useState, useEffect, useCallback } from 'react';
 import {
   X, Plus, Trash2, ChevronUp, ChevronDown, Edit3,
   Download, Upload, ToggleLeft, ToggleRight, GripVertical,
-  Check, AlertCircle,
-} from 'lucide-react';
+  Check, AlertCircle, Palette } from 'lucide-react';
 import { collectionAPI } from '../../utils/api';
 import {
   sortRules, conditionToString, RULE_FIELDS, RULE_OPS, RULE_COLORS,
 } from '../../utils/colorRulesEngine';
 import axios from 'axios';
+
+const INLINE_PICTO = { verticalAlign: '-1px' };
 
 const API_BASE = (typeof import.meta !== 'undefined' ? import.meta.env?.VITE_API_URL : '') || '/api';
 
@@ -286,7 +287,7 @@ export default function ColorRulesManager({ open, onClose, caseId, onRulesChange
         <div style={{ padding: '14px 16px', borderBottom: '1px solid var(--fl-border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
           <div>
             <div style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 13, fontWeight: 700, color: 'var(--fl-text)' }}>
-              🎨 Color rules
+              <Palette size={12} style={INLINE_PICTO} /> Color rules
             </div>
             <div style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10, color: 'var(--fl-muted)', marginTop: 2 }}>
               {rules.filter(r => r.is_active).length} active rules · evaluated in ascending priority

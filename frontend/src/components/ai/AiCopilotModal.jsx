@@ -1,10 +1,12 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Sparkles, X, Maximize2, Minimize2, Send, Trash2, Users, Save, AlertCircle, ChevronDown, ChevronRight } from 'lucide-react';
+import { Check, Bot, ThumbsUp, ThumbsDown, BarChart3, Zap, Search, FileText, Wrench, AlertTriangle, X, Maximize2, Minimize2, Send, Trash2, Users, Save, AlertCircle, ChevronDown, ChevronRight } from 'lucide-react';
 import { useResizable } from '../../hooks/useResizable';
 import { useDraggable } from '../../hooks/useDraggable';
 import { useDateFormat } from '../../hooks/useDateFormat';
 import api from '../../utils/api';
+
+const INLINE_ICON = { verticalAlign: '-1px' };
 
 const FULL_ANALYSIS_PROMPT = "Perform a COMPLETE forensic analysis of all evidence and artifacts in this case. Structure: 1) Incident summary (vector, impact, status); 2) Key artifacts per host; 3) IOCs and their meaning; 4) Observed ATT&CK techniques and attack-chain reconstruction; 5) Attack timeline; 6) Prioritized recommendations. Rely only on the case data; do not invent anything.";
 
@@ -59,7 +61,7 @@ function LiveThinking({ content, isActive, collapsed, onToggle }) {
       }}>
         {isActive
           ? <span style={{ color: 'var(--fl-ok)', fontSize: 8 }}>●</span>
-          : <span style={{ color: '#3a8a5a', fontSize: 8 }}>✓</span>}
+          : <Check size={9} style={{ color: '#3a8a5a' }} />}
         <span style={{ color: isActive ? 'var(--fl-ok)' : '#2a6a3a' }}>
           {isActive ? 'Thinking in progress…' : 'Thinking complete'}
         </span>
@@ -118,7 +120,7 @@ function ThinkingSteps({ steps, collapsed, onToggle }) {
         }
         <span style={{ color: '#1a4a6a' }}>
           {isGenerating
-            ? <><span style={{ color: 'var(--fl-accent)' }}>🤖</span> Generating…</>
+            ? <><Bot size={10} style={{ color: 'var(--fl-accent)', verticalAlign: '-1px' }} /> Generating…</>
             : `Context read — ${doneCount}/${total} sources`
           }
         </span>
@@ -136,7 +138,7 @@ function ThinkingSteps({ steps, collapsed, onToggle }) {
                 <span style={{ color: 'var(--fl-muted)', flexShrink: 0 }}>⟳</span>
               )}
               {step.status === 'done' && (
-                <span style={{ color: 'var(--fl-ok)', flexShrink: 0, fontSize: 8 }}>✓</span>
+                <Check size={9} style={{ color: 'var(--fl-ok)', flexShrink: 0 }} />
               )}
               {step.status === 'generating' && (
                 <span style={{ color: 'var(--fl-accent)', flexShrink: 0, animation: 'blink 1s step-end infinite' }}>▌</span>
@@ -533,7 +535,6 @@ export default function AiCopilotModal({ caseId, caseName, isOpen, onClose, sock
           ...dragStyle,
         }}
       >
-        <Sparkles size={14} style={{ color: 'var(--fl-dim)', flexShrink: 0 }} />
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11, fontWeight: 700, color: 'var(--fl-dim)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             IA Copilot — {caseName}
@@ -576,7 +577,7 @@ export default function AiCopilotModal({ caseId, caseName, isOpen, onClose, sock
                 AI analyst for case <strong style={{ color: 'var(--fl-accent)' }}>{caseName}</strong>.
                 {hasContext && (
                   <div style={{ marginTop: 6, padding: '5px 8px', borderRadius: 4, background: 'color-mix(in srgb, var(--fl-ok) 6%, transparent)', border: '1px solid color-mix(in srgb, var(--fl-ok) 15%, transparent)', fontSize: 9, color: 'var(--fl-ok)' }}>
-                    ✓ Investigator context active
+                    <Check size={9} style={INLINE_ICON} /> Investigator context active
                   </div>
                 )}
                 <div style={{ marginTop: 8, fontSize: 9 }}>Posez une question ou utilisez les suggestions ci-dessous.</div>
@@ -632,7 +633,7 @@ export default function AiCopilotModal({ caseId, caseName, isOpen, onClose, sock
 
                   {msg.role === 'assistant' && !msg.loading && !msg.error && msg.content && (
                     <div style={{ display: 'flex', gap: 4, marginTop: 4, justifyContent: 'flex-end' }}>
-                      {[{ r: 1, icon: '👍' }, { r: -1, icon: '👎' }].map(({ r, icon }) => (
+                      {[{ r: 1, icon: ThumbsUp }, { r: -1, icon: ThumbsDown }].map(({ r, icon: Icon }) => (
                         <button
                           key={r}
                           onClick={() => {
@@ -653,7 +654,7 @@ export default function AiCopilotModal({ caseId, caseName, isOpen, onClose, sock
                             transition: 'opacity 0.15s', padding: '0 2px',
                           }}
                           title={r === 1 ? 'Helpful response' : 'Needs improvement'}
-                        >{icon}</button>
+                        ><Icon size={11} /></button>
                       ))}
                     </div>
                   )}
@@ -672,7 +673,7 @@ export default function AiCopilotModal({ caseId, caseName, isOpen, onClose, sock
                 border: '1px solid color-mix(in srgb, var(--fl-accent) 32%, transparent)',
                 color: 'var(--fl-accent)', cursor: streaming ? 'not-allowed' : 'pointer', opacity: streaming ? 0.5 : 1,
               }}>
-              📊 Analyze all case evidence
+              <BarChart3 size={10} style={INLINE_ICON} /> Analyze all case evidence
             </button>
           </div>
 
@@ -690,10 +691,10 @@ export default function AiCopilotModal({ caseId, caseName, isOpen, onClose, sock
           <div style={{ flexShrink: 0, padding: '6px 10px 0', display: 'flex', gap: 4, alignItems: 'center' }}>
             <span style={{ fontSize: 8, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-muted)', marginRight: 2 }}>Agent:</span>
             {[
-              { id: 'triage',   label: '⚡ Triage',   title: 'Verdict rapide · temp 0.1' },
-              { id: 'analysis', label: '🔍 Analysis',  title: 'Deep analysis · temp 0.3' },
-              { id: 'narrative',label: '📄 Report',    title: 'Report prose · temp 0.5' },
-              { id: 'agentic',  label: '🔧 Agent',      title: 'Query the case (accounts, distributions, searches) · slower' },
+              { id: 'triage',   label: 'Triage',   icon: Zap,      title: 'Verdict rapide · temp 0.1' },
+              { id: 'analysis', label: 'Analysis', icon: Search,   title: 'Deep analysis · temp 0.3' },
+              { id: 'narrative',label: 'Report',   icon: FileText, title: 'Report prose · temp 0.5' },
+              { id: 'agentic',  label: 'Agent',    icon: Wrench,   title: 'Query the case (accounts, distributions, searches) · slower' },
             ].map(a => (
               <button
                 key={a.id}
@@ -708,7 +709,7 @@ export default function AiCopilotModal({ caseId, caseName, isOpen, onClose, sock
                   color: agentType === a.id ? 'var(--fl-accent)' : 'var(--fl-muted)',
                   transition: 'all 0.12s',
                 }}
-              >{a.label}</button>
+              ><a.icon size={9} style={INLINE_ICON} /> {a.label}</button>
             ))}
           </div>
 
@@ -770,7 +771,7 @@ export default function AiCopilotModal({ caseId, caseName, isOpen, onClose, sock
 
           {rtNotif && (
             <div style={{ padding: '6px 10px', borderRadius: 6, background: 'color-mix(in srgb, var(--fl-accent) 8%, transparent)', border: '1px solid color-mix(in srgb, var(--fl-accent) 20%, transparent)', fontSize: 9, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-accent)' }}>
-              ⚡ Context updated by <strong>{rtNotif.updatedBy}</strong> — "{rtNotif.preview}"
+              <Zap size={9} style={INLINE_ICON} /> Context updated by <strong>{rtNotif.updatedBy}</strong> — "{rtNotif.preview}"
             </div>
           )}
 
@@ -791,8 +792,8 @@ export default function AiCopilotModal({ caseId, caseName, isOpen, onClose, sock
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <span style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 9, color: freeText.length > 3800 ? 'var(--fl-warn)' : 'var(--fl-subtle)' }}>{freeText.length} / 4000</span>
             {saveStatus === 'saving' && <span style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 9, color: 'var(--fl-muted)' }}>Saving…</span>}
-            {saveStatus === 'saved'  && <span style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 9, color: 'var(--fl-ok)' }}>✓ Saved</span>}
-            {saveStatus === 'error'  && <span style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 9, color: 'var(--fl-danger)' }}>⚠ Error</span>}
+            {saveStatus === 'saved'  && <span style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 9, color: 'var(--fl-ok)' }}><Check size={9} style={INLINE_ICON} /> Saved</span>}
+            {saveStatus === 'error'  && <span style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 9, color: 'var(--fl-danger)' }}><AlertTriangle size={9} style={INLINE_ICON} /> Error</span>}
           </div>
 
           {ctxMeta.updatedAt && (
