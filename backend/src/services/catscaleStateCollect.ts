@@ -120,6 +120,7 @@ export function collectStateArtifacts(
   const timelineRows: TimelineRow[] = [];
 
   const dockerDir = path.join(catscaleRoot, 'Docker');
+  const podmanDir = path.join(catscaleRoot, 'Podman');
   const sysDir = path.join(catscaleRoot, 'System_Info');
   const procDir = path.join(catscaleRoot, 'Process_and_Network');
 
@@ -170,134 +171,149 @@ export function collectStateArtifacts(
     path: p,
   });
 
-  // ── Docker containers ─────────────────────────────────────────────────────
-  for (const fp of findArtifactFiles(dockerDir, 'docker-inspect')) {
-    const sourcePath = srcOf(fp);
-    const content = readText(fp, failures);
-    if (content === null) continue;
-    const c = parseDockerInspect(content);
-    if (!c) {
-      failures?.push({ stage: 'parse', target: fp, reason: 'docker inspect JSON unreadable' });
-      continue;
-    }
+  // Podman implemente la meme interface que Docker : memes formats de sortie,
+  // seuls le dossier et le nom des fichiers changent. Deux moteurs, un seul
+  // corps de code — une regle recopiee en deux exemplaires n'est pas une regle.
+  const CONTAINER_ENGINES = [
+    { dir: dockerDir, kind: 'docker', artifact: 'catscale_docker',
+      inspect: 'docker-inspect', top: 'docker-top',
+      diff: 'docker-container-diff', port: 'docker-container-port' },
+    { dir: podmanDir, kind: 'podman', artifact: 'catscale_podman',
+      inspect: 'podman-inspect', top: 'podman-container-top',
+      diff: 'podman-container-diff', port: 'podman-container-port' },
+  ];
 
-    stateRows.push({
-      kind: 'docker_container',
-      label: c.name || c.container_id,
-      source_file: sourcePath,
-      raw: {
-        container_id: c.container_id, full_id: c.full_id, name: c.name, image: c.image,
-        status: c.status, pid: c.pid, command: c.command, privileged: c.privileged,
-        cap_add: c.cap_add, network_mode: c.network_mode, env: c.env,
-        mounts: c.mounts, suspicious_mounts: c.suspicious_mounts,
-        created_at: c.created_at?.toISOString() ?? null,
-        started_at: c.started_at?.toISOString() ?? null,
-        finished_at: c.finished_at?.toISOString() ?? null,
-      },
-    });
+  for (const engine of CONTAINER_ENGINES) {
+    // ── Docker containers ─────────────────────────────────────────────────────
+    for (const fp of findArtifactFiles(engine.dir, engine.inspect)) {
+      const sourcePath = srcOf(fp);
+      const content = readText(fp, failures);
+      if (content === null) continue;
+      const c = parseDockerInspect(content);
+      if (!c) {
+        failures?.push({ stage: 'parse', target: fp, reason: `${engine.kind} inspect JSON unreadable` });
+        continue;
+      }
 
-    const common = {
-      container_id: c.container_id, name: c.name, image: c.image, status: c.status,
-      pid: c.pid, privileged: c.privileged, suspicious_mounts: c.suspicious_mounts,
-      command: c.command,
-    };
-    if (c.created_at) {
-      timelineRows.push(timelineRow(c.created_at, 'container_created',
-        `Container created: ${c.name || c.container_id} (${c.image})`, c, sourcePath, common));
-    }
-    if (c.started_at) {
-      timelineRows.push(timelineRow(c.started_at, 'container_started',
-        `Container started: ${c.name || c.container_id} (${c.image})`, c, sourcePath, common));
-    }
-    // Docker keeps the previous exit time in FinishedAt across a restart, so a
-    // running container carries a stop timestamp that never applied to this run.
-    if (c.finished_at && c.status !== 'running') {
-      timelineRows.push(timelineRow(c.finished_at, 'container_stopped',
-        `Container stopped: ${c.name || c.container_id} (${c.image})`, c, sourcePath, common));
-    }
-
-    // A privileged container shares the host's kernel capabilities: escaping it
-    // is close to trivial, so its mere existence is worth an analyst's attention.
-    if (c.privileged) {
-      timelineRows.push(finding('container_privileged', 'catscale_docker',
-        `Container running privileged: ${c.name || c.container_id} (${c.image})`,
-        null, sourcePath, common));
-    }
-    // A bind onto the host root or the Docker socket gives the container a route
-    // back out — the canonical container escape.
-    for (const m of c.suspicious_mounts) {
-      timelineRows.push(finding('container_escape_mount', 'catscale_docker',
-        `Container ${c.name || c.container_id} binds host path ${m}`,
-        m, sourcePath, { ...common, mount: m }));
-    }
-  }
-
-  // ── Processes inside each container ───────────────────────────────────────
-  for (const fp of findArtifactFiles(dockerDir, 'docker-top')) {
-    const base = path.basename(fp);
-    const sourcePath = srcOf(fp);
-    const content = readText(fp, failures);
-    if (content === null) continue;
-    const containerId = containerIdFromName(base, 'docker-top');
-    for (const p of parseDockerTop(content)) {
       stateRows.push({
-        kind: 'docker_process', label: p.cmd.slice(0, 512), source_file: sourcePath,
-        raw: { ...p, container_id: containerId },
+        kind: `${engine.kind}_container`,
+        label: c.name || c.container_id,
+        source_file: sourcePath,
+        raw: {
+          container_id: c.container_id, full_id: c.full_id, name: c.name, image: c.image,
+          status: c.status, pid: c.pid, command: c.command, privileged: c.privileged,
+          cap_add: c.cap_add, network_mode: c.network_mode, env: c.env,
+          mounts: c.mounts, suspicious_mounts: c.suspicious_mounts,
+          created_at: c.created_at?.toISOString() ?? null,
+          started_at: c.started_at?.toISOString() ?? null,
+          finished_at: c.finished_at?.toISOString() ?? null,
+        },
       });
-    }
-  }
 
-  // ── What each container wrote at runtime ──────────────────────────────────
-  // `docker diff` is the reason the filesystem timeline can skip /var/lib/docker
-  // entirely: it carries the same evidence in three orders of magnitude fewer rows.
-  for (const fp of findArtifactFiles(dockerDir, 'docker-container-diff')) {
-    const base = path.basename(fp);
-    const sourcePath = srcOf(fp);
-    const content = readText(fp, failures);
-    if (content === null) continue;
-    const containerId = containerIdFromName(base, 'docker-container-diff');
-    for (const d of parseDockerDiff(content)) {
-      stateRows.push({
-        kind: 'docker_diff', label: d.path, source_file: sourcePath,
-        raw: { ...d, container_id: containerId },
-      });
-      // A deletion inside a container is anti-forensic by nature; an addition or
-      // change only matters when it lands somewhere a running image should not
-      // be writing. Runtime caches under /tmp are the normal case and would bury
-      // the signal if treated the same way.
-      const sensitive = CONTAINER_SENSITIVE_RE.test(d.path);
-      if (d.change === 'deleted' || sensitive) {
-        timelineRows.push(finding('container_file_change', 'catscale_docker',
-          `Container ${containerId}: ${d.change} ${d.path}`, d.path, sourcePath,
-          { ...d, container_id: containerId }));
+      const common = {
+        container_id: c.container_id, name: c.name, image: c.image, status: c.status,
+        pid: c.pid, privileged: c.privileged, suspicious_mounts: c.suspicious_mounts,
+        command: c.command,
+      };
+      if (c.created_at) {
+        timelineRows.push(timelineRow(c.created_at, 'container_created',
+          `Container created: ${c.name || c.container_id} (${c.image})`, c, sourcePath, common));
+      }
+      if (c.started_at) {
+        timelineRows.push(timelineRow(c.started_at, 'container_started',
+          `Container started: ${c.name || c.container_id} (${c.image})`, c, sourcePath, common));
+      }
+      // Docker keeps the previous exit time in FinishedAt across a restart, so a
+      // running container carries a stop timestamp that never applied to this run.
+      if (c.finished_at && c.status !== 'running') {
+        timelineRows.push(timelineRow(c.finished_at, 'container_stopped',
+          `Container stopped: ${c.name || c.container_id} (${c.image})`, c, sourcePath, common));
+      }
+
+      // A privileged container shares the host's kernel capabilities: escaping it
+      // is close to trivial, so its mere existence is worth an analyst's attention.
+      if (c.privileged) {
+        timelineRows.push(finding('container_privileged', engine.artifact,
+          `Container running privileged: ${c.name || c.container_id} (${c.image})`,
+          null, sourcePath, common));
+      }
+      // A bind onto the host root or the Docker socket gives the container a route
+      // back out — the canonical container escape.
+      for (const m of c.suspicious_mounts) {
+        timelineRows.push(finding('container_escape_mount', engine.artifact,
+          `Container ${c.name || c.container_id} binds host path ${m}`,
+          m, sourcePath, { ...common, mount: m }));
+      }
+    }
+
+    // ── Processes inside each container ───────────────────────────────────────
+    for (const fp of findArtifactFiles(engine.dir, engine.top)) {
+      const base = path.basename(fp);
+      const sourcePath = srcOf(fp);
+      const content = readText(fp, failures);
+      if (content === null) continue;
+      const containerId = containerIdFromName(base, engine.top);
+      for (const p of parseDockerTop(content)) {
+        stateRows.push({
+          kind: `${engine.kind}_process`, label: p.cmd.slice(0, 512), source_file: sourcePath,
+          raw: { ...p, container_id: containerId },
+        });
+      }
+    }
+
+    // ── What each container wrote at runtime ──────────────────────────────────
+    // `docker diff` is the reason the filesystem timeline can skip /var/lib/docker
+    // entirely: it carries the same evidence in three orders of magnitude fewer rows.
+    for (const fp of findArtifactFiles(engine.dir, engine.diff)) {
+      const base = path.basename(fp);
+      const sourcePath = srcOf(fp);
+      const content = readText(fp, failures);
+      if (content === null) continue;
+      const containerId = containerIdFromName(base, engine.diff);
+      for (const d of parseDockerDiff(content)) {
+        stateRows.push({
+          kind: `${engine.kind}_diff`, label: d.path, source_file: sourcePath,
+          raw: { ...d, container_id: containerId },
+        });
+        // A deletion inside a container is anti-forensic by nature; an addition or
+        // change only matters when it lands somewhere a running image should not
+        // be writing. Runtime caches under /tmp are the normal case and would bury
+        // the signal if treated the same way.
+        const sensitive = CONTAINER_SENSITIVE_RE.test(d.path);
+        if (d.change === 'deleted' || sensitive) {
+          timelineRows.push(finding('container_file_change', engine.artifact,
+            `Container ${containerId}: ${d.change} ${d.path}`, d.path, sourcePath,
+            { ...d, container_id: containerId }));
+        }
+      }
+    }
+
+    // ── Published ports ───────────────────────────────────────────────────────
+    for (const fp of findArtifactFiles(engine.dir, engine.port)) {
+      const base = path.basename(fp);
+      const sourcePath = srcOf(fp);
+      const content = readText(fp, failures);
+      if (content === null) continue;
+      const containerId = containerIdFromName(base, engine.port);
+      // Docker publishes each port twice, once per address family. One exposure,
+      // one finding — an analyst should not read 0.0.0.0:443 and :::443 as two.
+      const reported = new Set<string>();
+      for (const p of parseDockerPorts(content)) {
+        stateRows.push({
+          kind: `${engine.kind}_port`, label: `${p.host_ip}:${p.host_port}`, source_file: sourcePath,
+          raw: { ...p, container_id: containerId },
+        });
+        const key = `${p.container_port}/${p.protocol}->${p.host_port}`;
+        if (p.world_exposed && !reported.has(key)) {
+          reported.add(key);
+          timelineRows.push(finding('container_port_exposed', engine.artifact,
+            `Container ${containerId} publishes ${p.container_port}/${p.protocol} on port ${p.host_port} — reachable from every interface`,
+            null, sourcePath, { ...p, container_id: containerId }));
+        }
       }
     }
   }
 
-  // ── Published ports ───────────────────────────────────────────────────────
-  for (const fp of findArtifactFiles(dockerDir, 'docker-container-port')) {
-    const base = path.basename(fp);
-    const sourcePath = srcOf(fp);
-    const content = readText(fp, failures);
-    if (content === null) continue;
-    const containerId = containerIdFromName(base, 'docker-container-port');
-    // Docker publishes each port twice, once per address family. One exposure,
-    // one finding — an analyst should not read 0.0.0.0:443 and :::443 as two.
-    const reported = new Set<string>();
-    for (const p of parseDockerPorts(content)) {
-      stateRows.push({
-        kind: 'docker_port', label: `${p.host_ip}:${p.host_port}`, source_file: sourcePath,
-        raw: { ...p, container_id: containerId },
-      });
-      const key = `${p.container_port}/${p.protocol}->${p.host_port}`;
-      if (p.world_exposed && !reported.has(key)) {
-        reported.add(key);
-        timelineRows.push(finding('container_port_exposed', 'catscale_docker',
-          `Container ${containerId} publishes ${p.container_port}/${p.protocol} on port ${p.host_port} — reachable from every interface`,
-          null, sourcePath, { ...p, container_id: containerId }));
-      }
-    }
-  }
 
   // ── Package integrity ─────────────────────────────────────────────────────
   for (const fp of findArtifactFiles(sysDir, 'deb-package-verify', 'rpm-package-verify')) {

@@ -1,4 +1,5 @@
 import type { Pool } from 'pg';
+import { PROMOTED_COLUMNS, promotionSql } from './catscaleInventoryPromotion';
 
 // Projects catscale_state into the SuperTimeline as undated inventory rows.
 //
@@ -45,7 +46,8 @@ const PURGE_SQL = `
 const PROJECT_SQL = `
   INSERT INTO collection_timeline
     (case_id, result_id, evidence_id, timestamp, timestamp_kind,
-     artifact_type, artifact_name, description, source, raw, host_name, tool)
+     artifact_type, artifact_name, description, source, raw, host_name, tool,
+     ${PROMOTED_COLUMNS.join(', ')})
   SELECT s.case_id,
          s.result_id,
          s.evidence_id,
@@ -57,7 +59,8 @@ const PROJECT_SQL = `
          s.source_file,
          s.raw,
          s.host_name,
-         'catscale'
+         'catscale',
+${promotionSql('s')}
     FROM catscale_state s
    WHERE s.case_id = $1
      AND s.evidence_id = $2`;

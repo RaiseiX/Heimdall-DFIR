@@ -305,6 +305,74 @@ export const ARTIFACT_REGISTRY: ArtifactSpec[] = [
   // normalises it away.
   { dir: '.', pattern: 'console-error-log', kind: 'collector_error', shape: 'text_lines',
     labelOf: r => String(r.text).slice(0, 200) },
+
+  // ── Couverture du catalogue complet, 2026-09-09 ────────────────────────────
+  // Le support etait en forme de Debian + Docker : 34 des 121 artefacts du
+  // catalogue Cat-Scale n'etaient reconnus par aucun motif. Un hote RHEL perdait
+  // son inventaire logiciel, un hyperviseur tout son parc invite.
+  //
+  // `text_lines` partout ou le format n'a pas pu etre echantillonne : il conserve
+  // chaque ligne non vide, la ou `kv_lines` et `header_table` jettent en silence
+  // ce qu'ils ne savent pas decouper. Une forme structuree se substituera au cas
+  // par cas sur un echantillon reel, jamais sur une supposition.
+  { dir: 'Process_and_Network', pattern: 'ifconfig', kind: 'network_interface', shape: 'text_lines',
+    labelOf: r => String(r.text).slice(0, 200) },
+  { dir: 'Process_and_Network', pattern: 'selinux', kind: 'selinux_status', shape: 'text_lines',
+    labelOf: r => String(r.text).slice(0, 200) },
+  { dir: 'Process_and_Network', pattern: 'getsebool', kind: 'selinux_boolean', shape: 'text_lines',
+    labelOf: r => String(r.text).slice(0, 200) },
+  { dir: 'Logs', pattern: 'last-utmpdump', kind: 'logon', shape: 'text_lines',
+    labelOf: r => String(r.text).slice(0, 200) },
+  { dir: 'Logs', pattern: 'passwd-check', kind: 'passwd_check', shape: 'text_lines',
+    labelOf: r => String(r.text).slice(0, 200) },
+  { dir: 'Logs', pattern: 'last-btmpx', kind: 'failed_login_btmpx', shape: 'text_lines',
+    labelOf: r => String(r.text).slice(0, 200) },
+  { dir: 'Logs', pattern: 'var-crash-list', kind: 'var_crash_file', shape: 'path_list',
+    labelOf: r => r.path },
+  { dir: 'Logs', pattern: 'var-adm-list', kind: 'var_adm_file', shape: 'path_list',
+    labelOf: r => r.path },
+  { dir: 'System_Info', pattern: 'rpm-packages', kind: 'rpm_package', shape: 'text_lines',
+    labelOf: r => String(r.text).slice(0, 200) },
+  { dir: 'System_Info', pattern: 'zypper-packages', kind: 'zypper_package', shape: 'text_lines',
+    labelOf: r => String(r.text).slice(0, 200) },
+  { dir: 'System_Info', pattern: 'solaris-packages', kind: 'solaris_package', shape: 'text_lines',
+    labelOf: r => String(r.text).slice(0, 200) },
+  { dir: 'System_Info', pattern: 'solaris-package-verify', kind: 'package_verify', shape: 'text_lines',
+    labelOf: r => String(r.text).slice(0, 200) },
+  { dir: 'System_Info', pattern: 'ProcMemUsage', kind: 'proc_mem_usage', shape: 'text_lines',
+    labelOf: r => String(r.text).slice(0, 200) },
+  { dir: 'System_Info', pattern: 'SharedMemAndSemaphores', kind: 'shared_memory', shape: 'text_lines',
+    labelOf: r => String(r.text).slice(0, 200) },
+  { dir: 'System_Info', pattern: 'removeblemedia', kind: 'removable_media', shape: 'text_lines',
+    labelOf: r => String(r.text).slice(0, 200) },
+  { dir: 'System_Info', pattern: 'modules', kind: 'kernel_module', shape: 'text_lines',
+    labelOf: r => String(r.text).slice(0, 200) },
+  { dir: 'Podman', pattern: 'podman-container-logs', kind: 'podman_container_log', shape: 'text_lines',
+    labelOf: r => String(r.text).slice(0, 200) },
+  { dir: 'Virsh', pattern: 'virsh-list-all', kind: 'virsh_domain', shape: 'text_lines',
+    labelOf: r => String(r.text).slice(0, 200) },
+  { dir: 'Virsh', pattern: 'virsh-domifaddr', kind: 'virsh_domain_interface', shape: 'text_lines',
+    labelOf: r => String(r.text).slice(0, 200) },
+  { dir: 'Virsh', pattern: 'virsh-dominfo', kind: 'virsh_domain_info', shape: 'text_lines',
+    labelOf: r => String(r.text).slice(0, 200) },
+  { dir: 'Virsh', pattern: 'virsh-dommemstat', kind: 'virsh_domain_memory', shape: 'text_lines',
+    labelOf: r => String(r.text).slice(0, 200) },
+  { dir: 'Virsh', pattern: 'virsh-snapshot-list', kind: 'virsh_snapshot', shape: 'text_lines',
+    labelOf: r => String(r.text).slice(0, 200) },
+  { dir: 'Virsh', pattern: 'virsh-vcpuinfo', kind: 'virsh_vcpu', shape: 'text_lines',
+    labelOf: r => String(r.text).slice(0, 200) },
+  { dir: 'Virsh', pattern: 'virsh-net-list-all', kind: 'virsh_network', shape: 'text_lines',
+    labelOf: r => String(r.text).slice(0, 200) },
+  { dir: 'Virsh', pattern: 'virsh-net-info', kind: 'virsh_network_info', shape: 'text_lines',
+    labelOf: r => String(r.text).slice(0, 200) },
+  { dir: 'Virsh', pattern: 'virsh-net-dhcp-leases', kind: 'virsh_dhcp_lease', shape: 'text_lines',
+    labelOf: r => String(r.text).slice(0, 200) },
+  { dir: 'Virsh', pattern: 'virsh-nodeinfo', kind: 'virsh_node_info', shape: 'text_lines',
+    labelOf: r => String(r.text).slice(0, 200) },
+  { dir: 'Virsh', pattern: 'virsh-pool-list-all', kind: 'virsh_storage_pool', shape: 'text_lines',
+    labelOf: r => String(r.text).slice(0, 200) },
+  { dir: 'Virsh', pattern: 'virt-top-n-1', kind: 'virsh_top', shape: 'text_lines',
+    labelOf: r => String(r.text).slice(0, 200) },
 ];
 
 function shapeRows(spec: ArtifactSpec, content: string): any[] {
