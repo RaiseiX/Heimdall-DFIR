@@ -1,5 +1,6 @@
 
 import fs from 'fs';
+import { fsTimelineRaw, fsTimelineSize } from './catscaleFsTimelineRow';
 import logger from '../config/logger';
 import path from 'path';
 import os from 'os';
@@ -146,6 +147,7 @@ type Row = {
   timestamp_kind?: string | null;
   path?: string | null;
   ext?: string | null;
+  file_size?: number | null;
   src_ip?: string | null;
   dst_ip?: string | null;
   process_name?: string | null;
@@ -200,7 +202,7 @@ function evaluateRow(r: Row): { detections: string | null; tags: string[] } {
 const INSERT_COLS = [
   'case_id', 'result_id', 'evidence_id', 'timestamp', 'artifact_type', 'artifact_name',
   'source', 'description', 'raw', 'host_name', 'user_name', 'process_name',
-  'tool', 'timestamp_kind', '"path"', 'ext', 'src_ip', 'dst_ip', 'tags', 'detections',
+  'tool', 'timestamp_kind', '"path"', 'ext', 'file_size', 'src_ip', 'dst_ip', 'tags', 'detections',
 ];
 
 async function batchInsert(pool: Pool, rows: Row[], link: TimelineLink = {}): Promise<number> {
@@ -224,7 +226,7 @@ async function batchInsert(pool: Pool, rows: Row[], link: TimelineLink = {}): Pr
         // parser that omits the field used to lose every one of its rows.
         r.artifact_name ?? '', r.source, r.description, JSON.stringify(r.raw),
         r.host_name ?? null, r.user_name ?? null, r.process_name ?? null,
-        TOOL, r.timestamp_kind ?? null, r.path ?? null, r.ext ?? null,
+        TOOL, r.timestamp_kind ?? null, r.path ?? null, r.ext ?? null, r.file_size ?? null,
         r.src_ip ?? null, r.dst_ip ?? null, tags, detections,
       );
     }
@@ -812,10 +814,10 @@ async function parseFsTimeline(
       artifact_type: 'catscale_fstimeline', artifact_name: 'Linux Filesystem Timeline',
       source: sourcePath,
       description: `${perms} [${user}] ${fullPath}`,
-      raw: { path: fullPath, last_modified: lastMod, permissions: perms, user, host: hostname },
+      raw: fsTimelineRaw(parts, hostname),
       host_name: hostname, user_name: user !== 'root' ? user : null,
       timestamp_kind: modTs ? 'mtime' : 'collection',
-      path: fullPath, ext: extOf(fullPath),
+      path: fullPath, ext: extOf(fullPath), file_size: fsTimelineSize(parts),
     });
 
     if (rows.length >= 1000) {

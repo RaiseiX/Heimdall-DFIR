@@ -27,6 +27,7 @@ const { parse: parseStream } = require('csv-parse');
 const { applyMapping } = require('../timelineMappings');
 const { stripNullBytes, normalizeTimestamp, extractTimestamp } = require('../timelineNormalizeCore');
 const { extractForensicFields } = require('../timelineForensicFields');
+const { rawOf } = require('./rawColumns');
 
 async function importCsvFile(pool, { caseId, resultId, evidenceId, filePath, filename, mapping }) {
   let inserted = 0, skipped = 0;
@@ -127,7 +128,7 @@ async function importCsvFile(pool, { caseId, resultId, evidenceId, filePath, fil
           artifact_type: mapped.artifact_type,
           artifact_name: mapped.artifact_name,
           description, source,
-          raw: Object.fromEntries(Object.entries(rec).slice(0, 20)),
+          raw: rawOf(rec),
           host_name: mapped.host_name || null,
           user_name: mapped.user_name || null,
           process_name: mapped.process_name || null,
