@@ -11,6 +11,7 @@ import AptAttributionTab from '../components/mitre/AptAttributionTab';
 import NetworkExplorer from '../components/networkmap/NetworkExplorer';
 import TriagePanel from '../components/networkmap/TriagePanel';
 import InvestigationDrawer from '../components/networkmap/InvestigationDrawer';
+import { timelinePivotUrl } from '../utils/timelinePivot';
 import ColorblindToggle from '../components/networkmap/ColorblindToggle';
 import { Segment, Action } from '../components/networkmap/MapControls';
 import { toggleHidden, hiddenEntries } from '../components/networkmap/utils/hiddenNodes';
@@ -487,13 +488,14 @@ export default function CaseIntelligencePage({ collectionId }) {
                   elements={cytoscapeElements}
                   cy={cyInstance}
                   caseId={id}
-                  onPivot={(value) => navigate(`/super-timeline?caseId=${id}&search=${encodeURIComponent(value)}`)}
+                  onPivot={(value) => navigate(timelinePivotUrl({ caseId: id, collectionId, search: value }))}
                 />
               )}
               {selectedNode && (
                 <InvestigationDrawer
                   nodeData={selectedNode}
                   caseId={id}
+                  collectionId={collectionId}
                   allEdges={allEdges}
                   onClose={() => setSelectedNode(null)}
                   onSelectPeer={peerId => {

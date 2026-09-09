@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { timelinePivotUrl } from '../../utils/timelinePivot';
 import { X } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
@@ -47,7 +48,7 @@ function Row({ label, children, notes = [] }) {
   );
 }
 
-export default function InvestigationDrawer({ nodeData, caseId, allEdges, onClose, onSelectPeer, nodeOverrides, onOverrideType, onResetType, onDeleteManualNode, zoneDeclarations, onDeclareZone, onWithdrawZone, onHideNode }) {
+export default function InvestigationDrawer({ nodeData, caseId, collectionId, allEdges, onClose, onSelectPeer, nodeOverrides, onOverrideType, onResetType, onDeleteManualNode, zoneDeclarations, onDeclareZone, onWithdrawZone, onHideNode }) {
   const [tab, setTab] = useState('events');
   const navigate = useNavigate();
   const { t } = useTranslation();
@@ -80,7 +81,7 @@ export default function InvestigationDrawer({ nodeData, caseId, allEdges, onClos
 
   function goTimeline() {
     if (!art.valid) return;
-    navigate(`/super-timeline?caseId=${caseId}&search=${encodeURIComponent(art.timelineQuery)}`);
+    navigate(timelinePivotUrl({ caseId, collectionId, search: art.timelineQuery }));
   }
   async function flagIoc() {
     if (!art.valid || busy || flagged) return;
