@@ -1,5 +1,6 @@
 
 import { Client } from '@elastic/elasticsearch';
+import { ARTIFACT_TYPE_AGG_SIZE, artifactTypeFacet } from './artifactTypeFacet';
 import logger from '../config/logger';
 
 const ES_URL = process.env.ELASTICSEARCH_URL || 'http://elasticsearch:9200';
@@ -276,6 +277,8 @@ export interface SearchResult {
   limit:                    number;
   total_pages:              number;
   artifact_types_available: string[];
+  artifact_types_total:     number;
+  artifact_types_truncated: boolean;
 }
 
 const ES_SORT_FIELDS: Record<string, string> = {
@@ -394,7 +397,8 @@ export async function searchTimeline(
       artifact_types_ctx: {
         filter: { bool: { filter: filtersForTypeAgg } },
         aggs: {
-          types: { terms: { field: 'artifact_type', size: 50 } },
+          types: { terms: { field: 'artifact_type', size: ARTIFACT_TYPE_AGG_SIZE } },
+          types_total: { cardinality: { field: 'artifact_type' } },
         },
       },
     },
@@ -409,9 +413,11 @@ export async function searchTimeline(
 
   const records = (result.hits.hits as any[]).map(h => h._source);
 
-  const buckets: Array<{ key: string }> =
-    ((result.aggregations?.artifact_types_ctx as any)?.types?.buckets ?? []);
-  const artifact_types_available = buckets.map(b => b.key);
+  const ctxAgg = (result.aggregations?.artifact_types_ctx as any);
+  const facette = artifactTypeFacet(ctxAgg?.types?.buckets, ctxAgg?.types_total?.value);
+  if (facette.truncated) {
+    logger.warn(`[ES] artifact type facet truncated: ${facette.types.length}/${facette.total} types returned (caseId=${caseId})`);
+  }
 
   return {
     records,
@@ -419,7 +425,9 @@ export async function searchTimeline(
     page:                     pg,
     limit:                    lim,
     total_pages:              Math.ceil(total / lim),
-    artifact_types_available,
+    artifact_types_available: facette.types,
+    artifact_types_total:     facette.total,
+    artifact_types_truncated: facette.truncated,
   };
 }
 
@@ -499,7 +507,8 @@ export async function searchTimelineWithPIT(
     },
     track_total_hits: true,
     aggs: {
-      artifact_types: { terms: { field: 'artifact_type', size: 30 } },
+      artifact_types: { terms: { field: 'artifact_type', size: ARTIFACT_TYPE_AGG_SIZE } },
+      artifact_types_total: { cardinality: { field: 'artifact_type' } },
     },
     _source: [
       'timestamp', 'artifact_type', 'artifact_name', 'description', 'source', 'raw',
@@ -526,9 +535,13 @@ export async function searchTimelineWithPIT(
 
   const returned_pit_id: string | undefined = (result as any).pit_id ?? params.pit_id;
 
-  const buckets: Array<{ key: string }> =
-    ((result.aggregations?.artifact_types as any)?.buckets ?? []);
-  const artifact_types_available = buckets.map(b => b.key);
+  const facette = artifactTypeFacet(
+    (result.aggregations?.artifact_types as any)?.buckets,
+    (result.aggregations?.artifact_types_total as any)?.value,
+  );
+  if (facette.truncated) {
+    logger.warn(`[ES] artifact type facet truncated: ${facette.types.length}/${facette.total} types returned (PIT search)`);
+  }
 
   return {
     records,
@@ -536,7 +549,9 @@ export async function searchTimelineWithPIT(
     page:                     1,
     limit:                    lim,
     total_pages:              Math.ceil(total / lim),
-    artifact_types_available,
+    artifact_types_available: facette.types,
+    artifact_types_total:     facette.total,
+    artifact_types_truncated: facette.truncated,
     next_search_after,
     pit_id:                   returned_pit_id,
   };

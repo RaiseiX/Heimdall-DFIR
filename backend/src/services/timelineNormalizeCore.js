@@ -67,6 +67,8 @@ function computeDedupeHash(artifactType, { tsColumn, source, description, eventI
       ? `|${record['EventRecordId'] || record['RecordNumber'] || ''}|${record['Computer'] || ''}`
       : artifactType === 'mft'
       ? `|${record['EntryNumber'] || ''}|${record['SequenceNumber'] || ''}`
+      : artifactType === 'registry'
+      ? `|${record['KeyPath'] || ''}|${record['ValueName'] || ''}`
       : '';
   return crypto
     .createHash('md5')

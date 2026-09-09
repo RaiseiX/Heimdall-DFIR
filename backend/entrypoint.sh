@@ -77,19 +77,36 @@ if [ "$MISSING" = "1" ]; then
   fi
 fi
 
-# Vérifier Maps pour EvtxECmd
-if [ ! -d "$ZIMMERMAN_DIR/Maps" ] || [ -z "$(ls "$ZIMMERMAN_DIR/Maps"/*.map 2>/dev/null)" ]; then
-  echo "  ⚠ Maps EvtxECmd manquantes: $ZIMMERMAN_DIR/Maps/ (EvtxECmd fonctionnera sans mapping enrichi)"
+# Vérifier Maps pour EvtxECmd. Trois dispositions coexistent selon la version de
+# l'archive amont : la garder alignée sur la recherche de routes/collection.js.
+MAPS_DIR=""
+for candidat in \
+  "$ZIMMERMAN_DIR/Maps" \
+  "$ZIMMERMAN_DIR/Maps/Maps" \
+  "$ZIMMERMAN_DIR/Maps/EvtxeCmd/Maps"; do
+  if [ -d "$candidat" ] && [ -n "$(ls "$candidat"/*.map 2>/dev/null)" ]; then
+    MAPS_DIR="$candidat"; break
+  fi
+done
+if [ -z "$MAPS_DIR" ]; then
+  echo "  ⚠ Maps EvtxECmd INTROUVABLES sous $ZIMMERMAN_DIR/Maps/ — EvtxECmd perdra les champs nommés des EventData"
 else
-  MAP_COUNT=$(ls "$ZIMMERMAN_DIR/Maps"/*.map 2>/dev/null | wc -l)
-  echo "  ✓ Maps EvtxECmd: $MAP_COUNT fichiers"
+  MAP_COUNT=$(ls "$MAPS_DIR"/*.map 2>/dev/null | wc -l)
+  echo "  ✓ Maps EvtxECmd: $MAP_COUNT fichiers ($MAPS_DIR)"
 fi
 
-# Vérifier BatchExamples pour RECmd
-if [ ! -f "$ZIMMERMAN_DIR/BatchExamples/RECmd_Batch_MC.reb" ]; then
-  echo "  ⚠ RECmd_Batch_MC.reb manquant (RECmd fonctionnera en mode basique)"
+# Vérifier BatchExamples pour RECmd. Deux dispositions coexistent selon la
+# version de l'archive amont : la garder alignée sur resolveRecmdBatch().
+RECMD_BATCH=""
+for candidat in \
+  "$ZIMMERMAN_DIR/BatchExamples/RECmd/BatchExamples/RECmd_Batch_MC.reb" \
+  "$ZIMMERMAN_DIR/BatchExamples/RECmd_Batch_MC.reb"; do
+  if [ -f "$candidat" ]; then RECMD_BATCH="$candidat"; break; fi
+done
+if [ -z "$RECMD_BATCH" ]; then
+  echo "  ⚠ RECmd_Batch_MC.reb INTROUVABLE — le parseur registre ne produira aucune ligne"
 else
-  echo "  ✓ RECmd BatchExamples"
+  echo "  ✓ RECmd BatchExamples ($RECMD_BATCH)"
 fi
 
 echo ""

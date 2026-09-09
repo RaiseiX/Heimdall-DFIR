@@ -10,7 +10,7 @@
 // Both the native ingest path (routes/collection.js) and the CSV path
 // (services/csv/importCsvFile.js) call this same function so the hash can
 // never diverge between them.
-const crypto = require('crypto');
+const { computeDedupeHash } = require('./timelineNormalizeCore');
 const { matchTags: matchKeywordTags } = require('./timelineKeywords');
 const threatEngine = require('./threatEngine');
 
@@ -59,24 +59,9 @@ function extractForensicFields(record, artifactType, config, tsColumn, descripti
   }
   if (details) details = details.slice(0, 500);
 
-  // EVTX: EventRecordId+Computer make the record globally unique without relying on description truncation.
-  // MFT: EntryNumber+SequenceNumber is the stable per-file identity in the MFT.
-  // Without these, high-frequency events (same EventId+Channel+second) collide and are silently dropped.
-  const extraUnique =
-    artifactType === 'evtx'
-      ? `|${record['EventRecordId'] || record['RecordNumber'] || ''}|${record['Computer'] || ''}`
-      : artifactType === 'mft'
-      ? `|${record['EntryNumber'] || ''}|${record['SequenceNumber'] || ''}`
-      : '';
-
-  const dedupeHash = crypto
-    .createHash('md5')
-    .update([
-      tsColumn || '', source || '', artifactType || '',
-      (description || '').slice(0, 200), eventId == null ? '' : String(eventId),
-    ].join('|') + extraUnique)
-    .digest('hex')
-    .slice(0, 16);
+  const dedupeHash = computeDedupeHash(artifactType, {
+    tsColumn, source, description, eventId, record,
+  });
 
   // v2.23 — keyword enrichment (matches backend/config/timeline_keywords.yaml)
   let tags = [];

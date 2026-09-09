@@ -20,6 +20,10 @@ const CRITICAL_FIELDS = new Set([
   'Extension', 'InUse', 'IsDirectory', 'SI<FN',
   // Amcache DriverBinaries — vuln-drivers detector
   'DriverName', 'DriverId', 'SignatureStatus', 'Signed',
+  'Path', 'InteractionCount', 'PinStatus',
+  'FirstInteracted', 'LastInteracted',
+  'Arguments', 'MachineID',
+  'DriveType', 'VolumeSerialNumber', 'VolumeLabel',
 ]);
 
 const NETWORK_EVENT_IDS = new Set([3, 22, 5156, 5158]);

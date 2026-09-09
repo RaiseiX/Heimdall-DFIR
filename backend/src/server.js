@@ -259,6 +259,26 @@ async function runMigrations() {
   }
 
   try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS hunt_verdicts (
+        id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        case_id          UUID NOT NULL REFERENCES cases(id) ON DELETE CASCADE,
+        rule_id          UUID NOT NULL REFERENCES sigma_rules(id) ON DELETE CASCADE,
+        status           VARCHAR(20) NOT NULL,
+        rule_fingerprint VARCHAR(32),
+        note             TEXT,
+        decided_by       UUID REFERENCES users(id),
+        decided_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE (case_id, rule_id)
+      )
+    `);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_hunt_verdicts_case ON hunt_verdicts(case_id)`);
+    logger.info('[migration] hunt_verdicts OK');
+  } catch (e) {
+    logger.warn('[migration] hunt_verdicts', { error: e.message });
+  }
+
+  try {
     await pool.query(`ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS hmac VARCHAR(64)`);
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_log(created_at DESC)`);
     logger.info('[migration] audit_log.hmac OK');

@@ -43,6 +43,9 @@ const { parseRule, buildQuery } = require('../services/sigmaService');
 const { collectionHost, establishedHostsQuery, resolvedHostExpr } = require('../services/collectionHost');
 const { rawProjection } = require('../services/timelineRawScope');
 const { resolveArtifactType } = require('../services/artifactSubtype');
+const { reparseScope } = require('../services/reparseScope');
+const { commonParserDir } = require('../services/commonParserDir');
+const { hitsOnlyPredicate } = require('../services/huntDetections');
 
 const router = express.Router();
 
@@ -1080,7 +1083,8 @@ router.post('/:caseId/parse', authenticate, async (req, res) => {
         [caseId, collDir]
       );
       oldResultIds = oldPrRows.rows.map(r => r.id);
-      if (oldResultIds.length > 0) {
+      const scope = reparseScope(requestedTypes);
+      if (oldResultIds.length > 0 && scope.full) {
         await dbClient.query(
           `DELETE FROM collection_timeline WHERE result_id = ANY($1::uuid[])`,
           [oldResultIds]
@@ -1088,6 +1092,12 @@ router.post('/:caseId/parse', authenticate, async (req, res) => {
         await dbClient.query(
           `DELETE FROM parser_results WHERE id = ANY($1::uuid[])`,
           [oldResultIds]
+        );
+      } else if (oldResultIds.length > 0 && scope.types.length > 0) {
+        await dbClient.query(
+          `DELETE FROM collection_timeline
+            WHERE result_id = ANY($1::uuid[]) AND artifact_type = ANY($2::text[])`,
+          [oldResultIds, scope.types]
         );
       }
       const prRow = await dbClient.query(
@@ -1260,23 +1270,16 @@ router.post('/:caseId/parse', authenticate, async (req, res) => {
         toolArgs = null;
       } else if (isDirectory && DIRECTORY_MODE_PARSERS.includes(artifactType)) {
 
-        let dirInput = path.dirname(files[0]);
-        if (['shellbags', 'recycle'].includes(artifactType) && files.length > 1) {
-          const allDirs = files.map(f => path.dirname(f));
-          let candidate = allDirs[0];
-          while (candidate !== path.dirname(candidate)) {
-            if (allDirs.every(d => d.startsWith(candidate + path.sep) || d === candidate)) break;
-            candidate = path.dirname(candidate);
-          }
-          dirInput = candidate;
-        }
+        let dirInput = commonParserDir(files, collDir) || path.dirname(files[0]);
 
         if (artifactType === 'lnk' && files.length > 1) {
           const recentFiles = files.filter(f => {
             const lower = f.toLowerCase();
             return !lower.includes('recycle') && (lower.includes('/recent/') || lower.includes('/lnk_files/'));
           });
-          if (recentFiles.length > 0) dirInput = path.dirname(recentFiles[0]);
+          if (recentFiles.length > 0) {
+            dirInput = commonParserDir(recentFiles, collDir) || path.dirname(recentFiles[0]);
+          }
         }
         if (artifactType === 'evtx') {
 
@@ -2071,7 +2074,7 @@ router.get('/:caseId/timeline', authenticate, async (req, res) => {
     // v2.26 — Threat Engine quick filters
     const hitsOnly = detectionsParam === 'hits_only' || detectionsParam === 'hits' || detectionsParam === '1' || detectionsParam === 'true';
     if (hitsOnly) {
-      conditions.push(`detections IS NOT NULL AND jsonb_array_length(detections) > 0`);
+      conditions.push(hitsOnlyPredicate());
     }
     if (detection_severity && /^(greyware|low|medium|high|critical)(,(greyware|low|medium|high|critical))*$/.test(String(detection_severity))) {
       const sevList = String(detection_severity).split(',');

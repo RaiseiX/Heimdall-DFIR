@@ -13,6 +13,7 @@ export interface YaraMatch {
   identifier: string;
   offset:     number;
   data:        string;
+  file:       string | null;
 }
 
 export interface YaraScanResult {
@@ -73,19 +74,68 @@ export async function validateRule(content: string): Promise<{ valid: boolean; e
   }
 }
 
-function parseYaraOutput(stdout: string): YaraMatch[] {
+export function parseYaraOutput(stdout: string): YaraMatch[] {
   const matches: YaraMatch[] = [];
-  for (const line of stdout.split('\n')) {
+  let currentFile: string | null = null;
+  for (const line of String(stdout ?? '').split('\n')) {
     const m = line.match(/^0x([0-9a-f]+):(\$\S+):\s*(.+)$/i);
     if (m) {
       matches.push({
         identifier: m[2],
         offset:     parseInt(m[1], 16),
         data:       m[3].trim(),
+        file:       currentFile,
       });
+      continue;
     }
+    const header = line.match(/^(\S+)\s+(\/\S.*)$/);
+    if (header) currentFile = header[2].trim();
   }
   return matches;
+}
+
+export const SCAN_ROOTS = [
+  UPLOAD_DIR,
+  path.resolve(process.env.COLLECTIONS_DIR || '/app/collections'),
+  path.resolve(process.env.EVIDENCE_DIR || '/app/evidence'),
+];
+
+export function isAllowedScanPath(target: string, roots: string[]): boolean {
+  if (typeof target !== 'string' || target.length === 0) return false;
+  if (!Array.isArray(roots) || roots.length === 0) return false;
+  const resolved = path.resolve(target);
+  return roots.some((root) => {
+    const r = path.resolve(root);
+    return resolved === r || resolved.startsWith(r + path.sep);
+  });
+}
+
+export type YaraScanStatus = 'clean' | 'matches' | 'partial' | 'failed';
+
+export interface YaraScanOutcome {
+  status:  YaraScanStatus;
+  message: string;
+}
+
+export function yaraScanOutcome(input: {
+  rulesChecked: number;
+  rulesErrored: number;
+  matchCount:   number;
+}): YaraScanOutcome {
+  const { rulesChecked, rulesErrored, matchCount } = input;
+  if (matchCount > 0) {
+    return { status: 'matches', message: `${matchCount} correspondance${matchCount > 1 ? 's' : ''}` };
+  }
+  if (rulesChecked === 0) {
+    return { status: 'failed', message: 'Aucune règle YARA active — rien n\'a été scanné' };
+  }
+  if (rulesErrored >= rulesChecked) {
+    return { status: 'failed', message: `Scan impossible — les ${rulesChecked} règles ont toutes échoué, aucun octet n'a été lu` };
+  }
+  if (rulesErrored > 0) {
+    return { status: 'partial', message: `Scan partiel — ${rulesErrored} règle${rulesErrored > 1 ? 's' : ''} sur ${rulesChecked} n'ont pas pu être exécutées` };
+  }
+  return { status: 'clean', message: `Aucune correspondance — ${rulesChecked} règles exécutées` };
 }
 
 export async function scanEvidence(
@@ -94,17 +144,21 @@ export async function scanEvidence(
 ): Promise<YaraScanResult> {
 
   const resolved = path.resolve(evidencePath);
-  if (!resolved.startsWith(UPLOAD_DIR + path.sep) && !resolved.startsWith(UPLOAD_DIR)) {
+  if (!isAllowedScanPath(resolved, SCAN_ROOTS)) {
     return { matched: false, strings: [], error: 'Chemin hors de la zone autorisée' };
   }
   if (!fs.existsSync(resolved)) {
     return { matched: false, strings: [], error: 'Fichier evidence introuvable' };
   }
 
+  let isDir = false;
+  try { isDir = fs.statSync(resolved).isDirectory(); } catch { isDir = false; }
+
   let tmpPath: string | null = null;
   try {
     tmpPath = writeTmpRule(ruleContent);
-    const result = await spawnAsync(['-s', tmpPath, resolved], YARA_TIMEOUT_MS);
+    const args = isDir ? ['-r', '-s', tmpPath, resolved] : ['-s', tmpPath, resolved];
+    const result = await spawnAsync(args, YARA_TIMEOUT_MS);
 
     if (!result) {
       return { matched: false, strings: [], error: 'Pas de résultat' };

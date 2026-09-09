@@ -356,6 +356,13 @@ export function unreachableFields(fields: string[], present: Set<string> | null 
   return [...fields];
 }
 
+export type HuntPlan = { run: true } | { run: false; missingFields: string[] };
+
+export function huntPlan(fields: string[], present: Set<string> | null | undefined): HuntPlan {
+  const missing = unreachableFields(fields, present);
+  return missing ? { run: false, missingFields: missing } : { run: true };
+}
+
 export function presentFieldsQuery(caseId: string, perType = 200, nestedRows = 20000): { text: string; values: unknown[] } {
   return {
     text: `WITH par_type AS (
