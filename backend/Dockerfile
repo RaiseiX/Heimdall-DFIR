@@ -135,6 +135,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     yara \
     tshark \
     gosu \
+    systemd \
     && rm -rf /var/lib/apt/lists/*
 
 # ─── Python forensic libraries ───

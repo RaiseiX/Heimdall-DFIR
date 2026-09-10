@@ -5,7 +5,7 @@ import logger from '../config/logger';
 import path from 'path';
 import os from 'os';
 import readline from 'readline';
-import { spawnSync } from 'child_process';
+import { spawnSync, spawn } from 'child_process';
 import { Pool } from 'pg';
 import { findArtifactFiles, findArtifactFile, type CatScaleFailure } from './catscaleFiles';
 import { collectStateArtifacts } from './catscaleStateCollect';
@@ -15,6 +15,7 @@ import { projectInventoryRows } from './catscaleInventoryTimeline';
 import { projectNetworkConnections } from './networkConnectionProjection';
 import { buildSourcePath, archiveMemberPath, outfilePrefix, detectOutfilePrefix } from './catscaleSourcePath';
 import { registerCollectionFiles, reconcileCoverage, registerArchiveMembers } from './catscaleCoverage';
+import { journalRows, JOURNAL_FILE_RE } from './catscaleJournal';
 import { parseDpkgLogLines, parseAptHistoryBlocks } from './catscalePackageLogs';
 import { parseAuthorizedKeys, parseTextLines } from './catscaleShapeParsers';
 
@@ -1003,6 +1004,91 @@ export async function parseCatScale(
     }
   }
 
+
+// Finds the directory systemd wrote its journals into. Cat-Scale archives
+// /var/log wholesale, so the path inside the expansion is
+// <tmp>/var/log/journal/<machine-id>/ — but the machine-id varies and older hosts
+// use /run/log/journal, so it is located by content rather than by path.
+function findJournalDir(root: string): string | null {
+  const stack = [root];
+  while (stack.length) {
+    const dir = stack.pop()!;
+    let entries: fs.Dirent[];
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { continue; }
+    if (entries.some(e => e.isFile() && JOURNAL_FILE_RE.test(e.name))) return dir;
+    for (const e of entries) if (e.isDirectory()) stack.push(path.join(dir, e.name));
+  }
+  return null;
+}
+
+// Streams `journalctl -D` rather than buffering it. Measured on the reference
+// collection: 1,827,042 entries. Collecting those into one array before the first
+// insert is how an import runs the container out of memory, and spawnSync would
+// additionally freeze the event loop for the whole read.
+const JOURNAL_FLUSH = 5000;
+
+async function parseJournal(
+  journalDir: string, caseId: string, pool: Pool, hostname: string,
+  sourcePath: string, link: TimelineLink, failures: CatScaleFailure[],
+): Promise<number> {
+  const child = spawn('journalctl', ['-D', journalDir, '-o', 'json', '--no-pager'],
+    { stdio: ['ignore', 'pipe', 'pipe'] });
+
+  let stderr = '';
+  child.stderr.on('data', (d: Buffer) => { if (stderr.length < 2000) stderr += d.toString(); });
+
+  // Not a Promise.race against the drain: when journalctl is missing, stdout closes
+  // immediately and the drain finishes with zero rows *before* the error event
+  // fires. Racing would report that as an empty journal — "no reader" presenting
+  // itself as "no data", the one failure this whole coverage effort exists to
+  // prevent. The error is recorded and checked after the drain instead.
+  let spawnError: Error | null = null;
+  child.on('error', (e: any) => {
+    spawnError = e?.code === 'ENOENT'
+      ? new Error("journalctl absent de l'image — le journal systemd n'a pas ete lu")
+      : (e instanceof Error ? e : new Error(String(e)));
+  });
+
+  const exited = new Promise<number>(resolve => child.on('close', c => resolve(c ?? 0)));
+  const rl = readline.createInterface({ input: child.stdout, crlfDelay: Infinity });
+  const ctx = { caseId, hostname, source: sourcePath };
+  let buffer: Row[] = [];
+  let inserted = 0;
+
+  const drain = async () => {
+    for await (const row of journalRows(rl, ctx)) {
+      buffer.push(row as Row);
+      if (buffer.length >= JOURNAL_FLUSH) {
+        inserted += await batchInsert(pool, buffer, link);
+        buffer = [];
+      }
+    }
+    if (buffer.length) inserted += await batchInsert(pool, buffer, link);
+  };
+
+  try {
+    await drain();
+  } catch (e: any) {
+    failures.push({ stage: 'parse', target: journalDir, reason: e?.message ?? String(e) });
+    child.kill();
+    return inserted;
+  }
+
+  const code = await exited;
+  if (spawnError) {
+    failures.push({ stage: 'parse', target: journalDir, reason: (spawnError as Error).message });
+  } else if (inserted === 0) {
+    // Zero rows out of a directory that holds journal files is never a normal
+    // outcome: it means the reader failed, not that the host logged nothing.
+    failures.push({
+      stage: 'parse',
+      target: journalDir,
+      reason: `journalctl a rendu 0 entree (code ${code})${stderr.trim() ? ` : ${stderr.trim().slice(0, 300)}` : ''}`,
+    });
+  }
+  return inserted;
+}
+
   emit('auth_logs');
   const logsDir = path.join(catscaleRoot, 'Logs');
   for (const varLogTar of findArtifactFiles(logsDir, 'var-log.tar.gz')) {
@@ -1037,6 +1123,15 @@ export async function parseCatScale(
           if (n > 0) { totalEvents += n; artifacts.push(`apt:${base} (${n})`); }
         }
       });
+
+      const journalDir = findJournalDir(varLogTmp);
+      if (journalDir) {
+        const n = await parseJournal(
+          journalDir, caseId, pool, hostname,
+          archiveMemberPath(srcOf(varLogTar), varLogTmp, journalDir), link, failures,
+        ).catch(fail('parse', journalDir));
+        if (n > 0) { totalEvents += n; artifacts.push(`journal (${n})`); }
+      }
     }
   }
 
