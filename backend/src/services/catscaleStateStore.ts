@@ -8,6 +8,13 @@ export interface StateRow {
   label: string;
   source_file: string;
   raw: Record<string, unknown>;
+  /** Wall-clock time the artifact itself recorded, ISO-8601, or null when the
+   *  object has no date of its own. Never the collection time — see
+   *  catscaleEventProjection for why that distinction is load-bearing. */
+  event_time?: string | null;
+  /** Names the artifact the time was read from (`dmesg`, ...), so the grid's
+   *  TS Type column says which clock produced it. */
+  event_time_kind?: string | null;
 }
 
 export interface StateLink {
@@ -85,11 +92,13 @@ export async function insertStateRows(
       const chunk = rows.slice(i, i + CHUNK);
       const res = await client.query(
         `INSERT INTO catscale_state
-           (case_id, evidence_id, result_id, host_name, collected_at, kind, source_file, label, raw)
+           (case_id, evidence_id, result_id, host_name, collected_at, kind, source_file, label, raw,
+            event_time, event_time_kind)
          SELECT $1::uuid, $2::uuid, $3::uuid, $4::text, $5::timestamptz,
-                u.kind, u.source_file, u.label, u.raw
-           FROM UNNEST($6::text[], $7::text[], $8::text[], $9::jsonb[])
-                AS u(kind, source_file, label, raw)`,
+                u.kind, u.source_file, u.label, u.raw, u.event_time, u.event_time_kind
+           FROM UNNEST($6::text[], $7::text[], $8::text[], $9::jsonb[],
+                       $10::timestamptz[], $11::text[])
+                AS u(kind, source_file, label, raw, event_time, event_time_kind)`,
         [
           caseId,
           link.evidence_id ?? null,
@@ -100,6 +109,8 @@ export async function insertStateRows(
           chunk.map(r => stripNul(r.source_file)),
           chunk.map(r => stripNul(r.label)),
           chunk.map(r => jsonNoNul(r.raw)),
+          chunk.map(r => r.event_time ?? null),
+          chunk.map(r => (r.event_time_kind ? stripNul(r.event_time_kind) : null)),
         ],
       );
       inserted += res.rowCount ?? 0;

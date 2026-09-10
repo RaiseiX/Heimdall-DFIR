@@ -1,5 +1,7 @@
 import type { Pool } from 'pg';
 import { PROMOTED_COLUMNS, promotionSql } from './catscaleInventoryPromotion';
+import { eventTimeSql } from './catscaleEventProjection';
+import { PROJECTED_TIMESTAMP_KINDS } from './catscaleArtifactRegistry';
 
 // Projects catscale_state into the SuperTimeline as undated inventory rows.
 //
@@ -34,7 +36,7 @@ const PURGE_SQL = `
   DELETE FROM collection_timeline
    WHERE case_id = $1
      AND evidence_id = $2
-     AND timestamp_kind = 'inventory'`;
+     AND timestamp_kind = ANY($3::text[])`;
 
 // `kind` is at most 23 characters and `artifact_type` holds 50, so the prefix always
 // fits; left() is kept as a guard rather than a necessity. Prefixing keeps these
@@ -51,8 +53,7 @@ const PROJECT_SQL = `
   SELECT s.case_id,
          s.result_id,
          s.evidence_id,
-         NULL::timestamptz,
-         'inventory',
+${eventTimeSql('s')},
          left('catscale_' || s.kind, 50),
          left(initcap(replace(s.kind, '_', ' ')), 200),
          s.label,
@@ -72,7 +73,7 @@ export async function projectInventoryRows(
   caseId: string,
   evidenceId: string,
 ): Promise<number> {
-  await pool.query(PURGE_SQL, [caseId, evidenceId]);
+  await pool.query(PURGE_SQL, [caseId, evidenceId, PROJECTED_TIMESTAMP_KINDS]);
   const res = await pool.query(PROJECT_SQL, [caseId, evidenceId]);
   return res.rowCount ?? 0;
 }

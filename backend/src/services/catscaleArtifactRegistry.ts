@@ -12,6 +12,7 @@ import {
   parseKeyValueLines, parseTextLines, parseJsonDoc,
   parseDpkgTable, dpkgStateMeaning,
 } from './catscaleShapeParsers';
+import { dmesgStamp, containerLogStamp } from './catscaleEventTime';
 
 export type Shape =
   | 'hash_list' | 'path_list' | 'header_table' | 'kv_blocks' | 'path_desc' | 'head_markers'
@@ -39,7 +40,21 @@ export interface ArtifactSpec {
   columns?: string[];
   labelOf: (row: any) => string;
   findingOf?: (row: any) => Omit<SpecFinding, 'raw'> | null;
+  /** Reads the event's own wall-clock time out of a parsed row, when the artifact
+   *  records one. Absent means the artifact is inventory: it describes an object
+   *  that exists, not something that happened at a moment. */
+  eventTimeOf?: (row: any, ctx: SpecContext) => string | null;
+  /** Declared, not returned, so the projection's purge can enumerate every
+   *  timestamp_kind this registry can write. A purge that only knew 'inventory'
+   *  would leave dated rows behind and double them on the next backfill. */
+  eventTimeKind?: string;
 }
+
+/** Collection-wide facts a spec may need. `hostOffset` comes from the
+ *  `host-date-timezone` artifact: `dmesg -T` renders local wall-clock time with no
+ *  offset, so defaulting to UTC would shift every event on a European host by two
+ *  hours — a plausible-looking timeline that is wrong everywhere. */
+export interface SpecContext { hostOffset: string | null }
 
 export interface AppliedSpec { stateRows: StateRow[]; findings: SpecFinding[] }
 
@@ -221,7 +236,9 @@ export const ARTIFACT_REGISTRY: ArtifactSpec[] = [
   // records the content line by line rather than letting the file read as empty.
   // "No parser written for this shape" must never present itself as "no data".
   { dir: 'Docker', pattern: 'docker-container-logs', kind: 'docker_container_log', shape: 'text_lines',
-    labelOf: r => String(r.text).slice(0, 200) },
+    labelOf: r => String(r.text).slice(0, 200),
+    eventTimeKind: 'container_log',
+    eventTimeOf: (r, ctx) => containerLogStamp(String(r.text), ctx.hostOffset) },
   { dir: 'Docker', pattern: 'docker-network-inspect', kind: 'docker_network', shape: 'json_doc',
     labelOf: r => String(r.Name ?? r.Id ?? '') },
   { dir: 'Docker', pattern: 'docker-info', kind: 'docker_info', shape: 'kv_lines',
@@ -252,8 +269,13 @@ export const ARTIFACT_REGISTRY: ArtifactSpec[] = [
     labelOf: r => String(r.text).slice(0, 200) },
   { dir: 'System_Info', pattern: 'lsusb', kind: 'usb_device', shape: 'text_lines',
     labelOf: r => String(r.text).slice(0, 200) },
+  // The only registry artifact that dates every one of its own lines. Kept as
+  // `text_lines` so nothing is dropped: the bracket stays whole in `raw.text`,
+  // while the label shows the message alone and the time becomes a real column.
   { dir: 'System_Info', pattern: 'dmesg', kind: 'kernel_message', shape: 'text_lines',
-    labelOf: r => String(r.text).slice(0, 200) },
+    labelOf: r => dmesgStamp(String(r.text), null).text.slice(0, 200),
+    eventTimeKind: 'dmesg',
+    eventTimeOf: (r, ctx) => dmesgStamp(String(r.text), ctx.hostOffset).time },
   { dir: 'System_Info', pattern: 'sudo', kind: 'sudo_config', shape: 'text_lines',
     labelOf: r => String(r.text).slice(0, 200) },
   // Structured since 2026-08-18. As `text_lines` this produced 2,670 rows for 2,665
@@ -348,7 +370,9 @@ export const ARTIFACT_REGISTRY: ArtifactSpec[] = [
   { dir: 'System_Info', pattern: 'modules', kind: 'kernel_module', shape: 'text_lines',
     labelOf: r => String(r.text).slice(0, 200) },
   { dir: 'Podman', pattern: 'podman-container-logs', kind: 'podman_container_log', shape: 'text_lines',
-    labelOf: r => String(r.text).slice(0, 200) },
+    labelOf: r => String(r.text).slice(0, 200),
+    eventTimeKind: 'container_log',
+    eventTimeOf: (r, ctx) => containerLogStamp(String(r.text), ctx.hostOffset) },
   { dir: 'Virsh', pattern: 'virsh-list-all', kind: 'virsh_domain', shape: 'text_lines',
     labelOf: r => String(r.text).slice(0, 200) },
   { dir: 'Virsh', pattern: 'virsh-domifaddr', kind: 'virsh_domain_interface', shape: 'text_lines',
@@ -397,7 +421,12 @@ function shapeRows(spec: ArtifactSpec, content: string): any[] {
   }
 }
 
-export function applySpec(spec: ArtifactSpec, content: string, sourceFile: string): AppliedSpec {
+export function applySpec(
+  spec: ArtifactSpec,
+  content: string,
+  sourceFile: string,
+  ctx: SpecContext = { hostOffset: null },
+): AppliedSpec {
   const stateRows: StateRow[] = [];
   const findings: SpecFinding[] = [];
 
@@ -405,9 +434,24 @@ export function applySpec(spec: ArtifactSpec, content: string, sourceFile: strin
     const label = String(spec.labelOf(row) ?? '');
     // A row whose label is empty carries no key an analyst can search on; it is
     // still recorded, keyed by nothing rather than dropped.
-    stateRows.push({ kind: spec.kind, label, source_file: sourceFile, raw: { ...row } });
+    const at = spec.eventTimeOf?.(row, ctx) ?? null;
+    stateRows.push({
+      kind: spec.kind,
+      label,
+      source_file: sourceFile,
+      raw: { ...row },
+      event_time: at,
+      event_time_kind: at ? (spec.eventTimeKind ?? null) : null,
+    });
     const f = spec.findingOf?.(row);
     if (f) findings.push({ ...f, raw: { ...row } });
   }
   return { stateRows, findings };
 }
+
+/** Every timestamp_kind the inventory projection can write, so its purge covers
+ *  what it produced rather than only the undated majority. */
+export const PROJECTED_TIMESTAMP_KINDS: string[] = [
+  'inventory',
+  ...Array.from(new Set(ARTIFACT_REGISTRY.map(s => s.eventTimeKind).filter(Boolean) as string[])),
+];

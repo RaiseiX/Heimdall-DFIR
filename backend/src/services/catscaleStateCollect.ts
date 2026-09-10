@@ -13,7 +13,8 @@ import {
   parseDockerInspect, parseDockerTop, parseDockerDiff, parseDockerPorts,
   parsePackageVerify, parseModuleHashes, parseProcExeLinks,
 } from './catscaleStateParsers';
-import { ARTIFACT_REGISTRY, applySpec } from './catscaleArtifactRegistry';
+import { ARTIFACT_REGISTRY, applySpec, type SpecContext } from './catscaleArtifactRegistry';
+import { hostUtcOffset } from './catscaleEventTime';
 import {
   parseIpAddr, parseRouteTable, parseIptables, parsePasswdCheck,
 } from './catscaleNetworkParsers';
@@ -420,12 +421,20 @@ export function collectStateArtifacts(
   // ── Everything whose format repeats, driven by the registry ───────────────
   // Twenty-odd artifacts across six shapes. Adding one is a registry row, not a
   // module — which is what keeps the remaining families tractable.
+  // Read once, before any spec runs. `dmesg -T` writes local wall-clock time with
+  // no offset; Cat-Scale collects `host-date-timezone` precisely so the offset need
+  // not be guessed. On the reference host it reads `+00:00` — assuming UTC happened
+  // to be right there, and would have been two hours wrong on a Paris host.
+  const tzFiles = findArtifactFiles(path.join(catscaleRoot, 'System_Info'), 'host-date-timezone');
+  const tzContent = tzFiles.length ? readText(tzFiles[0], failures) : null;
+  const ctx: SpecContext = { hostOffset: tzContent ? hostUtcOffset(tzContent) : null };
+
   for (const spec of ARTIFACT_REGISTRY) {
     for (const fp of findArtifactFiles(path.join(catscaleRoot, spec.dir), spec.pattern)) {
       const sourcePath = srcOf(fp);
       const content = readText(fp, failures);
       if (content === null) continue;
-      const applied = applySpec(spec, content, sourcePath);
+      const applied = applySpec(spec, content, sourcePath, ctx);
       // Not `push(...rows)`: spreading passes every element as an argument, and
       // the engine caps that around 65k. lsof alone carries 525,000 rows.
       for (const row of applied.stateRows) stateRows.push(row);
