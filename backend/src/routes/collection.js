@@ -723,11 +723,15 @@ router.post('/:caseId/import', authenticate, upload.single('collection'), async 
         // Belt and braces: unzip and 7z have their own opinions about stored modes,
         // and a directory without the traversal bit is unreadable even by its owner.
         // Guarantee the backend can walk what it just extracted.
+        // spawnSync froze the event loop for as long as chmod ran — up to its 300 s
+        // ceiling on a collection of several hundred thousand files. Node accepted no
+        // connection and wrote no log during that window, so one analyst's import made
+        // the platform answer 502 to everyone else.
         try {
-          const [cmd, ...cargs] = permissionArgs(collectionDir);
-          const r = spawnSync(cmd, cargs, { timeout: 300000 });
-          if (r.status !== 0) logger.warn(`[collection] could not normalise permissions: ${r.stderr?.toString().trim()}`);
-        } catch (e) { logger.warn('[collection] permission normalisation skipped:', e.message); }
+          await spawnTool(permissionArgs(collectionDir), { timeout: 300000 });
+        } catch (e) {
+          logger.warn(`[collection] could not normalise permissions: ${e.message}`);
+        }
 
         try { fs.unlinkSync(uploadedPath); } catch (_) {}
 
@@ -797,10 +801,8 @@ router.post('/:caseId/import', authenticate, upload.single('collection'), async 
 
         let collectionDirSize = 0;
         try {
-          const duResult = spawnSync('du', ['-sb', collectionDir], { encoding: 'utf8', timeout: 30000 });
-          if (duResult.status === 0 && duResult.stdout) {
-            collectionDirSize = parseInt(duResult.stdout.split('\t')[0], 10) || 0;
-          }
+          const duOut = await spawnTool(['du', '-sb', collectionDir], { timeout: 30000 });
+          collectionDirSize = parseInt(String(duOut).split('\t')[0], 10) || 0;
         } catch (_e) {}
 
         await pool.query(
@@ -1232,9 +1234,15 @@ router.post('/:caseId/parse', authenticate, async (req, res) => {
         // PCAP feeds network_connections (the network map), not the timeline.
         let inserted = 0;
         try {
-          const pr = spawnSync('python3', ['/app/parsers/parse_pcap.py', '-d', collDir, '--csv', outputDir, '--csvf', 'pcap_results.csv'],
-            { encoding: 'utf8', maxBuffer: 1 << 28, timeout: 1800000 });
-          toolStdout = (pr.stdout || pr.stderr || '').slice(0, 1500);
+          // 30 minutes of spawnSync froze every other request on the instance. The
+          // parser writes its rows to a CSV, not to stdout, so nothing is lost by
+          // reading the stream instead of blocking on it.
+          let pcapOut = '';
+          try {
+            pcapOut = await spawnTool(['python3', '/app/parsers/parse_pcap.py', '-d', collDir, '--csv', outputDir, '--csvf', 'pcap_results.csv'],
+              { timeout: 1800000 });
+          } catch (e) { pcapOut = String(e.message || ''); }
+          toolStdout = pcapOut.slice(0, 1500);
           const csvPath = path.join(outputDir, 'pcap_results.csv');
           if (fs.existsSync(csvPath)) {
             const rows = fs.readFileSync(csvPath, 'utf8').split('\n').filter(Boolean);
@@ -1261,9 +1269,12 @@ router.post('/:caseId/parse', authenticate, async (req, res) => {
         try {
           fs.mkdirSync(RDP_BASE, { recursive: true });
           const cacheDir = files.length ? path.dirname(files[0]) : collDir;
-          const pr = spawnSync('python3', ['/app/tools/bmc-tools.py', '-s', cacheDir, '-d', RDP_BASE, '-b'],
-            { encoding: 'utf8', timeout: 600000 });
-          toolStdout = (pr.stdout || pr.stderr || '').slice(0, 1500);
+          let rdpOut = '';
+          try {
+            rdpOut = await spawnTool(['python3', '/app/tools/bmc-tools.py', '-s', cacheDir, '-d', RDP_BASE, '-b'],
+              { timeout: 600000 });
+          } catch (e) { rdpOut = String(e.message || ''); }
+          toolStdout = rdpOut.slice(0, 1500);
           count = fs.existsSync(RDP_BASE) ? fs.readdirSync(RDP_BASE).filter(f => /\.(bmp|png)$/i.test(f)).length : 0;
         } catch (e) { logger.warn('[rdpcache]', e.message); }
         results[artifactType] = { status: count > 0 ? 'ok' : 'empty', name: config?.name || 'RDP Bitmap Cache', records: count };
@@ -2955,10 +2966,8 @@ router.post('/:caseId/hayabusa', authenticate, async (req, res) => {
     const rulesPresent = fs.existsSync(HAYABUSA_RULES_DIR);
     if (rulesPresent) {
       try {
-        const countOut = require('child_process').spawnSync(
-          'find', [HAYABUSA_RULES_DIR, '-name', '*.yml'], { encoding: 'utf8', timeout: 10000 }
-        );
-        rulesCount = (countOut.stdout || '').split('\n').filter(Boolean).length;
+        const countOut = await spawnTool(['find', HAYABUSA_RULES_DIR, '-name', '*.yml'], { timeout: 10000 });
+        rulesCount = String(countOut || '').split('\n').filter(Boolean).length;
         logger.info(`[hayabusa] rules dir: ${HAYABUSA_RULES_DIR} — ${rulesCount} rules`);
       } catch (_e) {}
     } else {

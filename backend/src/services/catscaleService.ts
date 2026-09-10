@@ -1009,6 +1009,18 @@ export async function parseCatScale(
     const varLogTmp = path.join(os.tmpdir(), `catscale-varlog-${caseId}-${Date.now()}`);
     tempDirs.push(varLogTmp);
     if (extractTarArchive(varLogTar, varLogTmp, failures)) {
+      // Registering the members here rather than crediting the archive as one
+      // parsed file. Measured on the reference collection: 117 members, 1,240 MB
+      // expanded, of which 41 systemd journals hold 1,224 MB — 98.6% of the log
+      // volume, in a binary format nothing here reads. Credited as a single
+      // "parsed" row, that gap was invisible; as members, it is countable.
+      if (link.evidenceId) {
+        try {
+          await registerArchiveMembers(pool, caseId, link.evidenceId, srcOf(varLogTar), varLogTmp);
+        } catch (e: any) {
+          failures.push({ stage: 'insert', target: varLogTar, reason: `members: ${e?.message ?? e}` });
+        }
+      }
       await walkDir(varLogTmp, async (fp) => {
         const base = path.basename(fp);
         if (/^(auth\.log|secure|messages|syslog)(\.1)?$/.test(base)) {

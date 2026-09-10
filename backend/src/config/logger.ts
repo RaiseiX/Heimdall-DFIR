@@ -1,4 +1,5 @@
 import winston from 'winston';
+import { foldDetail } from './loggerDetail';
 import { AsyncLocalStorage } from 'async_hooks';
 
 export interface RequestContext {
@@ -52,10 +53,30 @@ if (process.env.LOG_FILE === 'true') {
   );
 }
 
-const logger = winston.createLogger({
+const base = winston.createLogger({
   level:      process.env.LOG_LEVEL || 'info',
   transports,
   exitOnError: false,
+});
+
+// winston.format.splat() is deliberately absent from the chain above, and without
+// it a second argument is dropped: `logger.error('import failed:', err.message)`
+// wrote {"message":"import failed:"} and nothing else. Measured in the container,
+// in JSON and in printf alike, on 163 error and warning sites.
+//
+// Folding happens here rather than at each call site: the sites are correct as
+// written, it is the transport that could not carry what they passed.
+const fold = (level: 'error' | 'warn' | 'info' | 'debug') =>
+  (message: unknown, ...extras: unknown[]) => {
+    const { message: text, meta } = foldDetail(String(message ?? ''), extras);
+    return meta ? base[level](text, meta) : base[level](text);
+  };
+
+const logger = Object.assign(Object.create(base), {
+  error: fold('error'),
+  warn:  fold('warn'),
+  info:  fold('info'),
+  debug: fold('debug'),
 });
 
 export default logger;
