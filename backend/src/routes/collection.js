@@ -29,7 +29,7 @@ const { pushTextFilter, pushSearchFilter } = require('../utils/textFilter');
 const { GROUPABLE_COLUMNS } = require('../services/timelineGroupColumns');
 const { timelineRowsSql } = require('../services/timelineRowsSql');
 const { SORTABLE_COLUMNS } = require('../services/timelineSortColumns');
-const { rawKeysSql } = require('../services/timelineRawKeys');
+const { rawKeysSql, rowCountProbeSql } = require('../services/timelineRawKeys');
 const { fetchContext, AnchorNotFound } = require('../services/timelineContext');
 const { diffTimelines } = require('../services/timelineDiff');
 const { stripNullBytes, normalizeTimestamp, extractTimestamp, extractDescription } = require('../services/timelineNormalizeCore');
@@ -2679,10 +2679,11 @@ router.get('/:caseId/timeline/raw-keys', authenticate, async (req, res) => {
     const artifactType = String(req.query.artifact_type || '').trim();
     if (!artifactType) return res.status(400).json({ error: 'artifact_type requis' });
 
-    const cnt = await pool.query(
-      `SELECT COUNT(*)::int AS n FROM collection_timeline
-        WHERE case_id = $1::uuid AND artifact_type = $2 AND raw IS NOT NULL`,
-      [caseId, artifactType]);
+    // Sonde bornée, pas un COUNT exact : mesuré en production, le compte intégral
+    // du journal coûtait 4 016 ms contre 293 pour la sonde — plus cher que ce
+    // qu'il servait à décider. Le résultat est exact sous le seuil et plafonné
+    // au-dessus, ce qui suffit pour trancher la stratégie.
+    const cnt = await pool.query(rowCountProbeSql(), [caseId, artifactType]);
     const rowCount = cnt.rows[0]?.n ?? 0;
     if (rowCount === 0) return res.json({ keys: [], complete: true, scanned_pct: 100, rows: 0 });
 
@@ -2693,7 +2694,10 @@ router.get('/:caseId/timeline/raw-keys', authenticate, async (req, res) => {
       keys: r.rows.map(x => x.key),
       complete: plan.complete,
       scanned_pct: plan.scannedPct,
-      rows: rowCount,
+      // Plafonné par la sonde quand le relevé est échantillonné : on annonce un
+      // minimum plutôt qu'un total faux.
+      rows: plan.complete ? rowCount : null,
+      rows_at_least: plan.complete ? null : rowCount,
       elapsed_ms: Date.now() - t0,
     });
   } catch (err) {

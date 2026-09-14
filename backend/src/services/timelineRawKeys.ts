@@ -31,6 +31,22 @@ export const FULL_SCAN_MAX_ROWS = 250_000;
  *  159 en 653 ms ; 5 % en rend 129 mais coûte 3,4 s — le gain ne vaut pas le prix. */
 export const SAMPLE_PCT = 1;
 
+/** Combien de lignes porte ce type d'artefact — mais seulement assez pour trancher.
+ *
+ *  Mesuré en production le 2026-09-14 : un `COUNT(*)` exact sur le journal coûte
+ *  4 016 ms, la sonde bornée 293 ms. L'endpoint mettait 4,5 s là où le relevé seul
+ *  en coûte 0,6 : le compte coûtait plus cher que ce qu'il servait à décider.
+ *
+ *  Le résultat est exact sous le seuil, et plafonné au-dessus — c'est suffisant,
+ *  puisque la seule question est « au-dessus ou en dessous ». La réponse de la
+ *  route dit alors `complete: false`, jamais un total faux. */
+export function rowCountProbeSql(): string {
+  return `SELECT count(*)::int AS n FROM (
+            SELECT 1 FROM collection_timeline
+             WHERE case_id = $1::uuid AND artifact_type = $2 AND raw IS NOT NULL
+             LIMIT ${FULL_SCAN_MAX_ROWS + 1}) x`;
+}
+
 export interface RawKeysPlan {
   sql: string;
   complete: boolean;

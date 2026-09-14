@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { collectionAPI, casesAPI, timelineRulesAPI } from '../utils/api';
+import { collectionAPI, timelineRulesAPI } from '../utils/api';
 import { useTimelineStore }  from '../components/supertimeline/store/useTimelineStore';
 import { sortRules }         from '../utils/colorRulesEngine';
 import CommandBar  from '../components/supertimeline/CommandBar/CommandBar';
@@ -8,7 +8,7 @@ import StatusBar   from '../components/supertimeline/StatusBar/StatusBar';
 import DetailPanel from '../components/supertimeline/DetailPanel/DetailPanel';
 import TipsTab     from '../components/supertimeline/ExplorerPanel/TipsTab';
 import {
-  Shield, Play, RefreshCw, Loader2, X, AlertTriangle, FolderOpen,
+  Shield, Play, RefreshCw, Loader2, X, AlertTriangle,
 } from 'lucide-react';
 
 import { markStyle } from '../components/ui/tableIdiom';
@@ -61,9 +61,7 @@ function DiagnosticBanner({ diagnostic }) {
   );
 }
 
-export default function HayabusaPage() {
-  const [cases, setCases]             = useState([]);
-  const [selectedCase, setSelectedCase] = useState('');
+export default function HayabusaPage({ caseId, collectionId }) {
   const [running, setRunning]         = useState(false);
   const [error, setError]             = useState('');
   const [hayMeta, setHayMeta]         = useState(null);
@@ -77,21 +75,13 @@ export default function HayabusaPage() {
   } = useTimelineStore();
 
   useEffect(() => {
-    casesAPI.list({}).then(({ data }) => {
-      const list = data.cases || [];
-      setCases(list);
-      if (list.length > 0) setSelectedCase(list[0].id);
-    }).catch(() => {});
-  }, []);
-
-  useEffect(() => {
-    if (!selectedCase) return;
+    if (!caseId) return;
 
     setActiveLevel('');
-    setCaseId(selectedCase);
+    setCaseId(caseId, collectionId);
     setFilter('artifactTypes', ['hayabusa']);
 
-    timelineRulesAPI.list(selectedCase)
+    timelineRulesAPI.list(caseId)
       .then(r => {
         const rules = r.data?.rules || r.data || [];
         setColorRules(sortRules(Array.isArray(rules) ? rules : []));
@@ -99,7 +89,7 @@ export default function HayabusaPage() {
       .catch(() => setColorRules([]))
       .finally(() => loadTimeline());
 
-    collectionAPI.getHayabusa(selectedCase, { limit: 1 }).then(({ data }) => {
+    collectionAPI.getHayabusa(caseId, { limit: 1 }).then(({ data }) => {
       setHayMeta({
         stats:           data.stats           || {},
         evtxCount:       data.evtx_files_count || 0,
@@ -114,7 +104,7 @@ export default function HayabusaPage() {
       useTimelineStore.getState().setFilter('search', '');
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedCase]);
+  }, [caseId]);
 
   useEffect(() => {
     if (!activeLevel) {
@@ -128,11 +118,11 @@ export default function HayabusaPage() {
   }, [activeLevel]);
 
   const runHayabusa = useCallback(async () => {
-    if (!selectedCase || running) return;
+    if (!caseId || running) return;
     setRunning(true);
     setError('');
     try {
-      const { data } = await collectionAPI.runHayabusa(selectedCase);
+      const { data } = await collectionAPI.runHayabusa(caseId);
       setHayMeta({
         stats:           data.stats            || {},
         evtxCount:       data.evtx_files_processed || 0,
@@ -140,14 +130,14 @@ export default function HayabusaPage() {
         diagnostic:      data.diagnostic        || null,
       });
       setHasRun(true);
-      setCaseId(selectedCase);
+      setCaseId(caseId, collectionId);
       setFilter('artifactTypes', ['hayabusa']);
       loadTimeline();
     } catch (err) {
       setError(err.response?.data?.error || 'Error');
     }
     setRunning(false);
-  }, [selectedCase, running, setCaseId, setFilter, loadTimeline]);
+  }, [caseId, collectionId, running, setCaseId, setFilter, loadTimeline]);
 
   const { stats = {}, evtxCount = 0, diagnostic = null } = hayMeta || {};
   const showContent = hasRun || loading || running;
@@ -189,26 +179,11 @@ export default function HayabusaPage() {
         padding: '6px 14px', display: 'flex', gap: 12, alignItems: 'center',
         flexShrink: 0, flexWrap: 'wrap' }}>
 
-        <FolderOpen size={12} style={{ color: 'var(--fl-muted)', flexShrink: 0 }} />
-        <select
-          value={selectedCase}
-          onChange={e => { setSelectedCase(e.target.value); setHasRun(false); setHayMeta(null); }}
-          style={{ fontSize: 11, padding: '3px 8px', flex: '0 1 300px', minWidth: 160,
-            background: 'var(--fl-panel)', border: '1px solid var(--fl-subtle)', color: 'var(--fl-dim)',
-            borderRadius: 5, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', outline: 'none' }}>
-          <option value="">— Select a case —</option>
-          {cases.map(c => (
-            <option key={c.id} value={c.id}>{c.case_number} — {c.title}</option>
-          ))}
-        </select>
-
-        <span style={separatorStyle} />
-
-        <button onClick={runHayabusa} disabled={running || !selectedCase}
+        <button onClick={runHayabusa} disabled={running || !caseId}
           style={{ ...controlStyle(false),
-            cursor: !selectedCase || running ? 'default' : 'pointer',
-            color: running || !selectedCase ? 'var(--fl-muted)' : 'var(--fl-danger)',
-            opacity: !selectedCase ? 0.5 : 1 }}>
+            cursor: !caseId || running ? 'default' : 'pointer',
+            color: running || !caseId ? 'var(--fl-muted)' : 'var(--fl-danger)',
+            opacity: !caseId ? 0.5 : 1 }}>
           {running
             ? <><Loader2 size={11} className="animate-spin" /> Analyzing…</>
             : <><Play size={11} /> Run</>}
@@ -283,8 +258,8 @@ export default function HayabusaPage() {
           </div>
           <div style={{ fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11, color: 'var(--fl-subtle)',
             textAlign: 'center', maxWidth: 380, lineHeight: 1.7 }}>
-            Select a case containing EVTX files,<br />
-            then click <span style={{ color: 'var(--fl-accent)' }}>Run</span> to parse with Sigma rules.
+            This collection has not been parsed with Sigma rules yet.<br />
+            Click <span style={{ color: 'var(--fl-accent)' }}>Run</span> to analyse its EVTX files.
           </div>
           <div style={{ fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', padding: '4px 10px', borderRadius: 4,
             background: 'var(--fl-panel)', border: '1px solid var(--fl-border)', color: 'var(--fl-subtle)',

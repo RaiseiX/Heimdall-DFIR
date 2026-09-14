@@ -80,7 +80,7 @@ export default function CollectionLayout() {
         ) : pane === 'network' ? (
           <CaseIntelligencePage collectionId={collectionId} />
         ) : pane === 'hayabusa' ? (
-          <HayabusaPage />
+          <HayabusaPage caseId={id} collectionId={collectionId} />
         ) : pane === 'cyberchef' ? (
           <CyberChefPage />
         ) : pane === 'threathunt' ? (
