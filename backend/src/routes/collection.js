@@ -27,6 +27,8 @@ const { buildSlimRaw } = require('../services/timelineFieldExtract');
 const { buildHayabusaDescription } = require('../services/hayabusaDescription');
 const { pushTextFilter, pushSearchFilter } = require('../utils/textFilter');
 const { GROUPABLE_COLUMNS } = require('../services/timelineGroupColumns');
+const { timelineRowsSql } = require('../services/timelineRowsSql');
+const { SORTABLE_COLUMNS } = require('../services/timelineSortColumns');
 const { fetchContext, AnchorNotFound } = require('../services/timelineContext');
 const { diffTimelines } = require('../services/timelineDiff');
 const { stripNullBytes, normalizeTimestamp, extractTimestamp, extractDescription } = require('../services/timelineNormalizeCore');
@@ -36,6 +38,7 @@ const { findCsvFilesRecursive } = require('../services/csv/findCsvFiles');
 const { scanCollectionCsvs } = require('../services/csv/scanCollectionCsvs');
 const { ZIMMERMAN_DIR, ARTIFACT_PATTERNS, ECS_COLUMNS } = require('../config/artifactPatterns');
 const { purgeFsTimeline, purgeCatScaleState } = require('../services/fsTimelinePurge');
+const { withCaseDeletion } = require('../services/caseDeletion');
 const { purgeHayabusaScoped, aggregateHayabusaMeta } = require('../services/hayabusaScope');
 const { natureScopedWhere } = require('../services/timelineNature');
 const { buildAggCacheKeys, invalidateAggCache } = require('../services/timelineAggCache');
@@ -1941,8 +1944,7 @@ router.get('/:caseId/timeline', authenticate, async (req, res) => {
     const offset    = (pg - 1) * lim;
     const direction = sort_dir === 'desc' ? 'DESC' : 'ASC';
 
-    const SAFE_SORT_COLS = new Set(['timestamp', 'artifact_type', 'artifact_name', 'description', 'source']);
-    const safeCol = SAFE_SORT_COLS.has(sort_col) ? sort_col : 'timestamp';
+    const safeCol = SORTABLE_COLUMNS.has(sort_col) ? sort_col : 'timestamp';
 
     // Inventory rows (timestamp_kind = 'inventory') carry a NULL timestamp. Postgres
     // sorts NULLs first under DESC, so the default "most recent first" view would have
@@ -2166,27 +2168,9 @@ router.get('/:caseId/timeline', authenticate, async (req, res) => {
 
     const rawCol = rawProjection(artifact_types);
 
-    const rowsSql = collapseDupes
-      ? `SELECT DISTINCT ON (COALESCE(dedupe_hash, id::text))
-                id, timestamp, artifact_type, artifact_name, description, source,
-                ${hostProj} AS host_name, user_name, process_name, mitre_technique_id, mitre_technique_name, mitre_tactic,
-                tool, timestamp_kind, details, "path", ext, event_id, file_size,
-                src_ip::text AS src_ip, dst_ip::text AS dst_ip, sha1, tags, detections${rawCol}
-           FROM collection_timeline
-          WHERE ${whereRows}
-          ORDER BY COALESCE(dedupe_hash, id::text),
-                   array_length(tags, 1) DESC NULLS LAST,
-                   length(COALESCE(description, '')) DESC,
-                   ${safeCol} ${direction} NULLS LAST
-          LIMIT $${pi} OFFSET $${pi + 1}`
-      : `SELECT id, timestamp, artifact_type, artifact_name, description, source,
-                ${hostProj} AS host_name, user_name, process_name, mitre_technique_id, mitre_technique_name, mitre_tactic,
-                tool, timestamp_kind, details, "path", ext, event_id, file_size,
-                src_ip::text AS src_ip, dst_ip::text AS dst_ip, sha1, tags, detections${rawCol}
-           FROM collection_timeline
-          WHERE ${whereRows}
-          ORDER BY ${safeCol} ${direction} NULLS LAST, id ${direction}
-          LIMIT $${pi} OFFSET $${pi + 1}`;
+    const rowsSql = timelineRowsSql({
+      collapseDupes, hostProj, rawCol, whereRows, safeCol, direction, limitParam: pi,
+    });
 
     const baseQueries = [
       pool.query(countSql, params),
@@ -3576,9 +3560,6 @@ router.get('/:caseId/hayabusa', authenticate, async (req, res) => {
   }
 });
 
-// Counterpart to exhaustive parsing: take the filesystem timeline back out
-// without touching any other artifact. Requires confirm=true in the body so it
-// cannot be triggered by a stray request, and is audit-logged like any deletion.
 router.delete('/:caseId/fs-timeline', authenticate, async (req, res) => {
   try {
     const { caseId } = req.params;
@@ -3588,19 +3569,22 @@ router.delete('/:caseId/fs-timeline', authenticate, async (req, res) => {
       });
     }
     const evidenceId = req.body?.evidence_id || null;
-    const removed = await purgeFsTimeline(pool, caseId, { evidenceId });
+    const removed = await withCaseDeletion(pool, caseId,
+      client => purgeFsTimeline(client, caseId, { evidenceId }));
     await auditLog(req.user.id, 'purge_fs_timeline', 'case', caseId,
       { removed, evidence_id: evidenceId }, req.ip);
     logger.info(`[collection] fs timeline purged: ${removed} row(s) for case ${caseId}`);
     return res.json({ removed, evidence_id: evidenceId });
   } catch (err) {
+    if (err.code === 'LEGAL_HOLD') {
+      return res.status(409).json({ error: 'Case is under legal hold', code: 'LEGAL_HOLD' });
+    }
+    if (err.status === 404) return res.status(404).json({ error: 'Case not found' });
     logger.error('[collection/fs-timeline DELETE]', err.message);
     return res.status(500).json({ error: 'Erreur lors de la suppression de la timeline filesystem' });
   }
 });
 
-// Same contract for the state inventory, optionally narrowed to one family —
-// dropping lsof (525k rows) without losing the rest.
 router.delete('/:caseId/state', authenticate, async (req, res) => {
   try {
     const { caseId } = req.params;
@@ -3611,12 +3595,17 @@ router.delete('/:caseId/state', authenticate, async (req, res) => {
     }
     const kind = req.body?.kind || null;
     const evidenceId = req.body?.evidence_id || null;
-    const removed = await purgeCatScaleState(pool, caseId, { kind, evidenceId });
+    const removed = await withCaseDeletion(pool, caseId,
+      client => purgeCatScaleState(client, caseId, { kind, evidenceId }));
     await auditLog(req.user.id, 'purge_catscale_state', 'case', caseId,
       { removed, kind, evidence_id: evidenceId }, req.ip);
     logger.info(`[collection] catscale_state purged: ${removed} row(s) for case ${caseId}${kind ? ` (kind=${kind})` : ''}`);
     return res.json({ removed, kind, evidence_id: evidenceId });
   } catch (err) {
+    if (err.code === 'LEGAL_HOLD') {
+      return res.status(409).json({ error: 'Case is under legal hold', code: 'LEGAL_HOLD' });
+    }
+    if (err.status === 404) return res.status(404).json({ error: 'Case not found' });
     logger.error('[collection/state DELETE]', err.message);
     return res.status(500).json({ error: 'Erreur lors de la suppression de l\'inventaire d\'état' });
   }
@@ -3626,61 +3615,68 @@ router.delete('/:caseId/data', authenticate, async (req, res) => {
   try {
     const { caseId } = req.params;
 
-    const importRow = await pool.query(
-      `SELECT output_data->>'collection_dir' AS dir
-       FROM parser_results
-       WHERE case_id = $1 AND parser_name = 'MagnetRESPONSE_Import'
-       ORDER BY created_at DESC LIMIT 1`,
-      [caseId]
-    );
+    const result = await withCaseDeletion(pool, caseId, async client => {
+      const importRow = await client.query(
+        `SELECT output_data->>'collection_dir' AS dir
+         FROM parser_results
+         WHERE case_id = $1 AND parser_name = 'MagnetRESPONSE_Import'
+         ORDER BY created_at DESC LIMIT 1`,
+        [caseId]
+      );
 
-    let freedBytes = 0;
+      let freedBytes = 0;
 
-    if (importRow.rows.length > 0) {
-      const collDir = importRow.rows[0].dir;
-      if (collDir && fs.existsSync(collDir)) {
-        try {
-          const duOut = await spawnTool(['du', '-sb', collDir], { timeout: 10000 });
-          const szLine = duOut.trim().split(/\s+/)[0];
-          freedBytes += parseInt(szLine) || 0;
-        } catch (_e) {}
-        fs.rmSync(collDir, { recursive: true, force: true });
-        logger.info(`[collection] Deleted collection dir: ${collDir}`);
-      }
-    }
-
-    try {
-      for (const entry of fs.readdirSync(TEMP_DIR)) {
-        if (entry.startsWith(`parse-${caseId}-`)) {
-          try { fs.rmSync(path.join(TEMP_DIR, entry), { recursive: true, force: true }); } catch (_e) {}
+      if (importRow.rows.length > 0) {
+        const collDir = importRow.rows[0].dir;
+        if (collDir && fs.existsSync(collDir)) {
+          try {
+            const duOut = await spawnTool(['du', '-sb', collDir], { timeout: 10000 });
+            const szLine = duOut.trim().split(/\s+/)[0];
+            freedBytes += parseInt(szLine) || 0;
+          } catch (_e) {}
+          fs.rmSync(collDir, { recursive: true, force: true });
+          logger.info(`[collection] Deleted collection dir: ${collDir}`);
         }
       }
-    } catch (_e) {}
 
-    const ctDeleted = await pool.query(
-      `DELETE FROM collection_timeline WHERE case_id = $1`,
-      [caseId]
-    );
+      try {
+        for (const entry of fs.readdirSync(TEMP_DIR)) {
+          if (entry.startsWith(`parse-${caseId}-`)) {
+            try { fs.rmSync(path.join(TEMP_DIR, entry), { recursive: true, force: true }); } catch (_e) {}
+          }
+        }
+      } catch (_e) {}
 
-    const deleted = await pool.query(
-      `DELETE FROM parser_results WHERE case_id = $1 RETURNING id`,
-      [caseId]
-    );
+      const ctDeleted = await client.query(
+        `DELETE FROM collection_timeline WHERE case_id = $1`,
+        [caseId]
+      );
 
-    await esService.deleteIndex(caseId).catch(e =>
-      logger.warn(`[ES] deleteIndex warn on data-delete (${caseId}): ${String(e.message).substring(0, 100)}`));
+      const deleted = await client.query(
+        `DELETE FROM parser_results WHERE case_id = $1 RETURNING id`,
+        [caseId]
+      );
 
-    const freedMb = Math.round(freedBytes / 1024 / 1024);
-    await auditLog(req.user.id, 'delete_collection_data', 'case', caseId,
-      { freed_mb: freedMb, rows_deleted: deleted.rowCount, timeline_records_deleted: ctDeleted.rowCount }, req.ip);
+      await esService.deleteIndex(caseId).catch(e =>
+        logger.warn(`[ES] deleteIndex warn on data-delete (${caseId}): ${String(e.message).substring(0, 100)}`));
 
-    res.json({
-      success: true,
-      freed_mb: freedMb,
-      rows_deleted: deleted.rowCount,
-      timeline_records_deleted: ctDeleted.rowCount,
+      const freedMb = Math.round(freedBytes / 1024 / 1024);
+      return {
+        success: true,
+        freed_mb: freedMb,
+        rows_deleted: deleted.rowCount,
+        timeline_records_deleted: ctDeleted.rowCount,
+      };
     });
+    await auditLog(req.user.id, 'delete_collection_data', 'case', caseId,
+      { freed_mb: result.freed_mb, rows_deleted: result.rows_deleted,
+        timeline_records_deleted: result.timeline_records_deleted }, req.ip);
+    res.json(result);
   } catch (err) {
+    if (err.code === 'LEGAL_HOLD') {
+      return res.status(409).json({ error: 'Case is under legal hold', code: 'LEGAL_HOLD' });
+    }
+    if (err.status === 404) return res.status(404).json({ error: 'Case not found' });
     logger.error('collection delete error:', err);
     res.status(500).json({ error: err.message });
   }

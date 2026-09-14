@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { collectionAPI, artifactsAPI, bookmarksAPI, savedSearchesAPI } from '../../../utils/api';
-import { computeRef, DENSITIES, DEFAULT_DENSITY, initialExplorerOpen } from '../utils/timelineUtils';
+import { computeRef, DENSITIES, DEFAULT_DENSITY, initialExplorerOpen, SERVER_SORTABLE } from '../utils/timelineUtils';
 
 const DEBOUNCE_MS = 150;
 let _debounceTimer = null;
@@ -216,7 +216,6 @@ export const useTimelineStore = create((set, get) => ({
 
   setSort(col, shiftKey = false) {
     const s = get();
-    const SERVER_SORTABLE = new Set(['timestamp', 'artifact_type', 'description', 'source']);
     if (!SERVER_SORTABLE.has(col)) return;
     if (shiftKey && s.multiSort.length > 0) {
       const idx = s.multiSort.findIndex(x => x.col === col);

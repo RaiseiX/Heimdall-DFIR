@@ -498,6 +498,7 @@ export const COLUMNS_BASE = [
 export const SERVER_SORTABLE = new Set([
   'timestamp',
   'artifact_type',
+  'artifact_name',
   'description',
   'source',
 ]);

@@ -8,7 +8,7 @@ import ColorRulesManager from '../../../components/timeline/ColorRulesManager';
 import { EventRow } from './EventRow';
 import { GroupRow } from './GroupRow';
 import { ColumnHeader } from './ColumnHeader';
-import { buildDynamicCols, computeRef, readRawPath, constantColumns, rowHeightFor, stacksTimestamp, orderColumns, moveColumn, timestampColumnWidth, describeCount } from '../utils/timelineUtils';
+import { buildDynamicCols, computeRef, readRawPath, constantColumns, rowHeightFor, stacksTimestamp, orderColumns, moveColumn, timestampColumnWidth, describeCount, SERVER_SORTABLE } from '../utils/timelineUtils';
 import { artifactColor } from '../../../constants/artifactColors';
 import GroupPanel from './GroupPanel';
 import ColumnManager from './ColumnManager';
@@ -17,7 +17,6 @@ const INLINE_PICTO = { verticalAlign: '-1px' };
 
 const PREFIX = '4px';
 const DEFAULT_PINNED = ['timestamp'];
-const SERVER_SORTABLE_COLS = new Set(['timestamp', 'artifact_type', 'description', 'source']);
 
 const LEDGER_COLS = [
   { key: 'timestamp',      label: 'DateTime',    size: 110 },
@@ -86,7 +85,7 @@ export default function EventGrid() {
   const [clientSort, setClientSort] = useState(null);
 
   const handleColSort = useCallback((colKey, shiftKey) => {
-    if (SERVER_SORTABLE_COLS.has(colKey)) {
+    if (SERVER_SORTABLE.has(colKey)) {
       setSort(colKey, shiftKey);
       setClientSort(null);
     } else {
