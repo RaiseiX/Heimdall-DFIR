@@ -268,7 +268,9 @@ export function moveColumn(order, fromKey, toKey) {
 }
 
 export function computeRef(r) {
-  const input = `${r.timestamp || ''}|${r.artifact_type || ''}|${r.source || ''}`;
+  const id = Number(r?.id);
+  if (Number.isSafeInteger(id) && id > 0) return `evt:${id}`;
+  const input = `${r?.timestamp || ''}|${r?.artifact_type || ''}|${r?.source || ''}`;
   let hash = 5381;
   for (let i = 0; i < input.length; i++) {
     hash = ((hash << 5) + hash) ^ input.charCodeAt(i);

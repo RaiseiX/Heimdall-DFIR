@@ -33,7 +33,7 @@ export default function DetailPanel() {
   const {
     selectedRowId, detailOpen, records, tagData,
     detailTab, setDetailTab, closeDetail, setSelectedRow,
-    bookmarks, toggleBookmark, openContext,
+    bookmarks, toggleBookmark, bookmarkError, openContext,
   } = useTimelineStore();
   const [expanded, setExpanded] = useState(false);
 
@@ -123,6 +123,18 @@ export default function DetailPanel() {
             >
               {isBookmarked ? '★' : '☆'}
             </button>
+            {bookmarkError && (
+              <span
+                role="status"
+                title={bookmarkError}
+                style={{
+                  fontSize: 10, color: 'var(--fl-danger)', whiteSpace: 'nowrap',
+                  maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis',
+                }}
+              >
+                Favori non enregistré — {bookmarkError}
+              </span>
+            )}
             <button onClick={() => setExpanded(v => !v)} title={expanded ? 'Collapse' : 'Expand'}
               style={{ width: 20, height: 18, borderRadius: 3, background: 'transparent',
                 border: '1px solid var(--fl-border)', color: 'var(--fl-muted)', cursor: 'pointer',

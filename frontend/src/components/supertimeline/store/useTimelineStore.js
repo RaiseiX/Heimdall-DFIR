@@ -113,6 +113,7 @@ export const useTimelineStore = create((set, get) => ({
   tagData: new Map(),
   notedRefs: new Set(),
   bookmarks: [],
+  bookmarkError: null,
   savedSearches: [],
   detailTab: 'details',
   explorerOpen: (() => { try { return initialExplorerOpen(localStorage.getItem('supertl.explorerOpen')); } catch { return false; } })(),
@@ -130,7 +131,7 @@ export const useTimelineStore = create((set, get) => ({
     set({ caseId, evidenceId, page: 1, records: [], total: 0, undated: 0,
           selectedRowId: null, detailOpen: false, availTypes: [], typeCounts: {},
           bounds: null,
-          tagData: new Map(), notedRefs: new Set(), bookmarks: [], savedSearches: [] });
+          tagData: new Map(), notedRefs: new Set(), bookmarks: [], bookmarkError: null, savedSearches: [] });
     get().loadBounds();
     artifactsAPI.refsWithNotes(caseId)
       .then(res => set({ notedRefs: new Set(res.data?.refs || []) }))
@@ -350,17 +351,24 @@ export const useTimelineStore = create((set, get) => ({
     if (!caseId) return;
     const ref      = computeRef(record);
     const existing = bookmarks.find(b => b.ref === ref);
-    if (existing) {
-      await bookmarksAPI.remove(caseId, existing.id);
-    } else {
-      await bookmarksAPI.create(caseId, {
-        artifact_ref:    ref,
-        title:           (record.description || '').slice(0, 80) || '—',
-        event_timestamp: record.timestamp,
-      });
+    try {
+      if (existing) {
+        await bookmarksAPI.remove(caseId, existing.id);
+      } else {
+        await bookmarksAPI.create(caseId, {
+          artifact_ref:    ref,
+          title:           (record.description || '').slice(0, 80) || '—',
+          event_timestamp: record.timestamp,
+        });
+      }
+      set({ bookmarkError: null });
+    } catch (e) {
+      set({ bookmarkError: e?.response?.data?.error || e?.message || 'Échec de l’enregistrement' });
     }
     get().loadBookmarks();
   },
+
+  clearBookmarkError() { set({ bookmarkError: null }); },
 
   setDetailTab(tab) { set({ detailTab: tab }); },
   toggleExplorer() {

@@ -112,7 +112,13 @@ router.put('/:id', authenticate, async (req, res) => {
 router.delete('/:id', authenticate, async (req, res) => {
   try {
     const { id, caseId } = req.params;
-    await pool.query('DELETE FROM timeline_bookmarks WHERE id=$1 AND case_id=$2', [id, caseId]);
+    // GET renvoie une UNION de timeline_bookmarks et de case_mitre_techniques,
+    // alors que DELETE ne touche que la première table. Sans ce contrôle, effacer
+    // une entrée venue de MITRE répondait « c'est fait » sans rien supprimer :
+    // l'interface retirait l'étoile, le rechargement suivant la faisait revenir.
+    const result = await pool.query(
+      'DELETE FROM timeline_bookmarks WHERE id=$1 AND case_id=$2', [id, caseId]);
+    if (!result.rowCount) return res.status(404).json({ error: 'Favori non trouvé' });
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: 'Erreur suppression bookmark' });

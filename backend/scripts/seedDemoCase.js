@@ -18,7 +18,10 @@ const at = minutes => new Date(epoch + minutes * 60000).toISOString();
 const uuid = n => `9de00000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 const json = value => JSON.stringify(value);
 
-// Same reference convention as frontend/supertimeline/utils/timelineUtils.computeRef.
+// The fallback half of frontend/supertimeline/utils/timelineUtils.computeRef: that
+// function now keys on the row id when the row has a positive one, and only falls
+// back to this hash otherwise. Demo timeline rows carry negative ids on purpose,
+// so they take this path and these seeded bookmarks keep matching.
 function artifactRef(row) {
   const input = `${row.timestamp || ''}|${row.artifact_type || ''}|${row.source || ''}`;
   let hash = 5381;
