@@ -437,6 +437,7 @@
   },
   "case": {
     "back_to_list": "Cases",
+    "back_to_evidence": "Back to the case evidence",
     "status_active": "Active",
     "status_pending": "Pending",
     "status_closed": "Closed",

@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import { Outlet, useParams, useNavigate } from 'react-router-dom';
+import { Outlet, useParams, useNavigate, useLocation } from 'react-router-dom';
+import { breadcrumbTargets } from './breadcrumbTargets';
 import { casesAPI } from '../utils/api';
 import { Spinner } from '../components/ui';
 import { PriorityPill } from '../components/ui/StatusPill';
@@ -20,6 +21,8 @@ export default function CaseShell({ user }) {
   const [collectionName, setCollectionName] = useState('');
   const { t } = useTranslation();
   const { id } = useParams();
+  const { pathname } = useLocation();
+  const crumb = breadcrumbTargets(pathname, id);
   const navigate = useNavigate();
   const [caseData, setCaseData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -69,21 +72,39 @@ export default function CaseShell({ user }) {
           </span>
         ) : caseData ? (
           <>
-            <span style={{ fontFamily: MONO, fontSize: 11, color: 'var(--fl-text)', fontWeight: 700, flexShrink: 0 }}>
-              {caseData.case_number}
-            </span>
-            <span style={{ color: 'var(--fl-subtle)', fontSize: 13, flexShrink: 0 }}>·</span>
-            <span style={{
-              fontFamily: UI, fontSize: 12, color: 'var(--fl-dim)',
-              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-              flex: collectionName ? '0 1 auto' : 1, minWidth: 0,
-            }}>
-              {caseData.title}
-            </span>
+            <button
+              onClick={() => crumb.caseRoot && navigate(crumb.caseRoot)}
+              title={t('case.back_to_evidence')}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 6, minWidth: 0,
+                background: 'none', border: 'none', padding: 0, cursor: 'pointer',
+                flex: collectionName ? '0 1 auto' : 1,
+              }}
+              onMouseEnter={e => { e.currentTarget.style.textDecoration = 'underline'; }}
+              onMouseLeave={e => { e.currentTarget.style.textDecoration = 'none'; }}>
+              <span style={{ fontFamily: MONO, fontSize: 11, color: 'var(--fl-text)', fontWeight: 700, flexShrink: 0 }}>
+                {caseData.case_number}
+              </span>
+              <span style={{ color: 'var(--fl-subtle)', fontSize: 13, flexShrink: 0 }}>·</span>
+              <span style={{
+                fontFamily: UI, fontSize: 12, color: 'var(--fl-dim)',
+                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0,
+              }}>
+                {caseData.title}
+              </span>
+            </button>
             {collectionName && (
               <>
                 <span style={{ color: 'var(--fl-subtle)', fontSize: 13, flexShrink: 0 }}>›</span>
-                <span style={CRUMB_FILE_STYLE} title={collectionName}>{collectionName}</span>
+                <button
+                  onClick={() => crumb.collection && navigate(crumb.collection)}
+                  title={collectionName}
+                  style={{ ...CRUMB_FILE_STYLE, background: 'none', border: 'none', padding: 0,
+                    cursor: crumb.collection ? 'pointer' : 'default', textAlign: 'left' }}
+                  onMouseEnter={e => { if (crumb.collection) e.currentTarget.style.textDecoration = 'underline'; }}
+                  onMouseLeave={e => { e.currentTarget.style.textDecoration = 'none'; }}>
+                  {collectionName}
+                </button>
               </>
             )}
             {caseData.priority && <PriorityPill priority={caseData.priority} />}

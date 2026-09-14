@@ -437,6 +437,7 @@
   },
   "case": {
     "back_to_list": "Cas",
+    "back_to_evidence": "Revenir aux preuves du dossier",
     "status_active": "En cours",
     "status_pending": "En attente",
     "status_closed": "Clôturé",
