@@ -16,7 +16,7 @@
 // exactly as before. NULL remains load-bearing rather than a placeholder.
 export function eventTimeSql(alias: string): string {
   return [
-    `${alias}.event_time`,
+    `${alias}.event_time,`,
     `CASE WHEN ${alias}.event_time IS NULL THEN 'inventory'`,
     `     ELSE left(COALESCE(${alias}.event_time_kind, 'inventory'), 50) END`,
   ].join('\n');
