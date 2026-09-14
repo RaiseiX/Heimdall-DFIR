@@ -501,6 +501,14 @@ export const SERVER_SORTABLE = new Set([
   'artifact_name',
   'description',
   'source',
+  'timestamp_kind',
+  'tool',
+  'event_id',
+  'ext',
+  'host_name',
+  'user_name',
+  'process_name',
+  'mitre_technique_id',
 ]);
 
 const _GROUP_BY_EXCLUDE = new Set(['timestamp', 'description', 'detections']);
@@ -586,10 +594,10 @@ export function readRawPath(raw, key) {
   return cur;
 }
 
-export function buildDynamicCols(records, artifactType, caseId) {
-  if (!records?.length) return [];
-  const allKeys = new Set();
-  records.slice(0, 20).forEach(r => {
+export function buildDynamicCols(records, artifactType, caseId, serverKeys = []) {
+  if (!records?.length && !serverKeys.length) return [];
+  const allKeys = new Set(serverKeys);
+  (records || []).forEach(r => {
     Object.entries(r?.raw || {}).forEach(([k, v]) => {
       if (v && typeof v === 'object' && !Array.isArray(v)) {
         Object.keys(v).forEach(sub => allKeys.add(`${k}.${sub}`));
@@ -600,9 +608,9 @@ export function buildDynamicCols(records, artifactType, caseId) {
   });
   const rawKeys = [...allKeys].filter(k => {
     if (NORMALIZED_KEYS.has(k)) return false;
-    const sample = records.slice(0, 20)
+    const sample = (records || [])
       .map(r => readRawPath(r?.raw, k)).find(v => v != null);
-    if (sample != null && typeof sample === 'object') return false;
+    if (sample != null && typeof sample === 'object' && !Array.isArray(sample)) return false;
     return true;
   });
   const rawKeysSet = new Set(rawKeys);

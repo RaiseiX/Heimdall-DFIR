@@ -29,6 +29,7 @@ const { pushTextFilter, pushSearchFilter } = require('../utils/textFilter');
 const { GROUPABLE_COLUMNS } = require('../services/timelineGroupColumns');
 const { timelineRowsSql } = require('../services/timelineRowsSql');
 const { SORTABLE_COLUMNS } = require('../services/timelineSortColumns');
+const { rawKeysSql } = require('../services/timelineRawKeys');
 const { fetchContext, AnchorNotFound } = require('../services/timelineContext');
 const { diffTimelines } = require('../services/timelineDiff');
 const { stripNullBytes, normalizeTimestamp, extractTimestamp, extractDescription } = require('../services/timelineNormalizeCore');
@@ -1914,7 +1915,7 @@ router.get('/:caseId/timeline', authenticate, async (req, res) => {
     const { caseId } = req.params;
     const { artifact_types, search, search_op = 'contains', start_time, end_time, host_name, user_name, result_id, evidence_id,
             evidence_ids, hunt_id,
-            tool, event_id, ext, tag, tags: tagsParam, dedupe,
+            tool, event_id, ext, tag, tags: tagsParam,
             detections: detectionsParam, detection_severity, detection_category,
             artifact_name, artifact_name_op,
             host_name_op = 'contains', user_name_op = 'contains', tool_op, ext_op,
@@ -1930,12 +1931,11 @@ router.get('/:caseId/timeline', authenticate, async (req, res) => {
     const tagList = rawTags
       ? String(rawTags).split(',').map(s => s.trim()).filter(t => t && /^[\w:.\-]{1,64}$/.test(t))
       : null;
-    const collapseDupes = dedupe === 'collapse' || dedupe === '1' || dedupe === 'true';
     const hasDetectionFilter = Boolean(detectionsParam || detection_severity || detection_category);
     // hunt_id counts as an "advanced filter" purely to keep it off the
     // Elasticsearch fast path below — ES has no notion of a Sigma predicate,
     // only Postgres (via huntPredicate, resolved further down) does.
-    const hasAdvancedFilters = Boolean(toolList || extList || eventIdList || tagList || collapseDupes || hasDetectionFilter || hunt_id);
+    const hasAdvancedFilters = Boolean(toolList || extList || eventIdList || tagList || hasDetectionFilter || hunt_id);
 
     const safeSortMulti = typeof sort_multi === 'string' && /^[\w,:]+$/.test(sort_multi)
       ? sort_multi : undefined;
@@ -2149,17 +2149,12 @@ router.get('/:caseId/timeline', authenticate, async (req, res) => {
     // Il existe parce que l'en-tête annonçait « 1 213 366 events » alors que 872 414 de
     // ces lignes sont des objets d'inventaire sans horodatage. La ligne dit sa nature
     // depuis la cellule DateTime vide et sa colonne Type TS ; le total, lui, les fondait
-    // toutes dans le même mot. Les deux branches le portent, sinon activer le
-    // dédoublonnage ferait réapparaître le compte fondu.
-    const countSql = collapseDupes
-      ? `SELECT COUNT(*)::int AS total,
-                COUNT(*) FILTER (WHERE ts IS NULL)::int AS undated
-           FROM (
-             SELECT DISTINCT ON (COALESCE(dedupe_hash, id::text))
-                    COALESCE(dedupe_hash, id::text) AS k, timestamp AS ts
-               FROM collection_timeline WHERE ${where}
-           ) d`
-      : `SELECT COUNT(*)::int AS total,
+    // toutes dans le même mot.
+    //
+    // Il n'y a plus qu'une branche : la bascule de dédoublonnage a été retirée le
+    // 2026-09-14 — elle ne supprimait aucune ligne (4 810 204 avec comme sans,
+    // mesuré) et cassait le tri.
+    const countSql = `SELECT COUNT(*)::int AS total,
                 COUNT(*) FILTER (WHERE timestamp IS NULL)::int AS undated
            FROM collection_timeline WHERE ${where}`;
 
@@ -2169,7 +2164,7 @@ router.get('/:caseId/timeline', authenticate, async (req, res) => {
     const rawCol = rawProjection(artifact_types);
 
     const rowsSql = timelineRowsSql({
-      collapseDupes, hostProj, rawCol, whereRows, safeCol, direction, limitParam: pi,
+      hostProj, rawCol, whereRows, safeCol, direction, limitParam: pi,
     });
 
     const baseQueries = [
@@ -2491,7 +2486,7 @@ router.get('/:caseId/timeline/groups', authenticate, async (req, res) => {
       artifact_types, search, search_op = 'contains',
       start_time, end_time,
       host_name, user_name, result_id, evidence_id, evidence_ids, hunt_id,
-      tool, event_id, ext, tag, tags: tagsParam, dedupe,
+      tool, event_id, ext, tag, tags: tagsParam,
       host_name_op = 'contains', user_name_op = 'contains', tool_op, ext_op,
     } = req.query;
 
@@ -2605,23 +2600,12 @@ router.get('/:caseId/timeline/groups', authenticate, async (req, res) => {
     }
 
     const where = conditions.join(' AND ');
-    const fromExpr = (dedupe === 'collapse' || dedupe === '1' || dedupe === 'true')
-      ? `(SELECT DISTINCT ON (COALESCE(dedupe_hash, id::text))
-              id, timestamp, tool, event_id, artifact_type, ${hostColG} AS host_name, user_name,
-              ext, mitre_technique_id, source, process_name
-           FROM collection_timeline WHERE ${where}
-           ORDER BY COALESCE(dedupe_hash, id::text)) ct`
-      : `collection_timeline WHERE ${where}`;
-    const fromClause = (dedupe === 'collapse' || dedupe === '1' || dedupe === 'true')
-      ? `FROM ${fromExpr}`
-      : `FROM ${fromExpr}`;
+    const fromClause = `FROM collection_timeline WHERE ${where}`;
 
-    // Quand le dedoublonnage est actif, le sous-select a deja resolu l'hote et ne
-    // projette pas `evidence_id` : l'expression ne peut pas s'y appliquer une seconde
-    // fois. Sinon elle s'applique ici, sur la table.
-    const dedoublonne = (dedupe === 'collapse' || dedupe === '1' || dedupe === 'true');
-    const groupSelectResolu = groupSelect.replace('__HOSTCOL__', dedoublonne ? 'host_name' : hostColG);
-    const groupByResolu     = groupCols.map(c => (c === 'host_name' && !dedoublonne) ? hostColG : c).join(', ');
+    // La bascule de dedoublonnage a ete retiree le 2026-09-14 : elle ne supprimait
+    // aucune ligne et imposait un sous-select qui empechait de resoudre l'hote ici.
+    const groupSelectResolu = groupSelect.replace('__HOSTCOL__', hostColG);
+    const groupByResolu     = groupCols.map(c => (c === 'host_name' ? hostColG : c)).join(', ');
 
     const sql = `
       SELECT ${groupSelectResolu},
@@ -2680,6 +2664,41 @@ router.get('/:caseId/timeline/context', authenticate, async (req, res) => {
     if (err instanceof AnchorNotFound) return res.status(404).json({ error: 'Événement ancre introuvable' });
     logger.error('[timeline/context]', err.message);
     res.status(500).json({ error: 'Erreur vue contexte' });
+  }
+});
+
+// Clés de `raw` présentes pour un type d'artefact, afin que la grille puisse
+// proposer les colonnes d'un artefact isolé sans se limiter à la page affichée.
+//
+// La réponse dit si elle est exhaustive. Au-delà de FULL_SCAN_MAX_ROWS le relevé
+// est échantillonné — un relevé partiel présenté comme complet ferait conclure à
+// l'analyste qu'un champ n'existe pas. Voir timelineRawKeys pour les mesures.
+router.get('/:caseId/timeline/raw-keys', authenticate, async (req, res) => {
+  try {
+    const { caseId } = req.params;
+    const artifactType = String(req.query.artifact_type || '').trim();
+    if (!artifactType) return res.status(400).json({ error: 'artifact_type requis' });
+
+    const cnt = await pool.query(
+      `SELECT COUNT(*)::int AS n FROM collection_timeline
+        WHERE case_id = $1::uuid AND artifact_type = $2 AND raw IS NOT NULL`,
+      [caseId, artifactType]);
+    const rowCount = cnt.rows[0]?.n ?? 0;
+    if (rowCount === 0) return res.json({ keys: [], complete: true, scanned_pct: 100, rows: 0 });
+
+    const plan = rawKeysSql(rowCount);
+    const t0 = Date.now();
+    const r = await pool.query(plan.sql, [caseId, artifactType]);
+    res.json({
+      keys: r.rows.map(x => x.key),
+      complete: plan.complete,
+      scanned_pct: plan.scannedPct,
+      rows: rowCount,
+      elapsed_ms: Date.now() - t0,
+    });
+  } catch (err) {
+    logger.error('[timeline/raw-keys]', err.message);
+    res.status(500).json({ error: 'Erreur relevé des champs' });
   }
 });
 

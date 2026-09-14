@@ -91,7 +91,7 @@ export default function CommandBar() {
   const {
     search, artifactTypes, hostFilter, userFilter, startTime, endTime,
     detSeverity, tagFilter, toolFilter, eventIdFilter, extFilter,
-    hitsOnly, dedupe, availTypes, typeCounts,
+    hitsOnly, availTypes, typeCounts,
     setFilter, applyFilters, clearFilters, toggleArtifactType, soloArtifactType,
     savedSearches, applySavedSearch, saveCurrentSearch,
     promoteSavedSearch, deleteSavedSearch, updateSavedSearch,
@@ -176,7 +176,7 @@ export default function CommandBar() {
     ...(eventIdFilter ? [{ kind: 'eventId', label: `eid:${eventIdFilter}`, remove: () => { setFilter('eventIdFilter', ''); applyFilters(); } }] : []),
     ...(extFilter   ? [{ kind: 'ext',     label: `ext:${extFilter}`,    remove: () => { setFilter('extFilter', '');   applyFilters(); } }] : []),
   ];
-  const hasFilters = chips.length > 0 || hitsOnly || dedupe || artifactTypes.length > 0;
+  const hasFilters = chips.length > 0 || hitsOnly || artifactTypes.length > 0;
 
   const isMine = s => s.scope === 'personal' || s.author_id === me;
   const mine   = savedSearches.filter(isMine);
@@ -330,10 +330,6 @@ export default function CommandBar() {
                 <span style={{ color: hitsOnly ? 'var(--fl-warn)' : 'var(--fl-dim)', display: 'flex', alignItems: 'center', gap: 6 }}>
                   <Crosshair size={12} strokeWidth={1.6} />Detections only (hits)
                 </span>
-              </label>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', borderRadius: 5, border: '1px solid var(--fl-raised)', background: 'var(--fl-panel)', cursor: 'pointer' }}>
-                <input type="checkbox" checked={dedupe} onChange={e => setFilter('dedupe', e.target.checked)} />
-                <span>Deduplicate (collapse)</span>
               </label>
               <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <span style={{ fontSize: 9, color: 'var(--fl-dim)', textTransform: 'uppercase', letterSpacing: '0.06em', minWidth: 80 }}>Min severity</span>

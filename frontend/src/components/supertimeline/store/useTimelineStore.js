@@ -16,7 +16,7 @@ const QUERY_KEYS = [
   'artifactNameFilter', 'artifactNameFilterOp',
   'hostFilter', 'hostFilterOp', 'userFilter', 'userFilterOp',
   'toolFilter', 'toolFilterOp', 'extFilter', 'extFilterOp',
-  'eventIdFilter', 'tagFilter', 'hitsOnly', 'detSeverity', 'dedupe',
+  'eventIdFilter', 'tagFilter', 'hitsOnly', 'detSeverity',
   'multiSort', 'groupByFields',
 ];
 
@@ -30,7 +30,7 @@ const filterDefaults = () => ({
   extFilter:  '', extFilterOp:  'contains',
   eventIdFilter: '', tagFilter: '',
   evidenceIds: [], resultId: '', huntId: '',
-  hitsOnly: false, detSeverity: '', dedupe: false,
+  hitsOnly: false, detSeverity: '',
   sortCol: 'timestamp', sortDir: 'desc',
   multiSort: [{ col: 'timestamp', dir: 'desc' }],
   groupByFields: [], page: 1,
@@ -79,7 +79,6 @@ function buildQueryParams(s) {
   if (s.huntId)                p.hunt_id      = s.huntId;
   if (s.hitsOnly)              p.detections   = 'hits_only';
   if (s.detSeverity)           p.detection_severity = s.detSeverity;
-  if (s.dedupe)                p.dedupe       = 'collapse';
   return p;
 }
 
@@ -95,7 +94,7 @@ export const useTimelineStore = create((set, get) => ({
   eventIdFilter: '', tagFilter: '',
   evidenceIds: [], evidenceId: null, resultId: '', huntId: '',
   huntMessage: null,
-  hitsOnly: false, detSeverity: '', dedupe: false,
+  hitsOnly: false, detSeverity: '',
 
   sortCol: 'timestamp', sortDir: 'desc',
   multiSort: [{ col: 'timestamp', dir: 'desc' }],
@@ -119,6 +118,9 @@ export const useTimelineStore = create((set, get) => ({
   notedRefs: new Set(),
   bookmarks: [],
   bookmarkError: null,
+  rawKeys: [],
+  rawKeysComplete: true,
+  rawKeysFor: null,
   savedSearches: [],
   detailTab: 'details',
   explorerOpen: (() => { try { return initialExplorerOpen(localStorage.getItem('supertl.explorerOpen')); } catch { return false; } })(),
@@ -373,6 +375,22 @@ export const useTimelineStore = create((set, get) => ({
   },
 
   clearBookmarkError() { set({ bookmarkError: null }); },
+
+  async loadRawKeys(artifactType) {
+    const { caseId, rawKeysFor } = get();
+    if (!caseId || !artifactType) { set({ rawKeys: [], rawKeysComplete: true, rawKeysFor: null }); return; }
+    if (rawKeysFor === `${caseId}|${artifactType}`) return;
+    try {
+      const res = await collectionAPI.timelineRawKeys(caseId, artifactType);
+      set({
+        rawKeys: res.data?.keys || [],
+        rawKeysComplete: res.data?.complete !== false,
+        rawKeysFor: `${caseId}|${artifactType}`,
+      });
+    } catch {
+      set({ rawKeys: [], rawKeysComplete: true, rawKeysFor: null });
+    }
+  },
 
   setDetailTab(tab) { set({ detailTab: tab }); },
   toggleExplorer() {

@@ -231,6 +231,8 @@ export const collectionAPI = {
   rdpCacheList: (caseId) => api.get(`/collection/${caseId}/rdp-cache`),
   rdpCacheImage: (caseId, name) => api.get(`/collection/${caseId}/rdp-cache/${name}`, { responseType: 'blob' }),
   timeline: (caseId, params) => api.get(`/collection/${caseId}/timeline`, { params }),
+  timelineRawKeys: (caseId, artifactType) =>
+    api.get(`/collection/${caseId}/timeline/raw-keys`, { params: { artifact_type: artifactType } }),
   detectionsSummary: (caseId) => api.get(`/collection/${caseId}/detections/summary`),
   record: (caseId, index) => api.get(`/collection/${caseId}/record/${index}`),
   runHayabusa: (caseId)         => api.post(`/collection/${caseId}/hayabusa`),

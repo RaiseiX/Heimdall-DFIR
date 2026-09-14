@@ -49,6 +49,7 @@ export default function EventGrid() {
     groupByFields, caseId, page, totalPages, pageSize, dynamicColsRev,
     setSelectedRow, setSort, loadMore,
     artifactTypes, huntMessage, density,
+    rawKeys, loadRawKeys,
   } = useTimelineStore();
 
   const countState = describeCount({ loading, total });
@@ -107,10 +108,14 @@ export default function EventGrid() {
     });
   }, [records, clientSort]);
 
+  useEffect(() => {
+    loadRawKeys(artifactTypes.length === 1 ? artifactTypes[0] : null);
+  }, [artifactTypes, caseId, loadRawKeys]);
+
   const dynamicCols = useMemo(() => {
     if (artifactTypes.length !== 1) return [];
-    return buildDynamicCols(records, artifactTypes[0], caseId);
-  }, [artifactTypes, records, caseId, dynamicColsRev]);
+    return buildDynamicCols(records, artifactTypes[0], caseId, rawKeys);
+  }, [artifactTypes, records, caseId, rawKeys, dynamicColsRev]);
 
   const visibleCols = useMemo(() => {
     const descIdx = LEDGER_COLS.findIndex(c => c.key === 'description');
@@ -326,7 +331,6 @@ export default function EventGrid() {
       ...(s.extFilter     ? { ext:        s.extFilter   } : {}),
       ...(s.tagFilter     ? { tag:        s.tagFilter   } : {}),
       ...(s.hitsOnly      ? { detections: 'hits_only'  } : {}),
-      ...(s.dedupe        ? { dedupe:     'collapse'   } : {}),
     };
     try {
       const res = await collectionAPI.exportCsv(s.caseId, params);
