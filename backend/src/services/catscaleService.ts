@@ -1354,7 +1354,7 @@ async function parseJournal(
           if (projected > 0) artifacts.push(`inventory:timeline (${projected})`);
         } catch (e: any) {
           logger.error(`[CatScale] inventory projection failed: ${e?.message ?? e}`);
-          failures.push({ stage: 'parse', target: catscaleRoot, reason: `inventory projection: ${e?.message ?? e}` });
+          failures.push({ stage: 'project', target: catscaleRoot, reason: `inventory projection: ${e?.message ?? e}` });
         }
       }
     }

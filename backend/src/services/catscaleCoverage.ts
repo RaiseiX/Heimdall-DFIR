@@ -185,6 +185,24 @@ export async function registerArchiveMembers(
  *
  * Returns the per-status tally. Its sum equals the number of files on disk.
  */
+/** Un echec vise-t-il la collecte entiere, au point qu'on ne sache plus rien des
+ *  fichiers restants ?
+ *
+ *  Oui pour `extract`, `insert` et `parse` sur la racine : l'etape de lecture est
+ *  morte et appeler `unsupported` ce qu'elle n'a pas touche affirmerait une
+ *  connaissance que le crash a detruite.
+ *
+ *  Non pour `project`. La projection d'inventaire s'execute apres, lit
+ *  catscale_state et n'ouvre plus aucun fichier : quand elle echoue, les fichiers
+ *  ont deja ete lus et leurs lignes sont deja en base. Le 2026-09-14, une virgule
+ *  manquante dans sa SQL a fait marquer 100 fichiers en erreur — dont
+ *  `var/log/README`, qui n'a simplement aucun parseur.
+ */
+export function isGlobalFailure(f: CatScaleFailure, catscaleRoot: string): boolean {
+  if (f.stage === 'project') return false;
+  return path.resolve(f.target) === path.resolve(catscaleRoot);
+}
+
 export async function reconcileCoverage(
   pool: Pool,
   caseId: string,
@@ -197,10 +215,8 @@ export async function reconcileCoverage(
   // 2026-08-13 on a NUL byte. Afterwards nobody knows whether the untouched files
   // would have parsed, so calling them `unsupported` would assert knowledge the
   // crash destroyed. They are recorded as errors carrying the message instead.
-  const isGlobal = (f: CatScaleFailure) =>
-    path.resolve(f.target) === path.resolve(catscaleRoot);
-  const global = failures.filter(isGlobal);
-  const perFile = failures.filter(f => !isGlobal(f));
+  const global = failures.filter(f => isGlobalFailure(f, catscaleRoot));
+  const perFile = failures.filter(f => !isGlobalFailure(f, catscaleRoot));
 
   const client = await pool.connect();
   try {

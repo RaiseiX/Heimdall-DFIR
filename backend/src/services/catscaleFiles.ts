@@ -7,7 +7,10 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 /** One thing that did not work. `stage` names where, so the UI can be specific. */
-export type CatScaleFailure = { stage: 'extract' | 'insert' | 'parse'; target: string; reason: string };
+/** `project` nomme les etapes qui s executent APRES la lecture des fichiers et
+ *  ne lisent plus aucun d'eux — la projection d'inventaire en est une. La
+ *  distinction porte du sens pour la couverture : voir isGlobalFailure. */
+export type CatScaleFailure = { stage: 'extract' | 'insert' | 'parse' | 'project'; target: string; reason: string };
 
 // Cat-Scale.sh names every output `<host>-<DTG>-<artifact>[-<discriminator>].<ext>`.
 // A plain substring test is wrong because artifact names are prefixes of each
