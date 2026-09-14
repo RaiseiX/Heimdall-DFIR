@@ -481,6 +481,7 @@ export function fmtSrc(r) {
 export const COLUMNS_BASE = [
   { key: 'timestamp', label: 'Timestamp', size: 186 },
   { key: 'artifact_type', label: 'Artifact Type', size: 96 },
+  { key: 'artifact_name', label: 'Artifact Name', size: 150, meta: { hiddenByDefault: true } },
   { key: 'description', label: 'Description', size: 400, meta: { flex: true } },
   { key: 'source', label: 'Source', size: 170 },
   { key: 'timestamp_kind', label: 'Timestamp Type', size: 100 },

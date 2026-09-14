@@ -26,6 +26,7 @@ const { detectMapping, loadMappings } = require('../services/timelineMappings');
 const { buildSlimRaw } = require('../services/timelineFieldExtract');
 const { buildHayabusaDescription } = require('../services/hayabusaDescription');
 const { pushTextFilter, pushSearchFilter } = require('../utils/textFilter');
+const { GROUPABLE_COLUMNS } = require('../services/timelineGroupColumns');
 const { fetchContext, AnchorNotFound } = require('../services/timelineContext');
 const { diffTimelines } = require('../services/timelineDiff');
 const { stripNullBytes, normalizeTimestamp, extractTimestamp, extractDescription } = require('../services/timelineNormalizeCore');
@@ -1912,6 +1913,7 @@ router.get('/:caseId/timeline', authenticate, async (req, res) => {
             evidence_ids, hunt_id,
             tool, event_id, ext, tag, tags: tagsParam, dedupe,
             detections: detectionsParam, detection_severity, detection_category,
+            artifact_name, artifact_name_op,
             host_name_op = 'contains', user_name_op = 'contains', tool_op, ext_op,
             page = 1, limit = 200, sort_dir = 'asc', sort_col = 'timestamp',
             sort_multi } = req.query;
@@ -2072,6 +2074,11 @@ router.get('/:caseId/timeline', authenticate, async (req, res) => {
     if (validatedEvidenceIds) { conditions.push(`evidence_id = ANY($${pi++}::uuid[])`); params.push(validatedEvidenceIds); }
     if (tool_op && (tool || tool_op === 'empty' || tool_op === 'not_empty'))
       pi = pushTextFilter('tool', tool || '', tool_op, pi, conditions, params);
+    // L'identifiant syslog du journal systemd vit dans artifact_name : 153 valeurs
+    // distinctes sur 1 820 858 lignes, dont 66 % pour deux applications. Filtrer
+    // cote page ne servirait a rien a ce volume.
+    if (artifact_name_op && (artifact_name || artifact_name_op === 'empty' || artifact_name_op === 'not_empty'))
+      pi = pushTextFilter('artifact_name', artifact_name || '', artifact_name_op, pi, conditions, params);
     else if (toolList && toolList.length)
       { conditions.push(`tool = ANY($${pi++}::text[])`); params.push(toolList); }
 
@@ -2504,11 +2511,7 @@ router.get('/:caseId/timeline/groups', authenticate, async (req, res) => {
       host_name_op = 'contains', user_name_op = 'contains', tool_op, ext_op,
     } = req.query;
 
-    const ALLOWED = new Set([
-      'tool', 'event_id', 'artifact_type', 'host_name', 'user_name',
-      'ext', 'mitre_technique_id', 'source', 'process_name',
-      'timestamp_kind', 'sha1', 'src_ip', 'dst_ip',
-    ]);
+    const ALLOWED = GROUPABLE_COLUMNS;
     const groupCols = String(by || '').split(',').map(s => s.trim()).filter(Boolean).slice(0, 3);
     if (groupCols.length === 0) {
       return res.status(400).json({ error: 'parameter "by" required (comma list, max 3)' });

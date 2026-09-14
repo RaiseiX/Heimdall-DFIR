@@ -13,6 +13,7 @@ const DEFAULT_GROUPS = [
 
 const QUERY_KEYS = [
   'search', 'searchOp', 'startTime', 'endTime', 'artifactTypes',
+  'artifactNameFilter', 'artifactNameFilterOp',
   'hostFilter', 'hostFilterOp', 'userFilter', 'userFilterOp',
   'toolFilter', 'toolFilterOp', 'extFilter', 'extFilterOp',
   'eventIdFilter', 'tagFilter', 'hitsOnly', 'detSeverity', 'dedupe',
@@ -22,6 +23,7 @@ const QUERY_KEYS = [
 const filterDefaults = () => ({
   search: '', searchOp: 'contains', startTime: '', endTime: '',
   artifactTypes: [],
+  artifactNameFilter: '', artifactNameFilterOp: 'contains',
   hostFilter: '', hostFilterOp: 'contains',
   userFilter: '', userFilterOp: 'contains',
   toolFilter: '', toolFilterOp: 'contains',
@@ -57,6 +59,8 @@ function buildQueryParams(s) {
   if (s.search || s.searchOp === 'empty' || s.searchOp === 'not_empty')
     { p.search = s.search; p.search_op = s.searchOp; }
   if (s.artifactTypes.length)  p.artifact_types = s.artifactTypes.join(',');
+  if (s.artifactNameFilter || s.artifactNameFilterOp === 'empty' || s.artifactNameFilterOp === 'not_empty')
+    { p.artifact_name = s.artifactNameFilter; p.artifact_name_op = s.artifactNameFilterOp; }
   if (s.startTime)             p.start_time = new Date(s.startTime).toISOString();
   if (s.endTime)               p.end_time   = new Date(s.endTime).toISOString();
   if (s.hostFilter || s.hostFilterOp === 'empty' || s.hostFilterOp === 'not_empty')
@@ -83,6 +87,7 @@ export const useTimelineStore = create((set, get) => ({
   search: '', searchOp: 'contains',
   startTime: '', endTime: '',
   artifactTypes: [],
+  artifactNameFilter: '', artifactNameFilterOp: 'contains',
   hostFilter: '', hostFilterOp: 'contains',
   userFilter: '', userFilterOp: 'contains',
   toolFilter: '', toolFilterOp: 'contains',

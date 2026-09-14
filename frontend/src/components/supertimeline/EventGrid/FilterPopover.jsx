@@ -20,6 +20,7 @@ const OPS = [
 
 function getStoreField(colKey) {
   const MAP = {
+    artifact_name: 'artifactNameFilter',
     host_name: 'hostFilter',
     user_name: 'userFilter',
     tool:      'toolFilter',
