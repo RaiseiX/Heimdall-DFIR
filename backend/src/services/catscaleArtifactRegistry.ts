@@ -163,10 +163,6 @@ export const ARTIFACT_REGISTRY: ArtifactSpec[] = [
     dir: 'Logs', pattern: 'whoandwhat', kind: 'active_session', shape: 'header_table',
     labelOf: r => Object.values(r)[0] as string ?? '',
   },
-  {
-    dir: 'Logs', pattern: 'lastlog', kind: 'last_login', shape: 'header_table',
-    labelOf: r => Object.values(r)[0] as string ?? '',
-  },
 
   // ── Process_and_Network ─────────────────────────────────────────────────
   {
@@ -301,8 +297,6 @@ export const ARTIFACT_REGISTRY: ArtifactSpec[] = [
 
   // Failed authentications. Empty here ("has no entries"), and that emptiness is
   // itself an observation about an exposed host — it must be recorded, not absent.
-  { dir: 'Logs', pattern: 'last-btmp', kind: 'failed_login', shape: 'text_lines',
-    labelOf: r => String(r.text).slice(0, 200) },
   { dir: 'Logs', pattern: 'var-log-list', kind: 'var_log_file', shape: 'path_list',
     labelOf: r => r.path },
 
@@ -343,11 +337,7 @@ export const ARTIFACT_REGISTRY: ArtifactSpec[] = [
     labelOf: r => String(r.text).slice(0, 200) },
   { dir: 'Process_and_Network', pattern: 'getsebool', kind: 'selinux_boolean', shape: 'text_lines',
     labelOf: r => String(r.text).slice(0, 200) },
-  { dir: 'Logs', pattern: 'last-utmpdump', kind: 'logon', shape: 'text_lines',
-    labelOf: r => String(r.text).slice(0, 200) },
   { dir: 'Logs', pattern: 'passwd-check', kind: 'passwd_check', shape: 'text_lines',
-    labelOf: r => String(r.text).slice(0, 200) },
-  { dir: 'Logs', pattern: 'last-btmpx', kind: 'failed_login_btmpx', shape: 'text_lines',
     labelOf: r => String(r.text).slice(0, 200) },
   { dir: 'Logs', pattern: 'var-crash-list', kind: 'var_crash_file', shape: 'path_list',
     labelOf: r => r.path },

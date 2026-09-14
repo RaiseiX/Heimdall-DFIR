@@ -16,6 +16,9 @@ import { projectNetworkConnections } from './networkConnectionProjection';
 import { buildSourcePath, archiveMemberPath, outfilePrefix, detectOutfilePrefix } from './catscaleSourcePath';
 import { registerCollectionFiles, reconcileCoverage, registerArchiveMembers } from './catscaleCoverage';
 import { journalRows, JOURNAL_FILE_RE } from './catscaleJournal';
+import { lastLineRow, type LastVariant } from './catscaleLastRow';
+import { utmpDumpRow, lastlogRow } from './catscaleUtmpRow';
+import { hostUtcOffset } from './catscaleEventTime';
 import { parseDpkgLogLines, parseAptHistoryBlocks } from './catscalePackageLogs';
 import { parseAuthorizedKeys, parseTextLines } from './catscaleShapeParsers';
 
@@ -432,58 +435,33 @@ async function parseAuditd(filePath: string, caseId: string, pool: Pool, hostnam
 
 const LAST_TS_RE = /\b(Mon|Tue|Wed|Thu|Fri|Sat|Sun)\s+\w{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}\s+\d{4}/;
 
-async function parseLastWtmp(filePath: string, caseId: string, pool: Pool, hostname: string, sourcePath: string, link: TimelineLink = {}): Promise<number> {
+async function parseLastWtmp(
+  filePath: string, caseId: string, pool: Pool, hostname: string, sourcePath: string,
+  link: TimelineLink = {}, variant: LastVariant = 'logon', hostOffset: string | null = null,
+): Promise<number> {
   const rows: Row[] = [];
-
+  const ctx = { caseId, hostname, source: sourcePath, hostOffset };
   for await (const line of readLines(filePath)) {
-    if (!line.trim() || line.startsWith('wtmp') || line.startsWith('btmp')) continue;
+    const row = lastLineRow(line, ctx, variant);
+    if (row) rows.push(row as Row);
+  }
+  return batchInsert(pool, rows, link);
+}
 
-    const tsMatch = LAST_TS_RE.exec(line);
-    if (!tsMatch) continue;
-
-    const tsIdx = tsMatch.index;
-    const prefix = line.substring(0, tsIdx).trim().split(/\s+/).filter(Boolean);
-    if (prefix.length < 2) continue;
-
-    const user = prefix[0];
-    const tty  = prefix[1];
-
-    const from = prefix[2] && !/^\d{4}-/.test(prefix[2]) ? prefix[2] : '';
-
-    const loginStr = tsMatch[0];
-    const loginTs = parseLastTs(loginStr);
-    if (!loginTs) continue;
-
-    const rest = line.substring(tsIdx + loginStr.length);
-
-    const isReboot = user === 'reboot' || user === 'shutdown' || user === 'runlevel';
-    const type = isReboot ? 'system_event' : (tty === 'system' ? 'system_event' : 'logon');
-
-    const logoutMatch = /- (\w{3}\s+\w{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}\s+\d{4})/.exec(rest);
-    const stillLogged = /still logged in|still running/.test(rest);
-    const duration = /\(([^)]+)\)/.exec(rest)?.[1];
-
-    let description: string;
-    if (isReboot) {
-      description = `Reboot/shutdown: ${from}`;
-    } else if (stillLogged) {
-      description = `Connexion active: ${user} via ${tty}${from ? ` depuis ${from}` : ''}`;
-    } else {
-      description = `Logon: ${user} via ${tty}${from ? ` depuis ${from}` : ''}${duration ? ` (durée: ${duration})` : ''}`;
-    }
-
-    rows.push({
-      case_id: caseId, timestamp: loginTs,
-      artifact_type: 'catscale_logon',
-      artifact_name: isReboot ? 'Linux System Event' : 'Linux Logon History',
-      source: sourcePath,
-      description,
-      raw: { user, tty, from, login_time: loginStr, logout_time: logoutMatch?.[1] ?? null, still_logged: stillLogged, duration, type, host: hostname },
-      host_name: hostname, user_name: isReboot ? null : user,
-      // `from` is a host or an address depending on the login path; toInet keeps
-      // only what pg's INET column will actually accept.
-      timestamp_kind: isReboot ? 'system' : 'login', src_ip: toInet(from),
-    });
+// utmpdump and lastlog: declared in Cat-Scale's catalogue, empty on the reference
+// host. Parsed anyway — an empty file today is not an empty file on the next host,
+// and a declared-but-unparsed artifact is the silent gap this effort exists to
+// close. See catscaleUtmpRow for the validation reserve that goes with them.
+async function parseLineRows(
+  filePath: string, caseId: string, pool: Pool, sourcePath: string, link: TimelineLink,
+  map: (line: string, ctx: { caseId: string; hostname: string; source: string }) => any | null,
+  hostname: string,
+): Promise<number> {
+  const rows: Row[] = [];
+  const ctx = { caseId, hostname, source: sourcePath };
+  for await (const line of readLines(filePath)) {
+    const row = map(line, ctx);
+    if (row) rows.push(row as Row);
   }
   return batchInsert(pool, rows, link);
 }
@@ -1089,6 +1067,12 @@ async function parseJournal(
   return inserted;
 }
 
+  // Meme raison que pour dmesg : `last` rend une heure murale sans decalage.
+  const tzFile = findArtifactFiles(path.join(catscaleRoot, 'System_Info'), 'host-date-timezone')[0];
+  const hostOffset = tzFile && fs.existsSync(tzFile)
+    ? hostUtcOffset(fs.readFileSync(tzFile, 'utf8'))
+    : null;
+
   emit('auth_logs');
   const logsDir = path.join(catscaleRoot, 'Logs');
   for (const varLogTar of findArtifactFiles(logsDir, 'var-log.tar.gz')) {
@@ -1140,8 +1124,27 @@ async function parseJournal(
   // filesystem for utmp*/wtmp* and can emit several. 'last-utmpdump' is
   // deliberately excluded — it is a utmpdump dump, not `last` output.
   for (const fp of findArtifactFiles(logsDir, 'last-wtmp', 'last-wtmpx', 'last-utmp')) {
-    const n = await parseLastWtmp(fp, caseId, pool, hostname, srcOf(fp), link).catch(fail('parse', fp));
+    const n = await parseLastWtmp(fp, caseId, pool, hostname, srcOf(fp), link, 'logon', hostOffset).catch(fail('parse', fp));
     if (n > 0) { totalEvents += n; artifacts.push(`logon:${path.basename(fp)} (${n})`); }
+  }
+
+  for (const fp of findArtifactFiles(logsDir, 'last-utmpdump')) {
+    const n = await parseLineRows(fp, caseId, pool, srcOf(fp), link, utmpDumpRow, hostname).catch(fail('parse', fp));
+    if (n > 0) { totalEvents += n; artifacts.push(`utmp:${path.basename(fp)} (${n})`); }
+  }
+
+  for (const fp of findArtifactFiles(logsDir, 'lastlog')) {
+    const n = await parseLineRows(fp, caseId, pool, srcOf(fp), link, lastlogRow, hostname).catch(fail('parse', fp));
+    if (n > 0) { totalEvents += n; artifacts.push(`lastlog:${path.basename(fp)} (${n})`); }
+  }
+
+  // btmp is `last` output too, read with the same tool: the format is identical and
+  // only the meaning differs — every row is a failed authentication. It used to be
+  // declared as `text_lines`, which kept the bytes but produced no event, no user
+  // and no source address, so no brute-force could ever be counted from it.
+  for (const fp of findArtifactFiles(logsDir, 'last-btmp', 'last-btmpx')) {
+    const n = await parseLastWtmp(fp, caseId, pool, hostname, srcOf(fp), link, 'failed', hostOffset).catch(fail('parse', fp));
+    if (n > 0) { totalEvents += n; artifacts.push(`failed_logon:${path.basename(fp)} (${n})`); }
   }
 
   for (const btmpFile of findArtifactFiles(logsDir, 'last-btmp')) {

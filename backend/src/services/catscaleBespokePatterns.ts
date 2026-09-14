@@ -1,5 +1,6 @@
 export const BESPOKE_PATTERNS: Record<string, string[]> = {
-  Logs: ['var-log', 'var-crash', 'var-adm', 'last-utmp', 'last-wtmp', 'last-wtmpx'],
+  Logs: ['var-log', 'var-crash', 'var-adm', 'last-utmp', 'last-wtmp', 'last-wtmpx',
+         'last-btmp', 'last-btmpx', 'last-utmpdump', 'lastlog'],
 
   Misc: ['full-timeline'],
 
