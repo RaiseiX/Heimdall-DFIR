@@ -3119,6 +3119,12 @@
     "holders_count": "{{count}} processus le tiennent",
     "absent_from_tree": "absent de l'arbre",
     "shared_explainer": "Un arbre ne donne qu'un parent par processus. Cette vue montre l'inverse : un fichier supprimé, et tous les processus qui le tiennent encore ouvert — une relation que la hiérarchie ne peut pas exprimer.",
-    "counting_files": "comptage des fichiers…"
+    "counting_files": "comptage des fichiers…",
+    "events_button": "Voir ses événements",
+    "events_loading": "recherche des événements…",
+    "events_none": "Aucun événement attribuable à ce processus.",
+    "events_scope": "Limité au démarrage du {{taken}} — les PID se recyclent, et sans cette contrainte 59 % des événements seraient attribués au mauvais processus.",
+    "events_capped": "Affichage plafonné à {{n}} lignes.",
+    "events_no_boot": "Le démarrage de cet instantané n'a pas pu être déterminé : aucun événement n'est affiché, plutôt que des événements faux."
   }
 }

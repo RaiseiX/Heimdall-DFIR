@@ -237,6 +237,8 @@ export const collectionAPI = {
     api.get(`/collection/${caseId}/processes`, { params: { evidence_id: evidenceId } }),
   processFileCounts: (caseId, evidenceId) =>
     api.get(`/collection/${caseId}/processes`, { params: { evidence_id: evidenceId, with: 'counts' } }),
+  processEvents: (caseId, evidenceId, pid, name) =>
+    api.get(`/collection/${caseId}/processes`, { params: { evidence_id: evidenceId, with: 'events', pid, name } }),
   detectionsSummary: (caseId) => api.get(`/collection/${caseId}/detections/summary`),
   record: (caseId, index) => api.get(`/collection/${caseId}/record/${index}`),
   runHayabusa: (caseId)         => api.post(`/collection/${caseId}/hayabusa`),

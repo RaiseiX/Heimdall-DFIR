@@ -43,6 +43,8 @@ export default function CollectionProcessesTab({ caseId, collectionId }) {
   const [choisi, setChoisi] = useState(null);
   const [fichierChoisi, setFichierChoisi] = useState(null);
   const [comptes, setComptes] = useState(null);
+  const [evts, setEvts] = useState(null);
+  const [evtsPour, setEvtsPour] = useState(null);
 
   useEffect(() => {
     if (!caseId || !collectionId) return;
@@ -91,6 +93,14 @@ export default function CollectionProcessesTab({ caseId, collectionId }) {
     supprimes: procs.filter(p => p.supprimes > 0).length,
     comptesPrets: comptes != null,
   }), [procs, comptes]);
+
+  const chargerEvenements = (p) => {
+    setEvtsPour(p.pid);
+    setEvts('chargement');
+    collectionAPI.processEvents(caseId, collectionId, p.pid, p.nom)
+      .then(r => setEvts(r.data))
+      .catch(() => setEvts({ events: [], scope: null, reason: 'error' }));
+  };
 
   const basculer = (pid) => setReplies(prev => {
     const s = new Set(prev);
@@ -228,6 +238,48 @@ export default function CollectionProcessesTab({ caseId, collectionId }) {
                 <div style={VAL}>{parent ? `${parent.nom} (pid ${parent.pid})` : t('processes.is_root')}</div>
                 <div style={ETIQ}>{t('processes.command_line')}</div>
                 <div style={VAL}>{selection.commande || t('processes.not_collected')}</div>
+                <div style={{ marginBottom: 14 }}>
+                  <button type="button" style={controlStyle}
+                    onClick={() => chargerEvenements(selection)}>
+                    {t('processes.events_button')}
+                  </button>
+                </div>
+
+                {evtsPour === selection.pid && (
+                  <div style={{ marginBottom: 14 }}>
+                    {evts === 'chargement' ? (
+                      <div style={{ fontSize: 11, color: 'var(--fl-dim)' }}>{t('processes.events_loading')}</div>
+                    ) : !evts?.scope ? (
+                      <div style={{ fontSize: 11, color: 'var(--fl-warning, var(--fl-dim))', lineHeight: 1.5 }}>
+                        {t('processes.events_no_boot')}
+                      </div>
+                    ) : (
+                      <>
+                        <div style={{ fontSize: 10, color: 'var(--fl-dim)', lineHeight: 1.5, marginBottom: 6 }}>
+                          {t('processes.events_scope', {
+                            taken: new Date(evts.scope.taken_at).toLocaleString(),
+                          })}
+                          {evts.capped ? ' ' + t('processes.events_capped', { n: evts.events.length }) : ''}
+                        </div>
+                        {evts.events.length === 0 ? (
+                          <div style={{ fontSize: 11, color: 'var(--fl-dim)' }}>{t('processes.events_none')}</div>
+                        ) : (
+                          <ul style={{ listStyle: 'none', margin: 0, padding: 0, fontFamily: MONO, fontSize: 10 }}>
+                            {evts.events.slice(0, 60).map(e => (
+                              <li key={e.id} style={{ padding: '2px 0', borderBottom: '1px solid var(--fl-border-soft, var(--fl-border))' }}>
+                                <span style={{ color: 'var(--fl-dim)' }}>
+                                  {new Date(e.timestamp).toISOString().slice(0, 19).replace('T', ' ')}
+                                </span>
+                                <span> {e.description}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </>
+                    )}
+                  </div>
+                )}
+
                 <div style={ETIQ}>{t('processes.holds_open')}</div>
                 <div style={VAL}>
                   {comptes == null ? t('processes.counting_files') : t('processes.holds_summary', {

@@ -1,5 +1,6 @@
 const express = require('express');
 const { processTreeSql, sharedResourcesSql, processFileCountsSql } = require('../services/processTreeSql');
+const { snapshotBootSql, processEventsScopeSql } = require('../services/processEventScope');
 const { execSync, execFileSync, exec, spawnSync, spawn, execFile } = require('child_process');
 const { extractArgs, permissionArgs } = require('../services/archiveExtract');
 const path = require('path');
@@ -2721,6 +2722,32 @@ router.get('/:caseId/processes', authenticate, async (req, res) => {
     // L'arbre coute 88 ms, les comptes de fichiers 4,8 s. Les servir ensemble
     // faisait payer le second au premier. `?with=counts` demande la partie
     // lente, que l'interface charge apres avoir affiche l'arbre.
+    // Le pivot d'un processus vers ses evenements. Contraint par le demarrage de
+    // l'instantane ET par le nom : sans cette contrainte, 84 211 des 142 625
+    // evenements seraient attribues a des processus qui ne les ont pas produits.
+    // Quand le demarrage n'est pas determinable, on REFUSE de repondre — un
+    // pivot absent vaut mieux qu'un pivot faux.
+    if (req.query.with === 'events') {
+      const pid = Number(req.query.pid);
+      const nom = String(req.query.name || '');
+      if (!Number.isSafeInteger(pid) || pid <= 0 || !nom) {
+        return res.status(400).json({ error: 'pid et name requis' });
+      }
+      const b = await readPool.query(snapshotBootSql(), [caseId, evidenceId]);
+      const boot = b.rows[0];
+      if (!boot?.boot_id) {
+        return res.json({ events: [], scope: null, reason: 'boot_unresolved' });
+      }
+      const limite = Math.min(Number(req.query.limit) || 500, 2000);
+      const e = await readPool.query(processEventsScopeSql(),
+        [caseId, evidenceId, pid, nom, boot.boot_id, limite]);
+      return res.json({
+        events: e.rows,
+        scope: { boot_id: boot.boot_id, taken_at: boot.pris_le },
+        capped: e.rows.length >= limite,
+      });
+    }
+
     if (req.query.with === 'counts') {
       const comptes = await readPool.query(processFileCountsSql(), [caseId, evidenceId]);
       return res.json({ counts: comptes.rows });

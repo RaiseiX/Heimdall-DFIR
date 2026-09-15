@@ -3119,6 +3119,12 @@
     "holders_count": "{{count}} processes hold it",
     "absent_from_tree": "absent from the tree",
     "shared_explainer": "A tree gives one parent per process. This view shows the reverse: a deleted file, and every process still holding it open — a relation the hierarchy cannot express.",
-    "counting_files": "counting files…"
+    "counting_files": "counting files…",
+    "events_button": "Show its events",
+    "events_loading": "looking for events…",
+    "events_none": "No event attributable to this process.",
+    "events_scope": "Limited to the boot of {{taken}} — PIDs are recycled, and without this constraint 59% of events would be attributed to the wrong process.",
+    "events_capped": "Capped at {{n}} rows.",
+    "events_no_boot": "This snapshot's boot could not be determined: no events are shown, rather than wrong ones."
   }
 }
