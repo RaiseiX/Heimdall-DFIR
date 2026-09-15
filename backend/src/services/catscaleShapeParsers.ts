@@ -256,20 +256,43 @@ export interface KeyValueBlock { label: string; fields: Record<string, string> }
 export function parseKeyValueBlocks(content: string, blockKey: string): KeyValueBlock[] {
   const out: KeyValueBlock[] = [];
   let current: KeyValueBlock | null = null;
+  let lastField: string | null = null;
   const head = new RegExp(`^${blockKey}\\s*:\\s*(.+)$`, 'i');
 
   for (const line of content.split('\n')) {
     const t = line.trim();
-    if (!t) continue;
+    // A blank line closes the field in progress: nothing after it continues it.
+    if (!t) { lastField = null; continue; }
+
+    // L'indentation est le SEUL signal qui distingue une ligne de continuation
+    // d'un nouveau champ, et trimmer avant de décider le détruisait. `modinfo`
+    // replie la signature d'un module sur plusieurs lignes indentées par deux
+    // tabulations, dont le contenu est fait d'octets hexadécimaux séparés par
+    // des deux-points : `15:C6:07:...` se lit comme « clé 15, valeur C6:07:… »
+    // aussi bien qu'une vraie paire. Chaque repli devenait donc un champ nommé
+    // par son premier octet, et la signature était tronquée à sa première
+    // ligne. Mesuré sur un hôte : 275 clés dont ~253 fantômes.
+    //
+    // Ce que ça coûtait : `signer`, `sig_id` et `intree` sont ce qu'on lit pour
+    // repérer un module noyau non signé ou hors-arbre — un rootkit LKM.
+    if (/^[ \t]/.test(line) && current && lastField) {
+      current.fields[lastField] += t;
+      continue;
+    }
+
     const h = head.exec(t);
     if (h) {
       current = { label: h[1].trim(), fields: {} };
       out.push(current);
+      lastField = null;
       continue;
     }
     if (!current) continue; // anything before the first block header is preamble
     const kv = /^([A-Za-z0-9_.\-]+)\s*:\s*(.*)$/.exec(t);
-    if (kv) current.fields[normaliseHeader(kv[1])] = kv[2].trim();
+    if (kv) {
+      lastField = normaliseHeader(kv[1]);
+      current.fields[lastField] = kv[2].trim();
+    }
   }
   return out;
 }

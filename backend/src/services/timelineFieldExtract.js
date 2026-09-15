@@ -1,30 +1,11 @@
-// Pure, testable extraction of the "slim raw" object built during CSV→DB ingest.
-// Extracted from collection.js streamNormalizeToDB so detection data-contract logic
-// can be unit-tested with fixtures. Behaviour here MUST match the pre-refactor inline code.
+// Construction pure et testable de l'objet `raw` stocké à l'ingestion CSV→base.
+// Extraite de collection.js streamNormalizeToDB pour que le contrat de données
+// des détecteurs se teste sur fixtures.
+//
+// Depuis le 2026-09-15, ce module n'écarte plus aucune colonne : il part de la
+// ligne entière et ajoute, pour les evtx seulement, les champs déduits du texte
+// de charge utile. Le détail du plafond levé est en tête de `buildSlimRaw`.
 
-// Always include the first 15 fields, plus any critical forensic fields that may appear later.
-const CRITICAL_FIELDS = new Set([
-  'PayloadData1', 'PayloadData2', 'PayloadData3', 'PayloadData4', 'PayloadData5', 'PayloadData6',
-  'MapDescription', 'EventId', 'EventID', 'Channel', 'Computer', 'Provider',
-  'RuleTitle', 'Details', 'Level', 'ExtraFieldInfo', 'MitreTags',
-  'FullPath', 'FilePath', 'FileDescription', 'ProgramName',
-  'ValueName', 'ValueData', 'KeyPath', 'Description',
-  'ExecutableName', 'RunCount', 'LastRun',
-  'FileName', 'ParentPath', 'FolderPath',
-  'AbsolutePath', 'HivePath',
-  'URL', 'Url', 'Title',
-  'ExeInfo', 'AppId', 'UserId',
-  'LocalPath', 'TargetPath',
-  // MFT (MFTECmd) — timestomping / attribute analysis (Class A: slimmed but needed)
-  'Created0x10', 'Created0x30', 'LastModified0x10', 'LastModified0x30', 'LastAccess0x10',
-  'Extension', 'InUse', 'IsDirectory', 'SI<FN',
-  // Amcache DriverBinaries — vuln-drivers detector
-  'DriverName', 'DriverId', 'SignatureStatus', 'Signed',
-  'Path', 'InteractionCount', 'PinStatus',
-  'FirstInteracted', 'LastInteracted',
-  'Arguments', 'MachineID',
-  'DriveType', 'VolumeSerialNumber', 'VolumeLabel',
-]);
 
 const NETWORK_EVENT_IDS = new Set([3, 22, 5156, 5158]);
 
@@ -85,10 +66,22 @@ function extractEvtxFields(clean) {
   return out;
 }
 
+// Toute colonne qu'un outil a su extraire de la preuve arrive en base. Le nom
+// de cette fonction est resté celui d'avant le 2026-09-15, date à laquelle le
+// plafond a été levé ; elle n'amincit plus rien, elle enrichit.
+//
+// Ce qu'il y avait avant : les 15 premières colonnes dans l'ordre du CSV, plus
+// une liste blanche. Deux défauts en découlaient, invisibles à l'écran —
+//   · la survie d'un champ dépendait de sa POSITION dans la sortie de l'outil.
+//     `Arguments` passait dans un jumplist et tombait dans un LNK, pour la
+//     seule raison que LECmd le met en 19ᵉ colonne.
+//   · la liste blanche demandait à être étendue à chaque champ nouvellement
+//     utile, et l'absence ne se découvrait qu'au moment d'en avoir besoin.
+//
+// Mesuré avant de lever : les artefacts Windows à colonnes larges pèsent 5 181
+// lignes pour 2,8 Mo de `raw`. Le plafond ne bornait pas ce qui coûte cher.
 function buildSlimRaw(clean, artifactType) {
-  const baseEntries  = Object.entries(clean).slice(0, 15);
-  const extraEntries = Object.entries(clean).slice(15).filter(([k]) => CRITICAL_FIELDS.has(k));
-  const slimRaw = Object.fromEntries([...baseEntries, ...extraEntries]);
+  const slimRaw = { ...clean };
 
   if (artifactType === 'evtx') {
     const eventId = parseInt(clean['EventId'] || clean['EventID'] || '0', 10);
@@ -113,4 +106,4 @@ function buildSlimRaw(clean, artifactType) {
   return slimRaw;
 }
 
-module.exports = { CRITICAL_FIELDS, NETWORK_EVENT_IDS, SYSMON_EVENT_IDS, buildSlimRaw, extractEvtxFields };
+module.exports = { NETWORK_EVENT_IDS, SYSMON_EVENT_IDS, buildSlimRaw, extractEvtxFields };
