@@ -2779,6 +2779,7 @@
     "events_count": "{{count}} events",
     "events_total": "{{count}} events ({{total}} total)",
     "no_node_events": "No events found for this node.",
+    "node_events_failed": "Could not load this node's events",
     "event_fallback": "Event {{id}}",
     "fields": {
       "date": "Date",

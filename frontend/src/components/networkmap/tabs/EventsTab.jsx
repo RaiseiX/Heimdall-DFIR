@@ -47,24 +47,31 @@ export default function EventsTab({ caseId, nodeId }) {
   const [total, setTotal]   = useState(0);
   const [loading, setLoading] = useState(false);
   const [expanded, setExpanded] = useState(null);
+  const [error, setError] = useState(null);
 
   useEffect(() => {
     if (!caseId || !nodeId) return;
     setLoading(true);
     setExpanded(null);
+    setError(null);
     networkAPI.nodeEvents(caseId, nodeId, { limit: 100 })
       .then(r => {
         const data = r.data;
         setEvents(Array.isArray(data) ? data : (data?.events || []));
         setTotal(data?.total || (Array.isArray(data) ? data.length : 0));
       })
-      .catch(() => setEvents([]))
+      .catch(e => { setEvents([]); setError(e?.response?.data?.error || e?.message || 'unreachable'); })
       .finally(() => setLoading(false));
   }, [caseId, nodeId]);
 
   if (loading) return (
     <div style={{ padding: 12, color: 'var(--fl-muted)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10 }}>
       {t('common.loading')}
+    </div>
+  );
+  if (error) return (
+    <div style={{ padding: 12, color: 'var(--fl-danger)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 10 }}>
+      {t('networkMap.node_events_failed')} — {error}
     </div>
   );
   if (!events.length) return (

@@ -1,4 +1,5 @@
 const express = require('express');
+const { nodeEventsSql } = require('../services/nodeEventsSql');
 const multer = require('multer');
 const { pool, readPool, isStatementTimeout } = require('../config/database');
 const { authenticate, requireRole } = require('../middleware/auth');
@@ -1128,56 +1129,7 @@ router.get('/:caseId/graph-data/events', authenticate, async (req, res) => {
     // Strip cluster/domain prefix for matching
     const matchId = node_id.replace(/^(cluster:|domain:)/, '');
 
-    const result = await readPool.query(`
-      SELECT
-        ct.timestamp,
-        ct.artifact_type,
-        ct.description,
-        ct.source,
-        ct.host_name,
-        ct.user_name,
-        ct.event_id,
-        ct.mitre_technique_id,
-        ct.mitre_tactic,
-        -- Network fields
-        NULLIF(TRIM(ct.raw->>'Image'),             '') AS process_name,
-        COALESCE(ct.raw->>'DestinationPort', ct.raw->>'RemotePort', ct.raw->>'DstPort') AS dst_port,
-        COALESCE(ct.raw->>'Protocol', ct.raw->>'proto', ct.raw->>'Transport')           AS protocol,
-        -- URL for browser history (sqle)
-        ct.raw->>'URL'   AS url,
-        -- Remote host info
-        COALESCE(
-          ct.raw->>'RemoteHost', ct.raw->>'RemoteAddress',
-          ct.raw->>'DestinationHostname', ct.raw->>'dst_host'
-        ) AS remote_host,
-        -- Source/dest IPs
-        ct.src_ip::text AS src_ip,
-        ct.dst_ip::text AS dst_ip
-      FROM collection_timeline ct
-      WHERE ct.case_id = $1
-        AND ct.artifact_type IN ('sqle', 'evtx', 'hayabusa', 'srum')
-        AND (
-          -- Exact IP / hostname matches
-          ct.raw->>'SourceIp'            = $2 OR
-          ct.raw->>'DestinationIp'       = $2 OR
-          ct.raw->>'DestinationHostname' = $2 OR
-          ct.raw->>'RemoteHost'          = $2 OR
-          ct.raw->>'RemoteAddress'       = $2 OR
-          ct.raw->>'DstIP'               = $2 OR
-          ct.raw->>'dst_ip'              = $2 OR
-          ct.raw->>'id.resp_h'           = $2 OR
-          ct.raw->>'Computer'            = $2 OR
-          ct.host_name                   = $2 OR
-          ct.src_ip::text                = $2 OR
-          ct.dst_ip::text                = $2 OR
-          -- Domain-based match: sqle browser history URLs containing the hostname
-          (ct.artifact_type = 'sqle'
-           AND ct.raw->>'URL' IS NOT NULL
-           AND ct.raw->>'URL' ILIKE '%' || $2 || '%')
-        )
-      ORDER BY ct.timestamp DESC
-      LIMIT $3
-    `, [caseId, matchId, parseInt(limit) || 100]);
+    const result = await readPool.query(nodeEventsSql(), [caseId, matchId, parseInt(limit) || 100]);
 
     res.json({ events: result.rows, total: result.rowCount });
   } catch (err) {

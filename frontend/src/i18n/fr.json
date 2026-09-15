@@ -2779,6 +2779,7 @@
     "events_count": "{{count}} événements",
     "events_total": "{{count}} événements ({{total}} total)",
     "no_node_events": "Aucun événement trouvé pour ce nœud.",
+    "node_events_failed": "Impossible de charger les événements de ce nœud",
     "event_fallback": "Événement {{id}}",
     "fields": {
       "date": "Date",
