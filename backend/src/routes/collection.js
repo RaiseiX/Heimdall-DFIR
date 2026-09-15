@@ -1,4 +1,5 @@
 const express = require('express');
+const { processTreeSql, sharedResourcesSql, processFileCountsSql } = require('../services/processTreeSql');
 const { execSync, execFileSync, exec, spawnSync, spawn, execFile } = require('child_process');
 const { extractArgs, permissionArgs } = require('../services/archiveExtract');
 const path = require('path');
@@ -12,7 +13,7 @@ const { from: pgCopyFrom } = require('pg-copy-streams');
 const { parse } = require('csv-parse/sync');
 const { parse: parseStream } = require('csv-parse');
 const multer = require('multer');
-const { pool } = require('../config/database');
+const { pool, readPool } = require('../config/database');
 const { authenticate, auditLog } = require('../middleware/auth');
 
 const esService = require('../services/elasticsearchService');
@@ -2703,6 +2704,41 @@ router.get('/:caseId/timeline/raw-keys', authenticate, async (req, res) => {
   } catch (err) {
     logger.error('[timeline/raw-keys]', err.message);
     res.status(500).json({ error: 'Erreur relevé des champs' });
+  }
+});
+
+// Carte des processus : l'arbre de filiation et le graphe des fichiers supprimes
+// que plusieurs processus tiennent encore ouverts. Les deux sont des INVENTAIRES
+// — une photographie prise au moment de la collecte, sans horodatage — et rien
+// ici ne joint un processus a des evenements : voir processTreeSql.ts pour la
+// mesure qui l'interdit.
+router.get('/:caseId/processes', authenticate, async (req, res) => {
+  try {
+    const { caseId } = req.params;
+    const evidenceId = String(req.query.evidence_id || '').trim();
+    if (!evidenceId) return res.status(400).json({ error: 'evidence_id requis' });
+
+    // L'arbre coute 88 ms, les comptes de fichiers 4,8 s. Les servir ensemble
+    // faisait payer le second au premier. `?with=counts` demande la partie
+    // lente, que l'interface charge apres avoir affiche l'arbre.
+    if (req.query.with === 'counts') {
+      const comptes = await readPool.query(processFileCountsSql(), [caseId, evidenceId]);
+      return res.json({ counts: comptes.rows });
+    }
+
+    const [arbre, partage] = await Promise.all([
+      readPool.query(processTreeSql(),     [caseId, evidenceId]),
+      readPool.query(sharedResourcesSql(), [caseId, evidenceId]),
+    ]);
+
+    res.json({
+      processes: arbre.rows,
+      shared: partage.rows,
+      snapshot: true,
+    });
+  } catch (err) {
+    logger.error('[processes]', err.message);
+    res.status(500).json({ error: 'Erreur lecture des processus' });
   }
 });
 

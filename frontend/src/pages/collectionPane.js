@@ -1,5 +1,5 @@
 
-const SELF_RENDERED = new Set(['network', 'hayabusa', 'cyberchef', 'threathunt']);
+const SELF_RENDERED = new Set(['network', 'hayabusa', 'cyberchef', 'threathunt', 'processes']);
 
 export function resolveCollectionPane(tab) {
   if (tab === 'evidence') return 'overview';

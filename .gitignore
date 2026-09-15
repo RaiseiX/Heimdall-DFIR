@@ -102,3 +102,4 @@ samples/
 scratch/
 tmp/
 *.local.json
+.maquettes/

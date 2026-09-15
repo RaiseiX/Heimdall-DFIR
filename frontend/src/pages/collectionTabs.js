@@ -14,6 +14,7 @@ export const COLLECTION_TAB_GROUPS = [
       { id: 'detections', label: 'Detections' },
       { id: 'iocs',       label: 'IOCs' },
       { id: 'network',    label: 'Network' },
+      { id: 'processes',  label: 'Processes' },
       { id: 'mitre',      label: 'MITRE' },
       { id: 'threathunt', label: 'Threat Hunting' },
       { id: 'hayabusa',   label: 'Hayabusa' },

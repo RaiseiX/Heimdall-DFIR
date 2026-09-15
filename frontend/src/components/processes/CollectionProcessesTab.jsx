@@ -1,0 +1,301 @@
+import { useState, useEffect, useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
+import { collectionAPI } from '../../utils/api';
+import { controlStyle } from '../ui/controlIdiom';
+import { buildTreeRows, markKernel, collapsibleIds } from './processTree';
+
+const MONO = 'var(--f-mono, "JetBrains Mono", monospace)';
+
+const WRAP = { display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 };
+const BARRE = {
+  display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px',
+  borderBottom: '1px solid var(--fl-border)', flexShrink: 0, flexWrap: 'wrap',
+};
+const SOMMAIRE = { marginLeft: 'auto', display: 'flex', gap: 16, fontSize: 11, color: 'var(--fl-dim)' };
+const FORT = { fontFamily: MONO, color: 'var(--fl-text)', fontVariantNumeric: 'tabular-nums' };
+const PANNEAUX = { display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 320px', flex: 1, minHeight: 0 };
+const COL = { overflow: 'auto', minHeight: 0 };
+const TABLE = { width: '100%', borderCollapse: 'collapse', fontFamily: MONO, fontSize: 12 };
+const TH = {
+  position: 'sticky', top: 0, zIndex: 1, background: 'var(--fl-bg)',
+  textAlign: 'left', fontSize: 10, letterSpacing: '.06em', textTransform: 'uppercase',
+  color: 'var(--fl-dim)', padding: '7px 10px', borderBottom: '1px solid var(--fl-border)',
+  whiteSpace: 'nowrap', fontFamily: 'inherit',
+};
+const TD = { padding: '3px 10px', whiteSpace: 'nowrap', verticalAlign: 'baseline' };
+const NUM = { ...TD, textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: 'var(--fl-dim)' };
+const DETAIL = { overflow: 'auto', minHeight: 0, padding: '12px 14px', borderLeft: '1px solid var(--fl-border)' };
+const ETIQ = {
+  fontSize: 10, letterSpacing: '.06em', textTransform: 'uppercase',
+  color: 'var(--fl-dim)', marginBottom: 3,
+};
+const VAL = { fontFamily: MONO, fontSize: 11, wordBreak: 'break-all', marginBottom: 12 };
+
+export default function CollectionProcessesTab({ caseId, collectionId }) {
+  const { t } = useTranslation();
+  const [donnees, setDonnees] = useState(null);
+  const [erreur, setErreur] = useState(null);
+  const [chargement, setChargement] = useState(true);
+  const [vue, setVue] = useState('arbre');
+  const [recherche, setRecherche] = useState('');
+  const [replies, setReplies] = useState(() => new Set());
+  const [sansNoyau, setSansNoyau] = useState(false);
+  const [choisi, setChoisi] = useState(null);
+  const [fichierChoisi, setFichierChoisi] = useState(null);
+  const [comptes, setComptes] = useState(null);
+
+  useEffect(() => {
+    if (!caseId || !collectionId) return;
+    let vivant = true;
+    setChargement(true);
+    setErreur(null);
+    collectionAPI.processes(caseId, collectionId)
+      .then(r => { if (vivant) setDonnees(r.data); })
+      .catch(e => {
+        if (vivant) setErreur(e?.response?.data?.error || e?.message || t('processes.unreachable'));
+      })
+      .finally(() => { if (vivant) setChargement(false); });
+    return () => { vivant = false; };
+  }, [caseId, collectionId, t]);
+
+  useEffect(() => {
+    if (!caseId || !collectionId) return;
+    let vivant = true;
+    setComptes(null);
+    collectionAPI.processFileCounts(caseId, collectionId)
+      .then(r => { if (vivant) setComptes(r.data?.counts || []); })
+      .catch(() => { if (vivant) setComptes([]); });
+    return () => { vivant = false; };
+  }, [caseId, collectionId]);
+
+  const procs = useMemo(() => {
+    const base = markKernel(donnees?.processes || []);
+    if (!comptes) return base;
+    const parPid = new Map(comptes.map(c => [c.pid, c]));
+    return base.map(p => {
+      const c = parPid.get(p.pid);
+      return { ...p, fd: Number(c?.fd || 0), maps: Number(c?.maps || 0), supprimes: Number(c?.supprimes || 0) };
+    });
+  }, [donnees, comptes]);
+  const lignes = useMemo(
+    () => buildTreeRows(procs, { replies, recherche, sansNoyau }),
+    [procs, replies, recherche, sansNoyau],
+  );
+  const parPid = useMemo(() => new Map(procs.map(p => [p.pid, p])), [procs]);
+  const partages = donnees?.shared || [];
+
+  const sommaire = useMemo(() => ({
+    total: procs.length,
+    racines: procs.filter(p => !p.ppid).length,
+    avecFichiers: procs.filter(p => p.fd > 0 || p.maps > 0).length,
+    supprimes: procs.filter(p => p.supprimes > 0).length,
+    comptesPrets: comptes != null,
+  }), [procs, comptes]);
+
+  const basculer = (pid) => setReplies(prev => {
+    const s = new Set(prev);
+    s.has(pid) ? s.delete(pid) : s.add(pid);
+    return s;
+  });
+
+  if (chargement) {
+    return <div style={{ padding: 16, color: 'var(--fl-dim)', fontSize: 12 }}>{t('processes.loading')}</div>;
+  }
+  if (erreur) {
+    return (
+      <div style={{ padding: 16, color: 'var(--fl-danger)', fontFamily: MONO, fontSize: 11 }}>
+        {t('processes.failed')} — {erreur}
+      </div>
+    );
+  }
+  if (!procs.length) {
+    return (
+      <div style={{ padding: 16, color: 'var(--fl-dim)', fontSize: 12, maxWidth: '70ch', lineHeight: 1.6 }}>
+        {t('processes.none')}
+      </div>
+    );
+  }
+
+  const selection = choisi != null ? parPid.get(choisi) : null;
+  const parent = selection ? parPid.get(selection.ppid) : null;
+  const porteurs = fichierChoisi
+    ? (partages.find(f => f.cible === fichierChoisi)?.pids || [])
+    : [];
+
+  return (
+    <div style={WRAP}>
+      <div style={BARRE}>
+        <button type="button" onClick={() => setVue('arbre')} aria-pressed={vue === 'arbre'}
+          style={{ ...controlStyle, color: vue === 'arbre' ? 'var(--fl-accent)' : 'var(--fl-dim)' }}>
+          {t('processes.view_tree')}
+        </button>
+        <button type="button" onClick={() => setVue('partage')} aria-pressed={vue === 'partage'}
+          style={{ ...controlStyle, color: vue === 'partage' ? 'var(--fl-accent)' : 'var(--fl-dim)' }}>
+          {t('processes.view_shared')}
+        </button>
+
+        {vue === 'arbre' && (
+          <>
+            <input type="search" value={recherche} onChange={e => setRecherche(e.target.value)}
+              placeholder={t('processes.filter_placeholder')} aria-label={t('processes.filter_placeholder')}
+              style={{ ...controlStyle, fontFamily: MONO, width: 230 }} />
+            <button type="button" onClick={() => setReplies(new Set())} style={controlStyle}>
+              {t('processes.expand_all')}
+            </button>
+            <button type="button" onClick={() => setReplies(collapsibleIds(procs))} style={controlStyle}>
+              {t('processes.collapse_all')}
+            </button>
+            <button type="button" onClick={() => setSansNoyau(v => !v)} aria-pressed={sansNoyau}
+              style={{ ...controlStyle, color: sansNoyau ? 'var(--fl-accent)' : 'var(--fl-dim)' }}>
+              {t('processes.hide_kernel')}
+            </button>
+          </>
+        )}
+
+        <div style={SOMMAIRE}>
+          <span><b style={FORT}>{sommaire.total}</b> {t('processes.count_processes')}</span>
+          <span><b style={FORT}>{sommaire.racines}</b> {t('processes.count_roots')}</span>
+          {sommaire.comptesPrets ? (
+            <>
+              <span><b style={FORT}>{sommaire.avecFichiers}</b> {t('processes.count_with_files')}</span>
+              <span><b style={FORT}>{sommaire.supprimes}</b> {t('processes.count_holding_deleted')}</span>
+            </>
+          ) : (
+            <span>{t('processes.counting_files')}</span>
+          )}
+        </div>
+      </div>
+
+      {vue === 'arbre' ? (
+        <div style={PANNEAUX}>
+          <div style={COL}>
+            <table style={TABLE}>
+              <thead>
+                <tr>
+                  <th style={TH}>{t('processes.col_process')}</th>
+                  <th style={TH}>{t('processes.col_pid')}</th>
+                  <th style={TH}>{t('processes.col_user')}</th>
+                  <th style={TH}>{t('processes.col_state')}</th>
+                  <th style={{ ...TH, textAlign: 'right' }}>{t('processes.col_fd')}</th>
+                  <th style={{ ...TH, textAlign: 'right' }}>{t('processes.col_maps')}</th>
+                  <th style={{ ...TH, textAlign: 'right' }}>{t('processes.col_deleted')}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {lignes.map(({ pid, nom, profondeur, aDesEnfants, proc }) => (
+                  <tr key={pid} onClick={() => setChoisi(pid)}
+                    aria-selected={choisi === pid}
+                    style={{
+                      borderBottom: '1px solid var(--fl-border-soft, var(--fl-border))',
+                      cursor: 'pointer',
+                      background: choisi === pid ? 'var(--fl-accent-soft, transparent)' : undefined,
+                    }}>
+                    <td style={TD}>
+                      <span style={{ color: 'var(--fl-dim)', userSelect: 'none' }}>
+                        {'  '.repeat(profondeur)}
+                      </span>
+                      <span role={aDesEnfants ? 'button' : undefined}
+                        onClick={aDesEnfants ? (e) => { e.stopPropagation(); basculer(pid); } : undefined}
+                        style={{ display: 'inline-block', width: 14, color: 'var(--fl-dim)' }}>
+                        {aDesEnfants ? (replies.has(pid) ? '+' : '−') : ' '}
+                      </span>
+                      <span style={{ color: proc.noyau ? 'var(--fl-dim)' : 'var(--fl-text)' }}>{nom}</span>
+                    </td>
+                    <td style={NUM}>{pid}</td>
+                    <td style={TD}>{proc.utilisateur || '—'}</td>
+                    <td style={TD}>{proc.etat || ''}</td>
+                    <td style={NUM}>{comptes == null ? '' : (proc.fd || '·')}</td>
+                    <td style={NUM}>{comptes == null ? '' : (proc.maps || '·')}</td>
+                    <td style={{ ...NUM, color: proc.supprimes ? 'var(--fl-warning, var(--fl-dim))' : 'var(--fl-dim)' }}>
+                      {comptes == null ? '' : (proc.supprimes || '·')}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <aside style={DETAIL}>
+            {!selection ? (
+              <div style={{ color: 'var(--fl-dim)', fontSize: 12 }}>{t('processes.pick_a_row')}</div>
+            ) : (
+              <>
+                <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 2 }}>{selection.nom}</div>
+                <div style={{ fontFamily: MONO, fontSize: 11, color: 'var(--fl-dim)', marginBottom: 14 }}>
+                  pid {selection.pid} · {selection.utilisateur || '—'} · {selection.etat || ''}
+                </div>
+                <div style={ETIQ}>{t('processes.started_by')}</div>
+                <div style={VAL}>{parent ? `${parent.nom} (pid ${parent.pid})` : t('processes.is_root')}</div>
+                <div style={ETIQ}>{t('processes.command_line')}</div>
+                <div style={VAL}>{selection.commande || t('processes.not_collected')}</div>
+                <div style={ETIQ}>{t('processes.holds_open')}</div>
+                <div style={VAL}>
+                  {comptes == null ? t('processes.counting_files') : t('processes.holds_summary', {
+                    fd: selection.fd, maps: selection.maps, deleted: selection.supprimes,
+                  })}
+                </div>
+              </>
+            )}
+          </aside>
+        </div>
+      ) : (
+        <div style={PANNEAUX}>
+          <div style={COL}>
+            <div style={{ padding: '10px 14px', fontSize: 12, color: 'var(--fl-dim)', maxWidth: '76ch', lineHeight: 1.6 }}>
+              {t('processes.shared_explainer')}
+            </div>
+            <table style={TABLE}>
+              <thead>
+                <tr>
+                  <th style={{ ...TH, textAlign: 'right' }}>{t('processes.col_holders')}</th>
+                  <th style={TH}>{t('processes.col_deleted_file')}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {partages.map(f => (
+                  <tr key={f.cible} onClick={() => setFichierChoisi(f.cible)}
+                    aria-selected={fichierChoisi === f.cible}
+                    style={{
+                      borderBottom: '1px solid var(--fl-border-soft, var(--fl-border))',
+                      cursor: 'pointer',
+                      background: fichierChoisi === f.cible ? 'var(--fl-accent-soft, transparent)' : undefined,
+                    }}>
+                    <td style={NUM}>{f.porteurs}</td>
+                    <td style={{ ...TD, direction: 'rtl', textAlign: 'left', maxWidth: 420, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {f.cible}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <aside style={DETAIL}>
+            {!fichierChoisi ? (
+              <div style={{ color: 'var(--fl-dim)', fontSize: 12 }}>{t('processes.pick_a_file')}</div>
+            ) : (
+              <>
+                <div style={ETIQ}>{t('processes.col_deleted_file')}</div>
+                <div style={VAL}>{fichierChoisi}</div>
+                <div style={ETIQ}>{t('processes.holders_count', { count: porteurs.length })}</div>
+                <ul style={{ listStyle: 'none', margin: 0, padding: 0, fontFamily: MONO, fontSize: 11 }}>
+                  {porteurs.map(pid => {
+                    const p = parPid.get(pid);
+                    return (
+                      <li key={pid} style={{ padding: '2px 0', borderBottom: '1px solid var(--fl-border-soft, var(--fl-border))' }}>
+                        <span style={{ color: p ? 'var(--fl-text)' : 'var(--fl-dim)' }}>
+                          {p ? p.nom : t('processes.absent_from_tree')}
+                        </span>
+                        <span style={{ color: 'var(--fl-dim)' }}> {pid}</span>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </>
+            )}
+          </aside>
+        </div>
+      )}
+    </div>
+  );
+}

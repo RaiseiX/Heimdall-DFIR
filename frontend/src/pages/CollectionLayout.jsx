@@ -8,6 +8,7 @@ import HayabusaPage from './HayabusaPage';
 import CyberChefPage from './CyberChefPage';
 import CollectionThreatHuntTab from '../components/collection/CollectionThreatHuntTab';
 import CollectionOverview from '../components/collection/CollectionOverview';
+import CollectionProcessesTab from '../components/processes/CollectionProcessesTab';
 import { resolveCollectionPane } from './collectionPane';
 import { COLLECTION_TAB_GROUPS, EXTERNAL_TABS } from './collectionTabs';
 import { controlStyle, controlHover, separatorStyle } from '../components/ui/controlIdiom';
@@ -81,6 +82,8 @@ export default function CollectionLayout() {
           <CaseIntelligencePage collectionId={collectionId} />
         ) : pane === 'hayabusa' ? (
           <HayabusaPage caseId={id} collectionId={collectionId} />
+        ) : pane === 'processes' ? (
+          <CollectionProcessesTab caseId={id} collectionId={collectionId} />
         ) : pane === 'cyberchef' ? (
           <CyberChefPage />
         ) : pane === 'threathunt' ? (
