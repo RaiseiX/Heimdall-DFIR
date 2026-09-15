@@ -19,6 +19,7 @@ import os
 import csv
 import glob
 import struct
+import re
 import argparse
 from datetime import datetime, timezone
 
@@ -46,6 +47,39 @@ def filetime_to_iso(ft):
         return datetime.fromtimestamp(unix_ts, tz=timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
     except Exception:
         return ''
+
+
+VOLUME_RE = re.compile(r'\\VOLUME\{[0-9a-f]+-([0-9a-f]+)\}', re.IGNORECASE)
+
+
+def files_loaded_fields(metrics):
+    """
+    Met en forme la liste des fichiers qu'un exécutable charge au démarrage.
+
+    Un prefetch ne dit pas seulement « ce programme a tourné » : il dit CE QU'IL
+    A OUVERT. C'est ce qui distingue un `rundll32` normal d'un `rundll32` qui
+    charge une DLL depuis %TEMP%. Cette liste était jetée jusqu'au 2026-09-15.
+
+    Le numéro de série de volume est extrait des chemins eux-mêmes : dissect rend
+    `pf.volumes` à None sur les 358 fichiers du cas de référence, mais chaque
+    chemin porte son volume sous la forme \\VOLUME{<creation>-<serie>}\\...
+    C'est ce numéro qui rattache une exécution à un volume précis — une clé USB,
+    par exemple. Plusieurs volumes peuvent coexister dans un même prefetch : un
+    binaire lancé depuis une clé charge aussi des DLL système.
+    """
+    chemins = [str(m) for m in (metrics or []) if m]
+    series = []
+    for c in chemins:
+        m = VOLUME_RE.search(c)
+        if m:
+            s = m.group(1).upper()
+            if s not in series:
+                series.append(s)
+    return {
+        'FilesLoaded'        : ', '.join(chemins),
+        'FilesLoadedCount'   : str(len(chemins)),
+        'VolumeSerialNumber' : ', '.join(series),
+    }
 
 
 def parse_one_dissect(pf_path):
@@ -96,6 +130,7 @@ def parse_one_dissect(pf_path):
         pass
 
     return {
+        **files_loaded_fields(pf.metrics),
         'SourceFilename' : os.path.basename(pf_path),
         'SourceCreated'  : source_created,
         'SourceModified' : source_modified,
@@ -164,6 +199,18 @@ def parse_one_pyscca(pf_path):
 
     last_run = run_times_iso[0]
     prev_runs = run_times_iso[1:8]
+
+    # Les noms doivent etre lus AVANT close(), sinon la poignee est fermee.
+    noms = []
+    try:
+        for i in range(int(scca_file.number_of_filenames or 0)):
+            try:
+                noms.append(scca_file.get_filename(i))
+            except Exception:
+                pass
+    except Exception:
+        pass
+    charges = files_loaded_fields(noms)
     scca_file.close()
 
     source_created = ''
@@ -176,6 +223,7 @@ def parse_one_pyscca(pf_path):
         pass
 
     return {
+        **charges,
         'SourceFilename' : os.path.basename(pf_path),
         'SourceCreated'  : source_created,
         'SourceModified' : source_modified,
@@ -244,6 +292,10 @@ FIELDNAMES = [
     'LastRun', 'PreviousRun0', 'PreviousRun1', 'PreviousRun2', 'PreviousRun3',
     'PreviousRun4', 'PreviousRun5', 'PreviousRun6',
     'RunCount', 'ExecutableName', 'Hash', 'Size',
+    # Ajoutes le 2026-09-15. PECmd refuse de tourner sous Linux (il appelle
+    # RtlDecompressBufferEx de ntdll), donc ces champs n'etaient produits par
+    # personne. FilesLoaded est ce qu'un executable a ouvert au demarrage.
+    'FilesLoaded', 'FilesLoadedCount', 'VolumeSerialNumber',
 ]
 
 
