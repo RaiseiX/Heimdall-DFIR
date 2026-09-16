@@ -162,7 +162,7 @@ export default function CoveragePage() {
         </div>
       )}
 
-      <div style={{ borderRadius: 7, border: `1px solid ${T.border}`, overflow: 'hidden' }}>
+      <div style={{ borderRadius: 7, border: `1px solid ${T.border}`, overflow: 'hidden', flexShrink: 0 }}>
         <table style={tableStyle}>
           <thead>
             <tr style={{ background: T.card, borderBottom: `1px solid ${T.border}` }}>
