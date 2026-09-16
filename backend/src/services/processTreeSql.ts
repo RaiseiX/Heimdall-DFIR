@@ -63,6 +63,26 @@ export function processTreeSql(): string {
          AND artifact_type = 'catscale_proc_status'
          AND ${PID_NUM}
     ),
+    -- Le binaire du processus lui-meme, et surtout : existe-t-il encore ?
+    --
+    -- Mesure du 2026-09-16 sur l'hote de reference : 18 processus sur 438
+    -- tournent depuis un binaire supprime. C'est la signature de l'effacement
+    -- apres lancement — le programme s'ecrit, s'execute, se supprime, et ne vit
+    -- plus qu'en memoire. Ici ce sont des mises a jour d'applications, mais la
+    -- colonne qui le dit doit exister pour le jour ou ce n'en sera pas une.
+    --
+    -- A ne pas confondre avec unreadable : 160 processus sur 438 n'ont pas
+    -- d'executable lisible, parce que ce sont des fils du noyau. Les melanger
+    -- noierait 18 signaux sous 160 absences normales.
+    x AS (
+      SELECT (raw->>'pid')::int AS pid,
+             nullif(raw->>'exe', '')                              AS exe,
+             coalesce((raw->>'deleted')::boolean, false)          AS exe_deleted,
+             coalesce((raw->>'unreadable')::boolean, false)       AS exe_unreadable
+        FROM collection_timeline
+       WHERE case_id = $1 AND evidence_id = $2
+         AND artifact_type = 'catscale_proc_exe' AND ${PID_NUM}
+    ),
     c AS (
       SELECT (raw->>'pid')::int AS pid,
              max(raw->>'command')  AS command_line,
@@ -73,9 +93,13 @@ export function processTreeSql(): string {
        GROUP BY 1
     )
     SELECT p.pid, p.ppid, p.name, p.state, p.uid,
-           c.command_line, c.user_name
+           c.command_line, c.user_name,
+           x.exe,
+           coalesce(x.exe_deleted, false)    AS exe_deleted,
+           coalesce(x.exe_unreadable, false) AS exe_unreadable
       FROM p
       LEFT JOIN c ON c.pid = p.pid
+      LEFT JOIN x ON x.pid = p.pid
      ORDER BY p.pid`;
 }
 

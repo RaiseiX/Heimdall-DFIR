@@ -3131,6 +3131,13 @@
     "col_image": "Image",
     "col_started": "Created",
     "parent_declared_ok": "parent confirmed by Windows",
-    "none_windows": "No process-creation event in this collection. On Windows the tree comes from Security 4688 events, which are absent unless process-creation auditing was enabled on the machine."
+    "none_windows": "No process-creation event in this collection. On Windows the tree comes from Security 4688 events, which are absent unless process-creation auditing was enabled on the machine.",
+    "col_binary": "Binary",
+    "count_deleted_binary": "running from a deleted binary",
+    "binary_deleted": "deleted",
+    "binary_deleted_note": "This process runs from a binary that no longer exists on disk. Common during an application upgrade — and also the signature of a program that deletes itself after launch. The path decides, not the flag.",
+    "binary_unreadable": "unreadable",
+    "binary_unreadable_note": "Unreadable executable: normal for kernel threads, which have none.",
+    "only_deleted_binary": "Only deleted binaries"
   }
 }

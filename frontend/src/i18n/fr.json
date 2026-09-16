@@ -3131,6 +3131,13 @@
     "col_image": "Image",
     "col_started": "Créé le",
     "parent_declared_ok": "parent confirmé par Windows",
-    "none_windows": "Aucun événement de création de processus dans cette collecte. Côté Windows, l'arbre vient des événements Security 4688 — absents si l'audit de création de processus n'était pas activé sur la machine."
+    "none_windows": "Aucun événement de création de processus dans cette collecte. Côté Windows, l'arbre vient des événements Security 4688 — absents si l'audit de création de processus n'était pas activé sur la machine.",
+    "col_binary": "Binaire",
+    "count_deleted_binary": "tournant depuis un binaire supprimé",
+    "binary_deleted": "supprimé",
+    "binary_deleted_note": "Ce processus s'exécute depuis un binaire qui n'existe plus sur le disque. C'est courant lors d'une mise à jour d'application — et c'est aussi la signature d'un programme qui s'efface après lancement. Le chemin tranche, pas le drapeau.",
+    "binary_unreadable": "illisible",
+    "binary_unreadable_note": "Exécutable illisible : c'est le cas normal des fils du noyau, qui n'en ont pas.",
+    "only_deleted_binary": "Seulement les binaires supprimés"
   }
 }

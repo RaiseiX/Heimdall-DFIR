@@ -44,6 +44,7 @@ export default function CollectionProcessesTab({ caseId, collectionId }) {
   const [fichierChoisi, setFichierChoisi] = useState(null);
   const [comptes, setComptes] = useState(null);
   const [source, setSource] = useState('snapshot');
+  const [seulSupprime, setSeulSupprime] = useState(false);
   const [evts, setEvts] = useState(null);
   const [evtsPour, setEvtsPour] = useState(null);
 
@@ -92,8 +93,9 @@ export default function CollectionProcessesTab({ caseId, collectionId }) {
     });
   }, [donnees, comptes, source]);
   const lignes = useMemo(
-    () => buildTreeRows(procs, { replies, recherche, sansNoyau }),
-    [procs, replies, recherche, sansNoyau],
+    () => buildTreeRows(seulSupprime ? procs.filter(p => p.exe_deleted) : procs,
+                        { replies, recherche, sansNoyau }),
+    [procs, replies, recherche, sansNoyau, seulSupprime],
   );
   const parPid = useMemo(() => new Map(procs.map(p => [p.pid, p])), [procs]);
   const partages = donnees?.shared || [];
@@ -104,6 +106,7 @@ export default function CollectionProcessesTab({ caseId, collectionId }) {
     avecFichiers: procs.filter(p => p.fd > 0 || p.maps > 0).length,
     deleted_count: procs.filter(p => p.deleted_count > 0).length,
     comptesPrets: comptes != null,
+    binairesSupprimes: procs.filter(p => p.exe_deleted).length,
   }), [procs, comptes]);
 
   const chargerEvenements = (p) => {
@@ -168,6 +171,12 @@ export default function CollectionProcessesTab({ caseId, collectionId }) {
             <button type="button" onClick={() => setReplies(collapsibleIds(procs))} style={controlStyle}>
               {t('processes.collapse_all')}
             </button>
+            {sommaire.binairesSupprimes > 0 && (
+              <button type="button" onClick={() => setSeulSupprime(v => !v)} aria-pressed={seulSupprime}
+                style={{ ...controlStyle, color: seulSupprime ? 'var(--fl-warning, var(--fl-accent))' : 'var(--fl-dim)' }}>
+                {t('processes.only_deleted_binary')} ({sommaire.binairesSupprimes})
+              </button>
+            )}
             <button type="button" onClick={() => setSansNoyau(v => !v)} aria-pressed={sansNoyau}
               style={{ ...controlStyle, color: sansNoyau ? 'var(--fl-accent)' : 'var(--fl-dim)' }}>
               {t('processes.hide_kernel')}
@@ -178,6 +187,11 @@ export default function CollectionProcessesTab({ caseId, collectionId }) {
         <div style={SOMMAIRE}>
           <span><b style={FORT}>{sommaire.total}</b> {t('processes.count_processes')}</span>
           <span><b style={FORT}>{sommaire.racines}</b> {t('processes.count_roots')}</span>
+          {sommaire.binairesSupprimes > 0 && (
+            <span style={{ color: 'var(--fl-warning, var(--fl-dim))' }}>
+              <b style={{ ...FORT, color: 'inherit' }}>{sommaire.binairesSupprimes}</b> {t('processes.count_deleted_binary')}
+            </span>
+          )}
           {source === 'events' ? null : sommaire.comptesPrets ? (
             <>
               <span><b style={FORT}>{sommaire.avecFichiers}</b> {t('processes.count_with_files')}</span>
@@ -210,6 +224,7 @@ export default function CollectionProcessesTab({ caseId, collectionId }) {
                   <th style={TH}>{t('processes.col_pid')}</th>
                   <th style={TH}>{t('processes.col_user')}</th>
                   <th style={TH}>{t('processes.col_state')}</th>
+                  <th style={TH}>{t('processes.col_binary')}</th>
                   <th style={{ ...TH, textAlign: 'right' }}>{t('processes.col_fd')}</th>
                   <th style={{ ...TH, textAlign: 'right' }}>{t('processes.col_maps')}</th>
                   <th style={{ ...TH, textAlign: 'right' }}>{t('processes.col_deleted')}</th>
@@ -238,6 +253,13 @@ export default function CollectionProcessesTab({ caseId, collectionId }) {
                     <td style={NUM}>{pid}</td>
                     <td style={TD}>{proc.user_name || '—'}</td>
                     <td style={TD}>{proc.state || ''}</td>
+                    <td style={{ ...TD, maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis',
+                                 color: proc.exe_deleted ? 'var(--fl-warning, var(--fl-text))' : 'var(--fl-dim)' }}
+                        title={proc.exe || ''}>
+                      {proc.exe_deleted
+                        ? `${proc.exe} · ${t('processes.binary_deleted')}`
+                        : proc.exe || (proc.exe_unreadable ? '·' : '')}
+                    </td>
                     <td style={NUM}>{comptes == null ? '' : (proc.fd || '·')}</td>
                     <td style={NUM}>{comptes == null ? '' : (proc.maps || '·')}</td>
                     <td style={{ ...NUM, color: proc.deleted_count ? 'var(--fl-warning, var(--fl-dim))' : 'var(--fl-dim)' }}>
@@ -260,6 +282,25 @@ export default function CollectionProcessesTab({ caseId, collectionId }) {
                 </div>
                 <div style={ETIQ}>{t('processes.started_by')}</div>
                 <div style={VAL}>{parent ? `${parent.name} (pid ${parent.pid})` : t('processes.is_root')}</div>
+                {selection.exe && (
+                  <>
+                    <div style={ETIQ}>{t('processes.col_binary')}</div>
+                    <div style={{ ...VAL, color: selection.exe_deleted ? 'var(--fl-warning, var(--fl-text))' : undefined }}>
+                      {selection.exe}
+                      {selection.exe_deleted ? ` · ${t('processes.binary_deleted')}` : ''}
+                    </div>
+                  </>
+                )}
+                {selection.exe_deleted && (
+                  <div style={{ fontSize: 11, color: 'var(--fl-dim)', lineHeight: 1.5, marginBottom: 12 }}>
+                    {t('processes.binary_deleted_note')}
+                  </div>
+                )}
+                {selection.exe_unreadable && !selection.exe && (
+                  <div style={{ fontSize: 11, color: 'var(--fl-dim)', lineHeight: 1.5, marginBottom: 12 }}>
+                    {t('processes.binary_unreadable_note')}
+                  </div>
+                )}
                 <div style={ETIQ}>{t('processes.command_line')}</div>
                 <div style={VAL}>{selection.command_line || t('processes.not_collected')}</div>
                 <div style={{ marginBottom: 14 }}>
