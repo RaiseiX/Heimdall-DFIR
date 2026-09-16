@@ -44,6 +44,7 @@ export default function CollectionProcessesTab({ caseId, collectionId }) {
   const [fichierChoisi, setFichierChoisi] = useState(null);
   const [comptes, setComptes] = useState(null);
   const [source, setSource] = useState('snapshot');
+  const [seulExpose, setSeulExpose] = useState(false);
   const [seulSupprime, setSeulSupprime] = useState(false);
   const [evts, setEvts] = useState(null);
   const [evtsPour, setEvtsPour] = useState(null);
@@ -92,11 +93,21 @@ export default function CollectionProcessesTab({ caseId, collectionId }) {
       return { ...p, fd: Number(c?.fd || 0), maps: Number(c?.maps || 0), deleted_count: Number(c?.deleted_count || 0) };
     });
   }, [donnees, comptes, source]);
-  const lignes = useMemo(
-    () => buildTreeRows(seulSupprime ? procs.filter(p => p.exe_deleted) : procs,
-                        { replies, recherche, sansNoyau }),
-    [procs, replies, recherche, sansNoyau, seulSupprime],
-  );
+  const lignes = useMemo(() => {
+    let retenus = procs;
+    if (seulSupprime) retenus = retenus.filter(p => p.exe_deleted);
+    if (seulExpose)   retenus = retenus.filter(p => Number(p.net_listen_exposed) > 0);
+    return buildTreeRows(retenus, { replies, recherche, sansNoyau });
+  }, [procs, replies, recherche, sansNoyau, seulSupprime, seulExpose]);
+
+  const socketsParPid = useMemo(() => {
+    const m = new Map();
+    for (const c of (donnees?.network || [])) {
+      if (!m.has(c.pid)) m.set(c.pid, []);
+      m.get(c.pid).push(c);
+    }
+    return m;
+  }, [donnees]);
   const parPid = useMemo(() => new Map(procs.map(p => [p.pid, p])), [procs]);
   const partages = donnees?.shared || [];
 
@@ -107,6 +118,9 @@ export default function CollectionProcessesTab({ caseId, collectionId }) {
     deleted_count: procs.filter(p => p.deleted_count > 0).length,
     comptesPrets: comptes != null,
     binairesSupprimes: procs.filter(p => p.exe_deleted).length,
+    ecoutesExposees: procs.reduce((a, p) => a + Number(p.net_listen_exposed || 0), 0),
+    etabliesExternes: procs.reduce((a, p) => a + Number(p.net_estab_external || 0), 0),
+    procExposes: procs.filter(p => Number(p.net_listen_exposed) > 0).length,
   }), [procs, comptes]);
 
   const chargerEvenements = (p) => {
@@ -177,6 +191,12 @@ export default function CollectionProcessesTab({ caseId, collectionId }) {
                 {t('processes.only_deleted_binary')} ({sommaire.binairesSupprimes})
               </button>
             )}
+            {sommaire.procExposes > 0 && (
+              <button type="button" onClick={() => setSeulExpose(v => !v)} aria-pressed={seulExpose}
+                style={{ ...controlStyle, color: seulExpose ? 'var(--fl-warning, var(--fl-accent))' : 'var(--fl-dim)' }}>
+                {t('processes.only_exposed_listen')} ({sommaire.procExposes})
+              </button>
+            )}
             <button type="button" onClick={() => setSansNoyau(v => !v)} aria-pressed={sansNoyau}
               style={{ ...controlStyle, color: sansNoyau ? 'var(--fl-accent)' : 'var(--fl-dim)' }}>
               {t('processes.hide_kernel')}
@@ -191,6 +211,14 @@ export default function CollectionProcessesTab({ caseId, collectionId }) {
             <span style={{ color: 'var(--fl-warning, var(--fl-dim))' }}>
               <b style={{ ...FORT, color: 'inherit' }}>{sommaire.binairesSupprimes}</b> {t('processes.count_deleted_binary')}
             </span>
+          )}
+          {sommaire.ecoutesExposees > 0 && (
+            <span style={{ color: 'var(--fl-warning, var(--fl-dim))' }}>
+              <b style={{ ...FORT, color: 'inherit' }}>{sommaire.ecoutesExposees}</b> {t('processes.count_exposed_listen')}
+            </span>
+          )}
+          {sommaire.etabliesExternes > 0 && (
+            <span><b style={FORT}>{sommaire.etabliesExternes}</b> {t('processes.count_estab_external')}</span>
           )}
           {source === 'events' ? null : sommaire.comptesPrets ? (
             <>
@@ -225,6 +253,7 @@ export default function CollectionProcessesTab({ caseId, collectionId }) {
                   <th style={TH}>{t('processes.col_user')}</th>
                   <th style={TH}>{t('processes.col_state')}</th>
                   <th style={TH}>{t('processes.col_binary')}</th>
+                  <th style={{ ...TH, textAlign: 'right' }}>{t('processes.col_network')}</th>
                   <th style={{ ...TH, textAlign: 'right' }}>{t('processes.col_fd')}</th>
                   <th style={{ ...TH, textAlign: 'right' }}>{t('processes.col_maps')}</th>
                   <th style={{ ...TH, textAlign: 'right' }}>{t('processes.col_deleted')}</th>
@@ -260,6 +289,14 @@ export default function CollectionProcessesTab({ caseId, collectionId }) {
                         ? `${proc.exe} · ${t('processes.binary_deleted')}`
                         : proc.exe || (proc.exe_unreadable ? '·' : '')}
                     </td>
+                    <td style={{ ...NUM, color: Number(proc.net_listen_exposed) ? 'var(--fl-warning, var(--fl-dim))' : 'var(--fl-dim)' }}
+                        title={Number(proc.net_total)
+                          ? `${proc.net_listen_exposed} ${t('processes.net_exposed')} · ${proc.net_estab_external} ${t('processes.net_external')}`
+                          : ''}>
+                      {Number(proc.net_total)
+                        ? `${proc.net_total}${Number(proc.net_listen_exposed) ? ' \u25B8' : ''}`
+                        : '·'}
+                    </td>
                     <td style={NUM}>{comptes == null ? '' : (proc.fd || '·')}</td>
                     <td style={NUM}>{comptes == null ? '' : (proc.maps || '·')}</td>
                     <td style={{ ...NUM, color: proc.deleted_count ? 'var(--fl-warning, var(--fl-dim))' : 'var(--fl-dim)' }}>
@@ -294,6 +331,48 @@ export default function CollectionProcessesTab({ caseId, collectionId }) {
                 {selection.exe_deleted && (
                   <div style={{ fontSize: 11, color: 'var(--fl-dim)', lineHeight: 1.5, marginBottom: 12 }}>
                     {t('processes.binary_deleted_note')}
+                  </div>
+                )}
+                {(socketsParPid.get(selection.pid) || []).length > 0 && (
+                  <>
+                    <div style={ETIQ}>{t('processes.col_network')}</div>
+                    <table style={{ ...TABLE, marginBottom: 10 }}>
+                      <thead>
+                        <tr>
+                          <th style={TH}>{t('processes.net_state')}</th>
+                          <th style={TH}>{t('processes.net_proto')}</th>
+                          <th style={TH}>{t('processes.net_local_addr')}</th>
+                          <th style={TH}>{t('processes.net_peer')}</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(socketsParPid.get(selection.pid) || []).map((c, i) => (
+                          <tr key={`${c.local_addr}-${c.peer}-${i}`}
+                            style={{ borderBottom: '1px solid var(--fl-border-soft, var(--fl-border))' }}>
+                            <td style={{ ...TD, color: c.exposed ? 'var(--fl-warning, var(--fl-text))' : 'var(--fl-dim)' }}>
+                              {c.state === 'LISTEN' ? t('processes.net_listen') : c.state === 'ESTAB' ? t('processes.net_estab') : c.state}
+                            </td>
+                            <td style={{ ...TD, color: 'var(--fl-dim)' }}>{c.proto}</td>
+                            <td style={{ ...TD, fontFamily: MONO, color: c.exposed ? 'var(--fl-warning, var(--fl-text))' : undefined }}>
+                              {c.local_addr}
+                            </td>
+                            <td style={{ ...TD, fontFamily: MONO, color: c.external ? 'var(--fl-warning, var(--fl-text))' : 'var(--fl-dim)' }}>
+                              {c.peer}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </>
+                )}
+                {Number(selection.net_listen_exposed) > 0 && (
+                  <div style={{ fontSize: 11, color: 'var(--fl-dim)', lineHeight: 1.5, marginBottom: 12 }}>
+                    {t('processes.net_exposed_note')}
+                  </div>
+                )}
+                {Number(selection.net_estab_external) > 0 && Number(selection.net_listen_exposed) === 0 && (
+                  <div style={{ fontSize: 11, color: 'var(--fl-dim)', lineHeight: 1.5, marginBottom: 12 }}>
+                    {t('processes.net_external_note')}
                   </div>
                 )}
                 {selection.exe_unreadable && !selection.exe && (

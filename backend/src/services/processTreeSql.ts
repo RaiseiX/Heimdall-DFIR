@@ -31,6 +31,47 @@
 // une ligne. La borne est donc un garde-fou, pas une commodité.
 const PID_NUM = `raw->>'pid' ~ '^[0-9]{1,7}$'`;
 
+// ── Les sockets, et ce qui distingue un signal d'un bruit ───────────────────
+//
+// Mesure du 2026-09-16 sur l'hote de reference : 177 sockets, dont **40
+// seulement portent un PID**. Les 137 autres sont TIME-WAIT — le noyau a libere
+// le descripteur, le socket n'appartient plus a aucun processus. Piege a eviter :
+// la cle `pid` existe sur les 177 lignes, c'est sa VALEUR qui est nulle sur 137.
+// Tester `raw ? 'pid'` rend 100 %, tester la valeur rend 23 %.
+//
+// Les 40 restants se rattachent tous a l'instantane : 0 orphelin, 23 PID.
+//
+// Un compte brut ne dit rien. Ce qui separe le bruit du signal :
+//
+//   ecoute sur 127.0.0.1 / [::1]  -> port local, un debogueur d'IDE
+//   ecoute sur 0.0.0.0 / [::]     -> joignable du reseau : porte derobee
+//   etabli vers 10.0.0.5          -> trafic interne
+//   etabli vers une IP routable   -> exfiltration ou commande et controle
+//
+// Mesure sur l'hote : 8 ecoutes exposees, 16 etablies vers l'exterieur.
+//
+// Les antislashs sont DOUBLES : dans un litteral de gabarit JavaScript, `\.`
+// s'evalue en `.` et le point deviendrait un joker — `127.` matcherait alors
+// `1275`, et n'importe quelle adresse commencant par trois chiffres passerait
+// pour une loopback.
+const LOOPBACK = `'^(127\\.|\\[::1\\])'`;
+
+const NON_ROUTABLE = `'^(127\\.|\\[::1\\]|10\\.|192\\.168\\.|172\\.(1[6-9]|2[0-9]|3[01])\\.|169\\.254\\.|\\[fe80:|0\\.0\\.0\\.0|\\[::\\]|\\*)'`;
+
+const SOCKETS = `
+    SELECT (raw->>'pid')::int AS pid,
+           raw->>'state'      AS state,
+           raw->>'netid'      AS proto,
+           raw->>'local'      AS local_addr,
+           raw->>'peer'       AS peer,
+           raw->>'uid'        AS uid,
+           (raw->>'state' = 'LISTEN' AND raw->>'local' !~ ${LOOPBACK})     AS exposed,
+           (raw->>'state' = 'ESTAB'  AND raw->>'peer'  !~ ${NON_ROUTABLE}) AS external
+      FROM collection_timeline
+     WHERE case_id = $1 AND evidence_id = $2
+       AND artifact_type = 'catscale_network'
+       AND ${PID_NUM}`;
+
 const FICHIERS = `
     SELECT (raw->>'pid')::int AS pid,
            raw->>'target'        AS target,
@@ -83,6 +124,14 @@ export function processTreeSql(): string {
        WHERE case_id = $1 AND evidence_id = $2
          AND artifact_type = 'catscale_proc_exe' AND ${PID_NUM}
     ),
+    n AS (
+      SELECT pid,
+             count(*)::int                         AS net_total,
+             count(*) FILTER (WHERE exposed)::int  AS net_listen_exposed,
+             count(*) FILTER (WHERE external)::int AS net_estab_external
+        FROM (${SOCKETS}) s
+       GROUP BY pid
+    ),
     c AS (
       SELECT (raw->>'pid')::int AS pid,
              max(raw->>'command')  AS command_line,
@@ -96,10 +145,14 @@ export function processTreeSql(): string {
            c.command_line, c.user_name,
            x.exe,
            coalesce(x.exe_deleted, false)    AS exe_deleted,
-           coalesce(x.exe_unreadable, false) AS exe_unreadable
+           coalesce(x.exe_unreadable, false) AS exe_unreadable,
+           coalesce(n.net_total, 0)          AS net_total,
+           coalesce(n.net_listen_exposed, 0) AS net_listen_exposed,
+           coalesce(n.net_estab_external, 0) AS net_estab_external
       FROM p
       LEFT JOIN c ON c.pid = p.pid
       LEFT JOIN x ON x.pid = p.pid
+      LEFT JOIN n ON n.pid = p.pid
      ORDER BY p.pid`;
 }
 
@@ -135,4 +188,16 @@ export function processFileCountsSql(): string {
            count(*) FILTER (WHERE deleted)                            AS deleted_count
       FROM (${FICHIERS}) x
      GROUP BY pid`;
+}
+
+/**
+ * Un socket par ligne, avec son processus. Seuls les sockets qui appartiennent
+ * encore a un processus sortent : un TIME-WAIT n'a plus de proprietaire, et
+ * l'afficher sous un PID serait une attribution inventee.
+ */
+export function processNetworkSql(): string {
+  return `
+    SELECT pid, state, proto, local_addr, peer, uid, exposed, external
+      FROM (${SOCKETS}) s
+     ORDER BY pid, state, local_addr`;
 }

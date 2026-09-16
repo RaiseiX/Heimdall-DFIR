@@ -1,5 +1,5 @@
 const express = require('express');
-const { processTreeSql, sharedResourcesSql, processFileCountsSql } = require('../services/processTreeSql');
+const { processTreeSql, sharedResourcesSql, processFileCountsSql, processNetworkSql } = require('../services/processTreeSql');
 const { snapshotBootSql, processEventsScopeSql } = require('../services/processEventScope');
 const { windowsProcessTreeSql } = require('../services/windowsProcessTree');
 const { execSync, execFileSync, exec, spawnSync, spawn, execFile } = require('child_process');
@@ -2772,14 +2772,19 @@ router.get('/:caseId/processes', authenticate, async (req, res) => {
       return res.json({ counts: comptes.rows });
     }
 
-    const [arbre, partage] = await Promise.all([
+    // Le detail des sockets voyage avec l'arbre plutot que par aller-retour :
+    // 40 lignes pour tout l'hote, 5 ms de requete. Un appel par selection
+    // couterait plus cher en latence qu'en octets.
+    const [arbre, partage, reseau] = await Promise.all([
       readPool.query(processTreeSql(),     [caseId, evidenceId]),
       readPool.query(sharedResourcesSql(), [caseId, evidenceId]),
+      readPool.query(processNetworkSql(),  [caseId, evidenceId]),
     ]);
 
     res.json({
       processes: arbre.rows,
       shared: partage.rows,
+      network: reseau.rows,
       snapshot: true,
     });
   } catch (err) {

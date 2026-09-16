@@ -3138,6 +3138,22 @@
     "binary_deleted_note": "This process runs from a binary that no longer exists on disk. Common during an application upgrade — and also the signature of a program that deletes itself after launch. The path decides, not the flag.",
     "binary_unreadable": "unreadable",
     "binary_unreadable_note": "Unreadable executable: normal for kernel threads, which have none.",
-    "only_deleted_binary": "Only deleted binaries"
+    "only_deleted_binary": "Only deleted binaries",
+    "col_network": "Network",
+    "only_exposed_listen": "Exposed listeners only",
+    "count_exposed_listen": "listening beyond loopback",
+    "count_estab_external": "established outbound connections",
+    "net_listen": "listening",
+    "net_estab": "established",
+    "net_exposed": "network-reachable",
+    "net_external": "routable address",
+    "net_local_addr": "Local address",
+    "net_peer": "Peer",
+    "net_state": "State",
+    "net_proto": "Proto",
+    "net_none": "No socket attached to this process.",
+    "net_sockets": "sockets",
+    "net_exposed_note": "This process listens on an address reachable from the network, not only on loopback. That is true of every legitimate exposed service — and it is the exact shape a backdoor takes. The port and the binary decide, not the flag.",
+    "net_external_note": "This process has an established connection to a routable address. TIME-WAIT sockets are never attached: the kernel released the descriptor, so they no longer belong to any process."
   }
 }

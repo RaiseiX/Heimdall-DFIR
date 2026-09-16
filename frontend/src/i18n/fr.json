@@ -3138,6 +3138,22 @@
     "binary_deleted_note": "Ce processus s'exécute depuis un binaire qui n'existe plus sur le disque. C'est courant lors d'une mise à jour d'application — et c'est aussi la signature d'un programme qui s'efface après lancement. Le chemin tranche, pas le drapeau.",
     "binary_unreadable": "illisible",
     "binary_unreadable_note": "Exécutable illisible : c'est le cas normal des fils du noyau, qui n'en ont pas.",
-    "only_deleted_binary": "Seulement les binaires supprimés"
+    "only_deleted_binary": "Seulement les binaires supprimés",
+    "col_network": "Réseau",
+    "only_exposed_listen": "Seulement en écoute exposée",
+    "count_exposed_listen": "en écoute au-delà de la loopback",
+    "count_estab_external": "connexions établies vers l'extérieur",
+    "net_listen": "en écoute",
+    "net_estab": "établie",
+    "net_exposed": "exposé au réseau",
+    "net_external": "adresse routable",
+    "net_local_addr": "Adresse locale",
+    "net_peer": "Adresse distante",
+    "net_state": "État",
+    "net_proto": "Proto",
+    "net_none": "Aucun socket rattaché à ce processus.",
+    "net_sockets": "sockets",
+    "net_exposed_note": "Ce processus écoute sur une adresse joignable depuis le réseau, et non sur la seule loopback. C'est le cas de tout service légitime exposé — et la forme exacte que prend une porte dérobée. Le port et le binaire tranchent, pas le drapeau.",
+    "net_external_note": "Ce processus a une connexion établie vers une adresse routable. Les sockets TIME-WAIT ne sont jamais rattachés : le noyau a libéré le descripteur, ils n'appartiennent plus à aucun processus."
   }
 }
