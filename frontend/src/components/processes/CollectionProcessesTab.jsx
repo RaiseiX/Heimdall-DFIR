@@ -43,6 +43,7 @@ export default function CollectionProcessesTab({ caseId, collectionId }) {
   const [choisi, setChoisi] = useState(null);
   const [fichierChoisi, setFichierChoisi] = useState(null);
   const [comptes, setComptes] = useState(null);
+  const [source, setSource] = useState('snapshot');
   const [evts, setEvts] = useState(null);
   const [evtsPour, setEvtsPour] = useState(null);
 
@@ -52,7 +53,15 @@ export default function CollectionProcessesTab({ caseId, collectionId }) {
     setChargement(true);
     setErreur(null);
     collectionAPI.processes(caseId, collectionId)
-      .then(r => { if (vivant) setDonnees(r.data); })
+      .then(r => {
+        if (!vivant) return;
+        if ((r.data?.processes || []).length > 0) { setDonnees(r.data); setSource('snapshot'); return null; }
+        return collectionAPI.windowsProcesses(caseId, collectionId).then(w => {
+          if (!vivant) return;
+          setDonnees({ ...w.data, shared: [] });
+          setSource('events');
+        });
+      })
       .catch(e => {
         if (vivant) setErreur(e?.response?.data?.error || e?.message || t('processes.unreachable'));
       })
@@ -71,14 +80,17 @@ export default function CollectionProcessesTab({ caseId, collectionId }) {
   }, [caseId, collectionId]);
 
   const procs = useMemo(() => {
-    const base = markKernel(donnees?.processes || []);
-    if (!comptes) return base;
+    const brut = (donnees?.processes || []).map(p => p.name
+      ? p
+      : { ...p, name: String(p.image || '').split(/[\\/]/).pop() || String(p.pid) });
+    const base = markKernel(brut);
+    if (source === 'events' || !comptes) return base;
     const parPid = new Map(comptes.map(c => [c.pid, c]));
     return base.map(p => {
       const c = parPid.get(p.pid);
       return { ...p, fd: Number(c?.fd || 0), maps: Number(c?.maps || 0), deleted_count: Number(c?.deleted_count || 0) };
     });
-  }, [donnees, comptes]);
+  }, [donnees, comptes, source]);
   const lignes = useMemo(
     () => buildTreeRows(procs, { replies, recherche, sansNoyau }),
     [procs, replies, recherche, sansNoyau],
@@ -119,9 +131,10 @@ export default function CollectionProcessesTab({ caseId, collectionId }) {
     );
   }
   if (!procs.length) {
+    const vide = source === 'events' ? 'processes.none_windows' : 'processes.none';
     return (
       <div style={{ padding: 16, color: 'var(--fl-dim)', fontSize: 12, maxWidth: '70ch', lineHeight: 1.6 }}>
-        {t('processes.none')}
+        {t(vide)}
       </div>
     );
   }
@@ -139,10 +152,10 @@ export default function CollectionProcessesTab({ caseId, collectionId }) {
           style={{ ...controlStyle, color: vue === 'arbre' ? 'var(--fl-accent)' : 'var(--fl-dim)' }}>
           {t('processes.view_tree')}
         </button>
-        <button type="button" onClick={() => setVue('partage')} aria-pressed={vue === 'partage'}
+        {source !== 'events' && <button type="button" onClick={() => setVue('partage')} aria-pressed={vue === 'partage'}
           style={{ ...controlStyle, color: vue === 'partage' ? 'var(--fl-accent)' : 'var(--fl-dim)' }}>
           {t('processes.view_shared')}
-        </button>
+        </button>}
 
         {vue === 'arbre' && (
           <>
@@ -165,7 +178,7 @@ export default function CollectionProcessesTab({ caseId, collectionId }) {
         <div style={SOMMAIRE}>
           <span><b style={FORT}>{sommaire.total}</b> {t('processes.count_processes')}</span>
           <span><b style={FORT}>{sommaire.racines}</b> {t('processes.count_roots')}</span>
-          {sommaire.comptesPrets ? (
+          {source === 'events' ? null : sommaire.comptesPrets ? (
             <>
               <span><b style={FORT}>{sommaire.avecFichiers}</b> {t('processes.count_with_files')}</span>
               <span><b style={FORT}>{sommaire.deleted_count}</b> {t('processes.count_holding_deleted')}</span>
@@ -174,6 +187,17 @@ export default function CollectionProcessesTab({ caseId, collectionId }) {
             <span>{t('processes.counting_files')}</span>
           )}
         </div>
+      </div>
+
+      <div style={{ padding: '7px 12px', fontSize: 11, color: 'var(--fl-dim)',
+                    borderBottom: '1px solid var(--fl-border)', lineHeight: 1.5 }}>
+        {source === 'events'
+          ? t('processes.source_events', {
+              n: procs.length,
+              from: procs.length ? new Date(procs[0].timestamp).toLocaleString() : '',
+              to: procs.length ? new Date(procs[procs.length - 1].timestamp).toLocaleString() : '',
+            })
+          : t('processes.source_snapshot')}
       </div>
 
       {vue === 'arbre' ? (

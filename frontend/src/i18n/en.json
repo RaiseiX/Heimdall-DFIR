@@ -3125,6 +3125,12 @@
     "events_none": "No event attributable to this process.",
     "events_scope": "Limited to the boot of {{taken}} — PIDs are recycled, and without this constraint 59% of events would be attributed to the wrong process.",
     "events_capped": "Capped at {{n}} rows.",
-    "events_no_boot": "This snapshot's boot could not be determined: no events are shown, rather than wrong ones."
+    "events_no_boot": "This snapshot's boot could not be determined: no events are shown, rather than wrong ones.",
+    "source_snapshot": "Snapshot of the processes alive when the collection ran.",
+    "source_events": "{{n}} process creations, from {{from}} to {{to}}. This is not a snapshot: a process created then ended appears here, one started before the window does not.",
+    "col_image": "Image",
+    "col_started": "Created",
+    "parent_declared_ok": "parent confirmed by Windows",
+    "none_windows": "No process-creation event in this collection. On Windows the tree comes from Security 4688 events, which are absent unless process-creation auditing was enabled on the machine."
   }
 }

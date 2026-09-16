@@ -1,21 +1,32 @@
 const MAX_PROFONDEUR = 128;
 
+export function cleDe(p) {
+  return p && p.id != null ? p.id : p?.pid;
+}
+
+export function cleParentDe(p) {
+  if (!p) return undefined;
+  if (p.id != null) return p.parent_id == null ? 0 : p.parent_id;
+  return p.ppid;
+}
+
 function indexer(procs) {
-  const parPid = new Map();
-  for (const p of procs) parPid.set(p.pid, p);
-  return parPid;
+  const parCle = new Map();
+  for (const p of procs) parCle.set(cleDe(p), p);
+  return parCle;
 }
 
 export function markKernel(procs) {
   const liste = Array.isArray(procs) ? procs : [];
-  const parPid = indexer(liste);
+  const parCle = indexer(liste);
   return liste.map(p => {
     let cur = p;
     let garde = 0;
     while (cur && garde++ < MAX_PROFONDEUR) {
       if (cur.pid === 2) return { ...p, noyau: true };
-      if (!cur.ppid) return { ...p, noyau: false };
-      cur = parPid.get(cur.ppid);
+      const pc = cleParentDe(cur);
+      if (!pc) return { ...p, noyau: false };
+      cur = parCle.get(pc);
     }
     return { ...p, noyau: false };
   });
@@ -34,41 +45,46 @@ export function buildTreeRows(procs, options = {}) {
   if (liste.length === 0) return [];
 
   const { replies = new Set(), recherche = '', sansNoyau = false } = options;
-  const parPid = indexer(liste);
   const retenus = sansNoyau ? liste.filter(p => !p.noyau) : liste;
-  const dispo = new Set(retenus.map(p => p.pid));
+  const dispo = new Set(retenus.map(cleDe));
 
   const enfants = new Map();
   const racines = [];
   for (const p of retenus) {
-    if (p.ppid && dispo.has(p.ppid) && p.ppid !== p.pid) {
-      if (!enfants.has(p.ppid)) enfants.set(p.ppid, []);
-      enfants.get(p.ppid).push(p);
+    const cle = cleDe(p);
+    const pc = cleParentDe(p);
+    if (pc && dispo.has(pc) && pc !== cle) {
+      if (!enfants.has(pc)) enfants.set(pc, []);
+      enfants.get(pc).push(p);
     } else {
       racines.push(p);
     }
   }
-  for (const l of enfants.values()) l.sort((a, b) => a.pid - b.pid);
-  racines.sort((a, b) => a.pid - b.pid);
+  const ordre = (a, b) => (a.pid - b.pid) || (cleDe(a) - cleDe(b));
+  for (const l of enfants.values()) l.sort(ordre);
+  racines.sort(ordre);
 
   const visibles = new Map();
   const visible = (p, vus) => {
-    if (visibles.has(p.pid)) return visibles.get(p.pid);
-    if (vus.has(p.pid)) return false;
-    vus.add(p.pid);
+    const cle = cleDe(p);
+    if (visibles.has(cle)) return visibles.get(cle);
+    if (vus.has(cle)) return false;
+    vus.add(cle);
     const ok = correspond(p, recherche)
-      || (enfants.get(p.pid) || []).some(c => visible(c, vus));
-    visibles.set(p.pid, ok);
+      || (enfants.get(cle) || []).some(c => visible(c, vus));
+    visibles.set(cle, ok);
     return ok;
   };
 
   const lignes = [];
   const descendre = (p, profondeur, vus) => {
-    if (profondeur > MAX_PROFONDEUR || vus.has(p.pid)) return;
+    const cle = cleDe(p);
+    if (profondeur > MAX_PROFONDEUR || vus.has(cle)) return;
     if (!visible(p, new Set())) return;
-    vus.add(p.pid);
-    const kids = (enfants.get(p.pid) || []).filter(c => visible(c, new Set()));
+    vus.add(cle);
+    const kids = (enfants.get(cle) || []).filter(c => visible(c, new Set()));
     lignes.push({
+      cle,
       pid: p.pid,
       name: p.name,
       profondeur,
@@ -87,6 +103,9 @@ export function buildTreeRows(procs, options = {}) {
 export function collapsibleIds(procs) {
   const liste = Array.isArray(procs) ? procs : [];
   const avecEnfants = new Set();
-  for (const p of liste) if (p.ppid) avecEnfants.add(p.ppid);
+  for (const p of liste) {
+    const pc = cleParentDe(p);
+    if (pc) avecEnfants.add(pc);
+  }
   return avecEnfants;
 }

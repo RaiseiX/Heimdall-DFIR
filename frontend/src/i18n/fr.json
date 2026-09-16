@@ -3125,6 +3125,12 @@
     "events_none": "Aucun événement attribuable à ce processus.",
     "events_scope": "Limité au démarrage du {{taken}} — les PID se recyclent, et sans cette contrainte 59 % des événements seraient attribués au mauvais processus.",
     "events_capped": "Affichage plafonné à {{n}} lignes.",
-    "events_no_boot": "Le démarrage de cet instantané n'a pas pu être déterminé : aucun événement n'est affiché, plutôt que des événements faux."
+    "events_no_boot": "Le démarrage de cet instantané n'a pas pu être déterminé : aucun événement n'est affiché, plutôt que des événements faux.",
+    "source_snapshot": "Instantané des processus vivants au moment de la collecte.",
+    "source_events": "{{n}} créations de processus, du {{from}} au {{to}}. Ce n'est pas un instantané : un processus créé puis terminé y figure, un processus lancé avant la période n'y figure pas.",
+    "col_image": "Image",
+    "col_started": "Créé le",
+    "parent_declared_ok": "parent confirmé par Windows",
+    "none_windows": "Aucun événement de création de processus dans cette collecte. Côté Windows, l'arbre vient des événements Security 4688 — absents si l'audit de création de processus n'était pas activé sur la machine."
   }
 }

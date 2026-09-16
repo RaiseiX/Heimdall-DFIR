@@ -90,7 +90,7 @@ export const casesAPI = {
   assignUser: (id, userId) => api.post(`/cases/${id}/assignees`, { user_id: userId }),
   unassignUser: (id, userId) => api.delete(`/cases/${id}/assignees/${userId}`),
   audit: (id, params) => api.get(`/cases/${id}/audit`, { params }),
-  hardDelete: (id) => api.delete(`/cases/${id}/hard-delete`),
+  hardDelete: (id, confirmation) => api.delete(`/cases/${id}/hard-delete`, { data: { confirmation } }),
   runTriage: (id) => api.post(`/cases/${id}/triage`),
   getTriage: (id) => api.get(`/cases/${id}/triage`),
   lateralMovement: (id) => api.get(`/cases/${id}/lateral-movement`),
@@ -237,6 +237,8 @@ export const collectionAPI = {
     api.get(`/collection/${caseId}/processes`, { params: { evidence_id: evidenceId } }),
   processFileCounts: (caseId, evidenceId) =>
     api.get(`/collection/${caseId}/processes`, { params: { evidence_id: evidenceId, with: 'counts' } }),
+  windowsProcesses: (caseId, evidenceId) =>
+    api.get(`/collection/${caseId}/processes`, { params: { evidence_id: evidenceId, with: 'windows' } }),
   processEvents: (caseId, evidenceId, pid, name) =>
     api.get(`/collection/${caseId}/processes`, { params: { evidence_id: evidenceId, with: 'events', pid, name } }),
   detectionsSummary: (caseId) => api.get(`/collection/${caseId}/detections/summary`),

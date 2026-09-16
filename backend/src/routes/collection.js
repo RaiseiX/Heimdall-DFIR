@@ -1,6 +1,7 @@
 const express = require('express');
 const { processTreeSql, sharedResourcesSql, processFileCountsSql } = require('../services/processTreeSql');
 const { snapshotBootSql, processEventsScopeSql } = require('../services/processEventScope');
+const { windowsProcessTreeSql } = require('../services/windowsProcessTree');
 const { execSync, execFileSync, exec, spawnSync, spawn, execFile } = require('child_process');
 const { extractArgs, permissionArgs } = require('../services/archiveExtract');
 const path = require('path');
@@ -41,7 +42,14 @@ const { findCsvFilesRecursive } = require('../services/csv/findCsvFiles');
 const { scanCollectionCsvs } = require('../services/csv/scanCollectionCsvs');
 const { ZIMMERMAN_DIR, ARTIFACT_PATTERNS, ECS_COLUMNS } = require('../config/artifactPatterns');
 const { purgeFsTimeline, purgeCatScaleState } = require('../services/fsTimelinePurge');
-const { withCaseDeletion } = require('../services/caseDeletion');
+const {
+  withCaseDeletion,
+  beginDeletionOperation,
+  markDeletionItem,
+  markDeletionOperation,
+  safeErrorCode,
+} = require('../services/caseDeletion');
+const { assertConfinedPathSync } = require('../services/storagePathGuard');
 const { purgeHayabusaScoped, aggregateHayabusaMeta } = require('../services/hayabusaScope');
 const { natureScopedWhere } = require('../services/timelineNature');
 const { buildAggCacheKeys, invalidateAggCache } = require('../services/timelineAggCache');
@@ -50,7 +58,6 @@ const { parseRule, buildQuery } = require('../services/sigmaService');
 const { collectionHost, establishedHostsQuery, resolvedHostExpr } = require('../services/collectionHost');
 const { rawProjection } = require('../services/timelineRawScope');
 const { resolveArtifactType } = require('../services/artifactSubtype');
-const { reparseScope } = require('../services/reparseScope');
 const { commonParserDir } = require('../services/commonParserDir');
 const { hitsOnlyPredicate } = require('../services/huntDetections');
 
@@ -990,6 +997,13 @@ router.get('/:caseId/rdp-cache/:name', authenticate, async (req, res) => {
 
 router.post('/:caseId/parse', authenticate, async (req, res) => {
   const { caseId } = req.params;
+  try {
+    await withCaseDeletion(pool, caseId, async () => {});
+  } catch (error) {
+    if (error.code === 'LEGAL_HOLD') return res.status(409).json({ error: 'Case is under legal hold', code: 'LEGAL_HOLD' });
+    if (error.status === 404) return res.status(404).json({ error: 'Case not found' });
+    return res.status(503).json({ error: 'Unable to verify case state' });
+  }
   const { collection_dir, artifact_types, types, evidence_id: bodyEvidenceId } = req.body;
 
   const requestedTypes = artifact_types || types;
@@ -1077,63 +1091,45 @@ router.post('/:caseId/parse', authenticate, async (req, res) => {
     }
   } catch (_e) {}
 
-  // Atomic: lock previous results → delete stale data → insert new result record.
-  // FOR UPDATE prevents two concurrent re-parsings from both deleting and double-inserting.
-  let oldResultIds = [];
   let resultId;
-  {
-    const dbClient = await pool.connect();
-    try {
-      await dbClient.query('BEGIN');
+  try {
+    resultId = await withCaseDeletion(pool, caseId, async dbClient => {
       const oldPrRows = await dbClient.query(
         `SELECT id FROM parser_results
-         WHERE case_id = $1 AND input_file = $2 AND parser_name != 'MagnetRESPONSE_Import'
+         WHERE case_id = $1 AND (input_file = $2 OR ($3::uuid IS NOT NULL AND evidence_id = $3))
+           AND parser_name != 'MagnetRESPONSE_Import'
          FOR UPDATE`,
-        [caseId, collDir]
+        [caseId, collDir, evidenceId]
       );
-      oldResultIds = oldPrRows.rows.map(r => r.id);
-      const scope = reparseScope(requestedTypes);
-      if (oldResultIds.length > 0 && scope.full) {
-        await dbClient.query(
-          `DELETE FROM collection_timeline WHERE result_id = ANY($1::uuid[])`,
-          [oldResultIds]
-        );
-        await dbClient.query(
-          `DELETE FROM parser_results WHERE id = ANY($1::uuid[])`,
-          [oldResultIds]
-        );
-      } else if (oldResultIds.length > 0 && scope.types.length > 0) {
-        await dbClient.query(
-          `DELETE FROM collection_timeline
-            WHERE result_id = ANY($1::uuid[]) AND artifact_type = ANY($2::text[])`,
-          [oldResultIds, scope.types]
-        );
+      const existingRows = await dbClient.query(
+        `SELECT (
+           EXISTS (SELECT 1 FROM collection_timeline WHERE case_id = $1 AND ($2::uuid IS NULL OR evidence_id = $2))
+           OR EXISTS (SELECT 1 FROM catscale_state WHERE case_id = $1 AND ($2::uuid IS NULL OR evidence_id = $2))
+         ) AS has_existing`,
+        [caseId, evidenceId]
+      );
+      if (oldPrRows.rows.length > 0 || existingRows.rows[0]?.has_existing === true) {
+        throw Object.assign(new Error('Reparse requires generation staging'), {
+          status: 409, code: 'REPARSE_REQUIRES_STAGING',
+        });
       }
       const prRow = await dbClient.query(
         `INSERT INTO parser_results (case_id, evidence_id, parser_name, parser_version, input_file, output_data, record_count, created_by)
          VALUES ($1, $2, 'UnifiedTimeline', '2.0', $3, '{"status":"parsing"}'::jsonb, 0, $4) RETURNING id`,
         [caseId, evidenceId || null, collDir, req.user.id]
       );
-      resultId = prRow.rows[0].id;
-      await dbClient.query('COMMIT');
-    } catch (initErr) {
-      await dbClient.query('ROLLBACK').catch(() => {});
-      dbClient.release();
-      return res.status(500).json({ error: 'Erreur initialisation DB', details: initErr.message });
+      return prRow.rows[0].id;
+    });
+  } catch (initErr) {
+    if (initErr.code === 'LEGAL_HOLD' || initErr.code === 'REPARSE_REQUIRES_STAGING') {
+      return res.status(409).json({ error: initErr.message, code: initErr.code });
     }
-    dbClient.release();
+    if (initErr.status === 404) return res.status(404).json({ error: 'Case not found' });
+    return res.status(500).json({ error: 'Erreur initialisation DB' });
   }
 
-  // ES cleanup outside the transaction — best-effort, non-blocking for the DB
-  if (oldResultIds.length > 0) {
-    for (const rid of oldResultIds) {
-      await esService.deleteByResultId(caseId, rid).catch(e =>
-        logger.warn(`[ES] deleteByResultId warn (${caseId}/${rid}): ${String(e.message).substring(0, 100)}`));
-    }
-  } else {
-    await esService.ensureIndex(caseId).catch(e =>
-      logger.warn(`[ES] ensureIndex warn (${caseId}): ${String(e.message).substring(0, 100)}`));
-  }
+  await esService.ensureIndex(caseId).catch(e =>
+    logger.warn(`[ES] ensureIndex warn (${caseId}): ${String(e.message).substring(0, 100)}`));
 
     res.json({ id: resultId, status: 'parsing' });
 
@@ -2722,6 +2718,15 @@ router.get('/:caseId/processes', authenticate, async (req, res) => {
     // L'arbre coute 88 ms, les comptes de fichiers 4,8 s. Les servir ensemble
     // faisait payer le second au premier. `?with=counts` demande la partie
     // lente, que l'interface charge apres avoir affiche l'arbre.
+    // Windows n'a pas d'instantane de processus : sa filiation se deduit des
+    // evenements de creation 4688, rattaches dans l'ordre temporel. Verifie sur
+    // les donnees reelles contre le parent que Windows declare lui-meme :
+    // 127 rattachements, 127 concordants, zero divergence.
+    if (req.query.with === 'windows') {
+      const w = await readPool.query(windowsProcessTreeSql(), [caseId, evidenceId]);
+      return res.json({ processes: w.rows, snapshot: false, source: 'evtx_4688' });
+    }
+
     // Le pivot d'un processus vers ses evenements. Contraint par le demarrage de
     // l'instantane ET par le nom : sans cette contrainte, 84 211 des 142 625
     // evenements seraient attribues a des processus qui ne les ont pas produits.
@@ -3698,30 +3703,70 @@ router.delete('/:caseId/state', authenticate, async (req, res) => {
 });
 
 router.delete('/:caseId/data', authenticate, async (req, res) => {
+  let operationId = null;
+  let operationPrepared = false;
   try {
     const { caseId } = req.params;
 
     const result = await withCaseDeletion(pool, caseId, async client => {
-      const importRow = await client.query(
-        `SELECT output_data->>'collection_dir' AS dir
+      const generationRows = await client.query(
+        `SELECT id::text AS generation_id, parser_name, output_data->>'collection_dir' AS dir
          FROM parser_results
-         WHERE case_id = $1 AND parser_name = 'MagnetRESPONSE_Import'
-         ORDER BY created_at DESC LIMIT 1`,
+         WHERE case_id = $1
+         ORDER BY created_at DESC, id DESC`,
         [caseId]
       );
 
       let freedBytes = 0;
+      const collDir = generationRows.rows.find(row => row.parser_name === 'MagnetRESPONSE_Import')?.dir || null;
+      const generationKey = generationRows.rows.length
+        ? generationRows.rows.map(row => row.generation_id).sort().join(':')
+        : 'empty';
+      const operation = await beginDeletionOperation(pool, {
+        operationType: 'delete_collection_data',
+        caseId,
+        targetId: caseId,
+        generationKey,
+        requestedBy: req.user.id,
+        requestIp: req.ip,
+        items: [
+          ...(collDir ? [{ kind: 'disk', locator: collDir }] : []),
+          { kind: 'elasticsearch', locator: caseId },
+        ],
+      });
+      operationId = operation.id;
 
-      if (importRow.rows.length > 0) {
-        const collDir = importRow.rows[0].dir;
-        if (collDir && fs.existsSync(collDir)) {
+      for (const item of operation.items.filter(entry => entry.kind === 'disk')) {
+        if (item.status === 'deleted' || item.status === 'already_absent') continue;
+        await markDeletionItem(pool, operation.id, item.item_key, 'running');
+        try {
+          const resolved = path.resolve(item.locator);
+          const roots = [path.resolve(COLLECTIONS_DIR), path.resolve(UPLOAD_COLLECTION_DIR)];
+          if (!roots.some(root => resolved.startsWith(root + path.sep))) {
+            throw Object.assign(new Error('Collection path rejected'), { code: 'STORAGE_PATH_REJECTED' });
+          }
+          if (!fs.existsSync(resolved)) {
+            await markDeletionItem(pool, operation.id, item.item_key, 'already_absent', 'none');
+            continue;
+          }
+          assertConfinedPathSync(roots.find(root => resolved.startsWith(root + path.sep)), resolved);
           try {
-            const duOut = await spawnTool(['du', '-sb', collDir], { timeout: 10000 });
+            const duOut = await spawnTool(['du', '-sb', resolved], { timeout: 10000 });
             const szLine = duOut.trim().split(/\s+/)[0];
             freedBytes += parseInt(szLine) || 0;
           } catch (_e) {}
-          fs.rmSync(collDir, { recursive: true, force: true });
-          logger.info(`[collection] Deleted collection dir: ${collDir}`);
+          const stat = fs.lstatSync(resolved);
+          if (stat.isSymbolicLink() || !stat.isDirectory()) {
+            throw Object.assign(new Error('Unsupported collection target'), { code: 'UNSUPPORTED_STORAGE_TARGET' });
+          }
+          fs.rmSync(resolved, { recursive: true, force: true });
+          await markDeletionItem(pool, operation.id, item.item_key, 'deleted', 'rmdir');
+        } catch (error) {
+          const code = safeErrorCode(error);
+          try { await markDeletionItem(pool, operation.id, item.item_key, 'failed', null, code); } catch (journalError) {
+            logger.error('[collection] item journal failure:', safeErrorCode(journalError));
+          }
+          throw Object.assign(new Error('Collection deletion incomplete'), { status: 502, code: 'DELETION_INCOMPLETE' });
         }
       }
 
@@ -3743,8 +3788,26 @@ router.delete('/:caseId/data', authenticate, async (req, res) => {
         [caseId]
       );
 
-      await esService.deleteIndex(caseId).catch(e =>
-        logger.warn(`[ES] deleteIndex warn on data-delete (${caseId}): ${String(e.message).substring(0, 100)}`));
+      const indexItem = operation.items.find(item => item.kind === 'elasticsearch');
+      if (!indexItem || (indexItem.status !== 'deleted' && indexItem.status !== 'already_absent')) {
+        try {
+          if (indexItem) await markDeletionItem(pool, operation.id, indexItem.item_key, 'running');
+          await esService.deleteIndex(caseId, { strict: true });
+          if (indexItem) await markDeletionItem(pool, operation.id, indexItem.item_key, 'deleted', 'delete_index');
+        } catch (error) {
+          if (indexItem) {
+            try { await markDeletionItem(pool, operation.id, indexItem.item_key, 'failed', null, safeErrorCode(error)); } catch (journalError) {
+              logger.error('[collection] index journal failure:', safeErrorCode(journalError));
+            }
+          }
+          throw Object.assign(new Error('Collection deletion incomplete'), {
+            status: 502, code: 'DELETION_INCOMPLETE',
+          });
+        }
+      }
+      await markDeletionOperation(pool, operation.id, 'ready_to_commit');
+      operationPrepared = true;
+      await markDeletionOperation(client, operation.id, 'completed');
 
       const freedMb = Math.round(freedBytes / 1024 / 1024);
       return {
@@ -3752,19 +3815,29 @@ router.delete('/:caseId/data', authenticate, async (req, res) => {
         freed_mb: freedMb,
         rows_deleted: deleted.rowCount,
         timeline_records_deleted: ctDeleted.rowCount,
+        operation_id: operation.id,
       };
     });
     await auditLog(req.user.id, 'delete_collection_data', 'case', caseId,
       { freed_mb: result.freed_mb, rows_deleted: result.rows_deleted,
-        timeline_records_deleted: result.timeline_records_deleted }, req.ip);
+        timeline_records_deleted: result.timeline_records_deleted,
+        operation_id: result.operation_id }, req.ip);
     res.json(result);
   } catch (err) {
+    if (operationId && !operationPrepared) {
+      try { await markDeletionOperation(pool, operationId, 'incomplete', safeErrorCode(err)); } catch (journalError) {
+        logger.error('[collection] operation journal failure:', safeErrorCode(journalError));
+      }
+    }
     if (err.code === 'LEGAL_HOLD') {
       return res.status(409).json({ error: 'Case is under legal hold', code: 'LEGAL_HOLD' });
     }
     if (err.status === 404) return res.status(404).json({ error: 'Case not found' });
+    if (err.code === 'DELETION_INCOMPLETE') {
+      return res.status(502).json({ error: 'Collection deletion incomplete', code: 'DELETION_INCOMPLETE', operation_id: operationId });
+    }
     logger.error('collection delete error:', err);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Collection deletion failed' });
   }
 });
 
