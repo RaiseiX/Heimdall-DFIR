@@ -3154,6 +3154,11 @@
     "net_none": "No socket attached to this process.",
     "net_sockets": "sockets",
     "net_exposed_note": "This process listens on an address reachable from the network, not only on loopback. That is true of every legitimate exposed service — and it is the exact shape a backdoor takes. The port and the binary decide, not the flag.",
-    "net_external_note": "This process has an established connection to a routable address. TIME-WAIT sockets are never attached: the kernel released the descriptor, so they no longer belong to any process."
+    "net_external_note": "This process has an established connection to a routable address. TIME-WAIT sockets are never attached: the kernel released the descriptor, so they no longer belong to any process.",
+    "col_sha1": "SHA-1 hash",
+    "sha1_none": "No hash — this process has no readable executable.",
+    "sha1_also_as": "This binary also runs as",
+    "sha1_shared_note": "One hash under several process names is common — a multiprocess browser or a shared interpreter does it. It is also the exact shape of process-name masquerading. The path and the number of names decide.",
+    "sha1_from_memory": "Read from the in-memory image (/proc/<pid>/exe), not from disk: a deleted binary stays identifiable."
   }
 }

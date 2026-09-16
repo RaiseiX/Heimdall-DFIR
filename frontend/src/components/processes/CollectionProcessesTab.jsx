@@ -100,6 +100,16 @@ export default function CollectionProcessesTab({ caseId, collectionId }) {
     return buildTreeRows(retenus, { replies, recherche, sansNoyau });
   }, [procs, replies, recherche, sansNoyau, seulSupprime, seulExpose]);
 
+  const nomsParSha1 = useMemo(() => {
+    const m = new Map();
+    for (const p of procs) {
+      if (!p.sha1) continue;
+      if (!m.has(p.sha1)) m.set(p.sha1, new Set());
+      m.get(p.sha1).add(p.name);
+    }
+    return m;
+  }, [procs]);
+
   const socketsParPid = useMemo(() => {
     const m = new Map();
     for (const c of (donnees?.network || [])) {
@@ -332,6 +342,31 @@ export default function CollectionProcessesTab({ caseId, collectionId }) {
                   <div style={{ fontSize: 11, color: 'var(--fl-dim)', lineHeight: 1.5, marginBottom: 12 }}>
                     {t('processes.binary_deleted_note')}
                   </div>
+                )}
+                {selection.sha1 && (
+                  <>
+                    <div style={ETIQ}>{t('processes.col_sha1')}</div>
+                    <div style={{ ...VAL, fontFamily: MONO, wordBreak: 'break-all', userSelect: 'all' }}>
+                      {selection.sha1}
+                    </div>
+                    {selection.exe_deleted && (
+                      <div style={{ fontSize: 11, color: 'var(--fl-dim)', lineHeight: 1.5, marginBottom: 12 }}>
+                        {t('processes.sha1_from_memory')}
+                      </div>
+                    )}
+                    {Number(selection.sha1_names) > 1 && (
+                      <>
+                        <div style={ETIQ}>{t('processes.sha1_also_as')}</div>
+                        <div style={{ ...VAL, color: 'var(--fl-warning, var(--fl-text))' }}>
+                          {[...(nomsParSha1.get(selection.sha1) || [])]
+                            .filter(n => n !== selection.name).join(', ') || '—'}
+                        </div>
+                        <div style={{ fontSize: 11, color: 'var(--fl-dim)', lineHeight: 1.5, marginBottom: 12 }}>
+                          {t('processes.sha1_shared_note')}
+                        </div>
+                      </>
+                    )}
+                  </>
                 )}
                 {(socketsParPid.get(selection.pid) || []).length > 0 && (
                   <>

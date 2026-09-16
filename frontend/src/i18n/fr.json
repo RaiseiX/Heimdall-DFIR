@@ -3154,6 +3154,11 @@
     "net_none": "Aucun socket rattaché à ce processus.",
     "net_sockets": "sockets",
     "net_exposed_note": "Ce processus écoute sur une adresse joignable depuis le réseau, et non sur la seule loopback. C'est le cas de tout service légitime exposé — et la forme exacte que prend une porte dérobée. Le port et le binaire tranchent, pas le drapeau.",
-    "net_external_note": "Ce processus a une connexion établie vers une adresse routable. Les sockets TIME-WAIT ne sont jamais rattachés : le noyau a libéré le descripteur, ils n'appartiennent plus à aucun processus."
+    "net_external_note": "Ce processus a une connexion établie vers une adresse routable. Les sockets TIME-WAIT ne sont jamais rattachés : le noyau a libéré le descripteur, ils n'appartiennent plus à aucun processus.",
+    "col_sha1": "Empreinte SHA-1",
+    "sha1_none": "Pas d'empreinte — ce processus n'a pas d'exécutable lisible.",
+    "sha1_also_as": "Ce binaire tourne aussi sous",
+    "sha1_shared_note": "Une même empreinte sous plusieurs noms de processus est courante — un navigateur multiprocessus ou un interpréteur partagé le font. C'est aussi la forme exacte que prend un masquage de nom. Le chemin et le nombre de noms tranchent.",
+    "sha1_from_memory": "Lue dans l'image en mémoire (/proc/<pid>/exe), pas sur le disque : un binaire supprimé reste identifiable."
   }
 }

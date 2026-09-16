@@ -72,6 +72,34 @@ const SOCKETS = `
        AND artifact_type = 'catscale_network'
        AND ${PID_NUM}`;
 
+// ── Le hachage du binaire ───────────────────────────────────────────────────
+//
+// CatScale hache `/proc/<pid>/exe`, et deux proprietes en decoulent.
+//
+// Le PID est DANS le chemin : le rattachement est direct, il ne passe pas par
+// le chemin de l'executable. Mesure du 2026-09-16 : 277 hachages, tous de cette
+// forme, 276 rattaches a l'instantane, 1 orphelin — un processus disparu entre
+// deux etapes de la collecte.
+//
+// Et c'est l'image EN MEMOIRE qui est lue, pas le fichier sur disque. Un
+// processus dont le binaire a ete supprime reste donc hachable : les 18
+// binaires supprimes de l'hote ont tous leur SHA-1. C'est ce qui fait passer le
+// drapeau « binaire supprime » de « suspect, inverifiable » a « suspect, et
+// voici l'empreinte a rechercher ».
+//
+// Couverture : 278 executables lisibles, 276 haches. Les 160 fils du noyau n'en
+// ont pas, et c'est normal — ils n'ont pas d'executable.
+//
+// `catscale_executable_hash` (150 223 lignes) est un AUTRE objet : l'inventaire
+// des executables presents sur le disque, sans PID. Il ne sert pas ici.
+const HACHAGES = `
+    SELECT substring(raw->>'path' from '^/proc/([0-9]+)/exe$')::int AS pid,
+           raw->>'sha1' AS sha1
+      FROM collection_timeline
+     WHERE case_id = $1 AND evidence_id = $2
+       AND artifact_type = 'catscale_process_hash'
+       AND raw->>'path' ~ '^/proc/[0-9]{1,7}/exe$'`;
+
 const FICHIERS = `
     SELECT (raw->>'pid')::int AS pid,
            raw->>'target'        AS target,
@@ -124,6 +152,17 @@ export function processTreeSql(): string {
        WHERE case_id = $1 AND evidence_id = $2
          AND artifact_type = 'catscale_proc_exe' AND ${PID_NUM}
     ),
+    h AS (${HACHAGES}),
+    -- Une meme empreinte sous PLUSIEURS noms de processus. Mesure sur l'hote :
+    -- 4 empreintes dans ce cas, dont une sous 8 noms (l'architecture
+    -- multiprocessus de Firefox) et une sous celery et daphne (le meme
+    -- interpreteur Python). Legitime ici, et exactement la forme que prend un
+    -- masquage de nom de processus.
+    hn AS (
+      SELECT h.sha1, count(DISTINCT p.name)::int AS sha1_names
+        FROM h JOIN p ON p.pid = h.pid
+       GROUP BY h.sha1
+    ),
     n AS (
       SELECT pid,
              count(*)::int                         AS net_total,
@@ -148,11 +187,15 @@ export function processTreeSql(): string {
            coalesce(x.exe_unreadable, false) AS exe_unreadable,
            coalesce(n.net_total, 0)          AS net_total,
            coalesce(n.net_listen_exposed, 0) AS net_listen_exposed,
-           coalesce(n.net_estab_external, 0) AS net_estab_external
+           coalesce(n.net_estab_external, 0) AS net_estab_external,
+           h.sha1,
+           hn.sha1_names
       FROM p
-      LEFT JOIN c ON c.pid = p.pid
-      LEFT JOIN x ON x.pid = p.pid
-      LEFT JOIN n ON n.pid = p.pid
+      LEFT JOIN c  ON c.pid  = p.pid
+      LEFT JOIN x  ON x.pid  = p.pid
+      LEFT JOIN n  ON n.pid  = p.pid
+      LEFT JOIN h  ON h.pid  = p.pid
+      LEFT JOIN hn ON hn.sha1 = h.sha1
      ORDER BY p.pid`;
 }
 
