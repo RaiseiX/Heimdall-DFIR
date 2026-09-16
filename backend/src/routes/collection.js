@@ -29,6 +29,7 @@ const { detectMapping, loadMappings } = require('../services/timelineMappings');
 const { buildSlimRaw } = require('../services/timelineFieldExtract');
 const { buildHayabusaDescription } = require('../services/hayabusaDescription');
 const { pushTextFilter, pushSearchFilter } = require('../utils/textFilter');
+const { pushProviderFilter } = require('../services/timelineProviderFilter');
 const { GROUPABLE_COLUMNS } = require('../services/timelineGroupColumns');
 const { timelineRowsSql } = require('../services/timelineRowsSql');
 const { SORTABLE_COLUMNS } = require('../services/timelineSortColumns');
@@ -52,7 +53,7 @@ const {
 const { assertConfinedPathSync } = require('../services/storagePathGuard');
 const { purgeHayabusaScoped, aggregateHayabusaMeta } = require('../services/hayabusaScope');
 const { natureScopedWhere } = require('../services/timelineNature');
-const { buildAggCacheKeys, invalidateAggCache } = require('../services/timelineAggCache');
+const { buildAggCacheKeys, invalidateAggCache, readDimsCache } = require('../services/timelineAggCache');
 const { foldHistogramRows, BKT_BEFORE_LO, BKT_AFTER_HI } = require('../services/timelineHistogramFold');
 const { parseRule, buildQuery } = require('../services/sigmaService');
 const { collectionHost, establishedHostsQuery, resolvedHostExpr } = require('../services/collectionHost');
@@ -792,18 +793,6 @@ router.post('/:caseId/import', authenticate, upload.single('collection'), async 
         }
 
         const collectionPlatform = detectCollectionPlatform(detectedArtifacts);
-
-        // Anti-duplication: drop prior import rows whose extracted collection dir no longer
-        // exists on disk (orphans from re-imports) so they stop inflating the synthesis count.
-        try {
-          const priorImports = await pool.query(
-            `SELECT id, input_file FROM parser_results WHERE case_id = $1 AND parser_name = 'MagnetRESPONSE_Import'`, [caseId]);
-          const orphanIds = priorImports.rows.filter(r => !r.input_file || !fs.existsSync(r.input_file)).map(r => r.id);
-          if (orphanIds.length) {
-            await pool.query('DELETE FROM parser_results WHERE id = ANY($1::uuid[])', [orphanIds]);
-            logger.info(`[import] cleaned ${orphanIds.length} orphan import rows for case ${caseId}`);
-          }
-        } catch (e) { logger.warn('[import] orphan cleanup failed:', e.message); }
 
         const collectionResult = await pool.query(
           `INSERT INTO parser_results (case_id, parser_name, parser_version, input_file, output_data, record_count, created_by, platform)
@@ -1916,6 +1905,7 @@ router.get('/:caseId/timeline', authenticate, async (req, res) => {
             tool, event_id, ext, tag, tags: tagsParam,
             detections: detectionsParam, detection_severity, detection_category,
             artifact_name, artifact_name_op,
+            provider, provider_op,
             host_name_op = 'contains', user_name_op = 'contains', tool_op, ext_op,
             page = 1, limit = 200, sort_dir = 'asc', sort_col = 'timestamp',
             sort_multi } = req.query;
@@ -2082,6 +2072,12 @@ router.get('/:caseId/timeline', authenticate, async (req, res) => {
     else if (toolList && toolList.length)
       { conditions.push(`tool = ANY($${pi++}::text[])`); params.push(toolList); }
 
+    // Le Provider desambigue l'event_id, qui n'est unique qu'a l'interieur d'un
+    // Provider : l'identifiant 1 couvre six providers distincts sur l'hote de
+    // reference. Voir timelineProviderFilter.ts pour le choix de la containment.
+    if (provider || provider_op === 'empty' || provider_op === 'not_empty')
+      pi = pushProviderFilter(provider || '', provider_op || 'equals', pi, conditions, params);
+
     if (ext_op && (ext || ext_op === 'empty' || ext_op === 'not_empty'))
       pi = pushTextFilter('ext', ext || '', ext_op, pi, conditions, params);
     else if (extList && extList.length)
@@ -2130,13 +2126,13 @@ router.get('/:caseId/timeline', authenticate, async (req, res) => {
     // la vue non filtree du meme cas.
     const { dimensions: dimsKey, facets: facetsKey } = buildAggCacheKeys(caseId, where, params);
     let cachedFacets = null; // [{ artifact_type, cnt }]
-    let cachedDims   = null; // { hosts, users }
+    let cachedDims   = null; // { hosts, users, providers }
     try {
       const redis = getRedis();
       if (redis) {
         const [rawFacets, rawDims] = await redis.mget(facetsKey, dimsKey);
         if (rawFacets) cachedFacets = JSON.parse(rawFacets);
-        if (rawDims)   cachedDims   = JSON.parse(rawDims);
+        if (rawDims)   cachedDims   = readDimsCache(rawDims);
       }
     } catch (_e) {}
 
@@ -2193,7 +2189,17 @@ router.get('/:caseId/timeline', authenticate, async (req, res) => {
              ) d WHERE h IS NOT NULL ORDER BY h LIMIT 100`,
             [caseId, ...fx.params]);
         })(),
-        pool.query(`SELECT DISTINCT user_name FROM collection_timeline WHERE case_id = $1 AND user_name IS NOT NULL ORDER BY user_name LIMIT 100`, [caseId])
+        pool.query(`SELECT DISTINCT user_name FROM collection_timeline WHERE case_id = $1 AND user_name IS NOT NULL ORDER BY user_name LIMIT 100`, [caseId]),
+        // Le Provider ne vit que dans `raw`, et seules les lignes evtx et amcache
+        // le portent (82 461 sur 4 357 227). Restreindre par artifact_type fait
+        // tomber ce recensement de plusieurs secondes a 145 ms, mesure le
+        // 2026-09-16 : sans lui, c'est un balayage complet de la table.
+        pool.query(
+          `SELECT DISTINCT raw->>'Provider' AS provider FROM collection_timeline
+            WHERE case_id = $1 AND artifact_type IN ('evtx','amcache_pnp','amcache_driver_packages')
+              AND raw ? 'Provider' AND raw->>'Provider' <> ''
+            ORDER BY 1 LIMIT 300`,
+          [caseId])
       );
     }
 
@@ -2204,13 +2210,14 @@ router.get('/:caseId/timeline', authenticate, async (req, res) => {
     const typesRes = { rows: cachedFacets ?? results[slot.facets].rows };
     const hostsRes = { rows: cachedDims ? cachedDims.hosts : results[slot.dims].rows };
     const usersRes = { rows: cachedDims ? cachedDims.users : results[slot.dims + 1].rows };
+    const provsRes = { rows: cachedDims ? cachedDims.providers : results[slot.dims + 2].rows };
 
     try {
       const redis = getRedis();
       if (redis) {
         const writes = [];
         if (!cachedFacets) writes.push(redis.setex(facetsKey, 300, JSON.stringify(typesRes.rows)));
-        if (!cachedDims)   writes.push(redis.setex(dimsKey,   300, JSON.stringify({ hosts: hostsRes.rows, users: usersRes.rows })));
+        if (!cachedDims)   writes.push(redis.setex(dimsKey,   300, JSON.stringify({ hosts: hostsRes.rows, users: usersRes.rows, providers: provsRes.rows })));
         if (writes.length) await Promise.all(writes);
       }
     } catch (_e) {}
@@ -2285,6 +2292,7 @@ router.get('/:caseId/timeline', authenticate, async (req, res) => {
     res.write(`,"artifact_types_counts":${JSON.stringify(Object.fromEntries(typesRes.rows.map(r => [r.artifact_type, r.cnt])))}`);
     res.write(`,"hosts_available":${JSON.stringify(hostsRes.rows.map(r => r.host_name))}`);
     res.write(`,"users_available":${JSON.stringify(usersRes.rows.map(r => r.user_name))}`);
+    res.write(`,"providers_available":${JSON.stringify(provsRes.rows.map(r => r.provider))}`);
     res.end('}');
   } catch (err) {
     logger.error('Timeline fetch error:', err);
@@ -2485,6 +2493,7 @@ router.get('/:caseId/timeline/groups', authenticate, async (req, res) => {
       start_time, end_time,
       host_name, user_name, result_id, evidence_id, evidence_ids, hunt_id,
       tool, event_id, ext, tag, tags: tagsParam,
+      provider, provider_op,
       host_name_op = 'contains', user_name_op = 'contains', tool_op, ext_op,
     } = req.query;
 
@@ -2575,6 +2584,11 @@ router.get('/:caseId/timeline/groups', authenticate, async (req, res) => {
     } else if (tool) {
       const list = String(tool).split(',').map(s => s.trim()).filter(Boolean);
       if (list.length) { conditions.push(`tool = ANY($${pi++}::text[])`); params.push(list); }
+    }
+    // Le meme predicat que la grille : sans lui, le panneau de regroupement
+    // compterait sur un perimetre plus large que les lignes affichees.
+    if (provider || provider_op === 'empty' || provider_op === 'not_empty') {
+      pi = pushProviderFilter(provider || '', provider_op || 'equals', pi, conditions, params);
     }
     if (ext_op && (ext || ext_op === 'empty' || ext_op === 'not_empty')) {
       pi = pushTextFilter('ext', ext || '', ext_op, pi, conditions, params);
@@ -3012,27 +3026,50 @@ router.post('/:caseId/hayabusa', authenticate, async (req, res) => {
     // hold several collections, and replacing one must never erase the detections of
     // the others. FOR UPDATE still blocks a concurrent run on the same collection.
     async function initHayabusaRecord(outputDataJson, recordCount = 0) {
-      const dbClient = await pool.connect();
-      try {
-        await dbClient.query('BEGIN');
+      return withCaseDeletion(pool, caseId, async dbClient => {
         const { timelineRows, resultIds: oldIds } =
           await purgeHayabusaScoped(dbClient, caseId, hayEvidenceId);
         if (timelineRows > 0) {
           logger.info(`[hayabusa] replacing ${timelineRows} detection row(s) from a previous run of this collection`);
         }
+        const operation = await beginDeletionOperation(pool, {
+          operationType: 'replace_hayabusa_generation',
+          caseId,
+          targetId: hayEvidenceId || caseId,
+          generationKey: oldIds.slice().sort().join(','),
+          requestedBy: req.user.id,
+          requestIp: req.ip,
+          context: { evidence_id: hayEvidenceId, replaced_result_ids: oldIds },
+          items: oldIds.map(id => ({ kind: 'elasticsearch', locator: id })),
+        });
+        for (const item of operation.items) {
+          if (item.status === 'deleted' || item.status === 'already_absent') continue;
+          await markDeletionItem(pool, operation.id, item.item_key, 'running');
+          try {
+            await esService.deleteByResultId(caseId, item.locator, { strict: true });
+            await markDeletionItem(pool, operation.id, item.item_key, 'deleted', 'delete_by_result_id');
+          } catch (error) {
+            const code = safeErrorCode(error);
+            await markDeletionItem(pool, operation.id, item.item_key, 'failed', null, code);
+            await markDeletionOperation(pool, operation.id, 'incomplete', code);
+            throw Object.assign(new Error('Hayabusa replacement incomplete'), {
+              status: 502,
+              code: 'DELETION_INCOMPLETE',
+              operationId: operation.id,
+            });
+          }
+        }
+        await markDeletionOperation(pool, operation.id, 'ready_to_commit');
         const newRow = await dbClient.query(
           `INSERT INTO parser_results (case_id, evidence_id, parser_name, parser_version, input_file, output_data, record_count, created_by)
            VALUES ($1, $2, 'Hayabusa', '2.x', $3, $4::jsonb, $5, $6) RETURNING id`,
           [caseId, hayEvidenceId, evtxParentDir, outputDataJson, recordCount, req.user.id]
         );
-        await dbClient.query('COMMIT');
-        return { newId: newRow.rows[0].id, oldIds };
-      } catch (err) {
-        await dbClient.query('ROLLBACK').catch(() => {});
-        throw err;
-      } finally {
-        dbClient.release();
-      }
+        await markDeletionOperation(dbClient, operation.id, 'completed', null, {
+          replacement_result_id: newRow.rows[0].id,
+        });
+        return { newId: newRow.rows[0].id, operationId: operation.id };
+      });
     }
 
     let hayabusaRecords = [];
@@ -3096,15 +3133,9 @@ router.post('/:caseId/hayabusa', authenticate, async (req, res) => {
         logger.info(`[hayabusa] output file: ${outputSizeMb} MB — stream-inserting to DB`);
 
         // Atomically clear previous Hayabusa data and create the new result placeholder.
-        const { newId: streamResultId, oldIds: streamOldIds } = await initHayabusaRecord(
+        const { newId: streamResultId } = await initHayabusaRecord(
           JSON.stringify({ evtx_dir: evtxParentDir, evtx_files_count: evtxFiles.length })
         );
-        // Delete stale ES docs from previous run before inserting new ones.
-        for (const oid of streamOldIds) {
-          esService.deleteByResultId(caseId, oid).catch(e =>
-            logger.warn('[ES] hayabusa stale cleanup warn:', e.message?.substring(0, 80))
-          );
-        }
         const streamStats    = { critical: 0, high: 0, medium: 0, low: 0, informational: 0 };
         let   streamTotal    = 0;
 
@@ -3413,7 +3444,7 @@ router.post('/:caseId/hayabusa', authenticate, async (req, res) => {
     };
 
     // Atomically clear previous Hayabusa data and insert the final result record.
-    const { newId: hayResultId, oldIds: hayOldIds } = await initHayabusaRecord(
+    const { newId: hayResultId } = await initHayabusaRecord(
       JSON.stringify({
         hayabusa_timeline: hayabusaRecords,
         evtx_dir: evtxParentDir,
@@ -3423,12 +3454,6 @@ router.post('/:caseId/hayabusa', authenticate, async (req, res) => {
       }),
       hayabusaRecords.length
     );
-    // Delete stale ES docs from previous run.
-    for (const oid of hayOldIds) {
-      esService.deleteByResultId(caseId, oid).catch(e =>
-        logger.warn('[ES] hayabusa stale cleanup warn:', e.message?.substring(0, 80))
-      );
-    }
     if (hayabusaRecords.length > 0) {
       const CT_BATCH = 500;
       for (let i = 0; i < hayabusaRecords.length; i += CT_BATCH) {
@@ -3561,6 +3586,16 @@ router.post('/:caseId/hayabusa', authenticate, async (req, res) => {
     });
   } catch (err) {
     logger.error('Hayabusa error:', err);
+    if (err.code === 'LEGAL_HOLD') {
+      return res.status(409).json({ error: 'Case is under legal hold', code: 'LEGAL_HOLD' });
+    }
+    if (err.code === 'DELETION_INCOMPLETE') {
+      return res.status(502).json({
+        error: 'Hayabusa replacement incomplete',
+        code: 'DELETION_INCOMPLETE',
+        operation_id: err.operationId || null,
+      });
+    }
     res.status(500).json({ error: 'Erreur exécution Hayabusa' });
   }
 });

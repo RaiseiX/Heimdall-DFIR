@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { controlStyle, controlHover, fieldStyle } from '../../ui/controlIdiom';
 import { tabColor } from '../utils/timelineUtils';
 import { groupArtifactTypes, stripTypes, sumRows } from '../utils/artifactGroups';
+import { parseToken } from '../utils/commandTokens';
 import { currentUser } from '../../../utils/auth';
 
 const FS_TINY = 9;
@@ -56,6 +57,7 @@ const CHIP_STYLES = {
   tool:         { bg: 'var(--fl-card)', color: 'var(--fl-accent)', border: 'var(--fl-raised)' },
   eventId:      { bg: 'var(--fl-card)', color: 'var(--fl-dim)', border: 'var(--fl-raised)' },
   ext:          { bg: 'var(--fl-card)', color: 'var(--fl-dim)', border: 'var(--fl-raised)' },
+  provider:     { bg: 'var(--fl-card)', color: 'var(--fl-dim)', border: 'var(--fl-raised)' },
 };
 
 function Chip({ kind, label, onRemove }) {
@@ -78,18 +80,10 @@ function Chip({ kind, label, onRemove }) {
   );
 }
 
-function parseToken(raw) {
-  const m = raw.trim().match(/^(type|host|user|after|before|sev|tag|tool|eid|ext):(.+)$/i);
-  if (!m) return { kind: 'search', value: raw.trim() };
-  const kindMap = { type: 'artifactType', host: 'host', user: 'user', after: 'after',
-                    before: 'before', sev: 'sev', tag: 'tag', tool: 'tool', eid: 'eventId', ext: 'ext' };
-  return { kind: kindMap[m[1].toLowerCase()] || m[1].toLowerCase(), value: m[2] };
-}
-
 export default function CommandBar() {
   const store = useTimelineStore();
   const {
-    search, artifactTypes, hostFilter, userFilter, startTime, endTime,
+    search, artifactTypes, hostFilter, userFilter, startTime, endTime, providerFilter, providersAvail,
     detSeverity, tagFilter, toolFilter, eventIdFilter, extFilter,
     hitsOnly, availTypes, typeCounts,
     setFilter, applyFilters, clearFilters, toggleArtifactType, soloArtifactType,
@@ -149,6 +143,7 @@ export default function CommandBar() {
       case 'tool':         s.setFilter('toolFilter', token.value); break;
       case 'eventId':      s.setFilter('eventIdFilter', token.value); break;
       case 'ext':          s.setFilter('extFilter', token.value); break;
+      case 'provider':     s.setFilter('providerFilter', token.value); break;
       default: break;
     }
     s.applyFilters();
@@ -175,6 +170,7 @@ export default function CommandBar() {
     ...(toolFilter  ? [{ kind: 'tool',    label: `tool:${toolFilter}`,  remove: () => { setFilter('toolFilter', '');  applyFilters(); } }] : []),
     ...(eventIdFilter ? [{ kind: 'eventId', label: `eid:${eventIdFilter}`, remove: () => { setFilter('eventIdFilter', ''); applyFilters(); } }] : []),
     ...(extFilter   ? [{ kind: 'ext',     label: `ext:${extFilter}`,    remove: () => { setFilter('extFilter', '');   applyFilters(); } }] : []),
+    ...(providerFilter ? [{ kind: 'provider', label: `provider:${providerFilter}`, remove: () => { setFilter('providerFilter', ''); applyFilters(); } }] : []),
   ];
   const hasFilters = chips.length > 0 || hitsOnly || artifactTypes.length > 0;
 
@@ -202,7 +198,7 @@ export default function CommandBar() {
           <input ref={inputRef} value={inputVal}
             onChange={e => setInputVal(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder={chips.length === 0 ? 'Search… or type:evtx · host:DC01 · sev:critical · after:2024-01-15' : ''}
+            placeholder={chips.length === 0 ? 'Search… or type:evtx · host:DC01 · provider:…Security-Auditing · eid:4688' : ''}
             style={{ flex: 1, background: 'none', border: 'none', outline: 'none',
               fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11, color: 'var(--fl-dim)', minWidth: 100 }} />
         </div>
@@ -312,6 +308,7 @@ export default function CommandBar() {
               display: 'flex', flexDirection: 'column', gap: 10 }}>
               {[
                 { label: 'Tool',      field: 'toolFilter',     hint: 'EvtxECmd,Hayabusa…',      val: toolFilter },
+                { label: 'Provider',  field: 'providerFilter', hint: 'Microsoft-Windows-Security-Auditing', val: providerFilter, list: 'tl-providers' },
                 { label: 'Event ID',  field: 'eventIdFilter',  hint: '4624,4625,4688',           val: eventIdFilter },
                 { label: 'Extension', field: 'extFilter',      hint: 'exe,dll,ps1',              val: extFilter },
                 { label: 'Tag',       field: 'tagFilter',      hint: 'mimikatz_markers,T1059…',  val: tagFilter },
@@ -321,10 +318,14 @@ export default function CommandBar() {
                   <input
                     value={f.val}
                     placeholder={f.hint}
+                    list={f.list}
                     onChange={e => setFilter(f.field, e.target.value)}
                     style={{ background: 'var(--fl-panel)', color: 'var(--fl-on-dark)', border: '1px solid var(--fl-raised)', borderRadius: 5, padding: '5px 8px', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11, outline: 'none' }} />
                 </label>
               ))}
+              <datalist id="tl-providers">
+                {providersAvail.map(p => <option key={p} value={p} />)}
+              </datalist>
               <label style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', borderRadius: 5, border: '1px solid var(--fl-raised)', background: 'var(--fl-panel)', cursor: 'pointer' }}>
                 <input type="checkbox" checked={hitsOnly} onChange={e => setFilter('hitsOnly', e.target.checked)} style={{ accentColor: 'var(--fl-warn)' }} />
                 <span style={{ color: hitsOnly ? 'var(--fl-warn)' : 'var(--fl-dim)', display: 'flex', alignItems: 'center', gap: 6 }}>

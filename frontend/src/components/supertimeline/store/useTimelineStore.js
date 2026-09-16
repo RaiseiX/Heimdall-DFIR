@@ -16,6 +16,7 @@ const QUERY_KEYS = [
   'artifactNameFilter', 'artifactNameFilterOp',
   'hostFilter', 'hostFilterOp', 'userFilter', 'userFilterOp',
   'toolFilter', 'toolFilterOp', 'extFilter', 'extFilterOp',
+  'providerFilter', 'providerFilterOp',
   'eventIdFilter', 'tagFilter', 'hitsOnly', 'detSeverity',
   'multiSort', 'groupByFields',
 ];
@@ -27,6 +28,7 @@ const filterDefaults = () => ({
   hostFilter: '', hostFilterOp: 'contains',
   userFilter: '', userFilterOp: 'contains',
   toolFilter: '', toolFilterOp: 'contains',
+  providerFilter: '', providerFilterOp: 'equals',
   extFilter:  '', extFilterOp:  'contains',
   eventIdFilter: '', tagFilter: '',
   evidenceIds: [], resultId: '', huntId: '',
@@ -69,6 +71,8 @@ function buildQueryParams(s) {
     { p.user_name = s.userFilter; p.user_name_op = s.userFilterOp; }
   if (s.toolFilter || s.toolFilterOp === 'empty' || s.toolFilterOp === 'not_empty')
     { p.tool = s.toolFilter; p.tool_op = s.toolFilterOp; }
+  if (s.providerFilter || s.providerFilterOp === 'empty' || s.providerFilterOp === 'not_empty')
+    { p.provider = s.providerFilter; p.provider_op = s.providerFilterOp; }
   if (s.eventIdFilter)         p.event_id   = s.eventIdFilter;
   if (s.extFilter || s.extFilterOp === 'empty' || s.extFilterOp === 'not_empty')
     { p.ext = s.extFilter; p.ext_op = s.extFilterOp; }
@@ -90,6 +94,7 @@ export const useTimelineStore = create((set, get) => ({
   hostFilter: '', hostFilterOp: 'contains',
   userFilter: '', userFilterOp: 'contains',
   toolFilter: '', toolFilterOp: 'contains',
+  providerFilter: '', providerFilterOp: 'equals',
   extFilter:  '', extFilterOp:  'contains',
   eventIdFilter: '', tagFilter: '',
   evidenceIds: [], evidenceId: null, resultId: '', huntId: '',
@@ -107,7 +112,7 @@ export const useTimelineStore = create((set, get) => ({
   availTypes: [], typeCounts: {},
   bounds: null,
   nature: 'all',
-  hostsAvail: [], usersAvail: [],
+  hostsAvail: [], usersAvail: [], providersAvail: [],
   caseId: null,
 
   contextOpen: false, contextAnchorId: null, contextRows: [], contextHostName: null,
@@ -209,6 +214,7 @@ export const useTimelineStore = create((set, get) => ({
         typeCounts:  { ...get().typeCounts, ...(res.data.artifact_types_counts || {}) },
         hostsAvail:  res.data.hosts_available?.length  ? res.data.hosts_available  : get().hostsAvail,
         usersAvail:  res.data.users_available?.length  ? res.data.users_available  : get().usersAvail,
+        providersAvail: res.data.providers_available?.length ? res.data.providers_available : get().providersAvail,
         tagData:     newTagData,
         huntMessage: s.huntId && res.data.hunt_empty ? (res.data.message || null) : null,
       });
