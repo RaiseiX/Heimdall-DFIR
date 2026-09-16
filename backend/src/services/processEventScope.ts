@@ -45,19 +45,19 @@
 export function snapshotBootSql(): string {
   return `
     WITH photo AS (
-      SELECT max(timestamp) AS pris_le
+      SELECT max(timestamp) AS taken_at
         FROM collection_timeline
        WHERE case_id = $1 AND evidence_id = $2
          AND artifact_type = 'catscale_process' AND timestamp IS NOT NULL
     )
-    SELECT j.raw->>'_BOOT_ID' AS boot_id, p.pris_le
+    SELECT j.raw->>'_BOOT_ID' AS boot_id, p.taken_at
       FROM collection_timeline j, photo p
      WHERE j.case_id = $1 AND j.evidence_id = $2
        AND j.artifact_type = 'catscale_journal'
        AND j.raw->>'_BOOT_ID' IS NOT NULL
-       AND p.pris_le IS NOT NULL
+       AND p.taken_at IS NOT NULL
        AND j.timestamp IS NOT NULL
-       AND j.timestamp <= p.pris_le
+       AND j.timestamp <= p.taken_at
      ORDER BY j.timestamp DESC
      LIMIT 1`;
 }
@@ -80,8 +80,8 @@ export function processEventsScopeSql(): string {
     SELECT id, timestamp, artifact_type, description, source,
            raw->>'_COMM'     AS comm,
            raw->>'_EXE'      AS exe,
-           raw->>'PRIORITY'  AS priorite,
-           raw->>'_SYSTEMD_UNIT' AS unite
+           raw->>'PRIORITY'  AS priority,
+           raw->>'_SYSTEMD_UNIT' AS unit
       FROM collection_timeline
      WHERE case_id = $1 AND evidence_id = $2
        AND artifact_type = 'catscale_journal'

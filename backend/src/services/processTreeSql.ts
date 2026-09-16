@@ -33,9 +33,9 @@ const PID_NUM = `raw->>'pid' ~ '^[0-9]{1,7}$'`;
 
 const FICHIERS = `
     SELECT (raw->>'pid')::int AS pid,
-           raw->>'target'        AS cible,
-           artifact_type         AS genre,
-           coalesce((raw->>'deleted')::boolean, false) AS supprime
+           raw->>'target'        AS target,
+           artifact_type         AS kind,
+           coalesce((raw->>'deleted')::boolean, false) AS deleted
       FROM collection_timeline
      WHERE case_id = $1 AND evidence_id = $2
        AND artifact_type IN ('catscale_proc_open_fd', 'catscale_proc_mapped_file')
@@ -55,8 +55,8 @@ export function processTreeSql(): string {
     WITH p AS (
       SELECT (raw->>'pid')::int  AS pid,
              coalesce((CASE WHEN raw->>'ppid' ~ '^[0-9]{1,7}$' THEN raw->>'ppid' END)::int, 0) AS ppid,
-             description            AS nom,
-             split_part(coalesce(raw->>'state', ''), ' ', 1) AS etat,
+             description            AS name,
+             split_part(coalesce(raw->>'state', ''), ' ', 1) AS state,
              raw->>'uid'            AS uid
         FROM collection_timeline
        WHERE case_id = $1 AND evidence_id = $2
@@ -65,15 +65,15 @@ export function processTreeSql(): string {
     ),
     c AS (
       SELECT (raw->>'pid')::int AS pid,
-             max(raw->>'command')  AS commande,
-             max(raw->>'user')     AS utilisateur
+             max(raw->>'command')  AS command_line,
+             max(raw->>'user')     AS user_name
         FROM collection_timeline
        WHERE case_id = $1 AND evidence_id = $2
          AND artifact_type = 'catscale_process' AND ${PID_NUM}
        GROUP BY 1
     )
-    SELECT p.pid, p.ppid, p.nom, p.etat, p.uid,
-           c.commande, c.utilisateur
+    SELECT p.pid, p.ppid, p.name, p.state, p.uid,
+           c.command_line, c.user_name
       FROM p
       LEFT JOIN c ON c.pid = p.pid
      ORDER BY p.pid`;
@@ -87,15 +87,15 @@ export function processTreeSql(): string {
 export function sharedResourcesSql(): string {
   return `
     WITH d AS (
-      SELECT DISTINCT pid, cible FROM (${FICHIERS}) x WHERE supprime
+      SELECT DISTINCT pid, target FROM (${FICHIERS}) x WHERE deleted
     )
-    SELECT cible,
-           count(*)          AS porteurs,
+    SELECT target,
+           count(*)          AS holders,
            array_agg(pid ORDER BY pid) AS pids
       FROM d
-     GROUP BY cible
+     GROUP BY target
     HAVING count(*) > 1
-     ORDER BY count(*) DESC, cible`;
+     ORDER BY count(*) DESC, target`;
 }
 
 /**
@@ -106,9 +106,9 @@ export function sharedResourcesSql(): string {
 export function processFileCountsSql(): string {
   return `
     SELECT pid,
-           count(*) FILTER (WHERE genre = 'catscale_proc_open_fd')     AS fd,
-           count(*) FILTER (WHERE genre = 'catscale_proc_mapped_file') AS maps,
-           count(*) FILTER (WHERE supprime)                            AS supprimes
+           count(*) FILTER (WHERE kind = 'catscale_proc_open_fd')     AS fd,
+           count(*) FILTER (WHERE kind = 'catscale_proc_mapped_file') AS maps,
+           count(*) FILTER (WHERE deleted)                            AS deleted_count
       FROM (${FICHIERS}) x
      GROUP BY pid`;
 }

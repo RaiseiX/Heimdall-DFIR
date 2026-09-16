@@ -159,7 +159,7 @@ export async function clearCaseIndex(caseId: string): Promise<void> {
   }
 }
 
-export async function deleteIndex(caseId: string): Promise<void> {
+export async function deleteIndex(caseId: string, options: { strict?: boolean } = {}): Promise<void> {
   try {
     const client = getClient();
     const index  = indexFor(caseId);
@@ -169,6 +169,7 @@ export async function deleteIndex(caseId: string): Promise<void> {
       logger.info(`[ES] deleteIndex: ${index}`);
     }
   } catch (e: any) {
+    if (options.strict) throw e;
     logger.warn(`[ES] deleteIndex warning (${caseId}): ${String(e.message).substring(0, 100)}`);
   }
 }

@@ -76,7 +76,7 @@ export default function CollectionProcessesTab({ caseId, collectionId }) {
     const parPid = new Map(comptes.map(c => [c.pid, c]));
     return base.map(p => {
       const c = parPid.get(p.pid);
-      return { ...p, fd: Number(c?.fd || 0), maps: Number(c?.maps || 0), supprimes: Number(c?.supprimes || 0) };
+      return { ...p, fd: Number(c?.fd || 0), maps: Number(c?.maps || 0), deleted_count: Number(c?.deleted_count || 0) };
     });
   }, [donnees, comptes]);
   const lignes = useMemo(
@@ -90,14 +90,14 @@ export default function CollectionProcessesTab({ caseId, collectionId }) {
     total: procs.length,
     racines: procs.filter(p => !p.ppid).length,
     avecFichiers: procs.filter(p => p.fd > 0 || p.maps > 0).length,
-    supprimes: procs.filter(p => p.supprimes > 0).length,
+    deleted_count: procs.filter(p => p.deleted_count > 0).length,
     comptesPrets: comptes != null,
   }), [procs, comptes]);
 
   const chargerEvenements = (p) => {
     setEvtsPour(p.pid);
     setEvts('chargement');
-    collectionAPI.processEvents(caseId, collectionId, p.pid, p.nom)
+    collectionAPI.processEvents(caseId, collectionId, p.pid, p.name)
       .then(r => setEvts(r.data))
       .catch(() => setEvts({ events: [], scope: null, reason: 'error' }));
   };
@@ -129,7 +129,7 @@ export default function CollectionProcessesTab({ caseId, collectionId }) {
   const selection = choisi != null ? parPid.get(choisi) : null;
   const parent = selection ? parPid.get(selection.ppid) : null;
   const porteurs = fichierChoisi
-    ? (partages.find(f => f.cible === fichierChoisi)?.pids || [])
+    ? (partages.find(f => f.target === fichierChoisi)?.pids || [])
     : [];
 
   return (
@@ -168,7 +168,7 @@ export default function CollectionProcessesTab({ caseId, collectionId }) {
           {sommaire.comptesPrets ? (
             <>
               <span><b style={FORT}>{sommaire.avecFichiers}</b> {t('processes.count_with_files')}</span>
-              <span><b style={FORT}>{sommaire.supprimes}</b> {t('processes.count_holding_deleted')}</span>
+              <span><b style={FORT}>{sommaire.deleted_count}</b> {t('processes.count_holding_deleted')}</span>
             </>
           ) : (
             <span>{t('processes.counting_files')}</span>
@@ -192,7 +192,7 @@ export default function CollectionProcessesTab({ caseId, collectionId }) {
                 </tr>
               </thead>
               <tbody>
-                {lignes.map(({ pid, nom, profondeur, aDesEnfants, proc }) => (
+                {lignes.map(({ pid, name, profondeur, aDesEnfants, proc }) => (
                   <tr key={pid} onClick={() => setChoisi(pid)}
                     aria-selected={choisi === pid}
                     style={{
@@ -212,12 +212,12 @@ export default function CollectionProcessesTab({ caseId, collectionId }) {
                       <span style={{ color: proc.noyau ? 'var(--fl-dim)' : 'var(--fl-text)' }}>{nom}</span>
                     </td>
                     <td style={NUM}>{pid}</td>
-                    <td style={TD}>{proc.utilisateur || '—'}</td>
-                    <td style={TD}>{proc.etat || ''}</td>
+                    <td style={TD}>{proc.user_name || '—'}</td>
+                    <td style={TD}>{proc.state || ''}</td>
                     <td style={NUM}>{comptes == null ? '' : (proc.fd || '·')}</td>
                     <td style={NUM}>{comptes == null ? '' : (proc.maps || '·')}</td>
-                    <td style={{ ...NUM, color: proc.supprimes ? 'var(--fl-warning, var(--fl-dim))' : 'var(--fl-dim)' }}>
-                      {comptes == null ? '' : (proc.supprimes || '·')}
+                    <td style={{ ...NUM, color: proc.deleted_count ? 'var(--fl-warning, var(--fl-dim))' : 'var(--fl-dim)' }}>
+                      {comptes == null ? '' : (proc.deleted_count || '·')}
                     </td>
                   </tr>
                 ))}
@@ -230,14 +230,14 @@ export default function CollectionProcessesTab({ caseId, collectionId }) {
               <div style={{ color: 'var(--fl-dim)', fontSize: 12 }}>{t('processes.pick_a_row')}</div>
             ) : (
               <>
-                <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 2 }}>{selection.nom}</div>
+                <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 2 }}>{selection.name}</div>
                 <div style={{ fontFamily: MONO, fontSize: 11, color: 'var(--fl-dim)', marginBottom: 14 }}>
-                  pid {selection.pid} · {selection.utilisateur || '—'} · {selection.etat || ''}
+                  pid {selection.pid} · {selection.user_name || '—'} · {selection.state || ''}
                 </div>
                 <div style={ETIQ}>{t('processes.started_by')}</div>
-                <div style={VAL}>{parent ? `${parent.nom} (pid ${parent.pid})` : t('processes.is_root')}</div>
+                <div style={VAL}>{parent ? `${parent.name} (pid ${parent.pid})` : t('processes.is_root')}</div>
                 <div style={ETIQ}>{t('processes.command_line')}</div>
-                <div style={VAL}>{selection.commande || t('processes.not_collected')}</div>
+                <div style={VAL}>{selection.command_line || t('processes.not_collected')}</div>
                 <div style={{ marginBottom: 14 }}>
                   <button type="button" style={controlStyle}
                     onClick={() => chargerEvenements(selection)}>
@@ -283,7 +283,7 @@ export default function CollectionProcessesTab({ caseId, collectionId }) {
                 <div style={ETIQ}>{t('processes.holds_open')}</div>
                 <div style={VAL}>
                   {comptes == null ? t('processes.counting_files') : t('processes.holds_summary', {
-                    fd: selection.fd, maps: selection.maps, deleted: selection.supprimes,
+                    fd: selection.fd, maps: selection.maps, deleted: selection.deleted_count,
                   })}
                 </div>
               </>
@@ -305,16 +305,16 @@ export default function CollectionProcessesTab({ caseId, collectionId }) {
               </thead>
               <tbody>
                 {partages.map(f => (
-                  <tr key={f.cible} onClick={() => setFichierChoisi(f.cible)}
-                    aria-selected={fichierChoisi === f.cible}
+                  <tr key={f.target} onClick={() => setFichierChoisi(f.target)}
+                    aria-selected={fichierChoisi === f.target}
                     style={{
                       borderBottom: '1px solid var(--fl-border-soft, var(--fl-border))',
                       cursor: 'pointer',
-                      background: fichierChoisi === f.cible ? 'var(--fl-accent-soft, transparent)' : undefined,
+                      background: fichierChoisi === f.target ? 'var(--fl-accent-soft, transparent)' : undefined,
                     }}>
-                    <td style={NUM}>{f.porteurs}</td>
+                    <td style={NUM}>{f.holders}</td>
                     <td style={{ ...TD, direction: 'rtl', textAlign: 'left', maxWidth: 420, overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      {f.cible}
+                      {f.target}
                     </td>
                   </tr>
                 ))}
@@ -336,7 +336,7 @@ export default function CollectionProcessesTab({ caseId, collectionId }) {
                     return (
                       <li key={pid} style={{ padding: '2px 0', borderBottom: '1px solid var(--fl-border-soft, var(--fl-border))' }}>
                         <span style={{ color: p ? 'var(--fl-text)' : 'var(--fl-dim)' }}>
-                          {p ? p.nom : t('processes.absent_from_tree')}
+                          {p ? p.name : t('processes.absent_from_tree')}
                         </span>
                         <span style={{ color: 'var(--fl-dim)' }}> {pid}</span>
                       </li>

@@ -45,7 +45,7 @@ async function runRetentionPurge({ dryRun = false, actorId = null, ip = null } =
   const errors = [];
   for (const c of eligible) {
     try {
-      await hardDeleteCase(pool, c.id, actorId, ip);
+      await hardDeleteCase(pool, c.id, actorId, ip, { automated: true });
       await auditLog(actorId, 'retention_auto_purge', 'case', c.id,
         { case_number: c.case_number, days_closed: c.days_closed, policy_days: cfg.days }, ip);
       purged++;

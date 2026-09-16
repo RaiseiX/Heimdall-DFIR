@@ -24,9 +24,9 @@ export function markKernel(procs) {
 function correspond(p, q) {
   if (!q) return true;
   const t = q.toLowerCase();
-  return String(p.nom || '').toLowerCase().includes(t)
+  return String(p.name || '').toLowerCase().includes(t)
     || String(p.pid).includes(t)
-    || String(p.commande || '').toLowerCase().includes(t);
+    || String(p.command_line || '').toLowerCase().includes(t);
 }
 
 export function buildTreeRows(procs, options = {}) {
@@ -70,7 +70,7 @@ export function buildTreeRows(procs, options = {}) {
     const kids = (enfants.get(p.pid) || []).filter(c => visible(c, new Set()));
     lignes.push({
       pid: p.pid,
-      nom: p.nom,
+      name: p.name,
       profondeur,
       aDesEnfants: kids.length > 0,
       proc: p,
