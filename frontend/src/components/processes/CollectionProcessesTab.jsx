@@ -49,6 +49,8 @@ export default function CollectionProcessesTab({ caseId, collectionId }) {
   const [source, setSource] = useState('snapshot');
   const [seulExpose, setSeulExpose] = useState(false);
   const [seulExterne, setSeulExterne] = useState(false);
+  const [fichiers, setFichiers] = useState(null);
+  const [fichiersPour, setFichiersPour] = useState(null);
   const [seulSupprime, setSeulSupprime] = useState(false);
   const [evts, setEvts] = useState(null);
   const [evtsPour, setEvtsPour] = useState(null);
@@ -136,6 +138,14 @@ export default function CollectionProcessesTab({ caseId, collectionId }) {
     procExposes: procs.filter(p => Number(p.net_listen_exposed) > 0).length,
     procExternes: procs.filter(p => Number(p.net_estab_external) > 0).length,
   }), [procs, comptes]);
+
+  const chargerFichiers = (p) => {
+    setFichiersPour(p.pid);
+    setFichiers('chargement');
+    collectionAPI.processFiles(caseId, collectionId, p.pid)
+      .then(r => setFichiers(r.data))
+      .catch(() => setFichiers({ files: [], erreur: true }));
+  };
 
   const chargerEvenements = (p) => {
     setEvtsPour(p.pid);
@@ -458,12 +468,68 @@ export default function CollectionProcessesTab({ caseId, collectionId }) {
                 )}
                 <div style={ETIQ}>{t('processes.command_line')}</div>
                 <div style={VAL}>{selection.command_line || t('processes.not_collected')}</div>
-                <div style={{ marginBottom: 14 }}>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 14 }}>
                   <button type="button" style={controlStyle}
                     onClick={() => chargerEvenements(selection)}>
                     {t('processes.events_button')}
                   </button>
+                  {(Number(selection.fd) > 0 || Number(selection.maps) > 0) && (
+                    <button type="button" style={controlStyle}
+                      onClick={() => chargerFichiers(selection)}>
+                      {t('processes.files_show')} ({Number(selection.fd || 0) + Number(selection.maps || 0)})
+                    </button>
+                  )}
                 </div>
+
+                {fichiersPour === selection.pid && (
+                  <div style={{ marginBottom: 14 }}>
+                    <div style={ETIQ}>{t('processes.files_title')}</div>
+                    {fichiers === 'chargement' ? (
+                      <div style={{ fontSize: 11, color: 'var(--fl-dim)' }}>{t('processes.files_loading')}</div>
+                    ) : !fichiers?.files?.length ? (
+                      <div style={{ fontSize: 11, color: 'var(--fl-dim)' }}>{t('processes.files_none')}</div>
+                    ) : (
+                      <>
+                        {fichiers.capped && (
+                          <div style={{ fontSize: 10, color: 'var(--fl-dim)', lineHeight: 1.5, marginBottom: 6 }}>
+                            {t('processes.files_capped')}
+                          </div>
+                        )}
+                        <table style={TABLE}>
+                          <thead>
+                            <tr>
+                              <th style={TH}>{t('processes.files_col_kind')}</th>
+                              <th style={TH}>{t('processes.files_col_path')}</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {fichiers.files.map((f, i) => (
+                              <tr key={`${f.kind}-${f.target}-${i}`}
+                                style={{ borderBottom: '1px solid var(--fl-border-soft, var(--fl-border))' }}>
+                                <td style={{ ...TD, color: 'var(--fl-dim)', whiteSpace: 'nowrap' }}>
+                                  {f.kind === 'catscale_proc_open_fd'
+                                    ? t('processes.files_kind_fd')
+                                    : t('processes.files_kind_map')}
+                                </td>
+                                <td style={{ ...TD, fontFamily: MONO, wordBreak: 'break-all',
+                                             color: (f.deleted || f.memfd) ? 'var(--fl-warning, var(--fl-text))' : undefined }}>
+                                  {f.target}
+                                  {f.deleted ? ` · ${t('processes.files_flag_deleted')}` : ''}
+                                  {f.memfd ? ` · ${t('processes.files_flag_memfd')}` : ''}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                        {fichiers.files.some(f => f.memfd) && (
+                          <div style={{ fontSize: 11, color: 'var(--fl-dim)', lineHeight: 1.5, marginTop: 6 }}>
+                            {t('processes.files_memfd_note')}
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+                )}
 
                 {evtsPour === selection.pid && (
                   <div style={{ marginBottom: 14 }}>

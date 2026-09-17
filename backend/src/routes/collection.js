@@ -1,5 +1,5 @@
 const express = require('express');
-const { processTreeSql, sharedResourcesSql, processFileCountsSql, processNetworkSql } = require('../services/processTreeSql');
+const { processTreeSql, sharedResourcesSql, processFileCountsSql, processNetworkSql, processFilesSql } = require('../services/processTreeSql');
 const { snapshotBootSql, processEventsScopeSql } = require('../services/processEventScope');
 const { windowsProcessTreeSql } = require('../services/windowsProcessTree');
 const { execSync, execFileSync, exec, spawnSync, spawn, execFile } = require('child_process');
@@ -2774,6 +2774,19 @@ router.get('/:caseId/processes', authenticate, async (req, res) => {
         scope: { boot_id: boot.boot_id, taken_at: boot.pris_le },
         capped: e.rows.length >= limite,
       });
+    }
+
+    // Les fichiers d'UN processus, a la demande. 1 557 fichiers mappes pour un
+    // seul processus sur l'hote de reference : la liste est bornee, et l'ordre
+    // (supprime, puis memfd, puis chemin) fait que la borne garde l'essentiel.
+    if (req.query.with === 'files') {
+      const pid = Number(req.query.pid);
+      if (!Number.isSafeInteger(pid) || pid <= 0) {
+        return res.status(400).json({ error: 'pid requis' });
+      }
+      const limite = Math.min(Number(req.query.limit) || 500, 2000);
+      const f = await readPool.query(processFilesSql(), [caseId, evidenceId, pid, limite]);
+      return res.json({ files: f.rows, capped: f.rows.length >= limite });
     }
 
     if (req.query.with === 'counts') {

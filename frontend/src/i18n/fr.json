@@ -3164,6 +3164,18 @@
     "pivot_path": "Voir ce chemin sur la timeline",
     "pivot_peer": "Voir cette adresse sur la timeline",
     "pivot_why_no_pid": "Aucun pivot par PID : les PID Linux se recyclent, et le journal couvre 35 démarrages là où l'instantané n'en couvre qu'un. Le pivot par événements, lui, est contraint au démarrage de la collecte.",
-    "only_external_estab": "Seulement les connexions externes"
+    "only_external_estab": "Seulement les connexions externes",
+    "files_title": "Fichiers ouverts et mappés",
+    "files_loading": "Chargement…",
+    "files_none": "Aucun fichier rattaché à ce processus.",
+    "files_capped": "Liste tronquée — les fichiers supprimés et anonymes restent en tête.",
+    "files_col_kind": "Type",
+    "files_col_path": "Chemin",
+    "files_kind_fd": "descripteur",
+    "files_kind_map": "mappé",
+    "files_flag_deleted": "supprimé",
+    "files_flag_memfd": "anonyme",
+    "files_memfd_note": "Un descripteur anonyme (memfd) n'a jamais existé sur le disque. C'est le mécanisme normal de la mémoire partagée — et la primitive d'exécution sans fichier sous Linux. Le nom et le processus tranchent.",
+    "files_show": "Voir les fichiers"
   }
 }

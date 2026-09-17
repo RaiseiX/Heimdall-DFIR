@@ -104,7 +104,8 @@ const FICHIERS = `
     SELECT (raw->>'pid')::int AS pid,
            raw->>'target'        AS target,
            artifact_type         AS kind,
-           coalesce((raw->>'deleted')::boolean, false) AS deleted
+           coalesce((raw->>'deleted')::boolean, false) AS deleted,
+           coalesce((raw->>'memfd')::boolean, false)   AS memfd
       FROM collection_timeline
      WHERE case_id = $1 AND evidence_id = $2
        AND artifact_type IN ('catscale_proc_open_fd', 'catscale_proc_mapped_file')
@@ -243,4 +244,42 @@ export function processNetworkSql(): string {
     SELECT pid, state, proto, local_addr, peer, uid, exposed, external
       FROM (${SOCKETS}) s
      ORDER BY pid, state, local_addr`;
+}
+
+/**
+ * Les fichiers d'UN processus. Le panneau n'affichait que des comptes.
+ *
+ * Mesure du 2026-09-17 sur l'hote de reference : 78 197 fichiers mappes sur 313
+ * processus — jusqu'a 1 557 pour un seul — et 11 385 descripteurs sur 339
+ * processus, jusqu'a 496. A ce volume l'ORDRE est la fonctionnalite : sur les
+ * 1 825 fichiers de firefox, trois sont supprimes, et sans tri ils sont
+ * introuvables.
+ *
+ * L'ordre est donc supprime, puis memfd, puis chemin. Les deux drapeaux ne
+ * disent pas la meme chose :
+ *
+ *   deleted -> le fichier n'est plus sur le disque, le processus le tient encore
+ *   memfd   -> il n'y a JAMAIS eu de fichier ; memfd_create est la primitive
+ *              d'execution sans fichier sous Linux
+ *
+ * PIEGE MESURE LE 2026-09-17 : le noyau marque TOUT memfd comme supprime, parce
+ * qu'il n'a aucune entree de repertoire. Les 1 343 memfd de l'hote portent
+ * `deleted`, et aucun ne s'en dispense. Trier sur le seul `deleted` remontait
+ * donc les 383 segments de memoire partagee de firefox AVANT ses 11 vrais
+ * fichiers supprimes — l'inverse exact du but. D'ou `deleted AND NOT memfd`.
+ *
+ * Mesure : 2 398 vrais supprimes et 1 343 memfd sur cet hote, ces derniers tous
+ * legitimes (mozilla-ipc, wayland-cursor, pipewire) — et un memfd malveillant
+ * leur serait structurellement identique.
+ *
+ * Requete PAR PROCESSUS, servie par idx_ct_proc_files : 1 825 lignes en 24 ms,
+ * la ou les comptes de TOUS les processus coutent 4,8 s.
+ */
+export function processFilesSql(): string {
+  return `
+    SELECT pid, target, kind, deleted, memfd
+      FROM (${FICHIERS}) f
+     WHERE pid = $3
+     ORDER BY (deleted AND NOT memfd) DESC, memfd DESC, target
+     LIMIT $4`;
 }

@@ -3164,6 +3164,18 @@
     "pivot_path": "See this path on the timeline",
     "pivot_peer": "See this address on the timeline",
     "pivot_why_no_pid": "No pivot by PID: Linux PIDs are recycled, and the journal spans 35 boots where the snapshot covers one. The events pivot is constrained to the collection's boot.",
-    "only_external_estab": "External connections only"
+    "only_external_estab": "External connections only",
+    "files_title": "Open and mapped files",
+    "files_loading": "Loading…",
+    "files_none": "No file attached to this process.",
+    "files_capped": "List truncated — deleted and anonymous files stay at the top.",
+    "files_col_kind": "Kind",
+    "files_col_path": "Path",
+    "files_kind_fd": "descriptor",
+    "files_kind_map": "mapped",
+    "files_flag_deleted": "deleted",
+    "files_flag_memfd": "anonymous",
+    "files_memfd_note": "An anonymous descriptor (memfd) never existed on disk. It is the normal shared-memory mechanism — and the fileless execution primitive on Linux. The name and the process decide.",
+    "files_show": "Show files"
   }
 }
