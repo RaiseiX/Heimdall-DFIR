@@ -3159,6 +3159,10 @@
     "sha1_none": "Pas d'empreinte — ce processus n'a pas d'exécutable lisible.",
     "sha1_also_as": "Ce binaire tourne aussi sous",
     "sha1_shared_note": "Une même empreinte sous plusieurs noms de processus est courante — un navigateur multiprocessus ou un interpréteur partagé le font. C'est aussi la forme exacte que prend un masquage de nom. Le chemin et le nombre de noms tranchent.",
-    "sha1_from_memory": "Lue dans l'image en mémoire (/proc/<pid>/exe), pas sur le disque : un binaire supprimé reste identifiable."
+    "sha1_from_memory": "Lue dans l'image en mémoire (/proc/<pid>/exe), pas sur le disque : un binaire supprimé reste identifiable.",
+    "pivot_hash": "Voir cette empreinte sur la timeline",
+    "pivot_path": "Voir ce chemin sur la timeline",
+    "pivot_peer": "Voir cette adresse sur la timeline",
+    "pivot_why_no_pid": "Aucun pivot par PID : les PID Linux se recyclent, et le journal couvre 35 démarrages là où l'instantané n'en couvre qu'un. Le pivot par événements, lui, est contraint au démarrage de la collecte."
   }
 }

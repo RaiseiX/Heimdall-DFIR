@@ -2,6 +2,7 @@ import { useEffect, useState, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { controlStyle, controlHover } from '../components/ui/controlIdiom';
 import { useParams, useSearchParams, useOutletContext } from 'react-router-dom';
+import { QUERY_KEYS } from '../components/supertimeline/utils/timelineFilterKeys';
 import { useTimelineStore } from '../components/supertimeline/store/useTimelineStore';
 import { splitCounts } from '../components/supertimeline/utils/timelineUtils';
 import { timelineRulesAPI } from '../utils/api';
@@ -30,10 +31,12 @@ export default function SuperTimelinePage() {
 
     setCaseId(caseId, routeEvidenceId || null);
 
-    const initSearch   = searchParams.get('search');
+    for (const cle of QUERY_KEYS) {
+      const v = searchParams.get(cle);
+      if (v !== null && v !== '') setFilter(cle, v);
+    }
     const initResultId = searchParams.get('resultId');
     const initHuntId   = searchParams.get('huntId');
-    if (initSearch)   setFilter('search', initSearch);
     if (initResultId) setFilter('resultId', initResultId);
     if (initHuntId)   setFilter('huntId', initHuntId);
 

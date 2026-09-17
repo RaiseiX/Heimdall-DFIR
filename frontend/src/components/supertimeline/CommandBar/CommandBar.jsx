@@ -58,6 +58,7 @@ const CHIP_STYLES = {
   eventId:      { bg: 'var(--fl-card)', color: 'var(--fl-dim)', border: 'var(--fl-raised)' },
   ext:          { bg: 'var(--fl-card)', color: 'var(--fl-dim)', border: 'var(--fl-raised)' },
   provider:     { bg: 'var(--fl-card)', color: 'var(--fl-dim)', border: 'var(--fl-raised)' },
+  sha1:         { bg: 'var(--fl-card)', color: 'var(--fl-accent)', border: 'var(--fl-raised)' },
 };
 
 function Chip({ kind, label, onRemove }) {
@@ -83,7 +84,7 @@ function Chip({ kind, label, onRemove }) {
 export default function CommandBar() {
   const store = useTimelineStore();
   const {
-    search, artifactTypes, hostFilter, userFilter, startTime, endTime, providerFilter, providersAvail,
+    search, artifactTypes, hostFilter, userFilter, startTime, endTime, providerFilter, providersAvail, sha1Filter,
     detSeverity, tagFilter, toolFilter, eventIdFilter, extFilter,
     hitsOnly, availTypes, typeCounts,
     setFilter, applyFilters, clearFilters, toggleArtifactType, soloArtifactType,
@@ -144,6 +145,7 @@ export default function CommandBar() {
       case 'eventId':      s.setFilter('eventIdFilter', token.value); break;
       case 'ext':          s.setFilter('extFilter', token.value); break;
       case 'provider':     s.setFilter('providerFilter', token.value); break;
+      case 'sha1':         s.setFilter('sha1Filter', token.value); break;
       default: break;
     }
     s.applyFilters();
@@ -171,6 +173,7 @@ export default function CommandBar() {
     ...(eventIdFilter ? [{ kind: 'eventId', label: `eid:${eventIdFilter}`, remove: () => { setFilter('eventIdFilter', ''); applyFilters(); } }] : []),
     ...(extFilter   ? [{ kind: 'ext',     label: `ext:${extFilter}`,    remove: () => { setFilter('extFilter', '');   applyFilters(); } }] : []),
     ...(providerFilter ? [{ kind: 'provider', label: `provider:${providerFilter}`, remove: () => { setFilter('providerFilter', ''); applyFilters(); } }] : []),
+    ...(sha1Filter ? [{ kind: 'sha1', label: `sha1:${String(sha1Filter).slice(0, 12)}…`, remove: () => { setFilter('sha1Filter', ''); applyFilters(); } }] : []),
   ];
   const hasFilters = chips.length > 0 || hitsOnly || artifactTypes.length > 0;
 
@@ -309,6 +312,7 @@ export default function CommandBar() {
               {[
                 { label: 'Tool',      field: 'toolFilter',     hint: 'EvtxECmd,Hayabusa…',      val: toolFilter },
                 { label: 'Provider',  field: 'providerFilter', hint: 'Microsoft-Windows-Security-Auditing', val: providerFilter, list: 'tl-providers' },
+                { label: 'SHA-1',     field: 'sha1Filter',     hint: '4d7f3911f9cc0173…',          val: sha1Filter },
                 { label: 'Event ID',  field: 'eventIdFilter',  hint: '4624,4625,4688',           val: eventIdFilter },
                 { label: 'Extension', field: 'extFilter',      hint: 'exe,dll,ps1',              val: extFilter },
                 { label: 'Tag',       field: 'tagFilter',      hint: 'mimikatz_markers,T1059…',  val: tagFilter },

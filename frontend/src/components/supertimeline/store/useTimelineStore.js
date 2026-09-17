@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { collectionAPI, artifactsAPI, bookmarksAPI, savedSearchesAPI } from '../../../utils/api';
 import { computeRef, DENSITIES, DEFAULT_DENSITY, initialExplorerOpen, SERVER_SORTABLE } from '../utils/timelineUtils';
+import { QUERY_KEYS } from '../utils/timelineFilterKeys';
 
 const DEBOUNCE_MS = 150;
 let _debounceTimer = null;
@@ -11,15 +12,6 @@ const DEFAULT_GROUPS = [
   { key: 'host_name',     label: 'Host' },
 ];
 
-const QUERY_KEYS = [
-  'search', 'searchOp', 'startTime', 'endTime', 'artifactTypes',
-  'artifactNameFilter', 'artifactNameFilterOp',
-  'hostFilter', 'hostFilterOp', 'userFilter', 'userFilterOp',
-  'toolFilter', 'toolFilterOp', 'extFilter', 'extFilterOp',
-  'providerFilter', 'providerFilterOp',
-  'eventIdFilter', 'tagFilter', 'hitsOnly', 'detSeverity',
-  'multiSort', 'groupByFields',
-];
 
 const filterDefaults = () => ({
   search: '', searchOp: 'contains', startTime: '', endTime: '',
@@ -29,6 +21,7 @@ const filterDefaults = () => ({
   userFilter: '', userFilterOp: 'contains',
   toolFilter: '', toolFilterOp: 'contains',
   providerFilter: '', providerFilterOp: 'equals',
+  sha1Filter: '', sha1FilterOp: 'equals',
   extFilter:  '', extFilterOp:  'contains',
   eventIdFilter: '', tagFilter: '',
   evidenceIds: [], resultId: '', huntId: '',
@@ -73,6 +66,8 @@ function buildQueryParams(s) {
     { p.tool = s.toolFilter; p.tool_op = s.toolFilterOp; }
   if (s.providerFilter || s.providerFilterOp === 'empty' || s.providerFilterOp === 'not_empty')
     { p.provider = s.providerFilter; p.provider_op = s.providerFilterOp; }
+  if (s.sha1Filter || s.sha1FilterOp === 'empty' || s.sha1FilterOp === 'not_empty')
+    { p.sha1 = s.sha1Filter; p.sha1_op = s.sha1FilterOp; }
   if (s.eventIdFilter)         p.event_id   = s.eventIdFilter;
   if (s.extFilter || s.extFilterOp === 'empty' || s.extFilterOp === 'not_empty')
     { p.ext = s.extFilter; p.ext_op = s.extFilterOp; }
@@ -95,6 +90,7 @@ export const useTimelineStore = create((set, get) => ({
   userFilter: '', userFilterOp: 'contains',
   toolFilter: '', toolFilterOp: 'contains',
   providerFilter: '', providerFilterOp: 'equals',
+  sha1Filter: '', sha1FilterOp: 'equals',
   extFilter:  '', extFilterOp:  'contains',
   eventIdFilter: '', tagFilter: '',
   evidenceIds: [], evidenceId: null, resultId: '', huntId: '',

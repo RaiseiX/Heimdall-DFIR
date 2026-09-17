@@ -1,5 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import { timelinePivotUrl } from '../../utils/timelinePivot';
 import { collectionAPI } from '../../utils/api';
 import { controlStyle } from '../ui/controlIdiom';
 import { buildTreeRows, markKernel, collapsibleIds } from './processTree';
@@ -32,6 +34,7 @@ const ETIQ = {
 const VAL = { fontFamily: MONO, fontSize: 11, wordBreak: 'break-all', marginBottom: 12 };
 
 export default function CollectionProcessesTab({ caseId, collectionId }) {
+  const navigate = useNavigate();
   const { t } = useTranslation();
   const [donnees, setDonnees] = useState(null);
   const [erreur, setErreur] = useState(null);
@@ -327,6 +330,24 @@ export default function CollectionProcessesTab({ caseId, collectionId }) {
                 <div style={{ fontFamily: MONO, fontSize: 11, color: 'var(--fl-dim)', marginBottom: 14 }}>
                   pid {selection.pid} · {selection.user_name || '—'} · {selection.state || ''}
                 </div>
+                {(selection.sha1 || selection.exe) && (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 14 }}>
+                    {selection.sha1 && (
+                      <button type="button" style={controlStyle}
+                        onClick={() => navigate(timelinePivotUrl({
+                          caseId, collectionId, filters: { sha1Filter: selection.sha1, sha1FilterOp: 'equals' },
+                        }))}>
+                        {t('processes.pivot_hash')}
+                      </button>
+                    )}
+                    {selection.exe && (
+                      <button type="button" style={controlStyle}
+                        onClick={() => navigate(timelinePivotUrl({ caseId, collectionId, search: selection.exe }))}>
+                        {t('processes.pivot_path')}
+                      </button>
+                    )}
+                  </div>
+                )}
                 <div style={ETIQ}>{t('processes.started_by')}</div>
                 <div style={VAL}>{parent ? `${parent.name} (pid ${parent.pid})` : t('processes.is_root')}</div>
                 {selection.exe && (
@@ -368,6 +389,9 @@ export default function CollectionProcessesTab({ caseId, collectionId }) {
                     )}
                   </>
                 )}
+                <div style={{ fontSize: 11, color: 'var(--fl-dim)', lineHeight: 1.5, marginBottom: 12 }}>
+                  {t('processes.pivot_why_no_pid')}
+                </div>
                 {(socketsParPid.get(selection.pid) || []).length > 0 && (
                   <>
                     <div style={ETIQ}>{t('processes.col_network')}</div>
@@ -392,7 +416,17 @@ export default function CollectionProcessesTab({ caseId, collectionId }) {
                               {c.local_addr}
                             </td>
                             <td style={{ ...TD, fontFamily: MONO, color: c.external ? 'var(--fl-warning, var(--fl-text))' : 'var(--fl-dim)' }}>
-                              {c.peer}
+                              {c.external ? (
+                                <span role="button" tabIndex={0}
+                                  title={t('processes.pivot_peer')}
+                                  onClick={() => navigate(timelinePivotUrl({
+                                    caseId, collectionId, search: String(c.peer).replace(/:[0-9*]+$/, '').replace(/^\[|\]$/g, ''),
+                                  }))}
+                                  onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.click(); }}
+                                  style={{ cursor: 'pointer', textDecoration: 'underline' }}>
+                                  {c.peer}
+                                </span>
+                              ) : c.peer}
                             </td>
                           </tr>
                         ))}

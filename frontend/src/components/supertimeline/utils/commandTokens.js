@@ -10,6 +10,8 @@ const KIND_MAP = {
   eid: 'eventId',
   ext: 'ext',
   provider: 'provider',
+  sha1: 'sha1',
+  hash: 'sha1',
 };
 
 const TOKEN_RE = new RegExp(`^(${Object.keys(KIND_MAP).join('|')}):(.+)$`, 'i');

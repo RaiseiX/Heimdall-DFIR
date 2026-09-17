@@ -3159,6 +3159,10 @@
     "sha1_none": "No hash — this process has no readable executable.",
     "sha1_also_as": "This binary also runs as",
     "sha1_shared_note": "One hash under several process names is common — a multiprocess browser or a shared interpreter does it. It is also the exact shape of process-name masquerading. The path and the number of names decide.",
-    "sha1_from_memory": "Read from the in-memory image (/proc/<pid>/exe), not from disk: a deleted binary stays identifiable."
+    "sha1_from_memory": "Read from the in-memory image (/proc/<pid>/exe), not from disk: a deleted binary stays identifiable.",
+    "pivot_hash": "See this hash on the timeline",
+    "pivot_path": "See this path on the timeline",
+    "pivot_peer": "See this address on the timeline",
+    "pivot_why_no_pid": "No pivot by PID: Linux PIDs are recycled, and the journal spans 35 boots where the snapshot covers one. The events pivot is constrained to the collection's boot."
   }
 }

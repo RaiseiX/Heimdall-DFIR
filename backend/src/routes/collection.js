@@ -30,6 +30,7 @@ const { buildSlimRaw } = require('../services/timelineFieldExtract');
 const { buildHayabusaDescription } = require('../services/hayabusaDescription');
 const { pushTextFilter, pushSearchFilter } = require('../utils/textFilter');
 const { pushProviderFilter } = require('../services/timelineProviderFilter');
+const { pushHashFilter } = require('../services/timelineHashFilter');
 const { GROUPABLE_COLUMNS } = require('../services/timelineGroupColumns');
 const { timelineRowsSql } = require('../services/timelineRowsSql');
 const { SORTABLE_COLUMNS } = require('../services/timelineSortColumns');
@@ -1905,7 +1906,7 @@ router.get('/:caseId/timeline', authenticate, async (req, res) => {
             tool, event_id, ext, tag, tags: tagsParam,
             detections: detectionsParam, detection_severity, detection_category,
             artifact_name, artifact_name_op,
-            provider, provider_op,
+            provider, provider_op, sha1, sha1_op,
             host_name_op = 'contains', user_name_op = 'contains', tool_op, ext_op,
             page = 1, limit = 200, sort_dir = 'asc', sort_col = 'timestamp',
             sort_multi } = req.query;
@@ -2077,6 +2078,11 @@ router.get('/:caseId/timeline', authenticate, async (req, res) => {
     // reference. Voir timelineProviderFilter.ts pour le choix de la containment.
     if (provider || provider_op === 'empty' || provider_op === 'not_empty')
       pi = pushProviderFilter(provider || '', provider_op || 'equals', pi, conditions, params);
+    // L'empreinte rend possible le pivot depuis la carte des processus. Elle
+    // passe par l'egalite stricte : `search` ne regarde pas cette colonne, et
+    // ILIKE rendrait idx_ct_case_sha1 inutilisable (2,6 ms contre 75,7).
+    if (sha1 || sha1_op === 'empty' || sha1_op === 'not_empty')
+      pi = pushHashFilter(sha1 || '', sha1_op || 'equals', pi, conditions, params);
 
     if (ext_op && (ext || ext_op === 'empty' || ext_op === 'not_empty'))
       pi = pushTextFilter('ext', ext || '', ext_op, pi, conditions, params);
@@ -2493,7 +2499,7 @@ router.get('/:caseId/timeline/groups', authenticate, async (req, res) => {
       start_time, end_time,
       host_name, user_name, result_id, evidence_id, evidence_ids, hunt_id,
       tool, event_id, ext, tag, tags: tagsParam,
-      provider, provider_op,
+      provider, provider_op, sha1, sha1_op,
       host_name_op = 'contains', user_name_op = 'contains', tool_op, ext_op,
     } = req.query;
 
@@ -2589,6 +2595,9 @@ router.get('/:caseId/timeline/groups', authenticate, async (req, res) => {
     // compterait sur un perimetre plus large que les lignes affichees.
     if (provider || provider_op === 'empty' || provider_op === 'not_empty') {
       pi = pushProviderFilter(provider || '', provider_op || 'equals', pi, conditions, params);
+    }
+    if (sha1 || sha1_op === 'empty' || sha1_op === 'not_empty') {
+      pi = pushHashFilter(sha1 || '', sha1_op || 'equals', pi, conditions, params);
     }
     if (ext_op && (ext || ext_op === 'empty' || ext_op === 'not_empty')) {
       pi = pushTextFilter('ext', ext || '', ext_op, pi, conditions, params);
