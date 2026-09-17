@@ -3163,6 +3163,7 @@
     "pivot_hash": "Voir cette empreinte sur la timeline",
     "pivot_path": "Voir ce chemin sur la timeline",
     "pivot_peer": "Voir cette adresse sur la timeline",
-    "pivot_why_no_pid": "Aucun pivot par PID : les PID Linux se recyclent, et le journal couvre 35 démarrages là où l'instantané n'en couvre qu'un. Le pivot par événements, lui, est contraint au démarrage de la collecte."
+    "pivot_why_no_pid": "Aucun pivot par PID : les PID Linux se recyclent, et le journal couvre 35 démarrages là où l'instantané n'en couvre qu'un. Le pivot par événements, lui, est contraint au démarrage de la collecte.",
+    "only_external_estab": "Seulement les connexions externes"
   }
 }

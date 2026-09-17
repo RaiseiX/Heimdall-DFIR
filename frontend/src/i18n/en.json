@@ -3163,6 +3163,7 @@
     "pivot_hash": "See this hash on the timeline",
     "pivot_path": "See this path on the timeline",
     "pivot_peer": "See this address on the timeline",
-    "pivot_why_no_pid": "No pivot by PID: Linux PIDs are recycled, and the journal spans 35 boots where the snapshot covers one. The events pivot is constrained to the collection's boot."
+    "pivot_why_no_pid": "No pivot by PID: Linux PIDs are recycled, and the journal spans 35 boots where the snapshot covers one. The events pivot is constrained to the collection's boot.",
+    "only_external_estab": "External connections only"
   }
 }

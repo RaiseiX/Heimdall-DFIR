@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { timelinePivotUrl } from '../../utils/timelinePivot';
 import { collectionAPI } from '../../utils/api';
 import { controlStyle } from '../ui/controlIdiom';
-import { buildTreeRows, markKernel, collapsibleIds } from './processTree';
+import { buildTreeRows, markKernel, collapsibleIds, filtrerProcessus } from './processTree';
 
 const MONO = 'var(--f-mono, "JetBrains Mono", monospace)';
 
@@ -48,6 +48,7 @@ export default function CollectionProcessesTab({ caseId, collectionId }) {
   const [comptes, setComptes] = useState(null);
   const [source, setSource] = useState('snapshot');
   const [seulExpose, setSeulExpose] = useState(false);
+  const [seulExterne, setSeulExterne] = useState(false);
   const [seulSupprime, setSeulSupprime] = useState(false);
   const [evts, setEvts] = useState(null);
   const [evtsPour, setEvtsPour] = useState(null);
@@ -96,12 +97,11 @@ export default function CollectionProcessesTab({ caseId, collectionId }) {
       return { ...p, fd: Number(c?.fd || 0), maps: Number(c?.maps || 0), deleted_count: Number(c?.deleted_count || 0) };
     });
   }, [donnees, comptes, source]);
-  const lignes = useMemo(() => {
-    let retenus = procs;
-    if (seulSupprime) retenus = retenus.filter(p => p.exe_deleted);
-    if (seulExpose)   retenus = retenus.filter(p => Number(p.net_listen_exposed) > 0);
-    return buildTreeRows(retenus, { replies, recherche, sansNoyau });
-  }, [procs, replies, recherche, sansNoyau, seulSupprime, seulExpose]);
+  const lignes = useMemo(
+    () => buildTreeRows(filtrerProcessus(procs, { seulSupprime, seulExpose, seulExterne }),
+                        { replies, recherche, sansNoyau }),
+    [procs, replies, recherche, sansNoyau, seulSupprime, seulExpose, seulExterne],
+  );
 
   const nomsParSha1 = useMemo(() => {
     const m = new Map();
@@ -134,6 +134,7 @@ export default function CollectionProcessesTab({ caseId, collectionId }) {
     ecoutesExposees: procs.reduce((a, p) => a + Number(p.net_listen_exposed || 0), 0),
     etabliesExternes: procs.reduce((a, p) => a + Number(p.net_estab_external || 0), 0),
     procExposes: procs.filter(p => Number(p.net_listen_exposed) > 0).length,
+    procExternes: procs.filter(p => Number(p.net_estab_external) > 0).length,
   }), [procs, comptes]);
 
   const chargerEvenements = (p) => {
@@ -208,6 +209,12 @@ export default function CollectionProcessesTab({ caseId, collectionId }) {
               <button type="button" onClick={() => setSeulExpose(v => !v)} aria-pressed={seulExpose}
                 style={{ ...controlStyle, color: seulExpose ? 'var(--fl-warning, var(--fl-accent))' : 'var(--fl-dim)' }}>
                 {t('processes.only_exposed_listen')} ({sommaire.procExposes})
+              </button>
+            )}
+            {sommaire.procExternes > 0 && (
+              <button type="button" onClick={() => setSeulExterne(v => !v)} aria-pressed={seulExterne}
+                style={{ ...controlStyle, color: seulExterne ? 'var(--fl-warning, var(--fl-accent))' : 'var(--fl-dim)' }}>
+                {t('processes.only_external_estab')} ({sommaire.procExternes})
               </button>
             )}
             <button type="button" onClick={() => setSansNoyau(v => !v)} aria-pressed={sansNoyau}

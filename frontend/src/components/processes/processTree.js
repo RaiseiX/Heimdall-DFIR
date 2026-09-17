@@ -32,6 +32,21 @@ export function markKernel(procs) {
   });
 }
 
+export function filtrerProcessus(procs, options = {}) {
+  const liste = Array.isArray(procs) ? procs : [];
+  const { seulSupprime = false, seulExpose = false, seulExterne = false } = options;
+
+  const alarmesReseau = [];
+  if (seulExpose)  alarmesReseau.push(p => Number(p.net_listen_exposed) > 0);
+  if (seulExterne) alarmesReseau.push(p => Number(p.net_estab_external) > 0);
+
+  return liste.filter(p => {
+    if (seulSupprime && !p.exe_deleted) return false;
+    if (alarmesReseau.length && !alarmesReseau.some(f => f(p))) return false;
+    return true;
+  });
+}
+
 function correspond(p, q) {
   if (!q) return true;
   const t = q.toLowerCase();
