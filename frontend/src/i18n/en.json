@@ -759,7 +759,8 @@
     "csv_error": "CSV fields unavailable for this row",
     "schema_hint": "CSV fields in the detail panel",
     "save_current_search": "Save current search",
-    "no_saved_search": "No saved search yet"
+    "no_saved_search": "No saved search yet",
+    "to_notebook": "Add to notebook"
   },
   "investigation": {
     "workflow_title": "Investigation workflow",
@@ -858,7 +859,10 @@
     "saved_at": "Saved at {{time}}",
     "chars": "chars",
     "hint": "Supports Markdown. MITRE technique IDs (T1234) are auto-linked in preview.",
-    "placeholder": "Start writing your investigation notes…"
+    "placeholder": "Start writing your investigation notes…",
+    "save_failed": "Save failed — your notes are not being kept.",
+    "sent": "Added to the notebook",
+    "send_failed": "Could not add"
   },
   "notes": {
     "tab": "Notes",
@@ -3176,6 +3180,8 @@
     "files_flag_deleted": "deleted",
     "files_flag_memfd": "anonymous",
     "files_memfd_note": "An anonymous descriptor (memfd) never existed on disk. It is the normal shared-memory mechanism — and the fileless execution primitive on Linux. The name and the process decide.",
-    "files_show": "Show files"
+    "files_show": "Show files",
+    "to_notebook": "Add to notebook",
+    "title": "Process map"
   }
 }

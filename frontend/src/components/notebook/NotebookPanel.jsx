@@ -30,6 +30,7 @@ export default function NotebookPanel({ caseId }) {
   const [savedAt, setSavedAt]   = useState(null);
   const [updatedBy, setUpdatedBy] = useState(null);
   const [dirty, setDirty]       = useState(false);
+  const [echec, setEchec]       = useState(false);
   const timerRef = useRef(null);
 
   useEffect(() => {
@@ -50,7 +51,8 @@ export default function NotebookPanel({ caseId }) {
       const r = await notebookAPI.save(caseId, c ?? content);
       setSavedAt(r.data?.updated_at || new Date().toISOString());
       setDirty(false);
-    } catch (_e) {}
+      setEchec(false);
+    } catch (_e) { setEchec(true); }
     finally { setSaving(false); }
   }, [caseId, content]);
 
@@ -74,6 +76,11 @@ export default function NotebookPanel({ caseId }) {
           {t('notebook.title')}
         </span>
         <span style={{ flex: 1 }} />
+        {echec && (
+          <span role="alert" style={{ fontSize: 10, fontFamily: MONO, color: 'var(--fl-danger)' }}>
+            {t('notebook.save_failed')}
+          </span>
+        )}
         {savedAt && (
           <span style={{ fontSize: 10, fontFamily: MONO, color: 'var(--fl-muted)' }}>
             {dirty ? t('notebook.unsaved') : t('notebook.saved_at', { time: new Date(savedAt).toLocaleTimeString() })}

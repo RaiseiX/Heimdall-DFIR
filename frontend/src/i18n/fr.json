@@ -759,7 +759,8 @@
     "csv_error": "Champs CSV indisponibles pour cette ligne",
     "schema_hint": "champs CSV dans le détail",
     "save_current_search": "Sauvegarder la recherche actuelle",
-    "no_saved_search": "Aucune recherche enregistrée"
+    "no_saved_search": "Aucune recherche enregistrée",
+    "to_notebook": "Ajouter au carnet"
   },
   "investigation": {
     "workflow_title": "Workflow d'investigation",
@@ -858,7 +859,10 @@
     "saved_at": "Sauvegardé à {{time}}",
     "chars": "car.",
     "hint": "Supporte le Markdown. Les IDs de techniques MITRE (T1234) sont auto-liés en aperçu.",
-    "placeholder": "Commencez à rédiger vos notes d'investigation…"
+    "placeholder": "Commencez à rédiger vos notes d'investigation…",
+    "save_failed": "Enregistrement impossible — vos notes ne sont pas conservées.",
+    "sent": "Ajouté au carnet",
+    "send_failed": "Ajout impossible"
   },
   "notes": {
     "tab": "Notes",
@@ -3176,6 +3180,8 @@
     "files_flag_deleted": "supprimé",
     "files_flag_memfd": "anonyme",
     "files_memfd_note": "Un descripteur anonyme (memfd) n'a jamais existé sur le disque. C'est le mécanisme normal de la mémoire partagée — et la primitive d'exécution sans fichier sous Linux. Le nom et le processus tranchent.",
-    "files_show": "Voir les fichiers"
+    "files_show": "Voir les fichiers",
+    "to_notebook": "Ajouter au carnet",
+    "title": "Carte des processus"
   }
 }

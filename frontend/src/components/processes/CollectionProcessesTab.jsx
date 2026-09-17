@@ -2,6 +2,8 @@ import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { timelinePivotUrl } from '../../utils/timelinePivot';
+import { entreeProcessus } from '../../utils/notebookEntry';
+import { notebookAPI } from '../../utils/api';
 import { collectionAPI } from '../../utils/api';
 import { controlStyle } from '../ui/controlIdiom';
 import { buildTreeRows, markKernel, collapsibleIds, filtrerProcessus } from './processTree';
@@ -51,6 +53,7 @@ export default function CollectionProcessesTab({ caseId, collectionId }) {
   const [seulExterne, setSeulExterne] = useState(false);
   const [fichiers, setFichiers] = useState(null);
   const [fichiersPour, setFichiersPour] = useState(null);
+  const [carnet, setCarnet] = useState(null);
   const [seulSupprime, setSeulSupprime] = useState(false);
   const [evts, setEvts] = useState(null);
   const [evtsPour, setEvtsPour] = useState(null);
@@ -138,6 +141,13 @@ export default function CollectionProcessesTab({ caseId, collectionId }) {
     procExposes: procs.filter(p => Number(p.net_listen_exposed) > 0).length,
     procExternes: procs.filter(p => Number(p.net_estab_external) > 0).length,
   }), [procs, comptes]);
+
+  const versLeCarnet = (p) => {
+    setCarnet('envoi');
+    notebookAPI.append(caseId, entreeProcessus(p, { source: t('processes.title') }))
+      .then(() => setCarnet('ok'))
+      .catch(() => setCarnet('echec'));
+  };
 
   const chargerFichiers = (p) => {
     setFichiersPour(p.pid);
@@ -362,6 +372,20 @@ export default function CollectionProcessesTab({ caseId, collectionId }) {
                         onClick={() => navigate(timelinePivotUrl({ caseId, collectionId, search: selection.exe }))}>
                         {t('processes.pivot_path')}
                       </button>
+                    )}
+                    <button type="button" style={controlStyle}
+                      onClick={() => versLeCarnet(selection)}>
+                      {t('processes.to_notebook')}
+                    </button>
+                    {carnet === 'ok' && (
+                      <span style={{ fontSize: 11, color: 'var(--fl-ok)', alignSelf: 'center' }}>
+                        {t('notebook.sent')}
+                      </span>
+                    )}
+                    {carnet === 'echec' && (
+                      <span role="alert" style={{ fontSize: 11, color: 'var(--fl-danger)', alignSelf: 'center' }}>
+                        {t('notebook.send_failed')}
+                      </span>
                     )}
                   </div>
                 )}

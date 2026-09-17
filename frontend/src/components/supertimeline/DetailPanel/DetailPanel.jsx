@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Maximize2, Minimize2, X, History } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
+import { Maximize2, Minimize2, X, History, BookOpen } from 'lucide-react';
 import { useTimelineStore } from '../store/useTimelineStore';
 import { artifactColor } from '../../../constants/artifactColors';
 import { fmtTs } from '../../../utils/formatters';
@@ -16,6 +17,8 @@ import AiTab      from './tabs/AiTab';
 import TagsTab    from './tabs/TagsTab';
 import SchemaTab  from './tabs/SchemaTab';
 import { controlStyle, controlHover } from '../../ui/controlIdiom';
+import { entreeEvenement } from '../../../utils/notebookEntry';
+import { notebookAPI } from '../../../utils/api';
 
 const FORENSIC_TAG_MAP = Object.fromEntries(FORENSIC_TAGS.map(t => [t.key, t]));
 
@@ -31,13 +34,22 @@ const TABS = [
 
 export default function DetailPanel() {
   const {
-    selectedRowId, detailOpen, records, tagData,
+    caseId, selectedRowId, detailOpen, records, tagData,
     detailTab, setDetailTab, closeDetail, setSelectedRow,
     bookmarks, toggleBookmark, bookmarkError, openContext,
   } = useTimelineStore();
   const [expanded, setExpanded] = useState(false);
 
+  const { t } = useTranslation();
   const record = records.find(r => r.id === selectedRowId) || null;
+  const [carnet, setCarnet] = useState(null);
+  const versLeCarnet = () => {
+    if (!record || !caseId) return;
+    setCarnet('envoi');
+    notebookAPI.append(caseId, entreeEvenement(record, { source: 'Super Timeline' }))
+      .then(() => setCarnet('ok'))
+      .catch(() => setCarnet('echec'));
+  };
   const acol   = record ? artifactColor(record.artifact_type) : 'var(--fl-accent)';
   const td     = record ? (tagData.get(record.id) || {}) : {};
   const lvl    = td.level ? CONFIDENCE_MAP[td.level] : null;
@@ -97,6 +109,17 @@ export default function DetailPanel() {
               style={{ width: 20, height: 18, borderRadius: 3, background: 'transparent',
                 border: '1px solid var(--fl-border)', color: 'var(--fl-muted)', cursor: 'pointer', fontSize: 10,
                 display: 'flex', alignItems: 'center', justifyContent: 'center' }}>↓</button>
+            <button
+              onClick={versLeCarnet}
+              title={t('timeline.to_notebook')}
+              aria-label={t('timeline.to_notebook')}
+              style={{ width: 20, height: 18, borderRadius: 3, background: 'transparent',
+                border: '1px solid var(--fl-border)',
+                color: carnet === 'ok' ? 'var(--fl-ok)' : carnet === 'echec' ? 'var(--fl-danger)' : 'var(--fl-muted)',
+                cursor: 'pointer',
+                display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <BookOpen size={10} />
+            </button>
             {record?.id > 0 && (
               <button
                 onClick={() => openContext(record.id)}

@@ -205,6 +205,7 @@ export const reportsAPI = {
 export const notebookAPI = {
   get:  (caseId)          => api.get(`/notebook/${caseId}`),
   save: (caseId, content) => api.put(`/notebook/${caseId}`, { content }),
+  append: (caseId, content) => api.post(`/notebook/${caseId}/append`, { content }),
 };
 
 export const usersAPI = {
