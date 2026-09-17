@@ -206,7 +206,7 @@ export default function CommandBar() {
               fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11, color: 'var(--fl-dim)', minWidth: 100 }} />
         </div>
         {hasFilters && (
-          <button onClick={clearFilters} title="Clear all filters"
+          <button onClick={clearFilters} title={tr('timeline.clear_all_filters')}
             style={{ background: 'none', border: 'none', color: 'var(--fl-muted)', cursor: 'pointer', display: 'flex', alignItems: 'center', padding: '2px 4px', borderRadius: 3 }}
             onMouseEnter={e => { e.currentTarget.style.color = 'var(--fl-danger)'; }}
             onMouseLeave={e => { e.currentTarget.style.color = 'var(--fl-muted)'; }}>
@@ -231,7 +231,7 @@ export default function CommandBar() {
                   <Save size={11} strokeWidth={1.6} />{tr('timeline.save_current_search')}
                 </span>
                 <div style={{ display: 'flex', gap: 6 }}>
-                  <input value={saveName} placeholder="Nom de la recherche…"
+                  <input value={saveName} placeholder={tr('timeline.search_name_ph')}
                     onChange={e => setSaveName(e.target.value)}
                     onKeyDown={e => { if (e.key === 'Enter') handleSave(); }}
                     style={{ flex: 1, background: 'var(--fl-panel)', color: 'var(--fl-on-dark)', border: '1px solid var(--fl-raised)', borderRadius: 5, padding: '5px 8px', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11, outline: 'none' }} />
@@ -247,12 +247,12 @@ export default function CommandBar() {
               </div>
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: 4, borderTop: '1px solid var(--fl-card)', paddingTop: 8 }}>
-                <span style={{ fontSize: 9, color: 'var(--fl-dim)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Mes recherches</span>
+                <span style={{ fontSize: 9, color: 'var(--fl-dim)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{tr('timeline.my_searches')}</span>
                 {mine.length === 0 && <span style={{ fontSize: 10, color: 'var(--fl-muted)' }}>{tr('timeline.no_saved_search')}</span>}
                 {mine.map(s => (
                   <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                     <button onClick={() => { applySavedSearch(s.query); setShowSearches(false); }}
-                      title="Appliquer cette recherche"
+                      title={tr('timeline.apply_search')}
                       style={{ flex: 1, textAlign: 'left', background: 'transparent', border: 'none', color: 'var(--fl-on-dark)', cursor: 'pointer', padding: '4px 6px', borderRadius: 4, fontSize: 11, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', display: 'flex', alignItems: 'center', gap: 6 }}
                       onMouseEnter={e => { e.currentTarget.style.background = 'var(--fl-card)'; }}
                       onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}>
@@ -260,16 +260,16 @@ export default function CommandBar() {
                       {s.scope === 'case' && <span style={{ fontSize: 8, color: 'var(--fl-purple)' }}>partagée</span>}
                     </button>
                     {s.scope !== 'case' && (
-                      <button onClick={() => promoteSavedSearch(s.id)} title="Partager avec le cas"
+                      <button onClick={() => promoteSavedSearch(s.id)} title={tr('timeline.share_with_case')}
                         style={{ background: 'none', border: 'none', color: 'var(--fl-muted)', cursor: 'pointer', padding: 2 }}>
                         <Share2 size={12} />
                       </button>
                     )}
-                    <button onClick={() => { const n = prompt('Nouveau nom', s.name); if (n && n.trim()) updateSavedSearch(s.id, { name: n.trim() }).catch(err => alert(err?.response?.data?.error || 'Échec du renommage')); }} title="Renommer"
+                    <button onClick={() => { const n = prompt('Nouveau nom', s.name); if (n && n.trim()) updateSavedSearch(s.id, { name: n.trim() }).catch(err => alert(err?.response?.data?.error || 'Échec du renommage')); }} title={tr('timeline.rename')}
                       style={{ background: 'none', border: 'none', color: 'var(--fl-muted)', cursor: 'pointer', padding: 2 }}>
                       <Pencil size={12} />
                     </button>
-                    <button onClick={() => { if (confirm(`Supprimer « ${s.name} » ?`)) deleteSavedSearch(s.id).catch(err => alert(err?.response?.data?.error || 'Échec de la suppression')); }} title="Supprimer"
+                    <button onClick={() => { if (confirm(`Supprimer « ${s.name} » ?`)) deleteSavedSearch(s.id).catch(err => alert(err?.response?.data?.error || 'Échec de la suppression')); }} title={tr('timeline.delete')}
                       style={{ background: 'none', border: 'none', color: 'var(--fl-muted)', cursor: 'pointer', padding: 2 }}
                       onMouseEnter={e => { e.currentTarget.style.color = 'var(--fl-danger)'; }}
                       onMouseLeave={e => { e.currentTarget.style.color = 'var(--fl-muted)'; }}>
@@ -281,7 +281,7 @@ export default function CommandBar() {
 
               {shared.length > 0 && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 4, borderTop: '1px solid var(--fl-card)', paddingTop: 8 }}>
-                  <span style={{ fontSize: 9, color: 'var(--fl-dim)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Partagées au cas</span>
+                  <span style={{ fontSize: 9, color: 'var(--fl-dim)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{tr('timeline.shared_to_case')}</span>
                   {shared.map(s => (
                     <button key={s.id} onClick={() => { applySavedSearch(s.query); setShowSearches(false); }}
                       title={`Par ${s.author_name || s.username || 'un membre'}`}
@@ -337,19 +337,19 @@ export default function CommandBar() {
                 </span>
               </label>
               <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ fontSize: 9, color: 'var(--fl-dim)', textTransform: 'uppercase', letterSpacing: '0.06em', minWidth: 80 }}>Min severity</span>
+                <span style={{ fontSize: 9, color: 'var(--fl-dim)', textTransform: 'uppercase', letterSpacing: '0.06em', minWidth: 80 }}>{tr('timeline.min_severity')}</span>
                 <select value={detSeverity} onChange={e => setFilter('detSeverity', e.target.value)}
                   style={{ flex: 1, background: 'var(--fl-panel)', color: 'var(--fl-on-dark)', border: '1px solid var(--fl-raised)', borderRadius: 5, padding: '4px 8px', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', fontSize: 11, outline: 'none' }}>
-                  <option value="">All severities</option>
+                  <option value="">{tr('timeline.all_severities')}</option>
                   <option value="greyware">Greyware+</option>
                   <option value="medium">Medium+</option>
                   <option value="high">High+</option>
-                  <option value="critical">Critical only</option>
+                  <option value="critical">{tr('timeline.critical_only')}</option>
                 </select>
               </label>
               <div style={{ display: 'flex', gap: 6, paddingTop: 4, borderTop: '1px solid var(--fl-card)' }}>
-                <button onClick={() => { setShowAdvanced(false); applyFilters(); }} style={{ flex: 1, padding: '5px', borderRadius: 5, background: 'var(--fl-card)', border: '1px solid color-mix(in srgb, var(--fl-accent) 25%, transparent)', color: 'var(--fl-accent)', cursor: 'pointer', fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}>Apply</button>
-                <button onClick={() => { clearFilters(); setShowAdvanced(false); }} style={{ padding: '5px 10px', borderRadius: 5, background: 'transparent', border: '1px solid var(--fl-raised)', color: 'var(--fl-dim)', cursor: 'pointer', fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}>Reset</button>
+                <button onClick={() => { setShowAdvanced(false); applyFilters(); }} style={{ flex: 1, padding: '5px', borderRadius: 5, background: 'var(--fl-card)', border: '1px solid color-mix(in srgb, var(--fl-accent) 25%, transparent)', color: 'var(--fl-accent)', cursor: 'pointer', fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}>{tr('timeline.apply')}</button>
+                <button onClick={() => { clearFilters(); setShowAdvanced(false); }} style={{ padding: '5px 10px', borderRadius: 5, background: 'transparent', border: '1px solid var(--fl-raised)', color: 'var(--fl-dim)', cursor: 'pointer', fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}>{tr('timeline.reset')}</button>
               </div>
             </div>
           )}

@@ -117,14 +117,14 @@ function HeaderStrip({ showDiff, setShowDiff }) {
       <div style={{ flex: 1 }} />
       <button
         onClick={() => setShowDiff(v => !v)}
-        title="Comparer deux collectes"
+        title={t('timeline.diff_title')}
         aria-pressed={showDiff}
         style={controlStyle(showDiff)} {...controlHover(showDiff)}
-      >Diff</button>
+      >{t('timeline.diff_label')}</button>
       <div ref={panelRef} style={{ position: 'relative' }}>
         <button
           onClick={() => setTipsOpen(v => !v)}
-          title="Help - search & filters"
+          title={t('timeline.help_title')}
           aria-pressed={tipsOpen}
           style={controlStyle(tipsOpen)} {...controlHover(tipsOpen)}
         >?</button>

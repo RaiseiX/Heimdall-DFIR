@@ -99,13 +99,13 @@ export default function DetailPanel() {
           <div style={{ display: 'flex', gap: 2, flexShrink: 0 }}>
             <button
               onClick={() => { const idx = records.indexOf(record); if (idx > 0) setSelectedRow(records[idx - 1].id); }}
-              title="Previous (↑)"
+              title={t('timeline.detail_previous')}
               style={{ width: 20, height: 18, borderRadius: 3, background: 'transparent',
                 border: '1px solid var(--fl-border)', color: 'var(--fl-muted)', cursor: 'pointer', fontSize: 10,
                 display: 'flex', alignItems: 'center', justifyContent: 'center' }}>↑</button>
             <button
               onClick={() => { const idx = records.indexOf(record); if (idx < records.length - 1) setSelectedRow(records[idx + 1].id); }}
-              title="Next (↓)"
+              title={t('timeline.detail_next')}
               style={{ width: 20, height: 18, borderRadius: 3, background: 'transparent',
                 border: '1px solid var(--fl-border)', color: 'var(--fl-muted)', cursor: 'pointer', fontSize: 10,
                 display: 'flex', alignItems: 'center', justifyContent: 'center' }}>↓</button>
@@ -123,7 +123,7 @@ export default function DetailPanel() {
             {record?.id > 0 && (
               <button
                 onClick={() => openContext(record.id)}
-                title="Contexte (événements voisins)"
+                title={t('timeline.detail_context')}
                 style={{ width: 20, height: 18, borderRadius: 3, background: 'transparent',
                   border: '1px solid var(--fl-border)', color: 'var(--fl-muted)', cursor: 'pointer',
                   display: 'flex', alignItems: 'center', justifyContent: 'center' }}
@@ -166,7 +166,7 @@ export default function DetailPanel() {
               onMouseLeave={e => { e.currentTarget.style.color = 'var(--fl-muted)'; e.currentTarget.style.borderColor = 'var(--fl-border)'; }}>
               {expanded ? <Minimize2 size={10} /> : <Maximize2 size={10} />}
             </button>
-            <button onClick={closeDetail} title="Close (D / Esc)"
+            <button onClick={closeDetail} title={t('timeline.detail_close')}
               style={{ width: 20, height: 18, borderRadius: 3, background: 'transparent',
                 border: '1px solid var(--fl-border)', color: 'var(--fl-muted)', cursor: 'pointer', fontSize: 12,
                 display: 'flex', alignItems: 'center', justifyContent: 'center' }}><X size={10} /></button>

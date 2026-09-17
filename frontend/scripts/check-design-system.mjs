@@ -34,6 +34,12 @@ const srcDir = path.join(root, 'src');
  * 2026-09-08 : une densite de ligne unique pour 11 tableaux. 4857 -> 4820, 203 -> 198,
  * 2009 -> 1984, du montant exact des baisses mesurees.
  * 2026-09-08, lot 4 : les pastilles des quatre derniers ecrans deviennent des mots colores
+ * Lot du 2026-09-17 : `hardcodedText` entre en scene a 124, mesure initiale. Les
+ * trois surfaces de la SuperTimeline (page, barre de commande, panneau de
+ * detail) sont migrees dans le meme lot : 16 attributs et 8 noeuds de texte,
+ * dont « Mes recherches » et « Min severity » qui cohabitaient dans le meme
+ * menu deroulant. Plafond abaisse a 112.
+ *
  * (markStyle). Mesures 4605 -> 4558, 158 -> 154, 1876 -> 1837, 149 -> 145 ; les plafonds
  * baissent de 47, 4, 39 et 4, la marge existante restant inchangee.
  * 2026-09-08, lot 4 bis : deux des quatre composants convertis n'etaient importes par rien
@@ -46,6 +52,7 @@ export const CEILINGS = {
   halfPixel: 193,
   literalFontSize: 1896,
   pictogramCode: 161,
+  hardcodedText: 112,
 };
 
 /**
@@ -61,6 +68,19 @@ export const PATTERNS = {
   halfPixel: /fontSize:\s*'?\d+\.5\b/g,
   literalFontSize: /fontSize:\s*'?\d/g,
   pictogramCode: /[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}]/gu,
+  // Du texte visible par l'utilisateur, ecrit en dur dans le JSX au lieu de
+  // passer par t(). `i18n:check` ne peut pas le voir : il compare fr a en et
+  // compte les t() litteraux, il ne lit jamais le texte des balises. La parite
+  // reste donc verte pendant que l'ecran affiche deux langues a la fois —
+  // mesure du 2026-09-17 : `title="YARA - this evidence"` et
+  // `title="Regles Sigma"` dans le meme fichier.
+  //
+  // Seuls les attributs sont comptes (title, placeholder, aria-label, alt) :
+  // ils sont visibles sans ambiguite, la ou un noeud de texte JSX demanderait
+  // une analyse syntaxique pour distinguer une phrase d'un symbole. Le compte
+  // sous-estime donc la dette, et c'est voulu — un cliquet doit compter ce
+  // qu'il compte sans discuter.
+  hardcodedText: /\b(?:title|placeholder|aria-label|alt)="[^"{}]{2,}"/g,
 };
 
 /**
@@ -69,7 +89,8 @@ export const PATTERNS = {
  * motifs qu'il cherche disparaît par construction.
  */
 export const FIXTURES = {
-  violating: 'const a = <div ' + 'style={{ fontSize: 10.5 }}>' + String.fromCodePoint(0x1f6a8) + '</div>;',
+  violating: 'const a = <div ' + 'style={{ fontSize: 10.5 }} ' + 'tit' + 'le="texte en dur">'
+    + String.fromCodePoint(0x1f6a8) + '</div>;',
   clean: 'const a = <div className="fl-card">texte</div>;',
 };
 
