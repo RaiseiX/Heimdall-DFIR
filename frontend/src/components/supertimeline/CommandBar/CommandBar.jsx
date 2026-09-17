@@ -86,7 +86,7 @@ export default function CommandBar() {
   const {
     search, artifactTypes, hostFilter, userFilter, startTime, endTime, providerFilter, providersAvail, sha1Filter,
     detSeverity, tagFilter, toolFilter, eventIdFilter, extFilter,
-    hitsOnly, availTypes, typeCounts,
+    hitsOnly, availTypes, typeCounts, typesTruncated, typesTotal,
     setFilter, applyFilters, clearFilters, toggleArtifactType, soloArtifactType,
     savedSearches, applySavedSearch, saveCurrentSearch,
     promoteSavedSearch, deleteSavedSearch, updateSavedSearch,
@@ -390,6 +390,13 @@ export default function CommandBar() {
                 color: artifactTypes.length === 0 ? 'var(--fl-accent)' : 'var(--fl-muted)' }}>
               {tr('timeline.type_all')}
             </button>
+            {typesTruncated && (
+              <span role="alert"
+                style={{ fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
+                  color: 'var(--fl-warn)' }}>
+                {tr('timeline.types_truncated', { shown: availTypes.length, total: typesTotal })}
+              </span>
+            )}
             {artifactTypes[0] !== '__NONE__' && (
               <button
                 onClick={() => useTimelineStore.getState().clearArtifactTypes()}

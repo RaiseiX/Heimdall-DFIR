@@ -760,7 +760,8 @@
     "schema_hint": "CSV fields in the detail panel",
     "save_current_search": "Save current search",
     "no_saved_search": "No saved search yet",
-    "to_notebook": "Add to notebook"
+    "to_notebook": "Add to notebook",
+    "types_truncated": "{{shown}} of {{total}} types — the list is truncated, some types cannot be filtered"
   },
   "investigation": {
     "workflow_title": "Investigation workflow",

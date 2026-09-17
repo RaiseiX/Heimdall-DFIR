@@ -105,7 +105,7 @@ export const useTimelineStore = create((set, get) => ({
   records: [], loading: false,
   appendMode: false,
   dynamicColsRev: 0,
-  availTypes: [], typeCounts: {},
+  availTypes: [], typeCounts: {}, typesTruncated: false, typesTotal: 0,
   bounds: null,
   nature: 'all',
   hostsAvail: [], usersAvail: [], providersAvail: [],
@@ -207,6 +207,14 @@ export const useTimelineStore = create((set, get) => ({
         availTypes:  s.artifactTypes.length === 0
           ? (res.data.artifact_types_available || get().availTypes)
           : get().availTypes,
+        typesTruncated: s.artifactTypes.length === 0
+          ? Boolean(res.data.artifact_types_truncated)
+          : get().typesTruncated,
+        typesTotal: s.artifactTypes.length === 0
+          ? (Number(res.data.artifact_types_total)
+             || (res.data.artifact_types_available || []).length
+             || get().typesTotal)
+          : get().typesTotal,
         typeCounts:  { ...get().typeCounts, ...(res.data.artifact_types_counts || {}) },
         hostsAvail:  res.data.hosts_available?.length  ? res.data.hosts_available  : get().hostsAvail,
         usersAvail:  res.data.users_available?.length  ? res.data.users_available  : get().usersAvail,
@@ -214,7 +222,7 @@ export const useTimelineStore = create((set, get) => ({
         tagData:     newTagData,
         huntMessage: s.huntId && res.data.hunt_empty ? (res.data.message || null) : null,
       });
-    } catch { if (seq === _loadSeq) set({ records: [], total: 0, undated: 0, appendMode: false }); }
+    } catch { if (seq === _loadSeq) set({ records: [], total: 0, undated: 0, appendMode: false, typesTruncated: false }); }
     finally  { if (seq === _loadSeq) set({ loading: false }); }
   },
 

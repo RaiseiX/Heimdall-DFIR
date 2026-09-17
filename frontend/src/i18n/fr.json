@@ -760,7 +760,8 @@
     "schema_hint": "champs CSV dans le détail",
     "save_current_search": "Sauvegarder la recherche actuelle",
     "no_saved_search": "Aucune recherche enregistrée",
-    "to_notebook": "Ajouter au carnet"
+    "to_notebook": "Ajouter au carnet",
+    "types_truncated": "{{shown}} types sur {{total}} — la liste est tronquée, des types ne sont pas filtrables"
   },
   "investigation": {
     "workflow_title": "Workflow d'investigation",
