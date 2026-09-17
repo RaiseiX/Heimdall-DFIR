@@ -55,7 +55,7 @@ export default function RetentionSection() {
   const purge = async () => {
     if (!target || confirmTxt !== target.case_number) return;
     setPurging(true); setMsg('');
-    try { await casesAPI.hardDelete(target.id); setMsg(t('settings.retention.case_purged', { caseNumber: target.case_number })); setTarget(null); setConfirmTxt(''); loadCases(); }
+    try { await casesAPI.hardDelete(target.id, confirmTxt); setMsg(t('settings.retention.case_purged', { caseNumber: target.case_number })); setTarget(null); setConfirmTxt(''); loadCases(); }
     catch (e) { setMsg(`✗ ${e.response?.data?.error || t('settings.retention.purge_failed_plain')}`); }
     finally { setPurging(false); }
   };

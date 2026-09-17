@@ -21,7 +21,7 @@ export type CatScaleFailure = { stage: 'extract' | 'insert' | 'parse' | 'project
 // So the artifact name must be delimited: preceded by '-' (or start of name) and
 // followed by '.' (end of the artifact name) or '-' (a discriminator such as the
 // container id in docker-inspect-<id>.txt).
-function artifactRegex(pattern: string): RegExp {
+export function artifactRegex(pattern: string): RegExp {
   const escaped = pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   return new RegExp(`(?:^|-)${escaped}(?=$|[.-])`);
 }

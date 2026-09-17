@@ -6,10 +6,10 @@ const { pool } = require('../config/database');
 
 const ELEVATED = new Set(['admin', 'team_lead']);
 
-async function canAccessCase(user, caseId) {
+async function canAccessCase(user, caseId, queryable = pool) {
   if (!user || !caseId) return false;
   if (ELEVATED.has(user.role)) return true;
-  const r = await pool.query(
+  const r = await queryable.query(
     `SELECT 1 FROM cases c
       WHERE c.id = $1
         AND ( c.investigator_id = $2

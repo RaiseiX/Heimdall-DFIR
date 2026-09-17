@@ -2,6 +2,7 @@ import type { Pool } from 'pg';
 import { PROMOTED_COLUMNS, promotionSql } from './catscaleInventoryPromotion';
 import { eventTimeSql } from './catscaleEventProjection';
 import { PROJECTED_TIMESTAMP_KINDS } from './catscaleArtifactRegistry';
+const { withCaseDeletion } = require('./caseDeletion');
 
 // Projects catscale_state into the SuperTimeline as undated inventory rows.
 //
@@ -73,7 +74,9 @@ export async function projectInventoryRows(
   caseId: string,
   evidenceId: string,
 ): Promise<number> {
-  await pool.query(PURGE_SQL, [caseId, evidenceId, PROJECTED_TIMESTAMP_KINDS]);
-  const res = await pool.query(PROJECT_SQL, [caseId, evidenceId]);
-  return res.rowCount ?? 0;
+  return withCaseDeletion(pool, caseId, async (client: Pick<Pool, 'query'>) => {
+    await client.query(PURGE_SQL, [caseId, evidenceId, PROJECTED_TIMESTAMP_KINDS]);
+    const res = await client.query(PROJECT_SQL, [caseId, evidenceId]);
+    return res.rowCount ?? 0;
+  });
 }

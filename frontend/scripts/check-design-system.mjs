@@ -34,6 +34,13 @@ const srcDir = path.join(root, 'src');
  * 2026-09-08 : une densite de ligne unique pour 11 tableaux. 4857 -> 4820, 203 -> 198,
  * 2009 -> 1984, du montant exact des baisses mesurees.
  * 2026-09-08, lot 4 : les pastilles des quatre derniers ecrans deviennent des mots colores
+ * Lot du 2026-09-17 (second) : suppression de 17 fichiers jamais atteints depuis
+ * `main.jsx` — 4 220 lignes, verifiees absentes du bundle servi. Les plafonds
+ * tombent mecaniquement : inlineStyle 4512 -> 4268, literalFontSize 1824 ->
+ * 1709, pictogramCode 145 -> 142, hardcodedText 112 -> 93. Ce n'est PAS un lot
+ * de migration : aucune dette n'a ete payee, du code mort a cesse d'etre
+ * compte. Les plafonds suivent quand meme, sinon ils cesseraient de mordre.
+ *
  * Lot du 2026-09-17 : `hardcodedText` entre en scene a 124, mesure initiale. Les
  * trois surfaces de la SuperTimeline (page, barre de commande, panneau de
  * detail) sont migrees dans le meme lot : 16 attributs et 8 noeuds de texte,
@@ -48,11 +55,11 @@ const srcDir = path.join(root, 'src');
  * les plafonds baissent de 125, 1 et 49. pictogramCode inchange a 145.
  */
 export const CEILINGS = {
-  inlineStyle: 4641,
+  inlineStyle: 4268,
   halfPixel: 193,
-  literalFontSize: 1896,
-  pictogramCode: 161,
-  hardcodedText: 112,
+  literalFontSize: 1709,
+  pictogramCode: 142,
+  hardcodedText: 93,
 };
 
 /**

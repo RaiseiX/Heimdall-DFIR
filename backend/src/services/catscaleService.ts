@@ -21,6 +21,7 @@ import { utmpDumpRow, lastlogRow } from './catscaleUtmpRow';
 import { hostUtcOffset } from './catscaleEventTime';
 import { parseDpkgLogLines, parseAptHistoryBlocks } from './catscalePackageLogs';
 import { parseAuthorizedKeys, parseTextLines } from './catscaleShapeParsers';
+const { withCaseDeletion } = require('./caseDeletion');
 
 const MONTHS: Record<string, number> = {
   Jan: 0, Feb: 1, Mar: 2, Apr: 3, May: 4, Jun: 5,
@@ -959,6 +960,7 @@ export async function parseCatScale(
       const n = await registerCollectionFiles(pool, catscaleRoot, caseId, link.evidenceId, prefix);
       logger.info(`[CatScale] coverage ledger: ${n} files registered before parsing`);
     } catch (e: any) {
+      if (e?.code === 'LEGAL_HOLD') throw e;
       logger.error(`[CatScale] coverage registration failed: ${e?.message ?? e}`);
       failures.push({ stage: 'insert', target: catscaleRoot, reason: `coverage: ${e?.message ?? e}` });
     }
@@ -969,14 +971,16 @@ export async function parseCatScale(
     // side by side, every occurrence-based count doubled. catscale_state has had
     // this guarantee since the atomicity fix; the timeline never did.
     try {
-      const purged = await pool.query(
-        'DELETE FROM collection_timeline WHERE case_id = $1::uuid AND evidence_id = $2::uuid',
-        [caseId, link.evidenceId],
-      );
+      const purged = await withCaseDeletion(pool, caseId, (client: Pick<Pool, 'query'>) =>
+        client.query(
+          'DELETE FROM collection_timeline WHERE case_id = $1::uuid AND evidence_id = $2::uuid',
+          [caseId, link.evidenceId],
+        ));
       if (purged.rowCount) {
         logger.info(`[CatScale] replacing ${purged.rowCount} timeline rows from a previous parse of this evidence`);
       }
     } catch (e: any) {
+      if (e?.code === 'LEGAL_HOLD') throw e;
       logger.error(`[CatScale] timeline purge failed: ${e?.message ?? e}`);
       failures.push({ stage: 'insert', target: catscaleRoot, reason: `timeline purge: ${e?.message ?? e}` });
     }
@@ -1353,6 +1357,7 @@ async function parseJournal(
           logger.info(`[CatScale] inventory: ${projected} undated rows projected into the timeline`);
           if (projected > 0) artifacts.push(`inventory:timeline (${projected})`);
         } catch (e: any) {
+          if (e?.code === 'LEGAL_HOLD') throw e;
           logger.error(`[CatScale] inventory projection failed: ${e?.message ?? e}`);
           failures.push({ stage: 'project', target: catscaleRoot, reason: `inventory projection: ${e?.message ?? e}` });
         }
@@ -1363,6 +1368,7 @@ async function parseJournal(
       if (n > 0) { totalEvents += n; artifacts.push(`docker:lifecycle (${n})`); }
     }
   } catch (e: any) {
+    if (e?.code === 'LEGAL_HOLD') throw e;
     // A state-collection failure must not be reported as "no containers found".
     //
     // Logged at error, not warn. On 2026-08-03 and again on 2026-08-13 this step
@@ -1392,6 +1398,7 @@ async function parseJournal(
         (skipped > 0 ? ` — ${skipped} ecartees : ` + net.skipped.map(s => `${s.count} ${s.reason}`).join(', ') : ''));
       if (net.inserted > 0) artifacts.push(`network:connections (${net.inserted})`);
     } catch (e: any) {
+      if (e?.code === 'LEGAL_HOLD') throw e;
       logger.error(`[CatScale] network projection failed: ${e?.message ?? e}`);
       failures.push({ stage: 'parse', target: catscaleRoot, reason: `network projection: ${e?.message ?? e}` });
     }

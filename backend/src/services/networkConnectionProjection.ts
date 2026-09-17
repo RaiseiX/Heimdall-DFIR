@@ -1,5 +1,6 @@
 import type { Pool } from 'pg';
 import { connectionFromRaw } from './networkConnectionRow';
+const { withCaseDeletion } = require('./caseDeletion');
 
 // Projette les lignes `catscale_network` de la timeline dans `network_connections`.
 //
@@ -66,45 +67,47 @@ export async function projectNetworkConnections(
     throw new Error('[networkConnectionProjection] refusing to run without a case and an evidence');
   }
 
-  const src = await pool.query(SOURCE_SQL, [caseId, evidenceId]);
+  return withCaseDeletion(pool, caseId, async (client: Pick<Pool, 'query'>) => {
+    const src = await client.query(SOURCE_SQL, [caseId, evidenceId]);
 
-  const srcIps: string[] = [], srcPorts: (number | null)[] = [];
-  const dstIps: string[] = [], dstPorts: (number | null)[] = [];
-  const protos: (string | null)[] = [], seen: (string | null)[] = [], notes: string[] = [];
-  const procs: (string | null)[] = [], states: (string | null)[] = [], srcHosts: (string | null)[] = [];
-  const tally = new Map<string, number>();
+    const srcIps: string[] = [], srcPorts: (number | null)[] = [];
+    const dstIps: string[] = [], dstPorts: (number | null)[] = [];
+    const protos: (string | null)[] = [], seen: (string | null)[] = [], notes: string[] = [];
+    const procs: (string | null)[] = [], states: (string | null)[] = [], srcHosts: (string | null)[] = [];
+    const tally = new Map<string, number>();
 
-  for (const row of src.rows) {
-    const r = connectionFromRaw(row.raw);
-    if (!r.ok) { tally.set(r.reason, (tally.get(r.reason) || 0) + 1); continue; }
-    srcIps.push(r.row.src_ip);   srcPorts.push(r.row.src_port);
-    dstIps.push(r.row.dst_ip);   dstPorts.push(r.row.dst_port);
-    protos.push(r.row.protocol);
+    for (const row of src.rows) {
+      const r = connectionFromRaw(row.raw);
+      if (!r.ok) { tally.set(r.reason, (tally.get(r.reason) || 0) + 1); continue; }
+      srcIps.push(r.row.src_ip);   srcPorts.push(r.row.src_port);
+      dstIps.push(r.row.dst_ip);   dstPorts.push(r.row.dst_port);
+      protos.push(r.row.protocol);
     // `ss` est une photographie : premiere et derniere observation sont le meme
     // instant. Ecrire deux dates differentes suggererait une duree qui n'a pas ete
     // mesuree — et c'est cette absence de duree qui rend le beaconing indisponible.
-    seen.push(row.timestamp ? new Date(row.timestamp).toISOString() : null);
-    procs.push(r.row.process);
-    states.push(r.row.socket_state);
-    srcHosts.push(r.row.src_host);
-    notes.push(r.row.notes);
-  }
+      seen.push(row.timestamp ? new Date(row.timestamp).toISOString() : null);
+      procs.push(r.row.process);
+      states.push(r.row.socket_state);
+      srcHosts.push(r.row.src_host);
+      notes.push(r.row.notes);
+    }
 
-  await pool.query(PURGE_SQL, [caseId, evidenceId]);
-  if (srcIps.length > 0) {
+    await client.query(PURGE_SQL, [caseId, evidenceId]);
+    if (srcIps.length > 0) {
     // Toutes les colonnes traversent le meme unnest : une longueur qui divergerait
     // decalerait silencieusement les valeurs d'une ligne sur l'autre, et une connexion
     // porterait le processus de sa voisine. C'est teste.
-    await pool.query(INSERT_SQL, [
-      caseId, evidenceId, srcIps, srcPorts, dstIps, dstPorts, protos, seen, procs, states, srcHosts, notes,
-    ]);
-  }
+      await client.query(INSERT_SQL, [
+        caseId, evidenceId, srcIps, srcPorts, dstIps, dstPorts, protos, seen, procs, states, srcHosts, notes,
+      ]);
+    }
 
-  return {
-    inserted: srcIps.length,
-    examined: src.rows.length,
-    skipped: [...tally.entries()]
-      .map(([reason, count]) => ({ reason, count }))
-      .sort((a, b) => b.count - a.count),
-  };
+    return {
+      inserted: srcIps.length,
+      examined: src.rows.length,
+      skipped: [...tally.entries()]
+        .map(([reason, count]) => ({ reason, count }))
+        .sort((a, b) => b.count - a.count),
+    };
+  });
 }

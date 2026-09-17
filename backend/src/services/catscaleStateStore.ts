@@ -1,4 +1,5 @@
 import type { Pool } from 'pg';
+const { withCaseDeletion } = require('./caseDeletion');
 
 // Point-in-time host state extracted from a CatScale collection. One row per
 // observed object: a kernel module, an open file, a verified package file, a
@@ -58,6 +59,11 @@ export async function insertStateRows(
   link: StateLink = {},
 ): Promise<number> {
   if (!rows.length) return 0;
+  if (!link.evidence_id) {
+    throw Object.assign(new Error('CatScale replacement requires evidence scope'), {
+      code: 'EVIDENCE_SCOPE_REQUIRED',
+    });
+  }
 
   // One transaction for the purge and every chunk, for two reasons.
   //
@@ -75,18 +81,10 @@ export async function insertStateRows(
   // the whole case — one case can hold several CatScale collections from
   // different hosts, and wiping a sibling host's inventory would be far worse
   // than the duplication this prevents.
-  const client = await pool.connect();
-  let inserted = 0;
-  try {
-    await client.query('BEGIN');
-
-    if (link.evidence_id) {
-      await client.query('DELETE FROM catscale_state WHERE case_id = $1::uuid AND evidence_id = $2::uuid',
-        [caseId, link.evidence_id]);
-    } else {
-      await client.query('DELETE FROM catscale_state WHERE case_id = $1::uuid AND host_name = $2::text',
-        [caseId, hostName]);
-    }
+  return withCaseDeletion(pool, caseId, async (client: Pick<Pool, 'query'>) => {
+    let inserted = 0;
+    await client.query('DELETE FROM catscale_state WHERE case_id = $1::uuid AND evidence_id = $2::uuid',
+      [caseId, link.evidence_id]);
 
     for (let i = 0; i < rows.length; i += CHUNK) {
       const chunk = rows.slice(i, i + CHUNK);
@@ -116,12 +114,6 @@ export async function insertStateRows(
       inserted += res.rowCount ?? 0;
     }
 
-    await client.query('COMMIT');
-  } catch (e) {
-    await client.query('ROLLBACK').catch(() => {});
-    throw e;
-  } finally {
-    client.release();
-  }
-  return inserted;
+    return inserted;
+  });
 }

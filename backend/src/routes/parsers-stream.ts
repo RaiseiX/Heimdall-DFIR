@@ -8,7 +8,8 @@ import { parserQueue } from '../config/queue';
 import { parserRateLimiter } from '../middleware/rateLimiter';
 
 const { authenticate } = require('../middleware/auth');
-const { caseAccessParam } = require('../middleware/caseAccess');
+const { caseAccessParam, canAccessCase } = require('../middleware/caseAccess');
+const { withCaseDeletion } = require('../services/caseDeletion');
 const router = express.Router();
 router.use(authenticate);
 router.param('caseId', caseAccessParam);
@@ -374,17 +375,28 @@ router.delete('/results/:resultId', async (req: AuthRequest, res: Response, next
   try {
     const pool = getPool(res);
     const { resultId } = req.params;
-
-    const deleted = await pool.query(
-      `DELETE FROM parser_results WHERE id = $1 RETURNING id, parser_name, record_count`,
-      [resultId]
+    const parent = await pool.query(
+      `SELECT case_id FROM parser_results WHERE id = $1`,
+      [resultId],
     );
-
-    if (deleted.rowCount === 0) {
+    if (parent.rowCount === 0) {
       return res.status(404).json({ error: 'Résultat introuvable' });
     }
+    const caseId = parent.rows[0].case_id;
+    if (!await canAccessCase(req.user, caseId)) {
+      return res.status(403).json({ error: 'Accès refusé' });
+    }
 
-    const row = deleted.rows[0];
+    const row = await withCaseDeletion(pool, caseId, async (client: Pick<Pool, 'query'>) => {
+      const deleted = await client.query(
+        `DELETE FROM parser_results WHERE id = $1 AND case_id = $2 RETURNING id, parser_name, record_count`,
+        [resultId, caseId],
+      );
+      if (deleted.rowCount === 0) {
+        throw Object.assign(new Error('Result not found'), { status: 404 });
+      }
+      return deleted.rows[0];
+    });
     res.json({
       success: true,
       deleted_id: row.id,
@@ -392,6 +404,10 @@ router.delete('/results/:resultId', async (req: AuthRequest, res: Response, next
       records_removed: row.record_count,
     });
   } catch (err) {
+    if ((err as any)?.code === 'LEGAL_HOLD') {
+      return res.status(409).json({ error: 'Suppression interdite : legal hold actif.', code: 'LEGAL_HOLD' });
+    }
+    if ((err as any)?.status === 404) return res.status(404).json({ error: 'Résultat introuvable' });
     next(err);
   }
 });

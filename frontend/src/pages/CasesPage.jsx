@@ -119,7 +119,7 @@ export default function CasesPage({ user }) {
     const results = [];
     for (const c of selectedCases) {
       try {
-        const { data } = await casesAPI.hardDelete(c.id);
+        const { data } = await casesAPI.hardDelete(c.id, c.case_number);
         let verified = false;
         try { await casesAPI.get(c.id); verified = false; }
         catch (verErr) { verified = verErr.response?.status === 404; }

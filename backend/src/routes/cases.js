@@ -1354,10 +1354,11 @@ router.post('/:id/legal-hold', authenticate, requireRole('admin'), async (req, r
     const c = caseRes.rows[0];
     if (c.legal_hold) return res.status(409).json({ error: 'Legal hold déjà actif sur ce cas' });
 
-    await pool.query(
-      'UPDATE cases SET legal_hold = TRUE, legal_hold_at = NOW(), legal_hold_by = $1 WHERE id = $2',
+    const updated = await pool.query(
+      'UPDATE cases SET legal_hold = TRUE, legal_hold_at = NOW(), legal_hold_by = $1 WHERE id = $2 RETURNING id',
       [req.user.id, req.params.id]
     );
+    if (!updated.rowCount) return res.status(404).json({ error: 'Cas introuvable' });
 
     await auditLog(req.user.id, 'legal_hold_enable', 'case', req.params.id,
       { reason: reason || null }, req.ip);
@@ -1579,17 +1580,26 @@ router.get('/:id/export/anonymized', authenticate, async (req, res) => {
 
 router.delete('/:id/hard-delete', authenticate, requireRole('admin'), async (req, res) => {
   try {
-    const result = await hardDeleteCase(pool, req.params.id, req.user.id, req.ip);
+    const confirmation = req.body?.confirmation;
+    if (typeof confirmation !== 'string' || !confirmation.trim()) {
+      return res.status(400).json({ error: 'Confirmation destructive requise.', code: 'DESTRUCTIVE_CONFIRMATION_REQUIRED' });
+    }
+    const result = await hardDeleteCase(pool, req.params.id, req.user.id, req.ip, { confirmation });
     req.app.locals.io?.emit('dashboard:update');
     res.json({
       message: `Cas ${result.caseNumber} détruit de manière permanente.`,
       files_destroyed: result.filesDestroyed,
+      files_already_absent: result.filesAlreadyAbsent,
       files_errors: result.filesErrors,
+      operation_id: result.operationId,
     });
   } catch (err) {
     if (err.status === 404) return res.status(404).json({ error: 'Cas introuvable' });
+    if (err.code === 'DESTRUCTIVE_CONFIRMATION_REQUIRED') return res.status(400).json({ error: 'Confirmation destructive invalide.', code: err.code });
+    if (err.code === 'LEGAL_HOLD') return res.status(409).json({ error: 'Suppression interdite : legal hold actif.', code: err.code });
+    if (err.code === 'DELETION_INCOMPLETE') return res.status(502).json({ error: 'Suppression incomplète. Les références du dossier sont conservées pour la reprise.', code: err.code, operation_id: err.operationId || null });
     logger.error('Hard delete error:', err);
-    res.status(500).json({ error: 'Erreur lors de la destruction définitive: ' + err.message });
+    res.status(500).json({ error: 'Erreur lors de la destruction définitive.' });
   }
 });
 

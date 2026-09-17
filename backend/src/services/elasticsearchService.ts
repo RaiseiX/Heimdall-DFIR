@@ -174,7 +174,7 @@ export async function deleteIndex(caseId: string, options: { strict?: boolean } 
   }
 }
 
-export async function deleteByResultId(caseId: string, resultId: string): Promise<void> {
+export async function deleteByResultId(caseId: string, resultId: string, options: { strict?: boolean } = {}): Promise<void> {
   try {
     const client = getClient();
     const index  = indexFor(caseId);
@@ -187,6 +187,7 @@ export async function deleteByResultId(caseId: string, resultId: string): Promis
     });
     logger.info(`[ES] deleteByResultId: cleared result_id=${resultId} from ${index}`);
   } catch (e: any) {
+    if (options.strict) throw e;
     logger.warn(`[ES] deleteByResultId warning (${caseId}/${resultId}): ${String(e.message).substring(0, 100)}`);
   }
 }

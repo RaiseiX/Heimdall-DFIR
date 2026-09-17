@@ -19,11 +19,12 @@ import { ruleSelect } from '../services/sigmaRuleFields';
 import { parseRule, buildQuery, huntPlan, presentFieldsQuery } from '../services/sigmaService';
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const { platformForArtifactType } = require('../services/artifactPlatform');
+const { withCaseDeletion } = require('../services/caseDeletion');
 
 const router = express.Router();
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
-const { caseAccessParam } = require('../middleware/caseAccess');
+const { caseAccessParam, canAccessCase } = require('../middleware/caseAccess');
 router.use(authenticate as any);
 router.param('caseId', caseAccessParam);
 
@@ -215,6 +216,10 @@ router.post('/yara/scan/:evidenceId', authenticate, (requireRole as any)('analys
     );
     if (evResult.rows.length === 0) return res.status(404).json({ error: 'Evidence introuvable' });
     const ev = evResult.rows[0];
+    const user = (req as AuthRequest).user;
+    if (!await canAccessCase(user, ev.case_id, pool)) {
+      return res.status(403).json({ error: 'Accès refusé : ce cas ne vous est pas attribué.' });
+    }
 
     const rulesResult = await pool.query(
       'SELECT id, name, content FROM yara_rules WHERE is_active = true',
@@ -223,9 +228,8 @@ router.post('/yara/scan/:evidenceId', authenticate, (requireRole as any)('analys
       return res.json({ matches: [], message: 'Aucune règle YARA active' });
     }
 
-    await pool.query('DELETE FROM yara_scan_results WHERE evidence_id = $1', [evidenceId]);
-
     const matches: any[] = [];
+    const pendingMatches: Array<[string, string, string, string, string]> = [];
     let rulesErrored = 0;
     const errorReasons = new Map<string, number>();
     for (const rule of rulesResult.rows) {
@@ -237,14 +241,24 @@ router.post('/yara/scan/:evidenceId', authenticate, (requireRole as any)('analys
         continue;
       }
       if (scanResult.matched) {
-        await pool.query(
-          `INSERT INTO yara_scan_results (evidence_id, case_id, rule_id, rule_name, matched_strings)
-           VALUES ($1, $2, $3, $4, $5)`,
-          [evidenceId, ev.case_id, rule.id, rule.name, JSON.stringify(scanResult.strings)],
-        );
+        pendingMatches.push([evidenceId, ev.case_id, rule.id, rule.name, JSON.stringify(scanResult.strings)]);
         matches.push({ rule_id: rule.id, rule_name: rule.name, strings: scanResult.strings });
       }
     }
+
+    await withCaseDeletion(pool, ev.case_id, async (client: Pick<Pool, 'query'>) => {
+      if (!await canAccessCase(user, ev.case_id, client)) {
+        throw Object.assign(new Error('Case access denied'), { status: 403, code: 'CASE_ACCESS_DENIED' });
+      }
+      await client.query('DELETE FROM yara_scan_results WHERE evidence_id = $1', [evidenceId]);
+      for (const values of pendingMatches) {
+        await client.query(
+          `INSERT INTO yara_scan_results (evidence_id, case_id, rule_id, rule_name, matched_strings)
+           VALUES ($1, $2, $3, $4, $5)`,
+          values,
+        );
+      }
+    });
 
     const outcome = yaraScanOutcome({
       rulesChecked: rulesResult.rows.length,
@@ -269,7 +283,9 @@ router.post('/yara/scan/:evidenceId', authenticate, (requireRole as any)('analys
       matches,
     });
   } catch (e: any) {
-    res.status(500).json({ error: e.message });
+    if (e?.code === 'CASE_ACCESS_DENIED') return res.status(403).json({ error: 'Accès refusé : ce cas ne vous est pas attribué.' });
+    if (e?.code === 'LEGAL_HOLD') return res.status(409).json({ error: 'Suppression interdite : legal hold actif.', code: 'LEGAL_HOLD' });
+    res.status(500).json({ error: 'Erreur serveur' });
   }
 });
 
@@ -282,6 +298,7 @@ router.post('/yara/scan-case/:caseId', authenticate, (requireRole as any)('analy
   try {
     const { caseId } = req.params;
     const pool = poolMig(req);
+    await withCaseDeletion(pool, caseId, async () => {});
 
     const [evResult, rulesResult] = await Promise.all([
       pool.query('SELECT id, file_path, name, file_size, evidence_type FROM evidence WHERE case_id = $1', [caseId]),
@@ -327,9 +344,8 @@ router.post('/yara/scan-case/:caseId', authenticate, (requireRole as any)('analy
       skipped_size: skippedSize,
     });
 
-    await pool.query('DELETE FROM yara_scan_results WHERE case_id = $1', [caseId]);
-
     const summary: any[] = [];
+    const pendingMatches: Array<[string, string, string, string, string]> = [];
     // Live tally for the UI's progress band (mirrors Sigma's `matched_so_far`/
     // `critical_so_far` — see `/sigma/scan-case` above), cumulative over every
     // evidence file fully scanned BEFORE the one this `progress` frame names.
@@ -359,11 +375,7 @@ router.post('/yara/scan-case/:caseId', authenticate, (requireRole as any)('analy
           continue;
         }
         if (scanResult.matched) {
-          await pool.query(
-            `INSERT INTO yara_scan_results (evidence_id, case_id, rule_id, rule_name, matched_strings)
-             VALUES ($1, $2, $3, $4, $5)`,
-            [ev.id, caseId, rule.id, rule.name, JSON.stringify(scanResult.strings)],
-          );
+          pendingMatches.push([ev.id, caseId, rule.id, rule.name, JSON.stringify(scanResult.strings)]);
           fileMatches.push({ rule_name: rule.name, count: scanResult.strings.length });
         }
       }
@@ -371,6 +383,17 @@ router.post('/yara/scan-case/:caseId', authenticate, (requireRole as any)('analy
       matchesSoFar += fileMatches.length;
       if (fileMatches.length > 0) filesFlaggedSoFar++;
     }
+
+    await withCaseDeletion(pool, caseId, async (client: Pick<Pool, 'query'>) => {
+      await client.query('DELETE FROM yara_scan_results WHERE case_id = $1', [caseId]);
+      for (const values of pendingMatches) {
+        await client.query(
+          `INSERT INTO yara_scan_results (evidence_id, case_id, rule_id, rule_name, matched_strings)
+           VALUES ($1, $2, $3, $4, $5)`,
+          values,
+        );
+      }
+    });
 
     const scanned = summary.filter(s => !s.skipped).length;
     const skipped = summary.filter(s => s.skipped).length;
@@ -390,7 +413,12 @@ router.post('/yara/scan-case/:caseId', authenticate, (requireRole as any)('analy
     });
     res.end();
   } catch (e: any) {
-    send({ type: 'error', error: e.message });
+    if (e?.code === 'LEGAL_HOLD') {
+      send({ type: 'error', error: 'Case is under legal hold', code: 'LEGAL_HOLD' });
+      return res.end();
+    }
+    logger.error('[YARA] case scan failed:', e?.code || e?.name || 'YARA_SCAN_FAILED');
+    send({ type: 'error', error: 'YARA scan failed', code: 'YARA_SCAN_FAILED' });
     res.end();
   }
 });
@@ -416,16 +444,23 @@ router.get('/yara/results/:caseId', authenticate, async (req, res) => {
 router.get('/yara/results/evidence/:evidenceId', authenticate, async (req, res) => {
   try {
     const { evidenceId } = req.params;
-    const result = await poolMig(req).query(
+    const pool = poolMig(req);
+    const parent = await pool.query('SELECT case_id FROM evidence WHERE id = $1', [evidenceId]);
+    if (!parent.rows.length) return res.status(404).json({ error: 'Evidence introuvable' });
+    const caseId = parent.rows[0].case_id;
+    if (!await canAccessCase((req as unknown as AuthRequest).user, caseId, pool)) {
+      return res.status(403).json({ error: 'Accès refusé : ce cas ne vous est pas attribué.' });
+    }
+    const result = await pool.query(
       `SELECT id, rule_id, rule_name, matched_strings, scanned_at
          FROM yara_scan_results
-        WHERE evidence_id = $1
+        WHERE evidence_id = $1 AND case_id = $2
         ORDER BY scanned_at DESC`,
-      [evidenceId],
+      [evidenceId, caseId],
     );
     res.json({ results: result.rows });
-  } catch (e: any) {
-    res.status(500).json({ error: e.message });
+  } catch {
+    res.status(500).json({ error: 'Erreur serveur' });
   }
 });
 

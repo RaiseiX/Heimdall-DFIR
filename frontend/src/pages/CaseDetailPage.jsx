@@ -1983,7 +1983,7 @@ export default function CaseDetailPage({ user }) {
                 onClick={async () => {
                   setHardDeleting(true);
                   try {
-                    const { data } = await casesAPI.hardDelete(id);
+                    const { data } = await casesAPI.hardDelete(id, hardDeleteConfirm);
                     let verified = false;
                     try {
                       await casesAPI.get(id);

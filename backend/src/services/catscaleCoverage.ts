@@ -5,6 +5,7 @@ import { pipeline } from 'stream/promises';
 import type { Pool } from 'pg';
 import { buildSourcePath } from './catscaleSourcePath';
 import type { CatScaleFailure } from './catscaleFiles';
+const { withCaseDeletion } = require('./caseDeletion');
 
 // ingestion_files is the coverage ledger. One row per file, written before any
 // parsing is attempted, so that a parse dying in flight still leaves a record of
@@ -86,10 +87,8 @@ export async function registerCollectionFiles(
     statuses.push(size === 0 ? 'empty' : 'received');
   }
 
-  const client = await pool.connect();
-  let inserted = 0;
-  try {
-    await client.query('BEGIN');
+  return withCaseDeletion(pool, caseId, async (client: Pick<Pool, 'query'>) => {
+    let inserted = 0;
     await client.query('DELETE FROM ingestion_files WHERE case_id = $1::uuid AND evidence_id = $2::uuid',
       [caseId, evidenceId]);
 
@@ -106,14 +105,8 @@ export async function registerCollectionFiles(
       );
       inserted += res.rowCount ?? 0;
     }
-    await client.query('COMMIT');
-  } catch (e) {
-    await client.query('ROLLBACK').catch(() => {});
-    throw e;
-  } finally {
-    client.release();
-  }
-  return inserted;
+    return inserted;
+  });
 }
 
 /**

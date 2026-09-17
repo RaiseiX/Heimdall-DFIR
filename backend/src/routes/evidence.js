@@ -8,11 +8,22 @@ const { pool } = require('../config/database');
 const { authenticate, auditLog } = require('../middleware/auth');
 const { processMemoryDump } = require('../services/volwebService');
 const { safeBasename } = require('../services/uploadService');
+const { deleteMinioLocator } = require('../services/deletionStorage');
+const { planEvidenceDeletion } = require('../services/evidenceDeletionPlan');
+const { assertConfinedPathSync } = require('../services/storagePathGuard');
+const {
+  withCaseDeletion,
+  beginDeletionOperation,
+  markDeletionItem,
+  markDeletionOperation,
+  findCompletedDeletionOperation,
+  safeErrorCode,
+} = require('../services/caseDeletion');
 
 const logger = require('../config/logger').default;
 const router = express.Router();
 
-const { caseAccessParam } = require('../middleware/caseAccess');
+const { caseAccessParam, canAccessCase } = require('../middleware/caseAccess');
 router.use(authenticate);
 router.param('caseId', caseAccessParam);
 
@@ -40,21 +51,6 @@ function getMinioStream() {
     secretKey,
   });
   return { minio: _minioStream, bucket: _bucketStream };
-}
-
-async function removeMinioObject(objectKey) {
-  try {
-    const { minio, bucket } = getMinioStream();
-    await new Promise((resolve, reject) => {
-      minio.removeObject(bucket, objectKey, (err) => {
-        if (err && err.code !== 'NoSuchKey') return reject(err);
-        resolve();
-      });
-    });
-    logger.info(`[MinIO] Objet supprimé : ${objectKey}`);
-  } catch (err) {
-    logger.warn(`[MinIO] Impossible de supprimer "${objectKey}" : ${err.message}`);
-  }
 }
 
 function streamPartToMinio(minio, bucket, objectKey, partStream) {
@@ -566,63 +562,108 @@ router.post('/:id/comments', authenticate, async (req, res) => {
 
 // ── DELETE /:id ───────────────────────────────────────────────────────────────
 router.delete('/:id', authenticate, async (req, res) => {
+  let operationId = null;
+  let operationPrepared = false;
   try {
-    const row = await pool.query(
-      'SELECT file_path, name, additional_files FROM evidence WHERE id = $1',
-      [req.params.id]
-    );
-    if (row.rows.length === 0) return res.status(404).json({ error: 'Preuve introuvable' });
-
-    const { file_path, name, additional_files } = row.rows[0];
-
-    // ── Delete main file ──────────────────────────────────────────────────
-    if (file_path) {
-      if (file_path.startsWith('minio://')) {
-        const objectKey = file_path.replace(/^minio:\/\/[^/]+\//, '');
-        await removeMinioObject(objectKey);
-      } else if (fs.existsSync(file_path)) {
-        const stat = fs.statSync(file_path);
-        if (stat.isDirectory()) {
-          fs.rmSync(file_path, { recursive: true, force: true });
-        } else {
-          fs.unlinkSync(file_path);
-        }
-        logger.info(`[Evidence] Fichier disque supprimé : ${file_path}`);
-      }
+    const parent = await pool.query('SELECT case_id FROM evidence WHERE id = $1', [req.params.id]);
+    if (!parent.rows.length) {
+      const completed = await findCompletedDeletionOperation(pool, {
+        operationType: 'delete_evidence', targetId: req.params.id, requestedBy: req.user.id,
+      });
+      if (completed) return res.json({ success: true, operation_id: completed.id });
+      return res.status(404).json({ error: 'Preuve introuvable' });
     }
+    const caseId = parent.rows[0].case_id;
+    if (!await canAccessCase(req.user, caseId)) {
+      return res.status(403).json({ error: 'Accès refusé : ce cas ne vous est pas attribué.' });
+    }
+    const name = await withCaseDeletion(pool, caseId, async client => {
+      const row = await client.query(
+        'SELECT file_path, name, additional_files FROM evidence WHERE id = $1 AND case_id = $2 FOR UPDATE',
+        [req.params.id, caseId]
+      );
+      if (!row.rows.length) throw Object.assign(new Error('Preuve introuvable'), { status: 404 });
 
-    // ── Delete additional files ────────────────────────────────────────────
-    let additionals = [];
-    try {
-      additionals = typeof additional_files === 'string'
-        ? JSON.parse(additional_files)
-        : (additional_files || []);
-    } catch { additionals = []; }
+      const evidence = row.rows[0];
+      const { name } = evidence;
+      let targets;
+      try {
+        targets = planEvidenceDeletion(evidence);
+      } catch {
+        throw Object.assign(new Error('Suppression incomplète'), { status: 502, code: 'DELETION_INCOMPLETE' });
+      }
 
-    for (const af of additionals) {
-      if (af.object_key) {
-        await removeMinioObject(af.object_key);
-      } else if (af.name) {
-        const dir      = file_path && !file_path.startsWith('minio://') ? path.dirname(file_path) : null;
-        const fullPath = dir ? path.join(dir, safeBasename(af.name)) : null;
-        if (fullPath && fs.existsSync(fullPath)) {
-          fs.unlinkSync(fullPath);
-          logger.info(`[Evidence] Fichier additionnel disque supprimé : ${fullPath}`);
+      const operation = await beginDeletionOperation(pool, {
+        operationType: 'delete_evidence',
+        caseId,
+        targetId: req.params.id,
+        requestedBy: req.user.id,
+        requestIp: req.ip,
+        context: { evidence_id: req.params.id },
+        items: targets,
+      });
+      operationId = operation.id;
+
+      for (const item of operation.items) {
+        if (item.status === 'deleted' || item.status === 'already_absent') continue;
+        await markDeletionItem(pool, operation.id, item.item_key, 'running');
+        try {
+          let result;
+          if (item.kind === 'minio') {
+            result = await deleteMinioLocator(item.locator);
+          } else {
+            const uploadRoot = path.resolve(process.env.UPLOAD_DIR || '/app/uploads');
+            const resolved = path.resolve(item.locator);
+            if (!resolved.startsWith(uploadRoot + path.sep)) {
+              throw Object.assign(new Error('Storage target outside upload root'), { code: 'STORAGE_PATH_REJECTED' });
+            }
+            if (!fs.existsSync(resolved)) {
+              result = { status: 'already_absent', method: 'none' };
+            } else {
+              assertConfinedPathSync(uploadRoot, resolved);
+              const stat = fs.lstatSync(resolved);
+              if (stat.isSymbolicLink() || (!stat.isFile() && !stat.isDirectory())) {
+                throw Object.assign(new Error('Unsupported storage target'), { code: 'UNSUPPORTED_STORAGE_TARGET' });
+              }
+              if (stat.isDirectory()) fs.rmSync(resolved, { recursive: true, force: true });
+              else fs.unlinkSync(resolved);
+              result = { status: 'deleted', method: stat.isDirectory() ? 'rmdir' : 'unlink' };
+            }
+          }
+          await markDeletionItem(pool, operation.id, item.item_key, result.status, result.method);
+        } catch (error) {
+          const code = safeErrorCode(error);
+          try { await markDeletionItem(pool, operation.id, item.item_key, 'failed', null, code); } catch (journalError) {
+            logger.error('[Evidence] deletion journal failure:', safeErrorCode(journalError));
+          }
+          throw Object.assign(new Error('Suppression incomplète'), { status: 502, code: 'DELETION_INCOMPLETE' });
         }
       }
-    }
 
-    // ── Delete from DB ─────────────────────────────────────────────────────
-    await pool.query('DELETE FROM evidence_comments WHERE evidence_id = $1', [req.params.id]);
-    await pool.query('DELETE FROM parser_results WHERE evidence_id = $1', [req.params.id]);
-    await pool.query('UPDATE timeline_events SET evidence_id = NULL WHERE evidence_id = $1', [req.params.id]);
-    await pool.query('DELETE FROM evidence WHERE id = $1', [req.params.id]);
+      await markDeletionOperation(pool, operation.id, 'ready_to_commit');
+      operationPrepared = true;
+      await client.query('DELETE FROM evidence_comments WHERE evidence_id = $1', [req.params.id]);
+      await client.query('DELETE FROM parser_results WHERE evidence_id = $1', [req.params.id]);
+      await client.query('UPDATE timeline_events SET evidence_id = NULL WHERE evidence_id = $1', [req.params.id]);
+      await client.query('DELETE FROM evidence WHERE id = $1', [req.params.id]);
+      await markDeletionOperation(client, operation.id, 'completed');
+      return name;
+    });
 
     await auditLog(req.user.id, 'delete_evidence', 'evidence', req.params.id, { name }, req.ip);
     res.json({ success: true });
   } catch (err) {
+    if (operationId && !operationPrepared) {
+      try { await markDeletionOperation(pool, operationId, 'incomplete', safeErrorCode(err)); } catch (journalError) {
+        logger.error('[Evidence] operation journal failure:', safeErrorCode(journalError));
+      }
+    }
+    if (err.code === 'DELETION_INCOMPLETE') return res.status(502).json({ error: 'Suppression incomplète. Réessayez ultérieurement.', code: err.code, operation_id: operationId });
+    if (err.code === 'LEGAL_HOLD') return res.status(409).json({ error: 'Suppression interdite : legal hold actif.', code: err.code });
+    if (err.status === 404) return res.status(404).json({ error: 'Preuve ou dossier introuvable' });
+    if (operationId) return res.status(502).json({ error: 'Suppression incomplète. Réessayez ultérieurement.', code: 'DELETION_INCOMPLETE', operation_id: operationId });
     logger.error('Delete evidence error:', err);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Erreur serveur' });
   }
 });
 
