@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { timelinePivotUrl } from '../../utils/timelinePivot';
 import { entreeProcessus } from '../../utils/notebookEntry';
-import { notebookAPI } from '../../utils/api';
+import { notebookAPI, iocsAPI } from '../../utils/api';
 import { collectionAPI } from '../../utils/api';
 import { controlStyle } from '../ui/controlIdiom';
 import { buildTreeRows, markKernel, collapsibleIds, filtrerProcessus } from './processTree';
@@ -34,6 +34,7 @@ const ETIQ = {
   color: 'var(--fl-dim)', marginBottom: 3,
 };
 const VAL = { fontFamily: MONO, fontSize: 11, wordBreak: 'break-all', marginBottom: 12 };
+const NOTE = { fontSize: 11, color: 'var(--fl-dim)', lineHeight: 1.5, marginBottom: 12 };
 
 export default function CollectionProcessesTab({ caseId, collectionId }) {
   const navigate = useNavigate();
@@ -54,6 +55,7 @@ export default function CollectionProcessesTab({ caseId, collectionId }) {
   const [fichiers, setFichiers] = useState(null);
   const [fichiersPour, setFichiersPour] = useState(null);
   const [carnet, setCarnet] = useState(null);
+  const [iocHash, setIocHash] = useState(null);
   const [seulSupprime, setSeulSupprime] = useState(false);
   const [evts, setEvts] = useState(null);
   const [evtsPour, setEvtsPour] = useState(null);
@@ -141,6 +143,19 @@ export default function CollectionProcessesTab({ caseId, collectionId }) {
     procExposes: procs.filter(p => Number(p.net_listen_exposed) > 0).length,
     procExternes: procs.filter(p => Number(p.net_estab_external) > 0).length,
   }), [procs, comptes]);
+
+  useEffect(() => {
+    if (!caseId) return;
+    iocsAPI.hashMatches(caseId)
+      .then(r => setIocHash(r.data))
+      .catch(() => setIocHash({ matches: [], unmatchable: [], erreur: true }));
+  }, [caseId]);
+
+  const parSha1 = useMemo(() => {
+    const m = new Map();
+    for (const x of (iocHash?.matches || [])) m.set(x.sha1, x);
+    return m;
+  }, [iocHash]);
 
   const versLeCarnet = (p) => {
     setCarnet('envoi');
@@ -378,12 +393,12 @@ export default function CollectionProcessesTab({ caseId, collectionId }) {
                       {t('processes.to_notebook')}
                     </button>
                     {carnet === 'ok' && (
-                      <span style={{ fontSize: 11, color: 'var(--fl-ok)', alignSelf: 'center' }}>
+                      <span style={{ ...NOTE, marginBottom: 0, color: 'var(--fl-ok)', alignSelf: 'center' }}>
                         {t('notebook.sent')}
                       </span>
                     )}
                     {carnet === 'echec' && (
-                      <span role="alert" style={{ fontSize: 11, color: 'var(--fl-danger)', alignSelf: 'center' }}>
+                      <span role="alert" style={{ ...NOTE, marginBottom: 0, color: 'var(--fl-danger)', alignSelf: 'center' }}>
                         {t('notebook.send_failed')}
                       </span>
                     )}
@@ -401,7 +416,7 @@ export default function CollectionProcessesTab({ caseId, collectionId }) {
                   </>
                 )}
                 {selection.exe_deleted && (
-                  <div style={{ fontSize: 11, color: 'var(--fl-dim)', lineHeight: 1.5, marginBottom: 12 }}>
+                  <div style={NOTE}>
                     {t('processes.binary_deleted_note')}
                   </div>
                 )}
@@ -412,10 +427,27 @@ export default function CollectionProcessesTab({ caseId, collectionId }) {
                       {selection.sha1}
                     </div>
                     {selection.exe_deleted && (
-                      <div style={{ fontSize: 11, color: 'var(--fl-dim)', lineHeight: 1.5, marginBottom: 12 }}>
+                      <div style={NOTE}>
                         {t('processes.sha1_from_memory')}
                       </div>
                     )}
+                    {iocHash && (parSha1.has(selection.sha1) ? (
+                      <div role="alert" style={{ ...VAL, color: 'var(--fl-danger)' }}>
+                        {t('processes.ioc_match')}
+                        {parSha1.get(selection.sha1).severity != null
+                          ? ` · ${t('processes.ioc_match_sev', { sev: parSha1.get(selection.sha1).severity })}`
+                          : ''}
+                      </div>
+                    ) : (
+                      <div style={NOTE}>
+                        {t('processes.ioc_none')}
+                        {(iocHash.unmatchable || []).map(u => (
+                          <div key={u.ioc_type} style={{ color: 'var(--fl-warning, var(--fl-dim))', marginTop: 4 }}>
+                            {t('processes.ioc_unmatchable', { n: u.total, type: u.ioc_type.replace('hash_', '').toUpperCase() })}
+                          </div>
+                        ))}
+                      </div>
+                    ))}
                     {Number(selection.sha1_names) > 1 && (
                       <>
                         <div style={ETIQ}>{t('processes.sha1_also_as')}</div>
@@ -423,14 +455,14 @@ export default function CollectionProcessesTab({ caseId, collectionId }) {
                           {[...(nomsParSha1.get(selection.sha1) || [])]
                             .filter(n => n !== selection.name).join(', ') || '—'}
                         </div>
-                        <div style={{ fontSize: 11, color: 'var(--fl-dim)', lineHeight: 1.5, marginBottom: 12 }}>
+                        <div style={NOTE}>
                           {t('processes.sha1_shared_note')}
                         </div>
                       </>
                     )}
                   </>
                 )}
-                <div style={{ fontSize: 11, color: 'var(--fl-dim)', lineHeight: 1.5, marginBottom: 12 }}>
+                <div style={NOTE}>
                   {t('processes.pivot_why_no_pid')}
                 </div>
                 {(socketsParPid.get(selection.pid) || []).length > 0 && (
@@ -476,17 +508,17 @@ export default function CollectionProcessesTab({ caseId, collectionId }) {
                   </>
                 )}
                 {Number(selection.net_listen_exposed) > 0 && (
-                  <div style={{ fontSize: 11, color: 'var(--fl-dim)', lineHeight: 1.5, marginBottom: 12 }}>
+                  <div style={NOTE}>
                     {t('processes.net_exposed_note')}
                   </div>
                 )}
                 {Number(selection.net_estab_external) > 0 && Number(selection.net_listen_exposed) === 0 && (
-                  <div style={{ fontSize: 11, color: 'var(--fl-dim)', lineHeight: 1.5, marginBottom: 12 }}>
+                  <div style={NOTE}>
                     {t('processes.net_external_note')}
                   </div>
                 )}
                 {selection.exe_unreadable && !selection.exe && (
-                  <div style={{ fontSize: 11, color: 'var(--fl-dim)', lineHeight: 1.5, marginBottom: 12 }}>
+                  <div style={NOTE}>
                     {t('processes.binary_unreadable_note')}
                   </div>
                 )}
@@ -546,7 +578,7 @@ export default function CollectionProcessesTab({ caseId, collectionId }) {
                           </tbody>
                         </table>
                         {fichiers.files.some(f => f.memfd) && (
-                          <div style={{ fontSize: 11, color: 'var(--fl-dim)', lineHeight: 1.5, marginTop: 6 }}>
+                          <div style={{ ...NOTE, marginBottom: 0, marginTop: 6 }}>
                             {t('processes.files_memfd_note')}
                           </div>
                         )}

@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { controlStyle, controlHover } from '../components/ui/controlIdiom';
 import { useParams, useSearchParams, useOutletContext } from 'react-router-dom';
 import { QUERY_KEYS } from '../components/supertimeline/utils/timelineFilterKeys';
+import TimelineHeatmap from '../components/timeline/TimelineHeatmap';
 import { useTimelineStore } from '../components/supertimeline/store/useTimelineStore';
 import { splitCounts } from '../components/supertimeline/utils/timelineUtils';
 import { timelineRulesAPI } from '../utils/api';
@@ -22,8 +23,10 @@ export default function SuperTimelinePage() {
   const [searchParams] = useSearchParams();
   const shellCtx = useOutletContext() || {};
   const routeCaseId = shellCtx.caseId || routeId || routeCaseId_;
-  const { setCaseId, setFilter, setColorRules, loadTimeline } = useTimelineStore();
+  const { setCaseId, setFilter, setColorRules, loadTimeline, loadHostTime,
+          artifactTypes, startTime, endTime } = useTimelineStore();
   const [showDiff, setShowDiff] = useState(false);
+  const [showHeatmap, setShowHeatmap] = useState(false);
 
   useEffect(() => {
     const caseId = routeCaseId || searchParams.get('caseId');
@@ -46,19 +49,26 @@ export default function SuperTimelinePage() {
         setColorRules(sortRules(Array.isArray(rules) ? rules : []));
       })
       .catch(() => setColorRules([]))
-      .finally(() => loadTimeline());
+      .finally(() => { loadTimeline(); loadHostTime(); });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [routeCaseId, routeEvidenceId]);
 
   return (
     <div style={{ height: '100%', background: 'var(--fl-bg)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-      <HeaderStrip showDiff={showDiff} setShowDiff={setShowDiff} />
+      <HeaderStrip showDiff={showDiff} setShowDiff={setShowDiff}
+        showHeatmap={showHeatmap} setShowHeatmap={setShowHeatmap} />
       <CommandBar />
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
         <EventGrid />
         <DetailPanel />
         <ContextPanel />
       </div>
+      {showHeatmap && (
+        <div style={{ borderTop: '1px solid var(--fl-border)', background: 'var(--fl-panel)', overflowX: 'auto', flexShrink: 0 }}>
+          <TimelineHeatmap caseId={routeCaseId} availTypes={artifactTypes}
+            startTime={startTime} endTime={endTime} />
+        </div>
+      )}
       {showDiff && <TimelineDiff caseId={routeCaseId} />}
       <StatusBar />
     </div>
@@ -67,7 +77,7 @@ export default function SuperTimelinePage() {
 
 const fmtCount = (n, locale) => Number(n || 0).toLocaleString(locale || undefined);
 
-function HeaderStrip({ showDiff, setShowDiff }) {
+function HeaderStrip({ showDiff, setShowDiff, showHeatmap, setShowHeatmap }) {
   const { t, i18n } = useTranslation();
   const { total, undated, caseId, nature, setNature } = useTimelineStore();
   const { dated } = splitCounts(total, undated);
@@ -115,6 +125,12 @@ function HeaderStrip({ showDiff, setShowDiff }) {
         </div>
       )}
       <div style={{ flex: 1 }} />
+      <button
+        onClick={() => setShowHeatmap(v => !v)}
+        title={t('timeline.heatmap_title')}
+        aria-pressed={showHeatmap}
+        style={controlStyle(showHeatmap)} {...controlHover(showHeatmap)}
+      >{t('timeline.heatmap_label')}</button>
       <button
         onClick={() => setShowDiff(v => !v)}
         title={t('timeline.diff_title')}

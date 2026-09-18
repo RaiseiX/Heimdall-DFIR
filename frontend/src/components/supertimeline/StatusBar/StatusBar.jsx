@@ -11,13 +11,16 @@ const DENSITY_ICONS = {
   relaxed: StretchHorizontal,
 };
 
+const ETAT = { fontSize: 9, color: 'var(--fl-muted)' };
+const ETAT_RANG = { ...ETAT, display: 'flex', alignItems: 'center', gap: 4 };
+
 export default function StatusBar() {
   const { t, i18n } = useTranslation();
   const {
     page, totalPages, pageSize, total, sortCol, sortDir, multiSort, loading,
     search, artifactTypes, hostFilter, userFilter, startTime, endTime,
     hitsOnly, detSeverity, tagFilter, toolFilter, eventIdFilter, extFilter,
-    setPage, setPageSize, density, setDensity, records, bounds, setFilter, applyFilters,
+    setPage, setPageSize, density, setDensity, records, bounds, setFilter, applyFilters, hostTime,
   } = useTimelineStore();
 
   const position = useMemo(() => {
@@ -38,6 +41,10 @@ export default function StatusBar() {
 
   const implausible = useMemo(() => countImplausible(records, Date.now()), [records]);
 
+  const sansFuseau = useMemo(() => (hostTime || []).filter(h => !h.known), [hostTime]);
+  const detailFuseau = useMemo(() => (hostTime || [])
+    .map(h => `${h.host_name} — ${h.utc_offset || '?'}`).join('\n'), [hostTime]);
+
   const filterCount =
     [search, hostFilter, userFilter, startTime, endTime, toolFilter, eventIdFilter, extFilter, tagFilter].filter(Boolean).length +
     (artifactTypes.length > 0 ? 1 : 0) +
@@ -55,15 +62,24 @@ export default function StatusBar() {
     <div style={{ height: 24, background: '#05080f', borderTop: '1px solid var(--fl-card)',
       display: 'flex', alignItems: 'center', padding: '0 12px', gap: 12,
       flexShrink: 0, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)' }}>
+      {sansFuseau.length > 0 && (
+        <>
+          <span role="alert" title={`${t('timeline.time_anchor_title')}\n${detailFuseau}`}
+            style={{ ...ETAT_RANG, color: 'var(--fl-warn)' }}>
+            {t('timeline.time_anchor_unknown', { n: sansFuseau.length })}
+          </span>
+          <span style={{ width: 1, height: 12, background: 'var(--fl-card)' }} />
+        </>
+      )}
       {filterCount > 0 && (
         <>
-          <span style={{ fontSize: 9, color: 'var(--fl-muted)', display: 'flex', alignItems: 'center', gap: 4 }}>
+          <span style={ETAT_RANG}>
             <span style={{ color: 'var(--fl-accent)', fontWeight: 700 }}>{filterCount}</span> filter{filterCount !== 1 ? 's' : ''} active
           </span>
           <span style={{ width: 1, height: 12, background: 'var(--fl-card)' }} />
         </>
       )}
-      <span style={{ fontSize: 9, color: 'var(--fl-muted)' }}>
+      <span style={ETAT}>
         <span style={{ color: 'var(--fl-dim)', fontWeight: 700 }}>{from}–{to}</span> / {total.toLocaleString(i18n.language)} events
       </span>
       <span style={{ width: 1, height: 12, background: 'var(--fl-card)' }} />
@@ -79,7 +95,7 @@ export default function StatusBar() {
                 color: page <= 1 ? 'var(--fl-raised)' : 'var(--fl-muted)', cursor: page <= 1 ? 'default' : 'pointer', fontSize: 10, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               ‹
             </button>
-            <span style={{ fontSize: 9, color: 'var(--fl-muted)' }}>{page} / {totalPages}</span>
+            <span style={ETAT}>{page} / {totalPages}</span>
             <button disabled={page >= totalPages} onClick={() => setPage(page + 1)}
               style={{ width: 18, height: 16, borderRadius: 3, background: 'transparent', border: '1px solid var(--fl-raised)',
                 color: page >= totalPages ? 'var(--fl-raised)' : 'var(--fl-muted)', cursor: page >= totalPages ? 'default' : 'pointer', fontSize: 10, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>

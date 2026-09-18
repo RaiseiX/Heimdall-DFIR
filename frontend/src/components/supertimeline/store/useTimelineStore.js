@@ -108,7 +108,7 @@ export const useTimelineStore = create((set, get) => ({
   availTypes: [], typeCounts: {}, typesTruncated: false, typesTotal: 0,
   bounds: null,
   nature: 'all',
-  hostsAvail: [], usersAvail: [], providersAvail: [],
+  hostsAvail: [], usersAvail: [], providersAvail: [], hostTime: [],
   caseId: null,
 
   contextOpen: false, contextAnchorId: null, contextRows: [], contextHostName: null,
@@ -134,6 +134,15 @@ export const useTimelineStore = create((set, get) => ({
   detailOpen: false,
   groupByFields: [],
   colorRules: [],
+
+  async loadHostTime() {
+    const { caseId } = get();
+    if (!caseId) return;
+    try {
+      const r = await collectionAPI.hostTime(caseId);
+      set({ hostTime: r.data?.hosts || [] });
+    } catch { set({ hostTime: [] }); }
+  },
 
   setCaseId(caseId, evidenceId = null) {
     set({ caseId, evidenceId, page: 1, records: [], total: 0, undated: 0,

@@ -31,6 +31,7 @@ const { buildHayabusaDescription } = require('../services/hayabusaDescription');
 const { pushTextFilter, pushSearchFilter } = require('../utils/textFilter');
 const { pushProviderFilter } = require('../services/timelineProviderFilter');
 const { pushHashFilter } = require('../services/timelineHashFilter');
+const { hostTimeContextSql } = require('../services/hostTimeContext');
 const { GROUPABLE_COLUMNS } = require('../services/timelineGroupColumns');
 const { timelineRowsSql } = require('../services/timelineRowsSql');
 const { SORTABLE_COLUMNS } = require('../services/timelineSortColumns');
@@ -1897,6 +1898,19 @@ async function esCanAnswerFor(caseId) {
     return false;
   }
 }
+
+// L'ancrage temporel de chaque hote. Ne corrige rien : dit ce qu'on sait et ce
+// qu'on ignore. Mesure du 2026-09-18 : 9 hotes en base, un seul porte
+// `catscale_host_time` — les hotes Windows n'en ont pas, l'artefact est CatScale.
+router.get('/:caseId/host-time', authenticate, async (req, res) => {
+  try {
+    const r = await readPool.query(hostTimeContextSql(), [req.params.caseId]);
+    res.json({ hosts: r.rows });
+  } catch (err) {
+    logger.error('Host time context error:', err);
+    res.status(500).json({ error: 'Erreur récupération contexte temporel' });
+  }
+});
 
 router.get('/:caseId/timeline', authenticate, async (req, res) => {
   try {
@@ -4418,7 +4432,12 @@ router.get('/:caseId/heatmap', authenticate, async (req, res) => {
       GROUP BY hour, weekday
       ORDER BY weekday, hour
     `;
-    const result = await req.app.locals.pool.query(sql, vals);
+    // Le pool de lecture : cet agregat lit 3 034 230 lignes en 691 ms (mesure du
+    // 2026-09-18) et n'a rien a faire sur le pool d'ecriture.
+    const [result, hotes] = await Promise.all([
+      readPool.query(sql, vals),
+      readPool.query(hostTimeContextSql(), [caseId]),
+    ]);
 
     const matrix = Array.from({ length: 7 }, () => new Array(24).fill(0));
     let maxCount = 0;
@@ -4426,7 +4445,17 @@ router.get('/:caseId/heatmap', authenticate, async (req, res) => {
       matrix[row.weekday][row.hour] = row.count;
       if (row.count > maxCount) maxCount = row.count;
     }
-    res.json({ matrix, max_count: maxCount });
+
+    // L'heure est extraite `AT TIME ZONE 'UTC'`. Le dire est essentiel : toute
+    // la valeur de cette vue tient dans « activite a 3 h du matin », et 3 h UTC
+    // sur un hote a +02:00 sont 5 h locales. Sans la reference, la conclusion
+    // est fausse d'un decalage entier.
+    res.json({
+      matrix,
+      max_count: maxCount,
+      reference: 'UTC',
+      hosts_without_offset: hotes.rows.filter(h => !h.known).length,
+    });
   } catch (err) {
     logger.error('[collection] GET heatmap:', err.message);
     res.status(500).json({ error: 'Erreur serveur' });

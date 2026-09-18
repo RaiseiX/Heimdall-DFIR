@@ -783,7 +783,15 @@
     "detail_previous": "Previous (↑)",
     "detail_next": "Next (↓)",
     "detail_context": "Context (neighbouring events)",
-    "detail_close": "Close (D / Esc)"
+    "detail_close": "Close (D / Esc)",
+    "time_anchor_ok": "time anchor known for every host",
+    "time_anchor_unknown": "{{n}} host(s) with unknown timezone — cross-host ordering cannot be proven",
+    "time_anchor_title": "Time anchor per host",
+    "heatmap_label": "Heatmap",
+    "heatmap_title": "Activity by day and hour",
+    "heatmap_reference": "Hours in {{ref}}",
+    "heatmap_warning": "{{n}} host(s) with unknown timezone: a local hour cannot be derived for them.",
+    "heatmap_empty": "No timestamped event in the current scope."
   },
   "investigation": {
     "workflow_title": "Investigation workflow",
@@ -3205,6 +3213,11 @@
     "files_memfd_note": "An anonymous descriptor (memfd) never existed on disk. It is the normal shared-memory mechanism — and the fileless execution primitive on Linux. The name and the process decide.",
     "files_show": "Show files",
     "to_notebook": "Add to notebook",
-    "title": "Process map"
+    "title": "Process map",
+    "ioc_match": "Matches a case indicator",
+    "ioc_match_sev": "severity {{sev}}",
+    "ioc_none": "No match against the case indicators.",
+    "ioc_unmatchable": "{{n}} {{type}} indicator(s) cannot be compared: the collection only carries SHA-1.",
+    "ioc_count": "hashes match an indicator"
   }
 }

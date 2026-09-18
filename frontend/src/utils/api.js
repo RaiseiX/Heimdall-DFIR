@@ -138,6 +138,7 @@ export const timelineAPI = {
 };
 
 export const iocsAPI = {
+  hashMatches: (caseId) => api.get(`/iocs/${caseId}/hash-matches`),
   list: (caseId, params) => api.get(`/iocs/${caseId}`, { params }),
   create: (caseId, data) => api.post(`/iocs/${caseId}`, data),
   searchGlobal: (q, type) => api.get('/iocs/search/global', { params: { q, type } }),
@@ -259,6 +260,7 @@ export const collectionAPI = {
 
   rawFields: (caseId, artifactType) => api.get(`/collection/${caseId}/timeline/raw-fields`, { params: { artifact_type: artifactType } }),
 
+  hostTime: (caseId) => api.get(`/collection/${caseId}/host-time`),
   heatmap: (caseId, params) => api.get(`/collection/${caseId}/heatmap`, { params }),
 
   deadTime: (caseId, params) => api.get(`/collection/${caseId}/dead-time`, { params }),

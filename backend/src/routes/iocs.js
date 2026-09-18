@@ -7,8 +7,29 @@ const { denoiseByEntity } = require('../services/triageService');
 
 const logger = require('../config/logger').default;
 const router = express.Router();
+const { hashIocMatchSql, unmatchableIocsSql } = require('../services/hashIocMatch');
 router.use(authenticate);
 router.param('caseId', caseAccessParam);
+
+// Les empreintes de la collecte confrontees aux indicateurs du dossier.
+//
+// Rend AUSSI les indicateurs que la collecte ne sait pas comparer : elle ne
+// porte que du SHA-1 (mesure du 2026-09-18 : zero sha256, zero md5 sur 226 696
+// lignes hachees). Un analyste qui charge des indicateurs SHA-256 obtiendrait
+// sinon zero correspondance et conclurait « rien ne correspond », la ou la
+// verite est « nous ne savons pas comparer ».
+router.get('/:caseId/hash-matches', authenticate, async (req, res) => {
+  try {
+    const [m, u] = await Promise.all([
+      pool.query(hashIocMatchSql(),   [req.params.caseId]),
+      pool.query(unmatchableIocsSql(), [req.params.caseId]),
+    ]);
+    res.json({ matches: m.rows, unmatchable: u.rows });
+  } catch (err) {
+    logger.error('[iocs] hash-matches error:', err.message);
+    res.status(500).json({ error: 'Erreur serveur' });
+  }
+});
 
 router.get('/:caseId', authenticate, async (req, res) => {
   try {

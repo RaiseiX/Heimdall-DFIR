@@ -783,7 +783,15 @@
     "detail_previous": "Précédent (↑)",
     "detail_next": "Suivant (↓)",
     "detail_context": "Contexte (événements voisins)",
-    "detail_close": "Fermer (D / Échap)"
+    "detail_close": "Fermer (D / Échap)",
+    "time_anchor_ok": "ancrage temporel connu pour tous les hôtes",
+    "time_anchor_unknown": "{{n}} hôte(s) sans fuseau connu — l'ordre entre hôtes n'est pas démontrable",
+    "time_anchor_title": "Ancrage temporel par hôte",
+    "heatmap_label": "Carte de chaleur",
+    "heatmap_title": "Activité par jour et par heure",
+    "heatmap_reference": "Heures en {{ref}}",
+    "heatmap_warning": "{{n}} hôte(s) sans fuseau connu : une heure locale ne peut pas être déduite pour eux.",
+    "heatmap_empty": "Aucun événement horodaté dans le périmètre courant."
   },
   "investigation": {
     "workflow_title": "Workflow d'investigation",
@@ -3205,6 +3213,11 @@
     "files_memfd_note": "Un descripteur anonyme (memfd) n'a jamais existé sur le disque. C'est le mécanisme normal de la mémoire partagée — et la primitive d'exécution sans fichier sous Linux. Le nom et le processus tranchent.",
     "files_show": "Voir les fichiers",
     "to_notebook": "Ajouter au carnet",
-    "title": "Carte des processus"
+    "title": "Carte des processus",
+    "ioc_match": "Correspond à un indicateur du dossier",
+    "ioc_match_sev": "sévérité {{sev}}",
+    "ioc_none": "Aucune correspondance avec les indicateurs du dossier.",
+    "ioc_unmatchable": "{{n}} indicateur(s) {{type}} ne peuvent pas être comparés : la collecte ne porte que du SHA-1.",
+    "ioc_count": "empreintes correspondent à un indicateur"
   }
 }

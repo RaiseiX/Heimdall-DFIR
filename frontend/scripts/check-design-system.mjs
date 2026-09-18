@@ -55,9 +55,9 @@ const srcDir = path.join(root, 'src');
  * les plafonds baissent de 125, 1 et 49. pictogramCode inchange a 145.
  */
 export const CEILINGS = {
-  inlineStyle: 4268,
+  inlineStyle: 4260,
   halfPixel: 193,
-  literalFontSize: 1709,
+  literalFontSize: 1696,
   pictogramCode: 142,
   hardcodedText: 93,
 };
