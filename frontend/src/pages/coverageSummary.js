@@ -1,8 +1,11 @@
 
-export const ALWAYS_SHOWN = ['parsed', 'empty', 'unsupported', 'archive_expanded', 'error'];
+export const ALWAYS_SHOWN = ['parsed', 'parsed_empty', 'empty', 'unsupported', 'archive_expanded', 'error'];
 
+// parsed_empty suit parsed : le fichier a ete lu, il ne contenait rien a
+// rapporter. Il precede les issues qui signalent un manque de lecture, parce
+// qu'il n'en est pas une.
 const CANONICAL_ORDER = [
-  'parsed', 'empty', 'unsupported', 'archive_expanded', 'error',
+  'parsed', 'parsed_empty', 'empty', 'unsupported', 'archive_expanded', 'error',
   'degraded', 'quarantined', 'skipped_duplicate',
   'received', 'extracting', 'classified', 'queued', 'parsing',
 ];

@@ -5,6 +5,7 @@ import { pipeline } from 'stream/promises';
 import type { Pool } from 'pg';
 import { buildSourcePath } from './catscaleSourcePath';
 import type { CatScaleFailure } from './catscaleFiles';
+import { isCatalogedArtifact } from './catscaleCatalog';
 const { withCaseDeletion } = require('./caseDeletion');
 
 // ingestion_files is the coverage ledger. One row per file, written before any
@@ -286,8 +287,43 @@ export async function reconcileCoverage(
       );
     }
 
-    // 3. Everything still 'received' was seen and claimed by nobody. `empty` was
-    //    settled at registration and is never revisited here.
+    // 3. Ce qui reste 'received' n'a produit aucune ligne, et deux situations
+    //    tres differentes se cachent la-dessous. Le catalogue les separe : le
+    //    fichier porte-t-il le nom d'un artefact que le produit declare
+    //    connaitre ?
+    //
+    //    Oui -> 'parsed_empty'. Son parseur l'a lu et il n'y avait rien a
+    //    rapporter. `last-btmp.txt` fait 60 octets sur la collecte de reference :
+    //    il dit `btmp begins ...` et rien d'autre, parce qu'aucune tentative
+    //    d'authentification n'a echoue. C'est une observation, pas une lacune.
+    //
+    //    Non -> 'unsupported'. Personne ne l'a reclame : `var/log/README` n'a
+    //    legitimement aucun parseur.
+    //
+    //    La difference n'est pas cosmetique : les deux menent a des conclusions
+    //    opposees pour l'analyste qui lit la page de couverture.
+    //
+    //    `empty` ne couvre pas le cas — il est pose a l'enregistrement, sur les
+    //    fichiers de zero octet exactement, et n'est jamais revisite ici.
+    const { rows: unclaimed } = await client.query(
+      `SELECT relative_path FROM ingestion_files
+        WHERE case_id = $1::uuid AND evidence_id = $2::uuid AND status = 'received'`,
+      [caseId, evidenceId],
+    );
+    const cataloged = unclaimed
+      .map((r: any) => String(r.relative_path))
+      .filter(isCatalogedArtifact);
+
+    if (cataloged.length) {
+      await client.query(
+        `UPDATE ingestion_files
+            SET status = 'parsed_empty', updated_at = NOW()
+          WHERE case_id = $1::uuid AND evidence_id = $2::uuid AND status = 'received'
+            AND relative_path = ANY($3::text[])`,
+        [caseId, evidenceId, cataloged],
+      );
+    }
+
     await client.query(
       `UPDATE ingestion_files
           SET status = 'unsupported', updated_at = NOW()

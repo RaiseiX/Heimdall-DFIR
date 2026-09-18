@@ -11,6 +11,7 @@ const PAGE_SIZE = 200;
 
 const STATUS_TONE = {
   parsed:            'var(--fl-ok)',
+  parsed_empty:      'var(--fl-muted)',
   empty:             'var(--fl-muted)',
   unsupported:       'var(--fl-warn)',
   archive_expanded:  'var(--fl-accent)',

@@ -6,6 +6,7 @@ import path from 'path';
 import os from 'os';
 import readline from 'readline';
 import { spawnSync, spawn } from 'child_process';
+import * as zlib from 'zlib';
 import { Pool } from 'pg';
 import { findArtifactFiles, findArtifactFile, type CatScaleFailure } from './catscaleFiles';
 import { collectStateArtifacts } from './catscaleStateCollect';
@@ -844,11 +845,25 @@ export interface CatScaleParseResult {
 // before: the archive walk filtered on auth.log, secure, messages and syslog,
 // none of which exist on a systemd host. That filter is the reason a complete
 // /var/log produced four events.
+// logrotate compresse tout ce qui sort de la fenetre courante. Le fichier est
+// lu en entier des deux facons : ces journaux se comptent en centaines de kilo-
+// octets, pas en gigaoctets comme le journal systemd.
+//
+// Un .gz tronque leve ici, et c'est voulu : l'appelant enveloppe chaque parse
+// dans .catch(fail(...)), donc l'incident devient un echec attribue au fichier
+// plutot qu'un fichier silencieusement vide.
+function readMaybeGzip(filePath: string): string {
+  const raw = fs.readFileSync(filePath);
+  return filePath.endsWith('.gz')
+    ? zlib.gunzipSync(raw).toString('utf8')
+    : raw.toString('utf8');
+}
+
 async function parsePackageLog(
   filePath: string, caseId: string, pool: Pool, hostname: string,
   sourcePath: string, kind: 'dpkg' | 'apt', link: TimelineLink,
 ): Promise<number> {
-  const content = fs.readFileSync(filePath, 'utf8');
+  const content = readMaybeGzip(filePath);
   const rows: Row[] = [];
 
   if (kind === 'dpkg') {
@@ -1103,10 +1118,10 @@ async function parseJournal(
         } else if (/^audit\.log(\.\d+)?$/.test(base)) {
           const n = await parseAuditd(fp, caseId, pool, hostname, archiveMemberPath(srcOf(varLogTar), varLogTmp, fp), link).catch(fail('parse', fp));
           if (n > 0) { totalEvents += n; artifacts.push(`auditd:${base} (${n})`); }
-        } else if (/^dpkg\.log(\.\d+)?$/.test(base)) {
+        } else if (/^dpkg\.log(\.\d+)?(\.gz)?$/.test(base)) {
           const n = await parsePackageLog(fp, caseId, pool, hostname, archiveMemberPath(srcOf(varLogTar), varLogTmp, fp), 'dpkg', link).catch(fail('parse', fp));
           if (n > 0) { totalEvents += n; artifacts.push(`dpkg:${base} (${n})`); }
-        } else if (/[/\\]apt[/\\]history\.log(\.\d+)?$/.test(fp)) {
+        } else if (/[/\\]apt[/\\]history\.log(\.\d+)?(\.gz)?$/.test(fp)) {
           const n = await parsePackageLog(fp, caseId, pool, hostname, archiveMemberPath(srcOf(varLogTar), varLogTmp, fp), 'apt', link).catch(fail('parse', fp));
           if (n > 0) { totalEvents += n; artifacts.push(`apt:${base} (${n})`); }
         }

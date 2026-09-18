@@ -596,6 +596,7 @@
     "range": "{{from}} – {{to}} of {{total}}",
     "status": {
       "parsed": "read",
+      "parsed_empty": "read, no events",
       "empty": "empty",
       "unsupported": "unsupported",
       "archive_expanded": "archive expanded",
@@ -611,6 +612,7 @@
     },
     "status_help": {
       "parsed": "The file was read and what it held entered the case.",
+      "parsed_empty": "The file was read by its parser and held no event to report. No failed logins in btmp is an observation, not a gap in reading.",
       "empty": "The file was read and held nothing. This is not a failure.",
       "unsupported": "The file was seen, no parser claims it. It was not read.",
       "archive_expanded": "The archive was opened; its members are registered separately.",

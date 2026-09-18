@@ -596,6 +596,7 @@
     "range": "{{from}} – {{to}} sur {{total}}",
     "status": {
       "parsed": "lu",
+      "parsed_empty": "lu, sans événement",
       "empty": "vide",
       "unsupported": "non pris en charge",
       "archive_expanded": "archive dépliée",
@@ -611,6 +612,7 @@
     },
     "status_help": {
       "parsed": "Le fichier a été lu et ce qu'il contenait est entré dans le cas.",
+      "parsed_empty": "Le fichier a été lu par son parseur et ne contenait aucun événement à rapporter. Aucun échec de connexion dans btmp est une observation, pas une lacune de lecture.",
       "empty": "Le fichier a été lu et ne contenait rien. Ce n'est pas un échec.",
       "unsupported": "Le fichier a été vu, aucun parseur ne le revendique. Il n'a pas été lu.",
       "archive_expanded": "L'archive a été ouverte ; ses membres sont inscrits séparément.",
