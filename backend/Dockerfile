@@ -23,52 +23,54 @@ RUN wget -q https://dot.net/v1/dotnet-install.sh -O /tmp/dotnet-install.sh \
     && rm /tmp/dotnet-install.sh \
     && dotnet --info || echo "dotnet installed"
 
-# ─── Zimmerman Tools (.NET 9) ───
-RUN mkdir -p /app/zimmerman-tools /tmp/ztools/extracted \
-    && cd /tmp/ztools \
-    && BASE="https://download.ericzimmermanstools.com/net9" \
-    && for tool in \
-        MFTECmd.zip \
-        PECmd.zip \
-        LECmd.zip \
-        EvtxECmd.zip \
-        RECmd.zip \
-        AmcacheParser.zip \
-        AppCompatCacheParser.zip \
-        SBECmd.zip \
-        JLECmd.zip \
-        SrumECmd.zip \
-        WxTCmd.zip \
-        RBCmd.zip \
-        SumECmd.zip \
-        BitsParser.zip \
-        SQLECmd.zip \
-    ; do \
-        echo "Downloading $tool..." \
-        && curl -fsSL -o "$tool" "$BASE/$tool" 2>/dev/null \
-        && unzip -o -q "$tool" -d /tmp/ztools/extracted/ 2>/dev/null \
-        || echo "Failed: $tool (will retry via entrypoint)"; \
-    done \
-    && find /tmp/ztools/extracted -name "*.dll" -exec cp -n {} /app/zimmerman-tools/ \; 2>/dev/null || true \
-    && find /tmp/ztools/extracted -name "*.runtimeconfig.json" -exec cp -n {} /app/zimmerman-tools/ \; 2>/dev/null || true \
-    # EvtxECmd Maps
-    && echo "Downloading EvtxECmd Maps..." \
-    && curl -fsSL -o Maps.zip "$BASE/EvtxECmd.zip" 2>/dev/null \
-    && mkdir -p /app/zimmerman-tools/Maps \
-    && unzip -o -q Maps.zip -d /app/zimmerman-tools/Maps/ 2>/dev/null || true \
-    # SQLECmd Maps
-    && echo "Downloading SQLECmd Maps..." \
-    && curl -fsSL -o SQLMaps.zip "$BASE/SQLECmd.zip" 2>/dev/null \
-    && mkdir -p /app/zimmerman-tools/SQLMaps \
-    && unzip -o -q SQLMaps.zip -d /app/zimmerman-tools/SQLMaps/ 2>/dev/null || true \
-    # RECmd BatchExamples
-    && echo "Downloading RECmd BatchExamples..." \
-    && curl -fsSL -o Batch.zip "$BASE/RECmd.zip" 2>/dev/null \
-    && mkdir -p /app/zimmerman-tools/BatchExamples \
-    && unzip -o -q Batch.zip -d /app/zimmerman-tools/BatchExamples/ 2>/dev/null || true \
-    && rm -rf /tmp/ztools \
-    && echo "=== Zimmerman tools installed ===" \
-    && ls /app/zimmerman-tools/*.dll 2>/dev/null | head -20 || true
+# ─── Outils Eric Zimmerman (.NET 9), verrouilles par empreinte ───
+# La liste vient de zimmerman-tools.lock et de nulle part ailleurs : deux listes
+# finissent toujours par diverger. Chaque archive est verifiee et le build
+# S'ARRETE des qu'une empreinte ne correspond plus.
+#
+# Avant ceci, quinze `curl` etaient suivis d'un `|| echo "Failed: $tool"`. Une
+# image dont les quinze telechargements avaient echoue sortait verte — c'est par
+# ce chemin qu'un outil absent atteint la production sans que personne le voie.
+# BitsParser en est la preuve : son URL rend 404 depuis toujours, et le produit
+# declare pourtant un parseur `bits`.
+#
+# `set -e` porte la garantie : toute etape qui echoue arrete l'image.
+COPY zimmerman-tools.lock /tmp/zimmerman-tools.lock
+RUN set -e; \
+    mkdir -p /app/zimmerman-tools /tmp/ztools/extracted; \
+    cd /tmp/ztools; \
+    BASE="https://download.ericzimmermanstools.com/net9"; \
+    awk '!/^#/ && NF==2 {print $2}' /tmp/zimmerman-tools.lock > /tmp/tools.txt; \
+    test -s /tmp/tools.txt; \
+    while read -r z; do \
+      echo "-> $z"; \
+      curl -fsSL --retry 3 --connect-timeout 30 -o "$z" "$BASE/$z"; \
+    done < /tmp/tools.txt; \
+    sha256sum -c /tmp/zimmerman-tools.lock; \
+    while read -r z; do unzip -o -q "$z" -d /tmp/ztools/extracted/; done < /tmp/tools.txt; \
+    find /tmp/ztools/extracted -name "*.dll" -exec cp -n {} /app/zimmerman-tools/ \; ; \
+    find /tmp/ztools/extracted -name "*.runtimeconfig.json" -exec cp -n {} /app/zimmerman-tools/ \; ; \
+    mkdir -p /app/zimmerman-tools/Maps /app/zimmerman-tools/SQLMaps /app/zimmerman-tools/BatchExamples; \
+    unzip -o -q EvtxECmd.zip -d /app/zimmerman-tools/Maps/; \
+    unzip -o -q SQLECmd.zip  -d /app/zimmerman-tools/SQLMaps/; \
+    unzip -o -q RECmd.zip    -d /app/zimmerman-tools/BatchExamples/; \
+    cd /; rm -rf /tmp/ztools; \
+    echo "=== $(ls /app/zimmerman-tools/*.dll | wc -l) DLL, $(find /app/zimmerman-tools/Maps -name '*.map' | wc -l) maps amont ==="
+
+# Maps qu'Eric Zimmerman a retirees de la distribution mais qui decrivent des
+# sources encore presentes sur les parcs analyses : MSSQLSERVER 18456 (echec de
+# connexion, donc du brute-force contre une base), ESENT, F-Secure, McAfee
+# Endpoint Security, Citrix MetaFrame.
+#
+# Relevees le 2026-09-18 en comparant le volume de production (453 maps, accumule
+# depuis avril) a l'archive amont du jour (383) : 73 manquaient a l'amont, 69 ont
+# pu etre recuperees. Sans elles, adopter les outils 2026.5.0 ferait perdre les
+# champs nommes de ces sources — une regression silencieuse offerte par une
+# montee de version.
+#
+# Une map absente ne supprime pas l'evenement : elle lui retire ses champs
+# nommes. C'est la lisibilite qui part, pas la ligne.
+COPY zimmerman-maps-retained/ /app/zimmerman-tools/Maps/EvtxeCmd/Maps/
 
 # ─── Hayabusa (Linux x64) ───
 RUN mkdir -p /app/hayabusa /tmp/hayabusa \
@@ -183,6 +185,12 @@ RUN mkdir -p /app/parsers && chmod +x /app/parsers/*.py 2>/dev/null || true \
 RUN mkdir -p /app/uploads /app/evidence /app/temp /app/collections /app/logs \
     && chown -R node:node /app/uploads /app/evidence /app/temp /app/collections /app/logs
 
+# Le verrou voyage aussi dans l'image finale : download-zimmerman.sh est le
+# chemin qui repeuple un volume zimmerman_tools vide au premier demarrage, et
+# un telechargement non verifie la rouvrirait la porte que le build vient de
+# fermer.
+COPY --chown=node:node zimmerman-tools.lock /app/zimmerman-tools.lock
+COPY --chown=node:node zimmerman-maps-retained/ /app/zimmerman-maps-retained/
 COPY --chown=node:node download-zimmerman.sh /app/download-zimmerman.sh
 RUN chmod +x /app/download-zimmerman.sh
 

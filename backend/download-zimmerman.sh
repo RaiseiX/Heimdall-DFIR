@@ -1,112 +1,79 @@
 #!/bin/bash
 # ╔══════════════════════════════════════════════════════════════╗
-# ║   ForensicLab — Téléchargement des outils Zimmerman         ║
+# ║   Heimdall DFIR — Repeuplement des outils Zimmerman          ║
 # ║                                                              ║
-# ║   Utilisation :                                              ║
-# ║     docker exec forensiclab-api bash /app/download-zimmerman.sh ║
-# ║   Ou depuis l'entrypoint au premier démarrage.              ║
+# ║   Appele par entrypoint.sh quand des DLL critiques manquent   ║
+# ║   du volume zimmerman_tools — typiquement a sa creation.      ║
 # ╚══════════════════════════════════════════════════════════════╝
-
-set -e
+#
+# La liste ET les empreintes viennent de /app/zimmerman-tools.lock, le meme
+# fichier que le build. Deux listes divergent toujours : celle-ci portait encore
+# BitsParser, dont l'URL rend 404 depuis toujours.
+#
+# Une archive dont l'empreinte ne correspond pas est REFUSEE, pas installee.
+# Sans cela, ce chemin rouvrirait au demarrage la porte que le build ferme.
+set -euo pipefail
 
 DEST="${ZIMMERMAN_TOOLS_DIR:-/app/zimmerman-tools}"
-TEMP="/tmp/zimmerman-download"
+LOCK="${ZIMMERMAN_LOCK:-/app/zimmerman-tools.lock}"
+BASE_URL="https://download.ericzimmermanstools.com/net9"
+TEMP="$(mktemp -d)"
+trap 'rm -rf "$TEMP"' EXIT
 mkdir -p "$DEST" "$TEMP/extracted"
 
-BASE_URL="https://download.ericzimmermanstools.com/net9"
-
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "  Téléchargement des outils Zimmerman"
+echo "  Outils Zimmerman — verrou: $LOCK"
 echo "  Destination: $DEST"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
-TOOLS=(
-  "MFTECmd.zip"
-  "PECmd.zip"
-  "LECmd.zip"
-  "SBECmd.zip"
-  "AmcacheParser.zip"
-  "AppCompatCacheParser.zip"
-  "EvtxECmd.zip"
-  "RECmd.zip"
-  "JLECmd.zip"
-  "SrumECmd.zip"
-  "WxTCmd.zip"
-  "SumECmd.zip"
-  "RBCmd.zip"
-  "BitsParser.zip"
-  "SQLECmd.zip"
-)
+if [ ! -f "$LOCK" ]; then
+  echo "  ✗ Verrou introuvable — aucun telechargement non verifie ne sera fait." >&2
+  exit 1
+fi
 
-for tool in "${TOOLS[@]}"; do
-  name="${tool%.zip}"
-  echo "  Downloading $name..."
-  if curl -fsSL --connect-timeout 30 -o "$TEMP/$tool" "$BASE_URL/$tool" 2>/dev/null; then
-    unzip -o -q "$TEMP/$tool" -d "$TEMP/extracted/" 2>/dev/null || true
-    echo "  ✓ $name extrait"
+TOOLS=$(awk '!/^#/ && NF==2 {print $2}' "$LOCK")
+[ -n "$TOOLS" ] || { echo "  ✗ Verrou vide." >&2; exit 1; }
+
+cd "$TEMP"
+failed=0
+for z in $TOOLS; do
+  printf '  %-26s ' "${z%.zip}"
+  if curl -fsSL --connect-timeout 30 --retry 3 -o "$z" "$BASE_URL/$z"; then
+    echo "telecharge"
   else
-    echo "  ✗ $name inaccessible (URL: $BASE_URL/$tool)"
+    echo "INACCESSIBLE ($BASE_URL/$z)"
+    failed=1
   fi
 done
 
-# Flatten: copier DLLs + runtimeconfig.json à la racine de DEST
-# (runtimeconfig.json requis pour dotnet framework-dependent execution)
-echo ""
-echo "  Mise en place des DLLs dans $DEST..."
+# Verification globale : une seule empreinte fausse condamne le lot, parce qu'on
+# ne sait alors plus ce qu'on est en train d'installer.
+if ! sha256sum -c "$LOCK"; then
+  echo "  ✗ Empreinte(s) non conformes — rien n'est installe." >&2
+  echo "    Si l'amont a publie une nouvelle version, c'est une decision :" >&2
+  echo "    bash backend/scripts/relock-zimmerman.sh, puis reconstruire." >&2
+  exit 1
+fi
+
+for z in $TOOLS; do
+  unzip -o -q "$z" -d "$TEMP/extracted/"
+done
+
 find "$TEMP/extracted" -name "*.dll" -exec cp -n {} "$DEST/" \; 2>/dev/null || true
 find "$TEMP/extracted" -name "*.runtimeconfig.json" -exec cp -n {} "$DEST/" \; 2>/dev/null || true
 
-DLL_COUNT=$(ls "$DEST"/*.dll 2>/dev/null | wc -l)
-echo "  ✓ $DLL_COUNT DLLs disponibles"
+mkdir -p "$DEST/Maps" "$DEST/SQLMaps" "$DEST/BatchExamples"
+unzip -o -q EvtxECmd.zip -d "$DEST/Maps/"
+unzip -o -q SQLECmd.zip  -d "$DEST/SQLMaps/"
+unzip -o -q RECmd.zip    -d "$DEST/BatchExamples/"
 
-# ─── Maps pour EvtxECmd ───────────────────────────────────────
-# EvtxECmd cherche ses .map dans {ZIMMERMAN_DIR}/Maps/
-echo ""
-echo "  Downloading EvtxECmd Maps..."
-if curl -fsSL --connect-timeout 30 -o "$TEMP/EvtxECmdMaps.zip" \
-    "https://download.ericzimmermanstools.com/net9/EvtxECmd.zip" 2>/dev/null; then
-  mkdir -p "$DEST/Maps"
-  unzip -o -q "$TEMP/EvtxECmdMaps.zip" -d "$DEST/Maps/" 2>/dev/null || true
-  MAP_COUNT=$(ls "$DEST/Maps"/*.map 2>/dev/null | wc -l)
-  echo "  ✓ EvtxECmd Maps: $MAP_COUNT fichiers"
-else
-  echo "  ✗ Maps EvtxECmd inaccessibles"
+# Les maps retirees par l'amont voyagent dans l'image ; les reposer ici evite que
+# ce chemin rende un volume moins couvert que l'image elle-meme.
+RETAINED="/app/zimmerman-maps-retained"
+if [ -d "$RETAINED" ]; then
+  mkdir -p "$DEST/Maps/EvtxeCmd/Maps"
+  cp -f "$RETAINED"/*.map "$DEST/Maps/EvtxeCmd/Maps/" 2>/dev/null || true
 fi
 
-# ─── Maps pour SQLECmd ───────────────────────────────────────
-# SQLECmd cherche ses maps dans {ZIMMERMAN_DIR}/SQLMaps/
-echo "  Downloading SQLECmd Maps..."
-if curl -fsSL --connect-timeout 30 -o "$TEMP/SQLECmdMaps.zip" \
-    "https://download.ericzimmermanstools.com/net9/SQLECmd.zip" 2>/dev/null; then
-  mkdir -p "$DEST/SQLMaps"
-  unzip -o -q "$TEMP/SQLECmdMaps.zip" -d "$DEST/SQLMaps/" 2>/dev/null || true
-  SQL_MAP_COUNT=$(ls "$DEST/SQLMaps"/*.smap 2>/dev/null | wc -l)
-  echo "  ✓ SQLECmd Maps: $SQL_MAP_COUNT fichiers"
-else
-  echo "  ✗ Maps SQLECmd inaccessibles"
-fi
-
-# ─── BatchExamples pour RECmd ─────────────────────────────────
-echo "  Downloading RECmd BatchExamples..."
-if curl -fsSL --connect-timeout 30 -o "$TEMP/RECmdBatch.zip" \
-    "https://download.ericzimmermanstools.com/net9/RECmd.zip" 2>/dev/null; then
-  mkdir -p "$DEST/BatchExamples"
-  unzip -o -q "$TEMP/RECmdBatch.zip" -d "$DEST/BatchExamples/" 2>/dev/null || true
-  echo "  ✓ RECmd BatchExamples installés"
-else
-  echo "  ✗ RECmd BatchExamples inaccessibles"
-fi
-
-# ─── Nettoyage ────────────────────────────────────────────────
-rm -rf "$TEMP"
-
-echo ""
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "  Installation terminée"
-echo "  Outils disponibles dans: $DEST"
-echo ""
-echo "  DLLs installés:"
-ls -1 "$DEST"/*.dll 2>/dev/null | while IFS= read -r f; do
-  echo "    ✓ $(basename "$f")"
-done || echo "    (aucun DLL trouvé)"
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "  ✓ $(ls "$DEST"/*.dll 2>/dev/null | wc -l) DLL, $(find "$DEST/Maps" -name '*.map' 2>/dev/null | wc -l) maps"
+[ "$failed" -eq 0 ] || { echo "  ✗ Au moins un telechargement a echoue." >&2; exit 1; }

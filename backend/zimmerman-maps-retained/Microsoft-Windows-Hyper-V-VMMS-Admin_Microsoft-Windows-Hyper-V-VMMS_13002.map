@@ -1,0 +1,45 @@
+Author: Phill Moore
+Description: A new Hyper-V VM was created
+EventId: 13002
+Channel: "Microsoft-Windows-Hyper-V-VMMS-Admin"
+Provider: Microsoft-Windows-Hyper-V-VMMS
+Maps:
+  -
+    Property: PayloadData1
+    PropertyValue: "A new virtual machine %VmName% was created. (Virtual machine ID %VmId%)"
+    Values:
+      -
+        Name: VmName
+        Value: "/Event/UserData/VmlEventLog/VmName"
+      -
+        Name: VmId
+        Value: "/Event/UserData/VmlEventLog/VmId"
+
+# Documentation:
+# N/A
+#
+# Example Event Data:
+# <Event>
+#  <System>
+#    <Provider Name="Microsoft-Windows-Hyper-V-VMMS" Guid="6066f867-7ca1-4418-85fd-36e3f9c0600c" />
+#    <EventID>13002</EventID>
+#    <Version>0</Version>
+#    <Level>4</Level>
+#    <Task>0</Task>
+#    <Opcode>0</Opcode>
+#    <Keywords>0x8000000000000000</Keywords>
+##    <TimeCreated SystemTime="2023-08-02 05:47:11.0063997" />
+#    <EventRecordID>45</EventRecordID>
+#    <Correlation />
+#    <Execution ProcessID="1628" ThreadID="3288" />
+#    <Channel>Microsoft-Windows-Hyper-V-VMMS-Admin</Channel>
+#    <Computer>WIN-N4SBH71JDM6</Computer>
+#    <Security UserID="S-1-5-18" />
+#  </System>
+#  <UserData>
+##    <VmlEventLog>
+#      <VmName>Test VM</VmName>
+#      <VmId>30B40FA3-E42E-4C34-9223-50599E748D6B</VmId>
+#    </VmlEventLog>
+#  </UserData>
+# </Event>
