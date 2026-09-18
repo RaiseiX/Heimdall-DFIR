@@ -260,16 +260,23 @@ const ARTIFACT_PATTERNS = {
     descriptionColumns: ['FileName'],
     sourceColumn: 'SourceName',
   },
-  bits: {
-    patterns: ['**/qmgr*.dat', '**/BITS/**'],
-    tool: 'BitsParser.dll',
-    toolKey: 'bits',
-    name: 'BITS Jobs',
-    argsBuilder: (input, output) => ['dotnet', path.join(ZIMMERMAN_DIR, 'BitsParser.dll'), '-f', input, '--csv', output],
-    timestampColumns: ['CreationTime', 'ModifiedTime', 'CompletedTime'],
-    descriptionColumns: ['JobName'],
-    sourceColumn: 'TargetDirectory',
-  },
+  // BITS (`**/qmgr*.dat`, `**/BITS/**`) n'a PAS de parseur ici, et n'en a jamais
+  // eu. L'entree retiree le 2026-09-18 pointait sur `BitsParser.dll` invoque par
+  // `dotnet` — or BitsParser est un outil **Python de Mandiant**, pas un outil
+  // .NET d'Eric Zimmerman. Son archive rendait 404 a chaque build, masquee par
+  // le `|| echo "Failed: $tool"` de l'ancien Dockerfile.
+  //
+  // Mesure du 2026-09-18 dans l'image fraiche : le fichier est absent, et la
+  // commande sort en 145. Un `qmgr.dat` produisait donc un statut `error` —
+  // l'analyste lisait « le parseur a echoue » la ou la verite est « ce parseur
+  // n'existe pas ». Faute de motif, ces fichiers sont desormais classes
+  // `unsupported`, ce qui est exact : aucun parseur ne les reclame.
+  //
+  // Pour l'implementer un jour : les travaux BITS sont une technique reelle
+  // (ATT&CK T1197, persistance et telechargement). `qmgr.db` (Windows 10+) est
+  // une base ESE ; `qmgr0.dat`/`qmgr1.dat` (Windows 7/8) un format proprietaire.
+  // La voie realiste est un parseur Python a cote de `backend/parsers/`, comme
+  // `parse_prefetch.py`, verifie contre une vraie collecte — pas a l'aveugle.
   sum: {
     patterns: ['**/Current.mdb', '**/SystemIdentity.mdb'],
     tool: 'SumECmd.dll',
@@ -362,7 +369,6 @@ const ECS_COLUMNS = {
   sqle:      { host: ['ComputerName', 'HostName'], user: ['Profile', 'UserName'], process: [] },
   wxtcmd:    { host: ['ComputerName', 'DeviceId'], user: ['Sid', 'UserName'], process: [] },
   recycle:   { host: ['ComputerName'], user: ['UserName', 'DeletedBy'], process: [] },
-  bits:      { host: ['ComputerName'], user: ['UserName', 'Owner'], process: ['JobName'] },
   sum:       { host: ['ClientName', 'ComputerName'], user: ['UserName', 'AuthenticatedUserName'], process: [] },
   usn:       { host: ['ComputerName'], user: [], process: [] },
   indx:      { host: ['ComputerName'], user: [], process: [] },

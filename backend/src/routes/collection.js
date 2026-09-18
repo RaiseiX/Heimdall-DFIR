@@ -1773,7 +1773,7 @@ const _TOOL_BY_ARTIFACT = {
   evtx: 'EvtxECmd', mft: 'MFTECmd', prefetch: 'PECmd', lnk: 'LECmd',
   jumplist: 'JLECmd', shellbags: 'SBECmd', amcache: 'AmcacheParser',
   appcompat: 'AppCompatCacheParser', registry: 'RECmd', srum: 'SrumECmd',
-  sqle: 'SQLECmd', wxtcmd: 'WxTCmd', recycle: 'RBCmd', bits: 'BitsParser',
+  sqle: 'SQLECmd', wxtcmd: 'WxTCmd', recycle: 'RBCmd',
   sum: 'SumECmd', hayabusa: 'Hayabusa',
 };
 function _pickStr(raw, keys) {

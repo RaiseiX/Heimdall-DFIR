@@ -38,7 +38,6 @@ export const ZIMMERMAN_TOOLS: Record<string, ZimmermanTool> = {
   sqle:     { dll: 'SQLECmd.dll',             name: 'SQLECmd',              description: 'Parse browser SQLite DBs (Chrome, Firefox, Edge history/cookies)', extensions: ['.sqlite', '.db'] },
   wxtcmd:   { dll: 'WxTCmd.dll',              name: 'WxTCmd',               description: 'Parse Windows Timeline (ActivitiesCache.db)', extensions: ['.db'] },
   recycle:  { dll: 'RBCmd.dll',               name: 'RBCmd',                description: 'Parse Recycle Bin $I files',                 extensions: [] },
-  bits:     { dll: 'BitsParser.dll',          name: 'BitsParser',           description: 'Parse BITS job database',                    extensions: ['.dat'] },
   sum:      { dll: 'SumECmd.dll',             name: 'SumECmd',              description: 'Parse User Access Logging (SUMdb)',          extensions: ['.mdb'] },
   hayabusa: { dll: '',                         name: 'Hayabusa',             description: 'Threat hunting on EVTX logs (Sigma rules)',  extensions: ['.evtx'] },
 };
