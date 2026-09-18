@@ -1,5 +1,6 @@
 
 import { spawn } from 'child_process';
+import { resolveEvtxMapsDir } from './evtxMapsDir';
 import path from 'path';
 import fs from 'fs';
 import readline from 'readline';
@@ -85,15 +86,8 @@ function buildZimmermanArgs(
     : [dllPath, inputFlag, inputFile, '--csv', outputDir, '--csvf', 'output.csv'];
 
   if (parser === 'evtx') {
-
-    const mapsBase = path.join(ZIMMERMAN_DIR, 'Maps');
-    if (fs.existsSync(mapsBase)) {
-      const hasDirect = fs.readdirSync(mapsBase).some((f) => f.endsWith('.map') || f.endsWith('.json'));
-      const subDir = path.join(mapsBase, 'Maps');
-      const hasSub = fs.existsSync(subDir) && fs.readdirSync(subDir).some((f) => f.endsWith('.map') || f.endsWith('.json'));
-      const mapsDir = hasDirect ? mapsBase : hasSub ? subDir : null;
-      if (mapsDir) base.push('--maps', mapsDir);
-    }
+    const mapsDir = resolveEvtxMapsDir(ZIMMERMAN_DIR);
+    if (mapsDir) base.push('--maps', mapsDir);
   }
   if (parser === 'registry' && extraArgs['maps']) {
     base.push('--bn', extraArgs['maps']);
