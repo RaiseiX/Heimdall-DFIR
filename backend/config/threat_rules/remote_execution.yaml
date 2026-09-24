@@ -1,0 +1,94 @@
+rules:
+  - id: rex_psexec_remote
+    name: "PsExec / remote service execution"
+    severity: high
+    category: remote_execution
+    target_artifact: ['*']
+    mitre: [T1021.002, T1569.002]
+    tags: [LateralMovement, PsExec, RemoteExec]
+    match:
+      any:
+        - { field: description, op: iregex, value: '\b(psexec|psexesvc|paexec|remcom)(\.exe)?\b' }
+        - all:
+            - { field: event_id, op: eq, value: 7045 }
+            - { field: description, op: icontains, value: 'PSEXESVC' }
+
+  - id: rex_wmi_remote
+    name: "WMI remote execution (wmic process call create, Invoke-WmiMethod)"
+    severity: high
+    category: remote_execution
+    target_artifact: ['*']
+    mitre: [T1047]
+    tags: [LateralMovement, WMI, RemoteExec]
+    match:
+      any:
+        - { field: description, op: iregex, value: 'wmic(\.exe)?\s+/node:[^\s]+\s+process\s+call\s+create' }
+        - { field: description, op: iregex, value: 'invoke-wmimethod\s+.*-computername' }
+        - { field: description, op: iregex, value: 'invoke-cimmethod\s+.*-computername' }
+        - { field: description, op: iregex, value: 'new-cimsession\s+.*-computername' }
+
+  - id: rex_wmiprvse_spawn
+    name: "wmiprvse.exe spawning a command interpreter"
+    severity: critical
+    category: remote_execution
+    target_artifact: [evtx, sysmon, hayabusa]
+    mitre: [T1047]
+    tags: [LateralMovement, WMI, RemoteExec]
+    match:
+      all:
+        - any:
+            - { field: description, op: iregex, value: '\bwmiprvse(\.exe)?\b' }
+            - { field: process_name, op: iregex, value: '^wmiprvse' }
+        - { field: description, op: iregex, value: '\b(cmd|powershell|pwsh|wscript|cscript)(\.exe)?\b' }
+
+  - id: rex_winrm_psremoting
+    name: "PowerShell remoting / WinRM session"
+    severity: high
+    category: remote_execution
+    target_artifact: ['*']
+    mitre: [T1021.006]
+    tags: [LateralMovement, WinRM, PowerShellRemoting]
+    match:
+      any:
+        - { field: description, op: iregex, value: '\bwsmprovhost(\.exe)?\b' }
+        - { field: description, op: iregex, value: '\bwinrs(\.exe)?\s+-r:' }
+        - { field: description, op: iregex, value: '(enter-pssession|new-pssession|invoke-command)\s+.*-computername' }
+        - { field: description, op: iregex, value: '\bevil-winrm\b' }
+
+  - id: rex_remote_schtask
+    name: "Scheduled task created on remote host (schtasks /s)"
+    severity: high
+    category: remote_execution
+    target_artifact: ['*']
+    mitre: [T1053.005]
+    tags: [LateralMovement, ScheduledTask, RemoteExec]
+    match:
+      all:
+        - { field: description, op: iregex, value: '\bschtasks(\.exe)?\s' }
+        - { field: description, op: iregex, value: '\s/create\b' }
+        - { field: description, op: iregex, value: '\s/s\s' }
+
+  - id: rex_remote_service
+    name: "Service created on remote host (sc \\\\host create)"
+    severity: high
+    category: remote_execution
+    target_artifact: ['*']
+    mitre: [T1543.003]
+    tags: [LateralMovement, Service, RemoteExec]
+    match:
+      any:
+        - { field: description, op: iregex, value: '\bsc(\.exe)?\s+\\\\[^\s]+\s+create\b' }
+
+  - id: rex_smb_admin_share
+    name: "SMB admin share access (C$ / ADMIN$)"
+    severity: medium
+    category: remote_execution
+    target_artifact: [evtx, hayabusa]
+    mitre: [T1021.002]
+    tags: [LateralMovement, SMB, AdminShare]
+    match:
+      any:
+        - all:
+            - { field: event_id, op: eq, value: 5140 }
+            - { field: description, op: iregex, value: '\\\\[^\s]+\\(C\$|ADMIN\$)' }
+        - { field: description, op: iregex, value: 'net(\.exe)?\s+use\s+[^\s]*\s*\\\\[^\s]+\\(C\$|ADMIN\$)' }

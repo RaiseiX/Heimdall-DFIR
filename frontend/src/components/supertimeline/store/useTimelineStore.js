@@ -1,0 +1,512 @@
+import { create } from 'zustand';
+import { collectionAPI, artifactsAPI, bookmarksAPI, savedSearchesAPI } from '../../../utils/api';
+import { computeRef, DENSITIES, DEFAULT_DENSITY, initialExplorerOpen, SERVER_SORTABLE } from '../utils/timelineUtils';
+import { QUERY_KEYS } from '../utils/timelineFilterKeys';
+
+const DEBOUNCE_MS = 150;
+let _debounceTimer = null;
+let _loadSeq = 0;
+
+const DEFAULT_GROUPS = [
+  { key: 'artifact_type', label: 'Artifact Type' },
+  { key: 'host_name',     label: 'Host' },
+];
+
+
+const filterDefaults = () => ({
+  search: '', searchOp: 'contains', startTime: '', endTime: '',
+  artifactTypes: [],
+  artifactNameFilter: '', artifactNameFilterOp: 'contains',
+  hostFilter: '', hostFilterOp: 'contains',
+  userFilter: '', userFilterOp: 'contains',
+  toolFilter: '', toolFilterOp: 'contains',
+  providerFilter: '', providerFilterOp: 'equals',
+  sha1Filter: '', sha1FilterOp: 'equals',
+  extFilter:  '', extFilterOp:  'contains',
+  eventIdFilter: '', tagFilter: '',
+  evidenceIds: [], resultId: '', huntId: '',
+  hitsOnly: false, detSeverity: '',
+  sortCol: 'timestamp', sortDir: 'desc',
+  multiSort: [{ col: 'timestamp', dir: 'desc' }],
+  groupByFields: [], page: 1,
+  appendMode: false,
+});
+
+function encodeTagsWithLevel(tags, level) {
+  const clean = (tags || []).filter(t => !t.startsWith('_conf:'));
+  if (level) clean.push(`_conf:${level}`);
+  return clean;
+}
+function decodeTagsAndLevel(rawTags) {
+  const tags = [];
+  let level = null;
+  for (const t of (rawTags || [])) {
+    if (t.startsWith('_conf:')) level = t.slice(6);
+    else tags.push(t);
+  }
+  return { tags, level };
+}
+
+function buildQueryParams(s) {
+  const p = { page: s.page, limit: s.pageSize, sort_dir: s.sortDir, sort_col: s.sortCol };
+  if (s.multiSort.length > 1) p.sort_multi = s.multiSort.map(x => `${x.col}:${x.dir}`).join(',');
+  if (s.nature === 'dated' || s.nature === 'undated') p.nature = s.nature;
+  if (s.search || s.searchOp === 'empty' || s.searchOp === 'not_empty')
+    { p.search = s.search; p.search_op = s.searchOp; }
+  if (s.artifactTypes.length)  p.artifact_types = s.artifactTypes.join(',');
+  if (s.artifactNameFilter || s.artifactNameFilterOp === 'empty' || s.artifactNameFilterOp === 'not_empty')
+    { p.artifact_name = s.artifactNameFilter; p.artifact_name_op = s.artifactNameFilterOp; }
+  if (s.startTime)             p.start_time = new Date(s.startTime).toISOString();
+  if (s.endTime)               p.end_time   = new Date(s.endTime).toISOString();
+  if (s.hostFilter || s.hostFilterOp === 'empty' || s.hostFilterOp === 'not_empty')
+    { p.host_name = s.hostFilter; p.host_name_op = s.hostFilterOp; }
+  if (s.userFilter || s.userFilterOp === 'empty' || s.userFilterOp === 'not_empty')
+    { p.user_name = s.userFilter; p.user_name_op = s.userFilterOp; }
+  if (s.toolFilter || s.toolFilterOp === 'empty' || s.toolFilterOp === 'not_empty')
+    { p.tool = s.toolFilter; p.tool_op = s.toolFilterOp; }
+  if (s.providerFilter || s.providerFilterOp === 'empty' || s.providerFilterOp === 'not_empty')
+    { p.provider = s.providerFilter; p.provider_op = s.providerFilterOp; }
+  if (s.sha1Filter || s.sha1FilterOp === 'empty' || s.sha1FilterOp === 'not_empty')
+    { p.sha1 = s.sha1Filter; p.sha1_op = s.sha1FilterOp; }
+  if (s.eventIdFilter)         p.event_id   = s.eventIdFilter;
+  if (s.extFilter || s.extFilterOp === 'empty' || s.extFilterOp === 'not_empty')
+    { p.ext = s.extFilter; p.ext_op = s.extFilterOp; }
+  if (s.tagFilter)             p.tag        = s.tagFilter;
+  if (s.evidenceIds.length)    p.evidence_ids = s.evidenceIds.join(',');
+  if (s.evidenceId)            p.evidence_id  = s.evidenceId;
+  if (s.resultId)              p.result_id    = s.resultId;
+  if (s.huntId)                p.hunt_id      = s.huntId;
+  if (s.hitsOnly)              p.detections   = 'hits_only';
+  if (s.detSeverity)           p.detection_severity = s.detSeverity;
+  return p;
+}
+
+export const useTimelineStore = create((set, get) => ({
+  search: '', searchOp: 'contains',
+  startTime: '', endTime: '',
+  artifactTypes: [],
+  artifactNameFilter: '', artifactNameFilterOp: 'contains',
+  hostFilter: '', hostFilterOp: 'contains',
+  userFilter: '', userFilterOp: 'contains',
+  toolFilter: '', toolFilterOp: 'contains',
+  providerFilter: '', providerFilterOp: 'equals',
+  sha1Filter: '', sha1FilterOp: 'equals',
+  extFilter:  '', extFilterOp:  'contains',
+  eventIdFilter: '', tagFilter: '',
+  evidenceIds: [], evidenceId: null, resultId: '', huntId: '',
+  huntMessage: null,
+  hitsOnly: false, detSeverity: '',
+
+  sortCol: 'timestamp', sortDir: 'desc',
+  multiSort: [{ col: 'timestamp', dir: 'desc' }],
+
+  page: 1, pageSize: (() => { try { return parseInt(localStorage.getItem('supertl.pageSize'), 10) || 500; } catch { return 500; } })(),
+  total: 0, undated: 0, totalPages: 0,
+  records: [], loading: false,
+  appendMode: false,
+  dynamicColsRev: 0,
+  availTypes: [], typeCounts: {}, typesTruncated: false, typesTotal: 0,
+  bounds: null,
+  nature: 'all',
+  hostsAvail: [], usersAvail: [], providersAvail: [], hostTime: [],
+  caseId: null,
+
+  contextOpen: false, contextAnchorId: null, contextRows: [], contextHostName: null,
+  contextAllHosts: false, contextN: 25, contextLoading: false,
+
+  selectedRowId: null,
+  tagData: new Map(),
+  notedRefs: new Set(),
+  bookmarks: [],
+  bookmarkError: null,
+  rawKeys: [],
+  rawKeysComplete: true,
+  rawKeysFor: null,
+  savedSearches: [],
+  detailTab: 'details',
+  explorerOpen: (() => { try { return initialExplorerOpen(localStorage.getItem('supertl.explorerOpen')); } catch { return false; } })(),
+  density: (() => {
+    try {
+      const v = localStorage.getItem('supertl.density');
+      return DENSITIES.includes(v) ? v : DEFAULT_DENSITY;
+    } catch { return DEFAULT_DENSITY; }
+  })(),
+  detailOpen: false,
+  groupByFields: [],
+  colorRules: [],
+
+  async loadHostTime() {
+    const { caseId } = get();
+    if (!caseId) return;
+    try {
+      const r = await collectionAPI.hostTime(caseId);
+      set({ hostTime: r.data?.hosts || [] });
+    } catch { set({ hostTime: [] }); }
+  },
+
+  setCaseId(caseId, evidenceId = null) {
+    set({ caseId, evidenceId, page: 1, records: [], total: 0, undated: 0,
+          selectedRowId: null, detailOpen: false, availTypes: [], typeCounts: {},
+          bounds: null,
+          tagData: new Map(), notedRefs: new Set(), bookmarks: [], bookmarkError: null, savedSearches: [] });
+    get().loadBounds();
+    artifactsAPI.refsWithNotes(caseId)
+      .then(res => set({ notedRefs: new Set(res.data?.refs || []) }))
+      .catch(() => set({ notedRefs: new Set() }));
+    bookmarksAPI.list(caseId)
+      .then(res => {
+        const raw = res.data || [];
+        set({ bookmarks: raw.map(b => ({ ...b, ref: b.artifact_ref ?? b.ref })) });
+      })
+      .catch(() => set({ bookmarks: [] }));
+    savedSearchesAPI.list(caseId)
+      .then(res => set({ savedSearches: res.data || [] }))
+      .catch(() => set({ savedSearches: [] }));
+  },
+
+  setColorRules(rules) { set({ colorRules: rules }); },
+
+  setFilter(key, value) { set({ [key]: value, page: 1 }); },
+
+  applyFilters() {
+    set({ page: 1 });
+    get().loadTimeline();
+  },
+
+  applyFiltersDebounced() {
+    clearTimeout(_debounceTimer);
+    _debounceTimer = setTimeout(() => get().applyFilters(), DEBOUNCE_MS);
+  },
+
+  clearFilters() {
+    set(filterDefaults());
+    get().loadTimeline();
+  },
+
+  async loadTimeline() {
+    const s = get();
+    if (!s.caseId) return;
+    const seq = ++_loadSeq;
+    set({ loading: true });
+    try {
+      const res = await collectionAPI.timeline(s.caseId, buildQueryParams(s));
+      if (seq !== _loadSeq) { set({ appendMode: false }); return; }
+      if (!res?.data) return;
+      const recs = res.data.records || [];
+      if (recs.length > 0 && recs[0].id == null) {
+        const base = get().appendMode ? get().records.length : 0;
+        recs.forEach((r, i) => { if (r.id == null) r.id = -(base + i + 1); });
+      }
+      const newTagData = new Map(get().tagData);
+      recs.forEach(r => {
+        if (r.id == null) return;
+        const { tags, level } = decodeTagsAndLevel(r.tags);
+        const existing = newTagData.get(r.id);
+        newTagData.set(r.id, {
+          level: existing?.level ?? level,
+          tags,
+        });
+      });
+      set({
+        records:     get().appendMode ? [...get().records, ...recs] : recs,
+        appendMode:  false,
+        total:       res.data.total         || 0,
+        undated:     res.data.undated       || 0,
+        totalPages:  res.data.total_pages   || 0,
+        availTypes:  s.artifactTypes.length === 0
+          ? (res.data.artifact_types_available || get().availTypes)
+          : get().availTypes,
+        typesTruncated: s.artifactTypes.length === 0
+          ? Boolean(res.data.artifact_types_truncated)
+          : get().typesTruncated,
+        typesTotal: s.artifactTypes.length === 0
+          ? (Number(res.data.artifact_types_total)
+             || (res.data.artifact_types_available || []).length
+             || get().typesTotal)
+          : get().typesTotal,
+        typeCounts:  { ...get().typeCounts, ...(res.data.artifact_types_counts || {}) },
+        hostsAvail:  res.data.hosts_available?.length  ? res.data.hosts_available  : get().hostsAvail,
+        usersAvail:  res.data.users_available?.length  ? res.data.users_available  : get().usersAvail,
+        providersAvail: res.data.providers_available?.length ? res.data.providers_available : get().providersAvail,
+        tagData:     newTagData,
+        huntMessage: s.huntId && res.data.hunt_empty ? (res.data.message || null) : null,
+      });
+    } catch { if (seq === _loadSeq) set({ records: [], total: 0, undated: 0, appendMode: false, typesTruncated: false }); }
+    finally  { if (seq === _loadSeq) set({ loading: false }); }
+  },
+
+  setSort(col, shiftKey = false) {
+    const s = get();
+    if (!SERVER_SORTABLE.has(col)) return;
+    if (shiftKey && s.multiSort.length > 0) {
+      const idx = s.multiSort.findIndex(x => x.col === col);
+      const newMs = idx !== -1
+        ? s.multiSort.map((x, i) => i === idx ? { col: x.col, dir: x.dir === 'desc' ? 'asc' : 'desc' } : x)
+        : [...s.multiSort, { col, dir: 'desc' }].slice(0, 3);
+      set({ multiSort: newMs, sortCol: newMs[0].col, sortDir: newMs[0].dir, page: 1 });
+    } else {
+      const newDir = (s.sortCol === col && s.sortDir === 'desc') ? 'asc' : 'desc';
+      set({ sortCol: col, sortDir: newDir, multiSort: [{ col, dir: newDir }], page: 1 });
+    }
+    get().loadTimeline();
+  },
+
+  async loadBounds() {
+    const { caseId } = get();
+    if (!caseId) return;
+    try {
+      const res = await collectionAPI.timelineHistogram(caseId, 48);
+      const d = res.data || {};
+      set({ bounds: {
+        lo: d.lo ?? null,
+        hi: d.hi ?? null,
+        beforeLo: d.before_lo || 0,
+        afterHi:  d.after_hi  || 0,
+      } });
+    } catch {
+      set({ bounds: null });
+    }
+  },
+
+  setNature(n) {
+    const next = ['all', 'dated', 'undated'].includes(n) ? n : 'all';
+    set({ nature: next, page: 1 });
+    get().loadTimeline();
+  },
+
+  setDensity(d) {
+    const next = DENSITIES.includes(d) ? d : DEFAULT_DENSITY;
+    try { localStorage.setItem('supertl.density', next); } catch {}
+    set({ density: next });
+  },
+
+  setPage(p) { set({ page: p }); get().loadTimeline(); },
+  setPageSize(n) {
+    try { localStorage.setItem('supertl.pageSize', String(n)); } catch {}
+    set({ pageSize: n, page: 1 });
+    get().loadTimeline();
+  },
+
+  loadMore() {
+    const s = get();
+    if (s.page >= s.totalPages || s.loading) return;
+    set({ appendMode: true });
+    get().setPage(s.page + 1);
+  },
+
+  bumpDynamicCols() { set(s => ({ dynamicColsRev: s.dynamicColsRev + 1 })); },
+
+  setSelectedRow(id) {
+    set({ selectedRowId: id, detailOpen: id != null });
+  },
+
+  async setTag(rowId, data) {
+    const s = get();
+    const rec  = s.records.find(r => r.id === rowId);
+    const prev = s.tagData.get(rowId);
+    const newTagData = new Map(s.tagData);
+    newTagData.set(rowId, data);
+    set({ tagData: newTagData });
+    if (rec?.id != null && rec.id > 0 && s.caseId) {
+      const tagsToSend = encodeTagsWithLevel(data.tags, data.level);
+      try {
+        const resp = await collectionAPI.updateTimelineTags(s.caseId, rec.id, tagsToSend);
+        const persisted = resp?.data?.tags;
+        if (Array.isArray(persisted)) {
+          const { tags: decodedTags, level: decodedLevel } = decodeTagsAndLevel(persisted);
+          const updated = new Map(get().tagData);
+          updated.set(rowId, { tags: decodedTags, level: data.level ?? decodedLevel });
+          set({ tagData: updated });
+        }
+      } catch {
+        const rollback = new Map(get().tagData);
+        rollback.set(rowId, prev || { level: null, tags: [] });
+        set({ tagData: rollback });
+      }
+    }
+  },
+
+  toggleArtifactType(type) {
+    const s = get();
+    let next;
+    if (s.artifactTypes.length === 1 && s.artifactTypes[0] === '__NONE__') {
+      next = [type];
+    } else if (s.artifactTypes.length === 0) {
+      next = s.availTypes.filter(t => t !== type);
+    } else if (s.artifactTypes.includes(type)) {
+      next = s.artifactTypes.filter(t => t !== type);
+      if (next.length === 0) next = ['__NONE__'];
+    } else {
+      next = [...s.artifactTypes, type];
+    }
+    const allBack = s.availTypes.length > 0 &&
+                    s.availTypes.every(t => next.includes(t));
+    set({ artifactTypes: allBack ? [] : next, page: 1 });
+    get().loadTimeline();
+  },
+
+  soloArtifactType(type) {
+    set({ artifactTypes: [type], page: 1 });
+    get().loadTimeline();
+  },
+
+  clearArtifactTypes() {
+    set({ artifactTypes: ['__NONE__'], page: 1 });
+    get().loadTimeline();
+  },
+
+  setNotedRef(ref, hasNotes) {
+    const next = new Set(get().notedRefs);
+    hasNotes ? next.add(ref) : next.delete(ref);
+    set({ notedRefs: next });
+  },
+
+  async loadBookmarks() {
+    const { caseId } = get();
+    if (!caseId) return;
+    try {
+      const res = await bookmarksAPI.list(caseId);
+      const raw = res.data || [];
+      set({ bookmarks: raw.map(b => ({ ...b, ref: b.artifact_ref ?? b.ref })) });
+    } catch { set({ bookmarks: [] }); }
+  },
+
+  async toggleBookmark(record) {
+    const { caseId, bookmarks } = get();
+    if (!caseId) return;
+    const ref      = computeRef(record);
+    const existing = bookmarks.find(b => b.ref === ref);
+    try {
+      if (existing) {
+        await bookmarksAPI.remove(caseId, existing.id);
+      } else {
+        await bookmarksAPI.create(caseId, {
+          artifact_ref:    ref,
+          title:           (record.description || '').slice(0, 80) || '—',
+          event_timestamp: record.timestamp,
+        });
+      }
+      set({ bookmarkError: null });
+    } catch (e) {
+      set({ bookmarkError: e?.response?.data?.error || e?.message || 'Échec de l’enregistrement' });
+    }
+    get().loadBookmarks();
+  },
+
+  clearBookmarkError() { set({ bookmarkError: null }); },
+
+  async loadRawKeys(artifactType) {
+    const { caseId, rawKeysFor } = get();
+    if (!caseId || !artifactType) { set({ rawKeys: [], rawKeysComplete: true, rawKeysFor: null }); return; }
+    if (rawKeysFor === `${caseId}|${artifactType}`) return;
+    try {
+      const res = await collectionAPI.timelineRawKeys(caseId, artifactType);
+      set({
+        rawKeys: res.data?.keys || [],
+        rawKeysComplete: res.data?.complete !== false,
+        rawKeysFor: `${caseId}|${artifactType}`,
+      });
+    } catch {
+      set({ rawKeys: [], rawKeysComplete: true, rawKeysFor: null });
+    }
+  },
+
+  setDetailTab(tab) { set({ detailTab: tab }); },
+  toggleExplorer() {
+    const next = !get().explorerOpen;
+    try { localStorage.setItem('supertl.explorerOpen', String(next)); } catch {}
+    set({ explorerOpen: next });
+  },
+  closeDetail()     { set({ detailOpen: false, selectedRowId: null }); },
+  openDetail(id)    { set({ selectedRowId: id, detailOpen: true }); },
+
+  openContext(anchorId) {
+    if (!(anchorId > 0)) return;
+    set({ contextOpen: true, contextAnchorId: anchorId });
+    get().loadContext();
+  },
+  async loadContext() {
+    const { caseId, contextAnchorId, contextN, contextAllHosts } = get();
+    if (!caseId || !(contextAnchorId > 0)) return;
+    set({ contextLoading: true });
+    try {
+      const res = await collectionAPI.timelineContext(caseId, contextAnchorId, { n: contextN, allHosts: contextAllHosts });
+      set({ contextRows: res.data?.rows || [], contextHostName: res.data?.host_name ?? null, contextLoading: false });
+    } catch {
+      set({ contextRows: [], contextLoading: false });
+    }
+  },
+  setContextN(n)          { set({ contextN: n }); get().loadContext(); },
+  toggleContextAllHosts() { set({ contextAllHosts: !get().contextAllHosts }); get().loadContext(); },
+  reAnchorContext(id)     { if (id > 0) { set({ contextAnchorId: id }); get().loadContext(); } },
+  closeContext()          { set({ contextOpen: false, contextRows: [], contextAnchorId: null }); },
+  addGroupByField(f) {
+    const s = get();
+    if (!s.groupByFields.find(x => x.key === f.key)) set({ groupByFields: [...s.groupByFields, f] });
+  },
+  removeGroupByField(key) {
+    set(s => ({ groupByFields: s.groupByFields.filter(f => f.key !== key) }));
+  },
+  setGroupByFields(fields) { set({ groupByFields: fields }); },
+
+  async loadSavedSearches() {
+    const { caseId } = get();
+    if (!caseId) return;
+    try {
+      const res = await savedSearchesAPI.list(caseId);
+      set({ savedSearches: res.data || [] });
+    } catch { set({ savedSearches: [] }); }
+  },
+
+  captureCurrentQuery() {
+    const s = get();
+    const q = {};
+    for (const k of QUERY_KEYS) q[k] = s[k];
+    return q;
+  },
+
+  applySavedSearch(query) {
+    const overlay = {};
+    for (const k of QUERY_KEYS) if (query?.[k] !== undefined) overlay[k] = query[k];
+    const ms = Array.isArray(overlay.multiSort) && overlay.multiSort.length ? overlay.multiSort[0] : null;
+    const derivedSort = ms ? { sortCol: ms.col, sortDir: ms.dir } : {};
+    set({ ...filterDefaults(), ...overlay, ...derivedSort, page: 1 });
+    get().loadTimeline();
+  },
+
+  async saveCurrentSearch(name, scope = 'personal') {
+    const { caseId } = get();
+    if (!caseId) return null;
+    const query = get().captureCurrentQuery();
+    const res = await savedSearchesAPI.create(caseId, { name, scope, query });
+    set({ savedSearches: [...get().savedSearches, res.data] });
+    return res.data;
+  },
+
+  async updateSavedSearch(id, patch) {
+    const { caseId, savedSearches } = get();
+    const prev = savedSearches;
+    set({ savedSearches: savedSearches.map(s => (s.id === id ? { ...s, ...patch } : s)) });
+    try {
+      const res = await savedSearchesAPI.update(caseId, id, patch);
+      set({ savedSearches: get().savedSearches.map(s => (s.id === id ? res.data : s)) });
+    } catch (e) {
+      set({ savedSearches: prev });
+      throw e;
+    }
+  },
+
+  promoteSavedSearch(id) { return get().updateSavedSearch(id, { scope: 'case' }); },
+
+  async deleteSavedSearch(id) {
+    const { caseId, savedSearches } = get();
+    const prev = savedSearches;
+    set({ savedSearches: savedSearches.filter(s => s.id !== id) });
+    try {
+      await savedSearchesAPI.remove(caseId, id);
+    } catch (e) {
+      set({ savedSearches: prev });
+      throw e;
+    }
+  },
+}));

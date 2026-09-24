@@ -1,0 +1,9 @@
+DFIQ (Digital Forensics Investigative Questions) content is derived from the
+public DFIQ project (https://github.com/google/dfiq, https://dfiq.org),
+licensed by Google under Apache-2.0 / CC-BY-4.0. This is a vendored snapshot;
+see https://dfiq.org for the authoritative, current catalog.
+
+Vendored snapshot: DFIQ v1.1.0 — 6 scenarios (S1001 Data Exfiltration,
+S1002 Data Infiltration, S1003 Suspicious DNS Query, S1005 Cloud Project
+Compromise Assessment, S1007 Host Persistence Audit, S1008 Lateral Movement),
+30 facets, 103 questions, 26 approaches. Regenerate from https://github.com/google/dfiq.

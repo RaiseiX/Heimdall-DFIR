@@ -1,0 +1,237 @@
+import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import { Maximize2, Minimize2, X, History, BookOpen } from 'lucide-react';
+import { useTimelineStore } from '../store/useTimelineStore';
+import { artifactColor } from '../../../constants/artifactColors';
+import { fmtTs } from '../../../utils/formatters';
+import {
+  fmtDesc, CONFIDENCE_MAP, FORENSIC_TAGS,
+  topDetectionSeverity, DETECTION_SEV_COLOR,
+  computeRef,
+} from '../utils/timelineUtils';
+import DetailsTab from './tabs/DetailsTab';
+import RawTab     from './tabs/RawTab';
+import MitreTab   from './tabs/MitreTab';
+import NotesTab   from './tabs/NotesTab';
+import AiTab      from './tabs/AiTab';
+import TagsTab    from './tabs/TagsTab';
+import SchemaTab  from './tabs/SchemaTab';
+import { controlStyle, controlHover } from '../../ui/controlIdiom';
+import { entreeEvenement } from '../../../utils/notebookEntry';
+import { notebookAPI } from '../../../utils/api';
+
+const FORENSIC_TAG_MAP = Object.fromEntries(FORENSIC_TAGS.map(t => [t.key, t]));
+
+const TABS = [
+  { key: 'details', label: 'Details' },
+  { key: 'mitre',   label: 'MITRE'   },
+  { key: 'tags',    label: 'Tags'    },
+  { key: 'notes',   label: 'Notes'   },
+  { key: 'raw',     label: 'Raw'     },
+  { key: 'schema',  label: 'Schema'  },
+  { key: 'ai',      label: 'AI' },
+];
+
+export default function DetailPanel() {
+  const {
+    caseId, selectedRowId, detailOpen, records, tagData,
+    detailTab, setDetailTab, closeDetail, setSelectedRow,
+    bookmarks, toggleBookmark, bookmarkError, openContext,
+  } = useTimelineStore();
+  const [expanded, setExpanded] = useState(false);
+
+  const { t } = useTranslation();
+  const record = records.find(r => r.id === selectedRowId) || null;
+  const [carnet, setCarnet] = useState(null);
+  const versLeCarnet = () => {
+    if (!record || !caseId) return;
+    setCarnet('envoi');
+    notebookAPI.append(caseId, entreeEvenement(record, { source: 'Super Timeline', caseId }))
+      .then(() => setCarnet('ok'))
+      .catch(() => setCarnet('echec'));
+  };
+  const acol   = record ? artifactColor(record.artifact_type) : 'var(--fl-accent)';
+  const td     = record ? (tagData.get(record.id) || {}) : {};
+  const lvl    = td.level ? CONFIDENCE_MAP[td.level] : null;
+  const detSev = record ? topDetectionSeverity(record.detections) : null;
+  const isBookmarked = record ? bookmarks.some(b => b.ref === computeRef(record)) : false;
+
+  useEffect(() => {
+    function onKey(e) {
+      const tag = (e.target?.tagName || '').toLowerCase();
+      if (tag === 'input' || tag === 'textarea' || e.target?.isContentEditable) return;
+      if (e.key === 'd' || e.key === 'D') { if (detailOpen) closeDetail(); }
+    }
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [detailOpen, closeDetail]);
+
+  if (!detailOpen || !record) return null;
+
+  const desc      = fmtDesc(record) || record.description || '—';
+  const mitreTags = record.mitre_technique_id
+    ? record.mitre_technique_id.split(',').map(s => s.trim()).filter(Boolean)
+    : [];
+
+  return (
+    <div style={{ width: expanded ? 700 : 360, flexShrink: 0, background: 'var(--fl-bg)',
+      borderLeft: '1px solid var(--fl-border)', display: 'flex', flexDirection: 'column', overflow: 'hidden',
+      transition: 'width 0.15s ease' }}>
+
+      <div style={{ height: 3, background: acol, flexShrink: 0 }} />
+
+      <div style={{ padding: '8px 12px 0', borderBottom: '1px solid var(--fl-card)', flexShrink: 0 }}>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 5 }}>
+          <span style={{ fontSize: 10, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)',
+            color: acol, flexShrink: 0 }}>
+            {record.artifact_type}
+          </span>
+          <span style={{ fontSize: 10, color: 'var(--fl-accent)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', flex: 1,
+            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {fmtTs(record.timestamp)}
+          </span>
+          {record.host_name && (
+            <span style={{ fontSize: 9, color: 'var(--fl-muted)', fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', flexShrink: 0 }}>
+              {record.host_name}
+            </span>
+          )}
+          <div style={{ display: 'flex', gap: 2, flexShrink: 0 }}>
+            <button
+              onClick={() => { const idx = records.indexOf(record); if (idx > 0) setSelectedRow(records[idx - 1].id); }}
+              title={t('timeline.detail_previous')}
+              style={{ width: 20, height: 18, borderRadius: 3, background: 'transparent',
+                border: '1px solid var(--fl-border)', color: 'var(--fl-muted)', cursor: 'pointer', fontSize: 10,
+                display: 'flex', alignItems: 'center', justifyContent: 'center' }}>↑</button>
+            <button
+              onClick={() => { const idx = records.indexOf(record); if (idx < records.length - 1) setSelectedRow(records[idx + 1].id); }}
+              title={t('timeline.detail_next')}
+              style={{ width: 20, height: 18, borderRadius: 3, background: 'transparent',
+                border: '1px solid var(--fl-border)', color: 'var(--fl-muted)', cursor: 'pointer', fontSize: 10,
+                display: 'flex', alignItems: 'center', justifyContent: 'center' }}>↓</button>
+            <button
+              onClick={versLeCarnet}
+              title={t('timeline.to_notebook')}
+              aria-label={t('timeline.to_notebook')}
+              style={{ width: 20, height: 18, borderRadius: 3, background: 'transparent',
+                border: '1px solid var(--fl-border)',
+                color: carnet === 'ok' ? 'var(--fl-ok)' : carnet === 'echec' ? 'var(--fl-danger)' : 'var(--fl-muted)',
+                cursor: 'pointer',
+                display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <BookOpen size={10} />
+            </button>
+            {record?.id > 0 && (
+              <button
+                onClick={() => openContext(record.id)}
+                title={t('timeline.detail_context')}
+                style={{ width: 20, height: 18, borderRadius: 3, background: 'transparent',
+                  border: '1px solid var(--fl-border)', color: 'var(--fl-muted)', cursor: 'pointer',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                onMouseEnter={e => { e.currentTarget.style.color = 'var(--fl-accent)'; e.currentTarget.style.borderColor = 'color-mix(in srgb, var(--fl-accent) 25%, transparent)'; }}
+                onMouseLeave={e => { e.currentTarget.style.color = 'var(--fl-muted)'; e.currentTarget.style.borderColor = 'var(--fl-border)'; }}>
+                <History size={10} />
+              </button>
+            )}
+            <button
+              onClick={() => record && toggleBookmark(record)}
+              title={isBookmarked ? 'Remove bookmark' : 'Bookmark this event'}
+              style={{
+                width: 20, height: 18, borderRadius: 3, background: 'transparent',
+                border: `1px solid ${isBookmarked ? 'color-mix(in srgb, var(--fl-gold) 25%, transparent)' : 'var(--fl-border)'}`,
+                color: isBookmarked ? 'var(--fl-gold)' : 'var(--fl-muted)', cursor: 'pointer', fontSize: 12,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}
+              onMouseEnter={e => { e.currentTarget.style.color = 'var(--fl-gold)'; }}
+              onMouseLeave={e => { e.currentTarget.style.color = isBookmarked ? 'var(--fl-gold)' : 'var(--fl-muted)'; }}
+            >
+              {isBookmarked ? '★' : '☆'}
+            </button>
+            {bookmarkError && (
+              <span
+                role="status"
+                title={bookmarkError}
+                style={{
+                  fontSize: 10, color: 'var(--fl-danger)', whiteSpace: 'nowrap',
+                  maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis',
+                }}
+              >
+                Favori non enregistré — {bookmarkError}
+              </span>
+            )}
+            <button onClick={() => setExpanded(v => !v)} title={expanded ? 'Collapse' : 'Expand'}
+              style={{ width: 20, height: 18, borderRadius: 3, background: 'transparent',
+                border: '1px solid var(--fl-border)', color: 'var(--fl-muted)', cursor: 'pointer',
+                display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+              onMouseEnter={e => { e.currentTarget.style.color = 'var(--fl-accent)'; e.currentTarget.style.borderColor = 'color-mix(in srgb, var(--fl-accent) 25%, transparent)'; }}
+              onMouseLeave={e => { e.currentTarget.style.color = 'var(--fl-muted)'; e.currentTarget.style.borderColor = 'var(--fl-border)'; }}>
+              {expanded ? <Minimize2 size={10} /> : <Maximize2 size={10} />}
+            </button>
+            <button onClick={closeDetail} title={t('timeline.detail_close')}
+              style={{ width: 20, height: 18, borderRadius: 3, background: 'transparent',
+                border: '1px solid var(--fl-border)', color: 'var(--fl-muted)', cursor: 'pointer', fontSize: 12,
+                display: 'flex', alignItems: 'center', justifyContent: 'center' }}><X size={10} /></button>
+          </div>
+        </div>
+
+        <div style={{ fontSize: 11, color: '#c0d4f0', marginBottom: 5, lineHeight: 1.4,
+          display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+          {desc}
+        </div>
+
+        {(lvl || detSev || td.tags?.length > 0 || mitreTags.length > 0) && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 6 }}>
+            {lvl && (
+              <span style={{ padding: '1px 6px', borderRadius: 3, fontSize: 9, fontWeight: 700,
+                fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', background: lvl.bg, color: lvl.color,
+                border: `1px solid color-mix(in srgb, ${lvl.color} 25%, transparent)` }}>
+                {lvl.label}
+              </span>
+            )}
+            {detSev && !lvl && (
+              <span style={{ padding: '1px 6px', borderRadius: 3, fontSize: 9, fontWeight: 700,
+                fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', background: `color-mix(in srgb, ${DETECTION_SEV_COLOR[detSev]} 9%, transparent)`,
+                color: DETECTION_SEV_COLOR[detSev], border: `1px solid color-mix(in srgb, ${DETECTION_SEV_COLOR[detSev]} 25%, transparent)` }}>
+                {detSev}
+              </span>
+            )}
+            {td.tags?.map(key => {
+              const ft = FORENSIC_TAG_MAP[key];
+              return ft ? (
+                <span key={key} style={{ fontSize: 9,
+                  fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: ft.color }}>
+                  {ft.label}
+                </span>
+              ) : null;
+            })}
+            {mitreTags.slice(0, 3).map(t => (
+              <span key={t} style={{ fontSize: 9,
+                fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-accent)' }}>
+                {t}
+              </span>
+            ))}
+          </div>
+        )}
+
+        <div style={{ display: 'flex', gap: 14, flexWrap: 'nowrap', overflowX: 'auto' }}>
+          {TABS.map(tab => {
+            const active = detailTab === tab.key;
+            return (
+              <button key={tab.key} onClick={() => setDetailTab(tab.key)} aria-pressed={active}
+                style={controlStyle(active)} {...controlHover(active)}>{tab.label}</button>
+            );
+          })}
+        </div>
+      </div>
+
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: 'var(--fl-panel)' }}>
+        {detailTab === 'details' && <DetailsTab record={record} />}
+        {detailTab === 'mitre'   && <MitreTab   record={record} />}
+        {detailTab === 'tags'    && <TagsTab    record={record} />}
+        {detailTab === 'notes'   && <NotesTab   record={record} />}
+        {detailTab === 'raw'     && <RawTab     record={record} />}
+        {detailTab === 'schema'  && <SchemaTab  record={record} />}
+        {detailTab === 'ai'      && <AiTab      record={record} />}
+      </div>
+    </div>
+  );
+}

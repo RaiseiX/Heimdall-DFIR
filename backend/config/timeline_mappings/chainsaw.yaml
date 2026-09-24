@@ -1,0 +1,29 @@
+# Chainsaw detections CSV mapping — produced by `chainsaw hunt ... --csv`
+tool:           Chainsaw
+artifact_type:  chainsaw
+artifact_name:  Chainsaw Detection
+
+filename_patterns:
+  - "chainsaw_.+\\.csv$"
+  - "_sigma_.*\\.csv$"
+  - "^detections\\.csv$"
+
+folder_patterns:
+  - "chainsaw"
+
+header_signatures:
+  - [timestamp, detection, Event.System.Channel]
+  - [timestamp, rule, record_id]
+
+timestamp_columns: [timestamp, Timestamp]
+description_columns: [detection, rule, name]
+source_column: "Event.System.Channel"
+
+columns:
+  timestamp:    [timestamp, Timestamp]
+  source:       ["Event.System.Channel", Channel]
+  description:  [detection, rule, name]
+  event_id:     ["Event.System.EventID", EventID, event_id]
+  host_name:    ["Event.System.Computer", Computer]
+  user_name:    [User, UserName]
+  details:      [Details, level]

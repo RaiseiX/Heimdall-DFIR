@@ -1,0 +1,111 @@
+.env
+.env.*
+*.env
+
+# deps & build
+node_modules/
+node_modules_old/
+*_old/
+dist/
+dist_old/
+build/
+.vite/
+
+# runtime / evidence
+*.log
+/logs/
+/uploads/
+/evidence/
+/temp/
+/backups/
+
+# backups & caches
+*.bak
+**/__pycache__/
+
+# secrets / certs
+nginx/ssl/
+*.pem
+*.key
+*.p12
+*.p8
+*.pfx
+
+# OS
+.DS_Store
+Thumbs.db
+
+# CI non poussable sans token à scope workflow
+.github/workflows/
+
+# AI / docs scaffolding — exclus du repo
+.claude/
+.claudeignore
+.superpowers/
+.agents/
+.codex/
+docs/
+tasks/
+prompts/
+templates/
+CLAUDE.md
+AGENTS.md
+CONTEXT.md
+STACK.md
+RULES.md
+INVESTIGATION_COMMITS.txt
+mockup-nordic.html
+
+# Instantanés de source et copies de travail — jamais publiés.
+# `frontend/src_backup_20260411_103440/` (110 fichiers) avait échappé aux motifs
+# précédents et se trouvait publié sur un dépôt public. Ajouter une règle ici ne
+# le retire PAS du suivi : il faut un `git rm -r --cached` sur le chemin concerné.
+*_backup_*/
+*_backup/
+src_backup*/
+*.orig
+*.rej
+*~
+
+# Maquettes et livrables de conception — construits hors du produit.
+*.mockup.html
+maquettes/
+
+# Tests et outillage de test — développement local uniquement, jamais publiés.
+# Politique : seul le code de production est livré sur GitHub.
+# NOTE : sans tests dans le dépôt, .github/workflows/ci.yml n'a plus d'objet —
+# la vérification reste entièrement locale (`npx jest`, `npx vitest run`).
+backend/tests/
+*.test.js
+*.test.ts
+*.test.jsx
+*.test.tsx
+*.spec.js
+*.spec.ts
+*.spec.jsx
+*.spec.tsx
+backend/jest.config.ts
+frontend/vitest.config.js
+coverage/
+.nyc_output/
+
+# Fixtures et échantillons d'analyse — peuvent contenir des artefacts réels.
+fixtures/
+samples/
+*.evtx
+*.pcap
+*.sqlite
+*.db
+
+# Scratch et sorties de session
+.remember/
+scratch/
+tmp/
+*.local.json
+.maquettes/
+
+/reports/
+
+!.env.example
+test_*.py
+*_test.py

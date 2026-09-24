@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0b1119">
+  <title>Heimdall DFIR — See the invisible. Hunt the unknown.</title>
+  <meta name="description" content="An independent, open-source DFIR platform. Explore a real demonstration case: evidence, timelines, network relationships and analyst findings, on infrastructure you control.">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="Heimdall DFIR — See the invisible. Hunt the unknown.">
+  <meta property="og:description" content="Follow a demonstration investigation through Heimdall. Self-hosted evidence analysis, threat hunting and case workspaces.">
+  <link rel="icon" type="image/png" href="assets/heimdall-mark.png">
+  <link rel="apple-touch-icon" href="assets/heimdall-mark.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root{--night:#0b1119;--deep:#080d13;--panel:#101924;--paper:#e9edf0;--ink:#adbac5;--quiet:#8c9caa;--gold:#c9ad78;--edge:#2c3844;--ice:#a7c2d0;--display:"Space Grotesk",sans-serif;--body:"Inter",system-ui,sans-serif;--width:1200px}
+    *{box-sizing:border-box}
+    html{scroll-behavior:smooth;scroll-padding-top:90px}
+    body{margin:0;background:var(--night);color:var(--paper);font:15px/1.7 var(--body);-webkit-font-smoothing:antialiased}
+    a{color:inherit;text-decoration:none}
+    button{font:inherit}
+    button,a{-webkit-tap-highlight-color:transparent}
+    button:focus-visible,a:focus-visible,summary:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ice);outline-offset:5px}
+    img{display:block;max-width:100%;height:auto}
+    ::selection{background:#655335;color:#fff}
+    [hidden]{display:none!important}
+    .wrap{width:min(var(--width),calc(100% - 80px));margin-inline:auto}
+    .skip{position:fixed;z-index:100;left:16px;top:12px;transform:translateY(-150%);background:var(--paper);color:var(--night);padding:8px 16px}
+    .skip:focus{transform:none}
+    .site-nav{position:sticky;top:0;z-index:30;background:rgba(11,17,25,.96);border-bottom:1px solid var(--edge)}
+    .nav-inner{display:flex;align-items:center;justify-content:space-between;gap:24px;min-height:76px}
+    .brand{display:flex;align-items:center;gap:10px;font-family:var(--display);font-size:16px;font-weight:500;letter-spacing:.06em;white-space:nowrap}
+    .brand img{width:36px;height:36px}
+    .brand span{color:var(--gold)}
+    .nav-links{display:flex;align-items:center;gap:30px}
+    .nav-links a{font-size:12px;color:var(--ink)}
+    .nav-links a:hover{color:var(--paper)}
+    .nav-links .source-link{color:var(--gold)}
+    .menu-button{display:none;width:44px;height:44px;border:1px solid var(--edge);background:transparent;color:var(--paper);border-radius:4px;cursor:pointer}
+    .menu-button svg{width:20px;vertical-align:middle;stroke:currentColor;fill:none;stroke-width:1.5}
+    .hero{position:relative;isolation:isolate;overflow:hidden;padding:94px 0 70px}
+    .hero::before{content:"";position:absolute;z-index:-1;inset:0 0 0 56%;background:linear-gradient(90deg,var(--night),rgba(11,17,25,.6)),url(assets/bg-peak.webp) center/cover;opacity:.55}
+    .hero-layout{display:grid;grid-template-columns:1fr 250px;gap:65px;align-items:end}
+    .hero-intro{display:flex;align-items:center;gap:10px;color:var(--ice);font-size:13px;margin:0 0 22px}
+    .hero-intro::before{content:"";width:24px;height:1px;background:var(--gold)}
+    .hero h1{font-family:var(--display);font-size:clamp(52px,8vw,105px);line-height:.98;font-weight:500;letter-spacing:-.065em;margin:0}
+    .hero h1 small{display:block;font-size:22px;letter-spacing:.34em;margin:20px 0 30px;color:var(--gold);font-weight:400}
+    .hero-motto{font:400 clamp(26px,3.1vw,38px)/1.24 var(--display);letter-spacing:-.035em;margin:0 0 24px;max-width:560px}
+    .hero-copy{font-size:15px;max-width:550px;color:var(--ink);margin:0;line-height:1.9}
+    .actions{display:flex;align-items:center;gap:24px;flex-wrap:wrap;margin-top:32px}
+    .button{display:inline-flex;align-items:center;justify-content:center;min-height:48px;padding:11px 21px;background:var(--gold);color:#151411;border:1px solid var(--gold);border-radius:4px;font-size:13px;font-weight:600;cursor:pointer;transition:background .15s}
+    .button:hover{background:#dbc394}
+    .quiet-link{font-size:13px;color:var(--paper);border-bottom:1px solid var(--edge);padding-block:6px}
+    .quiet-link:hover{border-color:var(--gold)}
+    .development-card{padding:30px 0 8px 28px;border-left:1px solid var(--edge)}
+    .development-card img{width:86px;height:86px;margin:0 0 28px;opacity:.9}
+    .development-card .since{font-size:12px;color:var(--ink);margin:0 0 7px}
+    .development-card .days{display:flex;align-items:baseline;gap:7px;font:400 59px/1.1 var(--display);font-variant-numeric:tabular-nums;letter-spacing:-.055em;color:var(--gold)}
+    .development-card .days small{font-size:19px;letter-spacing:0}
+    .development-card .days-note{font-size:11px;color:var(--quiet);line-height:1.7;margin:15px 0 0}
+    .hero-foot{display:flex;gap:28px;flex-wrap:wrap;margin-top:54px;font-size:12px;color:var(--quiet)}
+    .hero-foot span{padding-left:12px;border-left:2px solid var(--edge)}
+    .hero-foot a{color:var(--gold)}
+    .showcase{padding:58px 0 80px;background:var(--deep);border-block:1px solid var(--edge)}
+    .section-heading{display:flex;align-items:end;justify-content:space-between;gap:44px;margin-bottom:32px}
+    .section-heading h2{font:400 clamp(28px,4vw,43px)/1.17 var(--display);letter-spacing:-.045em;margin:0}
+    .section-heading p{max-width:370px;font-size:13px;line-height:1.8;color:var(--ink);margin:0}
+    .section-heading .section-context{font-size:12px;color:var(--gold);margin-bottom:12px}
+    .case-meta{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;padding:16px 0;border-top:1px solid var(--edge);color:var(--quiet);font-size:12px}
+    .case-meta strong{color:var(--paper);font-weight:500}
+    .case-meta .case-type{color:var(--gold)}
+    .gallery-tabs{display:none;grid-template-columns:repeat(4,1fr);border:1px solid var(--edge);border-bottom:0;background:var(--night)}
+    .js .gallery-tabs{display:grid}
+    .gallery-tab{display:flex;gap:12px;align-items:center;text-align:left;padding:17px 20px;background:transparent;color:var(--ink);border:0;border-right:1px solid var(--edge);font-size:12px;cursor:pointer;min-height:56px}
+    .gallery-tab:last-child{border-right:0}
+    .gallery-tab span{font-variant-numeric:tabular-nums;color:var(--quiet)}
+    .gallery-tab[aria-selected="true"]{box-shadow:inset 0 2px var(--gold);background:#17202a;color:var(--paper)}
+    .gallery-tab[aria-selected="true"] span{color:var(--gold)}
+    .gallery-tab:hover{background:#17202a;color:var(--paper)}
+    .gallery-panel{margin:0}
+    .capture{display:block;border:1px solid var(--edge);background:var(--panel)}
+    .capture img{width:100%;aspect-ratio:1920/937;object-fit:contain}
+    .gallery-panel figcaption{display:grid;grid-template-columns:1fr auto;gap:24px;align-items:start;padding:22px 0 6px}
+    .gallery-panel h3{font:500 18px var(--display);margin:0 0 8px}
+    .gallery-panel p{font-size:13px;line-height:1.8;color:var(--ink);max-width:750px;margin:0}
+    .gallery-panel figcaption a{font-size:12px;color:var(--gold);white-space:nowrap;border-bottom:1px solid var(--edge)}
+    .capture-note{color:var(--quiet);font-size:11px;line-height:1.8;margin:20px 0 0;max-width:860px}
+    .workflows{padding:100px 0}
+    .workflow-layout{display:grid;grid-template-columns:.8fr 1.2fr;gap:90px}
+    .workflow-intro h2{font:400 clamp(30px,3.7vw,44px)/1.2 var(--display);letter-spacing:-.04em;margin:0 0 22px}
+    .workflow-intro p{color:var(--ink);font-size:14px;line-height:1.9;margin:0}
+    .workflow-intro .project-boundary{margin-top:28px;padding-left:16px;border-left:2px solid var(--gold);font-size:12px}
+    .workflow-list{list-style:none;padding:0;margin:0}
+    .workflow-list li{display:grid;grid-template-columns:36px 1fr;gap:18px;padding:25px 0;border-bottom:1px solid var(--edge)}
+    .workflow-list li:first-child{padding-top:0}
+    .workflow-list .step{color:var(--gold);font:500 20px var(--display);font-variant-numeric:tabular-nums}
+    .workflow-list h3{margin:0 0 9px;font:500 19px var(--display)}
+    .workflow-list p{margin:0;color:var(--ink);font-size:13px;line-height:1.85}
+    .toolset{margin-top:52px;display:flex;flex-wrap:wrap;align-items:center;gap:18px 30px;border-block:1px solid var(--edge);padding:22px 0;font-size:13px;color:var(--ink)}
+    .toolset p{margin:0;font-size:12px;color:var(--quiet);margin-right:auto}
+    .deployment{padding:75px 0;background:#101923;border-block:1px solid var(--edge)}
+    .deploy-layout{display:grid;grid-template-columns:.9fr 1.1fr;gap:70px;align-items:start}
+    .deploy-layout>div{min-width:0}
+    .deploy-copy h2{font:400 clamp(30px,3.7vw,43px)/1.2 var(--display);letter-spacing:-.04em;margin:0 0 20px}
+    .deploy-copy p{color:var(--ink);font-size:14px;line-height:1.85;margin:0 0 20px}
+    .requirements{padding:0;margin:24px 0;list-style:none;color:var(--ink);font-size:12px}
+    .requirements li{padding:10px 0;border-bottom:1px solid var(--edge)}
+    .requirements strong{font-weight:500;color:var(--paper)}
+    .code-shell{border:1px solid var(--edge);border-radius:5px;background:var(--deep);overflow:hidden}
+    .code-header{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px 18px;border-bottom:1px solid var(--edge);font-size:12px;color:var(--ink)}
+    .copy{display:none;border:1px solid var(--edge);border-radius:3px;background:transparent;color:var(--paper);padding:7px 12px;min-height:38px;font-size:11px;cursor:pointer}
+    .js .copy{display:block}
+    .copy:hover{border-color:var(--gold)}
+    pre{margin:0;padding:24px 20px;overflow-x:auto;font:12px/2 ui-monospace,SFMono-Regular,Consolas,monospace;color:var(--paper)}
+    .code-shell code{font:inherit}
+    .install-notes{font-size:12px;color:var(--ink);line-height:1.8;margin:20px 0 0}
+    .install-notes code{font-size:11px;color:var(--paper)}
+    .copy-status{font-size:11px;color:var(--gold);min-height:20px;display:block;margin-top:8px}
+    .development{padding:90px 0}
+    .development-head{display:grid;grid-template-columns:1fr 1fr;gap:70px;margin-bottom:52px}
+    .development-head h2{font:400 clamp(30px,3.7vw,43px)/1.2 var(--display);letter-spacing:-.04em;margin:0}
+    .development-head p{color:var(--ink);font-size:14px;line-height:1.9;margin:0}
+    .history{display:grid;grid-template-columns:repeat(3,1fr);gap:40px;margin:0;padding:0;list-style:none}
+    .history li{padding-top:20px;border-top:2px solid var(--edge)}
+    .history li:last-child{border-color:var(--gold)}
+    .history .history-date{color:var(--gold);font-size:12px;margin:0 0 18px}
+    .history h3{font:500 19px var(--display);margin:0 0 13px}
+    .history p{font-size:13px;color:var(--ink);line-height:1.8;margin:0}
+    .development-links{display:flex;gap:25px;flex-wrap:wrap;margin-top:35px}
+    .development-links a{color:var(--gold);font-size:12px;border-bottom:1px solid var(--edge)}
+    .closing{padding:55px 0 64px;background:var(--deep);border-top:1px solid var(--edge)}
+    .closing-inner{display:flex;align-items:center;justify-content:space-between;gap:35px}
+    .closing h2{font:400 clamp(24px,3vw,34px)/1.2 var(--display);letter-spacing:-.025em;margin:0 0 12px}
+    .closing p{font-size:13px;color:var(--ink);max-width:660px;margin:0}
+    .closing a{white-space:nowrap}
+    footer{padding:28px 0;color:var(--quiet);font-size:11px}
+    .footer-inner{display:flex;justify-content:space-between;align-items:center;gap:20px;flex-wrap:wrap}
+    .footer-links{display:flex;gap:22px;flex-wrap:wrap}
+    .footer-links a:hover{color:var(--paper)}
+    @media(max-width:1000px){.nav-links{gap:18px}.hero-layout{gap:35px;grid-template-columns:1fr 200px}.hero h1{font-size:clamp(50px,8.5vw,88px)}.development-card{padding-left:20px}.workflow-layout{gap:50px}.deploy-layout{gap:35px}}
+    @media(max-width:760px){
+      .wrap{width:calc(100% - 40px)}.nav-inner{min-height:64px;flex-wrap:wrap;padding-block:10px;gap:10px;position:relative}
+      .brand{font-size:13px}.brand img{width:29px;height:29px}
+      .nav-links{flex-wrap:wrap;gap:12px 20px;padding-bottom:8px}
+      .js .menu-button{display:block}.js .nav-links{display:none;position:absolute;top:65px;left:0;right:0;flex-direction:column;align-items:stretch;padding:14px;background:var(--night);border:1px solid var(--edge);gap:0}
+      .js .nav-links.open{display:flex}.nav-links a{padding:10px}
+      .hero{padding:52px 0 42px}.hero-layout{grid-template-columns:1fr;gap:35px}
+      .hero::before{inset:0 0 35% 30%;opacity:.35}.hero h1{font-size:clamp(47px,12vw,84px)}.hero h1 small{font-size:18px;margin-block:14px 26px}
+      .hero-motto{font-size:30px}.hero-copy{font-size:14px}.hero-foot{gap:12px 20px;margin-top:30px}
+      .development-card{border:0;border-top:1px solid var(--edge);padding:20px 0 0;display:grid;grid-template-columns:1fr 1fr;gap:6px 24px;align-items:center}
+      .development-card img{display:none}.development-card .since{grid-column:2;grid-row:1;margin:0}.development-card .days{grid-row:1/3;font-size:43px}.development-card .days-note{grid-column:2;margin:0;font-size:10px}
+      .section-heading{display:block}.section-heading p{margin-top:18px}.section-heading .section-context{margin-top:0}
+      .showcase{padding:40px 0 50px}.case-meta{font-size:11px}
+      .gallery-tab{padding:13px 8px;gap:7px;justify-content:center;font-size:10px}.gallery-tab span{display:none}
+      .gallery-panel figcaption{grid-template-columns:1fr;gap:12px}.gallery-panel p{font-size:12px}
+      .workflows{padding:58px 0}.workflow-layout,.deploy-layout,.development-head{grid-template-columns:1fr;gap:35px}
+      .workflow-list li{gap:12px;grid-template-columns:28px 1fr}.toolset{gap:15px 22px;margin-top:35px}.toolset p{flex-basis:100%}
+      .deployment,.development{padding:55px 0}.development-head{margin-bottom:35px}
+      .history{grid-template-columns:1fr;gap:30px}.history li{padding-top:15px}.history .history-date{margin-bottom:12px}
+      .closing-inner{align-items:start;flex-direction:column;gap:25px}.closing{padding:40px 0}
+      pre{font-size:11px;padding:20px 14px}.code-header{padding:10px 14px}
+    }
+    @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}*,*::before,*::after{transition:none!important;animation:none!important}}
+  </style>
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+  <nav class="site-nav" aria-label="Primary navigation">
+    <div class="wrap nav-inner">
+      <a class="brand" href="#top"><img src="assets/heimdall-mark.png" alt="" width="36" height="36">HEIMDALL <span>DFIR</span></a>
+      <button class="menu-button" id="menuButton" aria-expanded="false" aria-controls="navLinks" aria-label="Open navigation" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
+      <div class="nav-links" id="navLinks">
+        <a href="#demo">Demo case</a><a href="#workflow">The platform</a><a href="#deploy">Deployment</a><a href="#development">Development</a>
+        <a class="source-link" href="https://github.com/RaiseiX/Heimdall-DFIR" target="_blank" rel="noopener">Source on GitHub</a>
+      </div>
+    </div>
+  </nav>
+  <main id="main" tabindex="-1">
+    <header class="hero" id="top">
+      <div class="wrap">
+        <div class="hero-layout">
+          <div>
+            <p class="hero-intro">Digital forensics &amp; incident response</p>
+            <h1>HEIMDALL<small>DFIR</small></h1>
+            <p class="hero-motto">See the invisible.<br>Hunt the unknown.</p>
+            <p class="hero-copy">Evidence rarely tells its story in one place. Heimdall brings collections, timelines, threat hunting and analyst findings into a shared investigation workspace.</p>
+            <div class="actions"><a class="button" href="#demo">Explore the demo case</a><a class="quiet-link" href="#deploy">Run it in your lab</a></div>
+          </div>
+          <aside class="development-card" aria-label="Project development duration">
+            <img src="assets/heimdall-mark.png" alt="" width="86" height="86">
+            <p class="since">In development since <time id="developmentStart" datetime="2024-08-01">August 2024</time></p>
+            <div class="days"><span aria-label="approximately">≈</span><span id="developmentDays">767</span><small>days</small></div>
+            <p class="days-note">An independent project, built over time.<br>Day count estimated from 1 August.<noscript><br>Count as of 7 September 2026.</noscript></p>
+          </aside>
+        </div>
+        <div class="hero-foot"><span>Self-hosted</span><span>MIT licensed</span><span>Active beta</span><span>Built by <a href="https://github.com/RaiseiX" target="_blank" rel="noopener">RaiseiX</a></span></div>
+      </div>
+    </header>
+
+    <section class="showcase" id="demo">
+      <div class="wrap">
+        <div class="section-heading">
+          <div><p class="section-context">Inside the application</p><h2>Follow Operation Bifrost.</h2></div>
+          <p>A synthetic case created in Heimdall itself. These are captures of the real application, in English, from evidence review to investigation findings.</p>
+        </div>
+        <div class="case-meta"><strong>DEMO-HEIMDALL-01</strong><span>Suspected workstation compromise</span><span class="case-type">Synthetic evidence only</span></div>
+        <div class="gallery-tabs" role="tablist" aria-label="Screens from the demonstration case">
+          <button class="gallery-tab" type="button" role="tab" id="tab-evidence" aria-controls="view-evidence" aria-selected="true"><span>01</span>Evidence</button>
+          <button class="gallery-tab" type="button" role="tab" id="tab-timeline" aria-controls="view-timeline" aria-selected="false" tabindex="-1"><span>02</span>Timeline</button>
+          <button class="gallery-tab" type="button" role="tab" id="tab-network" aria-controls="view-network" aria-selected="false" tabindex="-1"><span>03</span>Network</button>
+          <button class="gallery-tab" type="button" role="tab" id="tab-findings" aria-controls="view-findings" aria-selected="false" tabindex="-1"><span>04</span>Findings</button>
+        </div>
+        <figure class="gallery-panel" id="view-evidence">
+          <a class="capture" href="shots/demo-evidence.webp" target="_blank" rel="noopener" aria-label="Open the evidence screenshot at full size"><img src="shots/demo-evidence.webp" width="1920" height="937" fetchpriority="high" alt="The Operation Bifrost demonstration case open in Heimdall, showing its synthetic evidence collection."></a>
+          <figcaption><div><h3>A case gives the evidence its context.</h3><p>Start with the collection and its sources. Evidence, notes and analysis stay attached to the investigation they belong to.</p></div><a href="shots/demo-evidence.webp" target="_blank" rel="noopener">Full-size capture</a></figcaption>
+        </figure>
+        <figure class="gallery-panel" id="view-timeline">
+          <a class="capture" href="shots/demo-timeline.webp" target="_blank" rel="noopener" aria-label="Open the timeline screenshot at full size"><img src="shots/demo-timeline.webp" width="1920" height="937" loading="lazy" decoding="async" alt="The real Heimdall Super Timeline displaying synthetic events from Operation Bifrost in English."></a>
+          <figcaption><div><h3>Reconstruct the sequence, event by event.</h3><p>Move through timestamped artifacts, inspect their fields and keep the evidence behind a finding close at hand.</p></div><a href="shots/demo-timeline.webp" target="_blank" rel="noopener">Full-size capture</a></figcaption>
+        </figure>
+        <figure class="gallery-panel" id="view-network">
+          <a class="capture" href="shots/demo-network.webp" target="_blank" rel="noopener" aria-label="Open the network screenshot at full size"><img src="shots/demo-network.webp" width="1920" height="905" loading="lazy" decoding="async" alt="Heimdall's network view showing the fictional hosts and connections in the demonstration case."></a>
+          <figcaption><div><h3>Follow the relationships between hosts.</h3><p>Review network observations alongside the timeline. Connections support an investigation; they do not, by themselves, prove an attack path.</p></div><a href="shots/demo-network.webp" target="_blank" rel="noopener">Full-size capture</a></figcaption>
+        </figure>
+        <figure class="gallery-panel" id="view-findings">
+          <a class="capture" href="shots/demo-findings.webp" target="_blank" rel="noopener" aria-label="Open the investigation screenshot at full size"><img src="shots/demo-findings.webp" width="1920" height="905" loading="lazy" decoding="async" alt="The Operation Bifrost investigation workspace with analyst findings and work stages in English."></a>
+          <figcaption><div><h3>Turn observations into a reviewable account.</h3><p>Organise the investigation, record what the evidence supports and keep open questions visible for the next analyst.</p></div><a href="shots/demo-findings.webp" target="_blank" rel="noopener">Full-size capture</a></figcaption>
+        </figure>
+        <p class="capture-note">Operation Bifrost is a fictional dataset created for this presentation. No customer evidence is shown. Captured on 7–8 September 2026 with the English locale; a few application labels are not yet translated. The website displays screenshots; it does not connect to an investigation backend.</p>
+      </div>
+    </section>
+
+    <section class="workflows" id="workflow">
+      <div class="wrap">
+        <div class="workflow-layout">
+          <div class="workflow-intro"><h2>The tools change.<br>The case stays together.</h2><p>Heimdall connects the work that often happens across separate windows: importing a collection, reading artifacts, hunting for indicators and documenting a finding.</p><p class="project-boundary">Designed for labs, incident responders and forensic teams. Heimdall analyses collected evidence; it is not a replacement for an endpoint collection platform or a validated forensic procedure.</p></div>
+          <ol class="workflow-list">
+            <li><span class="step" aria-hidden="true">01</span><div><h3>Bring in the evidence</h3><p>Work with Windows collections, CatScale Linux data, CSV imports, memory images and PCAP-derived connections. Keep the original context available throughout the case.</p></div></li>
+            <li><span class="step" aria-hidden="true">02</span><div><h3>Find what deserves a closer look</h3><p>Use the Super Timeline, YARA and Sigma hunting, network views and memory analysis to investigate the available traces. An optional Ollama assistant can help with case context.</p></div></li>
+            <li><span class="step" aria-hidden="true">03</span><div><h3>Explain what happened</h3><p>Collect supporting events, maintain investigation notes and prepare a report. The analyst reviews the result and remains responsible for the conclusion.</p></div></li>
+          </ol>
+        </div>
+        <div class="toolset"><p>Built with established forensic tools</p><span>EZTools</span><span>Hayabusa</span><span>Volatility 3</span><span>YARA</span><span>Sigma</span></div>
+      </div>
+    </section>
+
+    <section class="deployment" id="deploy">
+      <div class="wrap deploy-layout">
+        <div class="deploy-copy"><h2>Your infrastructure.<br>Your investigation.</h2><p>The application runs as a Docker Compose stack. Case data stays on infrastructure you manage; optional enrichment providers are configured separately.</p>
+          <ul class="requirements"><li><strong>Docker Engine 24+</strong> and Docker Compose v2</li><li><strong>16 GB RAM minimum</strong> for the complete stack</li><li><strong>50 GB free storage</strong> as a lab starting point, plus your evidence</li></ul>
+          <a class="quiet-link" href="https://github.com/RaiseiX/Heimdall-DFIR#quick-start" target="_blank" rel="noopener">Read the installation guide</a>
+        </div>
+        <div>
+          <div class="code-shell"><div class="code-header"><span>Linux</span><button class="copy" type="button" id="copyButton" aria-label="Copy installation commands">Copy commands</button></div><pre tabindex="0" id="installCode" aria-label="Installation commands"><code>git clone https://github.com/RaiseiX/Heimdall-DFIR.git
+cd Heimdall-DFIR
+bash start.sh</code></pre></div>
+          <span class="copy-status" id="copyStatus" role="status" aria-live="polite"></span>
+          <p class="install-notes">Requires <code>openssl</code>. On Windows, use <code>.&#92;start.ps1</code> in PowerShell. Open <code>https://localhost</code> after startup; a local setup uses a self-signed certificate.</p>
+          <p class="install-notes">Change the initial application passwords before exposing the instance. Start with test evidence: Heimdall is in beta. Memory analysis and local AI may require additional resources.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="development" id="development">
+      <div class="wrap">
+        <div class="development-head"><h2>Built since August 2024.<br>Still being refined.</h2><p>Heimdall is an independent, open-source project. The next phase focuses on making the investigation workflow more reliable, from the first installation to evidence recovery and review.</p></div>
+        <ol class="history">
+          <li><p class="history-date"><time datetime="2024-08">August 2024</time></p><h3>The project begins</h3><p>The start of Heimdall's development: bringing forensic analysis and investigation context into one workspace.</p></li>
+          <li><p class="history-date"><time datetime="2026-02-15">15 February 2026</time></p><h3>First documented release</h3><p>The changelog records the initial internal release, with cases, evidence, timelines, hunting and network workflows.</p></li>
+          <li><p class="history-date">Current focus</p><h3>Reliability before breadth</h3><p>Reproducible installation, traceable ingestion, case access controls, audit integrity and restoration checks. Broader integrations and detection quality follow.</p></li>
+        </ol>
+        <div class="development-links"><a href="https://github.com/RaiseiX/Heimdall-DFIR/blob/main/ROADMAP.md" target="_blank" rel="noopener">Read the roadmap</a><a href="https://github.com/RaiseiX/Heimdall-DFIR/blob/main/CHANGELOG.md" target="_blank" rel="noopener">Explore the changelog</a></div>
+      </div>
+    </section>
+
+    <section class="closing">
+      <div class="wrap closing-inner"><div><h2>Try a case. Bring your perspective.</h2><p>Practical feedback, reproducible bug reports and contributions help shape the next version of Heimdall.</p></div><a class="button" href="https://github.com/RaiseiX/Heimdall-DFIR/issues" target="_blank" rel="noopener">Contribute on GitHub</a></div>
+    </section>
+  </main>
+  <footer><div class="wrap footer-inner"><span>Heimdall DFIR © <span id="year">2026</span> RaiseiX</span><div class="footer-links"><a href="https://github.com/RaiseiX/Heimdall-DFIR" target="_blank" rel="noopener">Source code</a><a href="https://github.com/RaiseiX/Heimdall-DFIR/blob/main/README.md" target="_blank" rel="noopener">Documentation</a><span>MIT license</span></div></div></footer>
+  <script>
+    const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const menuButton = document.getElementById('menuButton');
+    const navLinks = document.getElementById('navLinks');
+    function closeMenu() {
+      navLinks.classList.remove('open');
+      menuButton.setAttribute('aria-expanded', 'false');
+      menuButton.setAttribute('aria-label', 'Open navigation');
+    }
+    menuButton.addEventListener('click', () => {
+      const open = menuButton.getAttribute('aria-expanded') !== 'true';
+      navLinks.classList.toggle('open', open);
+      menuButton.setAttribute('aria-expanded', String(open));
+      menuButton.setAttribute('aria-label', open ? 'Close navigation' : 'Open navigation');
+    });
+    navLinks.addEventListener('click', event => {if (event.target.closest('a')) closeMenu();});
+    addEventListener('keydown', event => {
+      if (event.key === 'Escape' && menuButton.getAttribute('aria-expanded') === 'true') {closeMenu();menuButton.focus();}
+    });
+    matchMedia('(max-width:760px)').addEventListener('change', closeMenu);
+
+    const tabs = Array.from(document.querySelectorAll('.gallery-tab'));
+    function selectView(selected) {
+      tabs.forEach(tab => {
+        const active = tab === selected;
+        tab.setAttribute('aria-selected', String(active));
+        tab.tabIndex = active ? 0 : -1;
+        const panel = document.getElementById(tab.getAttribute('aria-controls'));
+        panel.setAttribute('role', 'tabpanel');
+        panel.setAttribute('aria-labelledby', tab.id);
+        panel.tabIndex = 0;
+        panel.hidden = !active;
+      });
+    }
+    tabs.forEach((tab, index) => {
+      tab.addEventListener('click', () => selectView(tab));
+      tab.addEventListener('keydown', event => {
+        let target;
+        if (event.key === 'ArrowRight') target = (index + 1) % tabs.length;
+        if (event.key === 'ArrowLeft') target = (index + tabs.length - 1) % tabs.length;
+        if (event.key === 'Home') target = 0;
+        if (event.key === 'End') target = tabs.length - 1;
+        if (target === undefined) return;
+        event.preventDefault();
+        selectView(tabs[target]);
+        tabs[target].focus();
+      });
+    });
+    selectView(tabs[0]);
+    document.documentElement.classList.add('js');
+
+    // August 2024 is author-confirmed; August 1 is an explicit approximation.
+    function updateDevelopmentDays() {
+      const now = new Date();
+      const today = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+      const start = Date.parse(document.getElementById('developmentStart').dateTime + 'T00:00:00Z');
+      document.getElementById('developmentDays').textContent = String(Math.max(0, Math.floor((today - start) / 86400000)));
+      document.getElementById('year').textContent = String(now.getUTCFullYear());
+    }
+    updateDevelopmentDays();
+    setInterval(updateDevelopmentDays, 60000);
+    document.addEventListener('visibilitychange', () => {if (!document.hidden) updateDevelopmentDays();});
+
+    const copyButton = document.getElementById('copyButton');
+    const copyStatus = document.getElementById('copyStatus');
+    let copyTimer;
+    copyButton.addEventListener('click', async () => {
+      clearTimeout(copyTimer);
+      const code = document.querySelector('#installCode code');
+      try {
+        await navigator.clipboard.writeText(code.textContent.trim());
+        copyButton.textContent = 'Copied';
+        copyStatus.textContent = 'Installation commands copied.';
+      } catch {
+        const range = document.createRange();
+        range.selectNodeContents(code);
+        const selection = window.getSelection();
+        selection.removeAllRanges();
+        selection.addRange(range);
+        document.getElementById('installCode').focus();
+        copyStatus.textContent = 'Commands selected. Press Ctrl+C or Command+C to copy.';
+      }
+      copyTimer = setTimeout(() => {copyButton.textContent = 'Copy commands';}, 2200);
+    });
+  </script>
+</body>
+</html>

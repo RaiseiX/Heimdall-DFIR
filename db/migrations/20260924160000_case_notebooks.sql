@@ -1,0 +1,8 @@
+CREATE TABLE IF NOT EXISTS case_notebooks (
+  case_id    UUID PRIMARY KEY REFERENCES cases(id) ON DELETE CASCADE,
+  content    TEXT NOT NULL DEFAULT '',
+  updated_by UUID REFERENCES users(id) ON DELETE SET NULL,
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE case_notebooks ADD COLUMN IF NOT EXISTS ydoc BYTEA;

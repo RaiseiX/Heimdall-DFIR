@@ -1,0 +1,100 @@
+# Heimdall-DFIR — canonical migration order.
+# One migration file per line, applied top-to-bottom by db/migrate.sh, each
+# recorded once in the schema_migrations table (idempotent).
+#
+# RULES:
+#   - Every db/*.sql and db/migrations/*.sql file (except db/init.sql) MUST be
+#     listed here. migrate.sh preflight aborts if any file is missing — this is
+#     what prevents a new migration from being silently orphaned.
+#   - Append new migrations at the END (do not reorder already-applied entries;
+#     schema_migrations tracks by filename, so ordering of applied files is
+#     fixed history).
+#   - Blank lines and lines starting with '#' are ignored.
+
+# --- legacy v2.x era (tracked on existing deployments) ---
+db/migrations/parser_results_columns.sql
+db/migrations/audit_log_columns.sql
+db/migrations/iocs_columns.sql
+db/migrations/triage_scores.sql
+db/migrations/sysmon_configs.sql
+db/migrations/timeline_bookmarks.sql
+db/migrations/collection_timeline_columns.sql
+db/migrations/case_messages_and_notifications.sql
+db/migrations/refresh_tokens.sql
+db/migrations/playbooks.sql
+db/migrations/automated_hunt_alerts.sql
+db/migrations/collection_timeline_case_isolation.sql
+db/migrations/case_message_reactions.sql
+db/migrations/memory_uploads.sql
+db/migrations/cases_and_evidence_columns.sql
+db/migrations/memory_uploads_columns.sql
+
+# --- numbered feature migrations ---
+db/migrations/performance_indexes.sql
+db/migrations/volweb_integration.sql
+db/migrations/timeline_color_rules.sql
+db/migrations/user_artifact_column_prefs.sql
+db/migrations/timeline_pins.sql
+db/migrations/parser_performance_indexes.sql
+db/migrations/case_risk_score.sql
+db/migrations/ioc_cross_case_view.sql
+db/migrations/memory_uploads_status_index.sql
+db/migrations/evidence_additional_files.sql
+db/migrations/investigation_workspace.sql
+db/migrations/20260322120000_ai_case_context.sql
+db/migrations/20260322140000_report_templates.sql
+db/migrations/20260701000000_timeline_saved_searches.sql
+db/migrations/20260703000000_dfiq.sql
+db/migrations/20260708000000_ingestion_files.sql
+db/migrations/20260709000000_hunt_runs.sql
+
+# --- previously-orphaned committed hotfixes (v2.23-v2.27) ---
+# Additive to tables that exist by this point; v2.25 creates the workbench
+# tables that v2.27 then alters, so v2.25 MUST precede v2.27.
+db/migrations/supertimeline_forensic_columns.sql
+db/migrations/backfill_evtx_hayabusa_forensic_columns.sql
+db/migrations/workbench_evidence_bridge.sql
+db/migrations/collection_timeline_detections.sql
+db/migrations/workbench_fk_types_uuid.sql
+
+# --- collaborative report editor (Yjs) ---
+db/migrations/20260712000000_report_drafts.sql
+
+# --- audit log tamper evidence (seq + hash chain) ---
+# Additive to audit_log, which exists from init.sql. Existing rows keep
+# prev_hash = NULL and stay verifiable under the legacy per-row scheme.
+db/migrations/20260727000000_audit_chain.sql
+# --- GIN index on collection_timeline.raw (network map) ---
+# Lets `raw ?| ARRAY[...]` use an index instead of deserialising every row.
+# Built CONCURRENTLY: a plain CREATE INDEX would hold SHARE for the whole build.
+db/migrations/20260731000000_ct_raw_gin.sql
+# --- catscale_state: point-in-time host state (lsof, modules, packages, docker) ---
+# Keeps un-timestamped CatScale inventories out of collection_timeline while
+# staying searchable; detections promote findings into the timeline.
+db/migrations/20260731120000_catscale_state.sql
+# --- sigma_hunt_results.sample_size: honest match counts ---
+# match_count was capped by the hunt query's own LIMIT 200; sample_size lets
+# a consumer distinguish "50 sampled" from "50 total" now that match_count is
+# an unbounded COUNT(*). Existing rows stay NULL (unknown, not zero).
+db/migrations/20260807000000_sigma_hunt_sample_size.sql
+# --- parser_results.platform: persist the detected platform of a collection ---
+# Lets a later consumer (Sigma hunt scoping) join against sigma_rules.logsource_
+# product instead of evaluating every rule on every collection. 'windows' |
+# 'linux' | 'macos' | NULL — NULL means unknown/mixed, never guessed. Existing
+# rows stay NULL: no retro-inference for collections imported before this column.
+db/migrations/20260807010000_collection_platform.sql
+# --- sigma_rules.level / mitre_techniques / upstream_status ---
+# Extracts what was already in every rule's YAML but never parsed: severity
+# level, MITRE ATT&CK techniques (separated from tactics/software/groups in
+# the attack.* tag namespace), and the rule's own upstream status. Schema
+# only — backend/scripts/backfillSigmaMetadata.js re-parses the existing
+# rows' stored content afterwards (idempotent, run separately).
+db/migrations/20260810000000_sigma_rule_metadata.sql
+db/migrations/20260814090000_ingestion_files_coverage_status.sql
+db/migrations/20260818150000_collection_timeline_nullable_timestamp.sql
+db/migrations/20260910120000_catscale_state_event_time.sql
+db/migrations/20260915160000_collection_timeline_proc_files_index.sql
+db/migrations/20260915173000_case_deletion_operations.sql
+db/migrations/20260917120000_ingestion_files_parsed_empty.sql
+db/migrations/20260923150000_parse_queue.sql
+db/migrations/20260924160000_case_notebooks.sql

@@ -1,0 +1,86 @@
+# Linux Persistence pack — T1053 / T1543 / T1574 / T1098 / T1037 / T1546
+# Cron and systemd rows are both artifact_type catscale_persistence, so the rules
+# discriminate on the raw key each parser fills (`cron_entry` vs `unit`) instead of
+# on the artifact type alone.
+rules:
+  - id: lnx_cron_download_exec
+    name: "Cron job fetching a remote payload"
+    severity: high
+    category: persistence
+    target_artifact: [catscale_persistence]
+    mitre: [T1053.003, T1105]
+    tags: [Persistence, Cron, Download]
+    match:
+      any:
+        - { field: cron_entry, op: iregex, value: '\b(curl|wget|fetch)\b' }
+        - { field: cron_entry, op: iregex, value: '/dev/(tcp|udp)/' }
+
+  - id: lnx_cron_suspicious_path
+    name: "Cron job running from a world-writable or hidden path"
+    severity: high
+    category: persistence
+    target_artifact: [catscale_persistence]
+    mitre: [T1053.003]
+    tags: [Persistence, Cron, SuspiciousPath]
+    match:
+      any:
+        - { field: cron_entry, op: iregex, value: '(/tmp/|/dev/shm/|/var/tmp/|/run/shm/)' }
+        - { field: cron_entry, op: iregex, value: '\s/[^\s]*/\.[^\s/]+' }
+
+  - id: lnx_systemd_suspicious_path
+    name: "Systemd unit pointing outside the system paths"
+    severity: high
+    category: persistence
+    target_artifact: [catscale_persistence]
+    mitre: [T1543.002]
+    tags: [Persistence, Systemd, SuspiciousPath]
+    match:
+      all:
+        - { field: unit,        op: iregex, value: '\.(service|timer|socket)$' }
+        - { field: description, op: iregex, value: '(/tmp/|/dev/shm/|/var/tmp/|/home/|/root/)' }
+
+  - id: lnx_ld_preload
+    name: "ld.so.preload written — userland rootkit hooking"
+    severity: high
+    category: persistence
+    target_artifact: [catscale_fstimeline, catscale_history, catscale_persistence]
+    mitre: [T1574.006]
+    tags: [Persistence, Rootkit, LdPreload]
+    match:
+      any:
+        - { field: path,        op: iregex, value: '/etc/ld\.so\.(preload|conf)' }
+        - { field: description, op: iregex, value: '(/etc/ld\.so\.preload|\bLD_PRELOAD=)' }
+
+  - id: lnx_authorized_keys_change
+    name: "SSH authorized_keys modified"
+    severity: high
+    category: persistence
+    target_artifact: [catscale_fstimeline, catscale_history]
+    mitre: [T1098.004]
+    tags: [Persistence, SSH, AccountManipulation]
+    match:
+      any:
+        - { field: path,        op: iregex, value: '\.ssh/authorized_keys' }
+        - { field: description, op: iregex, value: '\.ssh/authorized_keys' }
+
+  - id: lnx_rc_local_change
+    name: "Boot init script modified"
+    severity: medium
+    category: persistence
+    target_artifact: [catscale_fstimeline]
+    mitre: [T1037.004]
+    tags: [Persistence, BootScript]
+    match:
+      any:
+        - { field: path, op: iregex, value: '^/etc/(rc\.local|rc\.common|init\.d/|rc[0-9S]\.d/)' }
+
+  - id: lnx_shell_profile_change
+    name: "Shell profile modified"
+    severity: medium
+    category: persistence
+    target_artifact: [catscale_fstimeline]
+    mitre: [T1546.004]
+    tags: [Persistence, ShellProfile]
+    match:
+      any:
+        - { field: path, op: iregex, value: '(/\.bashrc|/\.bash_profile|/\.bash_login|/\.zshrc|/\.profile|/etc/profile\.d/|/etc/bash\.bashrc)' }

@@ -1,0 +1,164 @@
+{{- $domaine := env "DOMAIN" | default "localhost" | trim }}
+{{- $tls := "{}" }}
+{{- if ne (lower $domaine) "localhost" }}{{ $tls = "{ certResolver: letsencrypt }" }}{{ end }}
+http:
+  # ── Middlewares ────────────────────────────────────────────────────────────
+
+  middlewares:
+
+    # Security headers applied to ALL responses
+    security-headers:
+      headers:
+        customResponseHeaders:
+          X-Frame-Options: "SAMEORIGIN"
+          X-Content-Type-Options: "nosniff"
+          Referrer-Policy: "strict-origin-when-cross-origin"
+          Permissions-Policy: "geolocation=(), microphone=(), camera=(), payment=(), usb=()"
+          X-XSS-Protection: "1; mode=block"
+          Server: ""  # Hide Traefik/server identity
+        # HSTS — 1 year, includeSubDomains, preload
+        stsSeconds: 31536000
+        stsIncludeSubdomains: true
+        stsPreload: true
+        forceSTSHeader: true
+        contentTypeNosniff: true
+        frameDeny: true
+        # CSP: allow unsafe-inline/eval for React SPA hot reload (tighten in hardened prod)
+        contentSecurityPolicy: >-
+          default-src 'self';
+          script-src 'self' 'unsafe-inline' 'unsafe-eval';
+          style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
+          img-src 'self' data: blob:;
+          font-src 'self' data: https://fonts.gstatic.com;
+          connect-src 'self' ws: wss:;
+          frame-ancestors 'self';
+
+    # General API rate limit: 30 req/s, burst 50
+    api-ratelimit:
+      rateLimit:
+        average: 30
+        burst: 50
+        period: 1s
+        sourceCriterion:
+          ipStrategy:
+            depth: 1
+
+    # Auth endpoint rate limit: 5 req/min, burst 3 — brute-force protection
+    auth-ratelimit:
+      rateLimit:
+        average: 5
+        burst: 3
+        period: 60s
+        sourceCriterion:
+          ipStrategy:
+            depth: 1
+
+    # Upload/collection rate limit: 3 req/s, burst 20 — large-file ingestion
+    upload-ratelimit:
+      rateLimit:
+        average: 3
+        burst: 20
+        period: 1s
+        sourceCriterion:
+          ipStrategy:
+            depth: 1
+
+  # ── Routers ───────────────────────────────────────────────────────────────
+
+  routers:
+    # Only credential submission is brute-forceable. /me, /refresh and /logout are
+    # session traffic and fall through to heimdall-api: a 5/min budget shared with
+    # them locked analysts out of their own session mid-upload.
+    heimdall-auth:
+      rule: "Host(`{{ $domaine }}`) && (Path(`/api/auth/login`) || Path(`/api/auth/register`))"
+      entryPoints: [websecure]
+      tls: {{ $tls }}
+      middlewares: [security-headers, auth-ratelimit]
+      service: backend-svc
+      priority: 30
+
+    # Ingestion writes. upload-ratelimit existed but was wired to nothing, so large
+    # imports ran under the general 30 req/s budget.
+    heimdall-upload:
+      rule: "Host(`{{ $domaine }}`) && Method(`POST`) && (PathPrefix(`/api/collection`) || PathPrefix(`/api/evidence`) || PathPrefix(`/api/upload`))"
+      entryPoints: [websecure]
+      tls: {{ $tls }}
+      middlewares: [security-headers, upload-ratelimit]
+      service: backend-svc
+      priority: 15
+
+    heimdall-socket:
+      rule: "Host(`{{ $domaine }}`) && PathPrefix(`/socket.io`)"
+      entryPoints: [websecure]
+      tls: {{ $tls }}
+      middlewares: [security-headers]
+      service: backend-svc
+      priority: 20
+
+    heimdall-api:
+      rule: "Host(`{{ $domaine }}`) && PathPrefix(`/api`)"
+      entryPoints: [websecure]
+      tls: {{ $tls }}
+      middlewares: [security-headers, api-ratelimit]
+      service: backend-svc
+      priority: 10
+
+    heimdall-frontend:
+      rule: "Host(`{{ $domaine }}`)"
+      entryPoints: [websecure]
+      tls: {{ $tls }}
+      middlewares: [security-headers]
+      service: frontend-svc
+      priority: 1
+
+  # ── Services ──────────────────────────────────────────────────────────────
+
+  services:
+    backend-svc:
+      loadBalancer:
+        passHostHeader: true
+        serversTransport: heavy
+        servers:
+          - url: "http://backend:4000"
+
+    frontend-svc:
+      loadBalancer:
+        servers:
+          - url: "http://frontend:3000"
+
+  # ── ServersTransports ─────────────────────────────────────────────────────
+
+  serversTransports:
+
+    # Standard transport for most API routes
+    standard:
+      forwardingTimeouts:
+        dialTimeout: "30s"
+        responseHeaderTimeout: "600s"
+        idleConnTimeout: "90s"
+
+    # Heavy transport for forensic ingestion endpoints:
+    #   /api/collection/  — 10 GB+ CSV imports, up to 2 hours
+    #   /api/evidence/    — 5 GB memory dumps
+    #   /api/volweb/      — Volatility analysis triggers
+    # idleConnTimeout governs how long an UNUSED pooled connection is kept, not how
+    # long a request may run — responseHeaderTimeout does that. Holding dead upstream
+    # connections for an hour only delays recovery after the backend is recreated.
+    heavy:
+      forwardingTimeouts:
+        dialTimeout: "30s"
+        responseHeaderTimeout: "7200s"
+        idleConnTimeout: "90s"
+
+tls:
+  options:
+    default:
+      minVersion: VersionTLS12
+      cipherSuites:
+        - TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384
+        - TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384
+        - TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256
+        - TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256
+        - TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256
+        - TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256
+      sniStrict: false  # Allow self-signed fallback for local dev

@@ -1,0 +1,76 @@
+# Linux Account & Access pack — T1110 / T1078 / T1136 / T1098 / T1548 / T1571
+# Auth rows carry a `category` set by the CatScale auth parser (ssh_login,
+# ssh_failed, ssh_invalid, sudo, su), which is far more reliable to match on than
+# the human-readable description.
+rules:
+  - id: lnx_ssh_failed_auth
+    name: "Failed SSH authentication"
+    severity: low
+    category: initial-access
+    target_artifact: [catscale_auth]
+    mitre: [T1110.001]
+    tags: [InitialAccess, SSH, FailedLogon]
+    match:
+      any:
+        - { field: category,    op: in,     value: [ssh_failed, ssh_invalid] }
+        - { field: description, op: iregex, value: 'SSH (Échec|Utilisateur invalide)' }
+
+  - id: lnx_ssh_root_login
+    name: "Interactive root login over SSH"
+    severity: medium
+    category: initial-access
+    target_artifact: [catscale_auth]
+    mitre: [T1078.003]
+    tags: [InitialAccess, SSH, RootLogin]
+    match:
+      all:
+        - { field: category, op: eq, value: ssh_login }
+        - any:
+            - { field: user_name,   op: eq,     value: root }
+            - { field: description, op: iregex, value: ':\s*root\s+depuis' }
+
+  - id: lnx_account_created
+    name: "Local account or group created"
+    severity: high
+    category: persistence
+    target_artifact: [catscale_history, catscale_auth, catscale_process]
+    mitre: [T1136.001]
+    tags: [Persistence, AccountCreation]
+    match:
+      any:
+        - { field: description, op: iregex, value: '\b(useradd|adduser|groupadd|newusers)\b' }
+
+  - id: lnx_sudo_group_add
+    name: "Account added to a privileged group"
+    severity: high
+    category: privilege-escalation
+    target_artifact: [catscale_history, catscale_auth, catscale_process]
+    mitre: [T1098]
+    tags: [PrivilegeEscalation, AccountManipulation]
+    match:
+      any:
+        - { field: description, op: iregex, value: '\busermod\b[^;]*-a?G\s+\S*(sudo|wheel|admin|root)\b' }
+        - { field: description, op: iregex, value: '\bgpasswd\b[^;]*-a\s+\S+\s+(sudo|wheel|admin)\b' }
+
+  - id: lnx_sudoers_change
+    name: "sudoers policy modified"
+    severity: high
+    category: privilege-escalation
+    target_artifact: [catscale_fstimeline, catscale_history]
+    mitre: [T1548.003]
+    tags: [PrivilegeEscalation, Sudoers]
+    match:
+      any:
+        - { field: path,        op: iregex, value: '/etc/sudoers' }
+        - { field: description, op: iregex, value: '(/etc/sudoers|\bvisudo\b)' }
+
+  - id: lnx_suspicious_implant_port
+    name: "Socket on a port commonly used by implants"
+    severity: medium
+    category: command-and-control
+    target_artifact: [catscale_network]
+    mitre: [T1571]
+    tags: [C2, SuspiciousPort]
+    match:
+      any:
+        - { field: description, op: iregex, value: ':(4444|4445|1337|31337|9001|6666|5555|12345|54321)\b' }

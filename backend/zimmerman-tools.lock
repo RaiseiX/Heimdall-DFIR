@@ -1,0 +1,59 @@
+# zimmerman-tools.lock — ce que le build a le droit de telecharger.
+#
+# download.ericzimmermanstools.com ne publie que « latest » : il n'existe aucune
+# URL versionnee. Verifie le 2026-09-18 :
+#   /net9/MFTECmd_2026.5.0.zip  -> 404
+#   /net9/2026.5.0/MFTECmd.zip  -> 404
+# Le seul verrouillage possible est donc par empreinte, et c'est ce fichier.
+#
+# Le Dockerfile telecharge exactement cette liste puis passe `sha256sum -c`
+# dessus. Une archive qui a bouge amont fait ECHOUER le build. C'est voulu :
+# adopter une nouvelle version d'un parseur forensique change ce qui sort des
+# scellés, donc c'est une decision, pas un effet de bord d'un rebuild. Avant
+# ceci, quinze telechargements etaient suivis d'un `|| echo "Failed"` et une
+# image sans aucun outil sortait verte.
+#
+# Pour adopter une nouvelle version amont :
+#   bash backend/scripts/relock-zimmerman.sh
+# puis relire le diff, rebuild, et comparer la sortie sur un cas connu.
+#
+# LIMITE, a connaitre : une empreinte detecte un changement amont, elle ne
+# permet pas de re-telecharger l'ancienne version une fois qu'elle a disparu du
+# serveur. Une reconstruction a l'identique d'une image ancienne exige de
+# vendoriser les archives ou d'en garder un miroir.
+#
+# BitsParser est absent de cette liste : /net9/BitsParser.zip rend 404 et l'a
+# toujours rendu. C'est un outil Python de Mandiant, pas un outil .NET d'Eric
+# Zimmerman — il figurait dans la liste par erreur et le `|| echo` masquait
+# l'echec a chaque build. Voir parserService.ts (parseur `bits`), qui declare
+# donc une capacite que rien ne fournit.
+#
+# Versions relevees dans l'image du 2026-09-17 (dotnet <outil>.dll --help).
+# AmcacheParser 2026.5.0 — amont Last-Modified: Mon, 27 Apr 2026 18:53:54 GMT
+d40d1e7863159dbd9aa3ae826d919edc490ca33df84bde57e86da848a583af03  AmcacheParser.zip
+# AppCompatCacheParser 2026.5.0 — amont Last-Modified: Sun, 03 May 2026 21:31:09 GMT
+67756841dbcd8ca3f47083be2b016a22f61bde0ea3450f0a776cf878bf66d42d  AppCompatCacheParser.zip
+# EvtxECmd 2026.5.0 — amont Last-Modified: Tue, 05 May 2026 19:34:58 GMT
+4d740e51c4532c340d080f832c766c2acb0351832dae118d1abe9bb49203faa4  EvtxECmd.zip
+# JLECmd 2026.5.0 — amont Last-Modified: Tue, 05 May 2026 16:32:19 GMT
+155ee54e6ac6b70bce1aa636ec52d0b0165263933764d9a45c85af97df546892  JLECmd.zip
+# LECmd 2026.5.0 — amont Last-Modified: Wed, 13 May 2026 19:01:03 GMT
+f3e9c799ec7d3fa4cd5f553ec3f9d544c80c8e48afd04ef43456da3d48ad0760  LECmd.zip
+# MFTECmd 2026.5.0 — amont Last-Modified: Sun, 10 May 2026 13:53:35 GMT
+60ae857a554b830243e38e91fafdfdf6066f31c703282c5c6f40daf3b64d3160  MFTECmd.zip
+# PECmd 2026.5.0 — amont Last-Modified: Wed, 29 Apr 2026 17:56:30 GMT
+e361d397c8c64959fd537e1826fcb89ea2d6fe24b3b4b63e6666479d565caa15  PECmd.zip
+# RBCmd 2026.5.0 — amont Last-Modified: Sun, 26 Apr 2026 23:44:25 GMT
+e2b5c6ba8929a8731d861577c796763730e303ec2d4dd8d294ee0de8d5ceb541  RBCmd.zip
+# RECmd non exposee — amont Last-Modified: Wed, 06 May 2026 18:59:28 GMT
+4a4e2f4beba54fdb9ba4eeb5e6f9d323e666b309e407ac89e047f82be0c963a2  RECmd.zip
+# SBECmd 2026.5.0 — amont Last-Modified: Mon, 27 Apr 2026 22:45:07 GMT
+88edb98a32baaf68114aa106f25f999e46d387d9d0003d3222a1168cc1b7eb9b  SBECmd.zip
+# SQLECmd 2026.5.0 — amont Last-Modified: Tue, 28 Apr 2026 14:48:49 GMT
+2024b6395e2b2cd724ef6dd8f7608a9586e5de43206bb822e76eefc891578892  SQLECmd.zip
+# SrumECmd 2026.5.0 — amont Last-Modified: Sun, 26 Apr 2026 18:05:03 GMT
+4d7035100f771a7ef5d75ac30e7edb70761976f2c92476213d19abb50d4c8489  SrumECmd.zip
+# SumECmd 2026.5.0.0 — amont Last-Modified: Sun, 26 Apr 2026 21:06:50 GMT
+15c6aafc9084854824c8703cbf7aec74b49eb7cd84b82407bf4d90e2ba6bddf2  SumECmd.zip
+# WxTCmd 2026.5.0 — amont Last-Modified: Tue, 28 Apr 2026 19:49:04 GMT
+aa08a020cc9daa22551edbf07bca336cb8249ce29830d67cf09bc3703dffec6d  WxTCmd.zip

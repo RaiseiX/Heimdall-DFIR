@@ -1,0 +1,227 @@
+# LOLBIN pack — T1218/T1218.xxx/T1105. Source: lolbas-project.github.io
+rules:
+  - id: lolbin_certutil_download
+    name: "certutil urlcache download"
+    severity: high
+    category: lolbin
+    target_artifact: ['*']
+    mitre: [T1105, T1140]
+    tags: [LOLBIN, certutil, Download]
+    match:
+      any:
+        - { field: description, op: iregex, value: 'certutil(\.exe)?\s+.*-urlcache.*-f' }
+        - { field: description, op: iregex, value: 'certutil(\.exe)?\s+.*-decode\s' }
+
+  - id: lolbin_bitsadmin_transfer
+    name: "bitsadmin /transfer"
+    severity: high
+    category: lolbin
+    target_artifact: ['*']
+    mitre: [T1197, T1105]
+    tags: [LOLBIN, bitsadmin]
+    match:
+      any:
+        - { field: description, op: iregex, value: 'bitsadmin(\.exe)?\s+/transfer' }
+
+  - id: lolbin_regsvr32_squiblydoo
+    name: "regsvr32 Squiblydoo"
+    severity: high
+    category: lolbin
+    target_artifact: ['*']
+    mitre: [T1218.010]
+    tags: [LOLBIN, regsvr32, Squiblydoo]
+    match:
+      any:
+        - { field: description, op: iregex, value: 'regsvr32(\.exe)?\s+.*(/s|/i:|/u).*scrobj\.dll' }
+        - { field: description, op: iregex, value: 'regsvr32(\.exe)?\s+.*/i:https?://' }
+
+  - id: lolbin_mshta_remote
+    name: "mshta remote HTA"
+    severity: high
+    category: lolbin
+    target_artifact: ['*']
+    mitre: [T1218.005]
+    tags: [LOLBIN, mshta]
+    match:
+      any:
+        - { field: description, op: iregex, value: 'mshta(\.exe)?\s+.*(https?://|javascript:|vbscript:)' }
+
+  - id: lolbin_rundll32_script
+    name: "rundll32 javascript/vbscript inline"
+    severity: high
+    category: lolbin
+    target_artifact: ['*']
+    mitre: [T1218.011]
+    tags: [LOLBIN, rundll32]
+    match:
+      any:
+        - { field: description, op: iregex, value: 'rundll32(\.exe)?\s+(javascript:|vbscript:)' }
+        - { field: description, op: iregex, value: 'rundll32(\.exe)?\s+.*\.dll,\s*\w+\s+https?://' }
+
+  - id: lolbin_wmic_process
+    name: "wmic process call create"
+    severity: high
+    category: lolbin
+    target_artifact: ['*']
+    mitre: [T1218, T1047]
+    tags: [LOLBIN, wmic]
+    match:
+      any:
+        - { field: description, op: iregex, value: 'wmic(\.exe)?\s+.*process\s+call\s+create' }
+
+  - id: lolbin_installutil
+    name: "InstallUtil uninstall hook abuse"
+    severity: high
+    category: lolbin
+    target_artifact: ['*']
+    mitre: [T1218.004]
+    tags: [LOLBIN, InstallUtil]
+    match:
+      any:
+        - { field: description, op: iregex, value: 'installutil(\.exe)?\s+.*/(U|logfile=)' }
+
+  - id: lolbin_cmstp
+    name: "cmstp INF-based runner"
+    severity: high
+    category: lolbin
+    target_artifact: ['*']
+    mitre: [T1218.003]
+    tags: [LOLBIN, cmstp]
+    match:
+      any:
+        - { field: description, op: iregex, value: 'cmstp(\.exe)?\s+.*/(s|ns|au)' }
+
+  - id: lolbin_msbuild_inline
+    name: "msbuild inline task"
+    severity: high
+    category: lolbin
+    target_artifact: ['*']
+    mitre: [T1127.001]
+    tags: [LOLBIN, msbuild]
+    match:
+      any:
+        - { field: description, op: iregex, value: 'msbuild(\.exe)?\s+.*\.(xml|csproj|msbuildproj|xproj)' }
+
+  - id: lolbin_msiexec_remote
+    name: "msiexec remote package"
+    severity: high
+    category: lolbin
+    target_artifact: ['*']
+    mitre: [T1218.007]
+    tags: [LOLBIN, msiexec]
+    match:
+      any:
+        - { field: description, op: iregex, value: 'msiexec(\.exe)?\s+.*(/i|/y|/z|/q(uiet)?).*https?://' }
+
+  - id: lolbin_forfiles_cmd
+    name: "forfiles /c cmd runner"
+    severity: medium
+    category: lolbin
+    target_artifact: ['*']
+    mitre: [T1218]
+    tags: [LOLBIN, forfiles]
+    match:
+      any:
+        - { field: description, op: iregex, value: 'forfiles(\.exe)?\s+.*/c\s+"?cmd' }
+
+  - id: lolbin_pcalua
+    name: "pcalua runner"
+    severity: medium
+    category: lolbin
+    target_artifact: ['*']
+    mitre: [T1218]
+    tags: [LOLBIN, pcalua]
+    match:
+      any:
+        - { field: description, op: iregex, value: 'pcalua(\.exe)?\s+.*-a\s' }
+
+  - id: lolbin_odbcconf
+    name: "odbcconf /a DLL load"
+    severity: high
+    category: lolbin
+    target_artifact: ['*']
+    mitre: [T1218.008]
+    tags: [LOLBIN, odbcconf]
+    match:
+      any:
+        - { field: description, op: iregex, value: 'odbcconf(\.exe)?\s+.*(/a|/action).*REGSVR' }
+
+  - id: lolbin_ieexec
+    name: "ieexec remote .NET"
+    severity: high
+    category: lolbin
+    target_artifact: ['*']
+    mitre: [T1218]
+    tags: [LOLBIN, ieexec]
+    match:
+      any:
+        - { field: description, op: iregex, value: 'ieexec(\.exe)?\s+https?://' }
+
+  - id: lolbin_hh_chm_remote
+    name: "hh.exe remote CHM"
+    severity: high
+    category: lolbin
+    target_artifact: ['*']
+    mitre: [T1218.001]
+    tags: [LOLBIN, hh]
+    match:
+      any:
+        - { field: description, op: iregex, value: 'hh(\.exe)?\s+https?://' }
+
+  - id: lolbin_xwizard
+    name: "xwizard RunWizard CLSID"
+    severity: medium
+    category: lolbin
+    target_artifact: ['*']
+    mitre: [T1218]
+    tags: [LOLBIN, xwizard]
+    match:
+      any:
+        - { field: description, op: iregex, value: 'xwizard(\.exe)?\s+RunWizard' }
+
+  - id: lolbin_presentationhost
+    name: "presentationhost remote XBAP"
+    severity: high
+    category: lolbin
+    target_artifact: ['*']
+    mitre: [T1218]
+    tags: [LOLBIN, presentationhost]
+    match:
+      any:
+        - { field: description, op: iregex, value: 'presentationhost(\.exe)?\s+.*(\.xbap|https?://)' }
+
+  - id: lolbin_pubprn_vbs
+    name: "pubprn.vbs scriptlet proxy"
+    severity: high
+    category: lolbin
+    target_artifact: ['*']
+    mitre: [T1216]
+    tags: [LOLBIN, pubprn]
+    match:
+      any:
+        - { field: description, op: iregex, value: 'pubprn\.vbs' }
+
+  - id: lolbin_mavinject
+    name: "mavinject process injection"
+    severity: high
+    category: lolbin
+    target_artifact: ['*']
+    mitre: [T1055.001]
+    tags: [LOLBIN, mavinject, ProcessInjection]
+    match:
+      any:
+        - { field: description, op: iregex, value: 'mavinject(\.exe)?\s+.*/INJECTRUNNING' }
+
+  - id: lolbin_powershell_encoded
+    name: "PowerShell encoded/downgraded/hidden"
+    severity: high
+    category: lolbin
+    target_artifact: ['*']
+    mitre: [T1059.001, T1027, T1140]
+    tags: [LOLBIN, PowerShell, Suspicious]
+    match:
+      all:
+        - any:
+            - { field: description, op: iregex, value: 'powershell(\.exe)?.*\s-(e|en|enc|encodedcommand)\s' }
+            - { field: description, op: iregex, value: 'powershell(\.exe)?.*\s-(v|version)\s*[12]' }
+            - { field: description, op: iregex, value: '(FromBase64String|Invoke-Expression|\bIEX\b|DownloadString|-NoProfile\s+-w(indowstyle)?\s+hidden)' }
