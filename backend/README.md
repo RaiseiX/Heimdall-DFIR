@@ -4,7 +4,7 @@ Node.js API and worker layer for Heimdall DFIR.
 
 ## Stack
 
-- Node.js 20 in Docker, Express, Socket.io
+- Node.js 24 in Docker, Express, Socket.io
 - TypeScript through `ts-node` for selected routes/services
 - PostgreSQL, Redis, Elasticsearch
 - BullMQ for asynchronous parser and automation jobs

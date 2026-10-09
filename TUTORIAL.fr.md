@@ -8,15 +8,21 @@ L'application est conçue pour un navigateur de bureau. Certains libellés reste
 
 ## 1. Avant de commencer
 
-Les prérequis d'installation et les avertissements de déploiement se trouvent dans le [README](README.fr.md). Une installation locale démarre ainsi :
+Les prérequis d'installation et les avertissements de déploiement se trouvent dans le [README](README.fr.md). Pour une installation Linux neuve, clonez d'abord le dépôt et préparez la configuration :
 
 ```bash
 git clone https://github.com/RaiseiX/Heimdall-DFIR.git
 cd Heimdall-DFIR
+cp .env.example .env
+```
+
+Avant de démarrer, définissez des mots de passe uniques pour les deux comptes applicatifs et remplacez tous les secrets d'exemple, y compris les identifiants d'infrastructure. La présence de `.env` empêche le script de générer l'ensemble des secrets. Suivez la liste de préparation du README, puis lancez :
+
+```bash
 bash start.sh
 ```
 
-Sous Windows, exécutez plutôt `start.ps1` depuis PowerShell. Ouvrez `https://localhost` lorsque la stack est prête. Le certificat local est auto-signé ; le navigateur affiche donc normalement un avertissement lors de la première visite.
+Sous Windows, suivez les étapes de préparation PowerShell du README avant de lancer `start.ps1`. Le script hôte actuel n'est pas pris en charge nativement sous macOS ; utilisez Linux ou une VM Linux. Ouvrez `https://localhost` lorsque la stack est prête. Le certificat local est auto-signé ; le navigateur affiche donc normalement un avertissement lors de la première visite.
 
 Les utilisateurs initiaux sont `admin` et `analyst`. Leurs mots de passe proviennent de `ADMIN_DEFAULT_PASSWORD` et `ANALYST_DEFAULT_PASSWORD` dans `.env`. Changez-les dans Heimdall après la première connexion. Modifier ces variables après la création des utilisateurs dans PostgreSQL ne met pas à jour les mots de passe existants.
 

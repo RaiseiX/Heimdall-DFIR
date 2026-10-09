@@ -8,15 +8,21 @@ The application is designed for a desktop browser. Some labels remain in English
 
 ## 1. Before you begin
 
-For installation requirements and deployment warnings, use the [README](README.md). A local installation starts with:
+For installation requirements and deployment warnings, use the [README](README.md#quick-start). On a fresh Linux installation, first clone the repository and prepare the configuration:
 
 ```bash
 git clone https://github.com/RaiseiX/Heimdall-DFIR.git
 cd Heimdall-DFIR
+cp .env.example .env
+```
+
+Before starting, set unique passwords for both application accounts and replace every secret placeholder, including the infrastructure credentials. An existing `.env` skips full secret generation in the bootstrap. Follow the README's preparation checklist, then run:
+
+```bash
 bash start.sh
 ```
 
-On Windows, run `start.ps1` from PowerShell instead. Open `https://localhost` when the stack is ready. The local certificate is self-signed, so the first browser visit normally shows a warning.
+For Windows, follow the PowerShell preparation steps in the README before running `start.ps1`. The current host bootstrap is not supported natively on macOS; use Linux or a Linux VM. Open `https://localhost` when the stack is ready. The local certificate is self-signed, so the first browser visit normally shows a warning.
 
 The initial users are `admin` and `analyst`. Their passwords come from `ADMIN_DEFAULT_PASSWORD` and `ANALYST_DEFAULT_PASSWORD` in `.env`. Change them from Heimdall after the first sign-in. Editing these variables after PostgreSQL has created the users does not update existing passwords.
 

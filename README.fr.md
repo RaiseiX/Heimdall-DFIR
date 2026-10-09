@@ -53,28 +53,52 @@ La définition complète des services se trouve dans [docker-compose.yml](docker
 ### Prérequis
 
 - Docker Engine 24 ou plus récent, avec Docker Compose v2
-- `openssl` sous Linux et macOS
+- `openssl` sous Linux
 - au moins 16 Go de RAM pour la stack complète ; l'analyse mémoire et les modèles Ollama plus grands demandent davantage
 - un espace disque adapté aux images, aux index et aux preuves ; 50 Go constituent un point de départ raisonnable pour un lab
 
-### Linux et macOS
+### Avant le premier démarrage
+
+Pour une installation neuve, préparez `.env` avant de lancer le script. Définissez des mots de passe uniques pour `ADMIN_DEFAULT_PASSWORD` et `ANALYST_DEFAULT_PASSWORD`, même si l'exemple contient déjà une valeur. Remplacez chaque secret `CHANGEME` et renseignez les paramètres de déploiement décrits plus bas. `openssl rand -hex 64` permet de générer une clé de signature ; utilisez des valeurs distinctes et respectez les contraintes d'identifiants de chaque service.
+
+Lorsque `.env` existe déjà, le script le conserve et ne génère pas l'ensemble des secrets d'infrastructure. Renseignez vous-même `DB_PASSWORD`, `REDIS_PASSWORD`, `JWT_SECRET`, `VOLWEB_DJANGO_SECRET`, `VOLWEB_PASSWORD`, `MINIO_ROOT_USER` et `MINIO_ROOT_PASSWORD`. Une clé `AUDIT_HMAC_KEY` distincte doit aussi être transmise par Compose, comme indiqué dans la section sécurité et gestion des preuves.
+
+N'écrasez pas le fichier `.env` d'une installation existante et n'utilisez pas cette procédure de première installation pour changer les identifiants de la base.
+
+### Linux
 
 ```bash
 git clone https://github.com/RaiseiX/Heimdall-DFIR.git
 cd Heimdall-DFIR
+cp .env.example .env
+```
+
+Modifiez `.env` et terminez la configuration ci-dessus, puis démarrez la stack :
+
+```bash
 bash start.sh
 ```
+
+### macOS
+
+Le script actuel ne constitue pas un parcours d'installation natif pris en charge sous macOS : il utilise la syntaxe GNU `sed -i` et des vérifications propres à un hôte Linux. Suivez ces instructions sur un hôte Linux ou une VM Linux. Docker Desktop ne rend pas le script hôte portable ; le support macOS demande une validation séparée.
 
 ### Windows PowerShell
 
 ```powershell
 git clone https://github.com/RaiseiX/Heimdall-DFIR.git
 cd Heimdall-DFIR
+Copy-Item .env.example .env
+```
+
+Modifiez `.env` et terminez la configuration ci-dessus, puis exécutez :
+
+```powershell
 Set-ExecutionPolicy -Scope Process Bypass
 .\start.ps1
 ```
 
-Le script d'installation crée `.env` depuis [.env.example](.env.example), génère les secrets d'infrastructure, construit les images, démarre les services et applique les migrations de base de données.
+Le script construit les images, démarre les services et applique les migrations de base de données. Si `.env` est absent, il en crée un depuis [.env.example](.env.example) et génère certains secrets d'infrastructure, mais pas des mots de passe uniques pour les deux comptes applicatifs. Suivez plutôt les étapes de préparation ci-dessus.
 
 Après le premier démarrage :
 

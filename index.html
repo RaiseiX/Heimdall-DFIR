@@ -4,10 +4,10 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#0b1119">
-  <title>Heimdall DFIR — See the invisible. Hunt the unknown.</title>
+  <title>Heimdall DFIR: Connect evidence. Reconstruct the case.</title>
   <meta name="description" content="An independent, open-source DFIR platform. Explore a real demonstration case: evidence, timelines, network relationships and analyst findings, on infrastructure you control.">
   <meta property="og:type" content="website">
-  <meta property="og:title" content="Heimdall DFIR — See the invisible. Hunt the unknown.">
+  <meta property="og:title" content="Heimdall DFIR: Connect evidence. Reconstruct the case.">
   <meta property="og:description" content="Follow a demonstration investigation through Heimdall. Self-hosted evidence analysis, threat hunting and case workspaces.">
   <link rel="icon" type="image/png" href="assets/heimdall-mark.png">
   <link rel="apple-touch-icon" href="assets/heimdall-mark.png">
@@ -110,7 +110,7 @@
     .requirements strong{font-weight:500;color:var(--paper)}
     .code-shell{border:1px solid var(--edge);border-radius:5px;background:var(--deep);overflow:hidden}
     .code-header{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px 18px;border-bottom:1px solid var(--edge);font-size:12px;color:var(--ink)}
-    .copy{display:none;border:1px solid var(--edge);border-radius:3px;background:transparent;color:var(--paper);padding:7px 12px;min-height:38px;font-size:11px;cursor:pointer}
+    .copy{display:none;border:1px solid var(--edge);border-radius:3px;background:transparent;color:var(--paper);padding:7px 12px;min-height:44px;font-size:11px;cursor:pointer}
     .js .copy{display:block}
     .copy:hover{border-color:var(--gold)}
     pre{margin:0;padding:24px 20px;overflow-x:auto;font:12px/2 ui-monospace,SFMono-Regular,Consolas,monospace;color:var(--paper)}
@@ -184,7 +184,7 @@
           <div>
             <p class="hero-intro">Digital forensics &amp; incident response</p>
             <h1>HEIMDALL<small>DFIR</small></h1>
-            <p class="hero-motto">See the invisible.<br>Hunt the unknown.</p>
+            <p class="hero-motto">Connect the evidence.<br>Reconstruct the case.</p>
             <p class="hero-copy">Evidence rarely tells its story in one place. Heimdall brings collections, timelines, threat hunting and analyst findings into a shared investigation workspace.</p>
             <div class="actions"><a class="button" href="#demo">Explore the demo case</a><a class="quiet-link" href="#deploy">Run it in your lab</a></div>
           </div>
@@ -238,11 +238,11 @@
           <div class="workflow-intro"><h2>The tools change.<br>The case stays together.</h2><p>Heimdall connects the work that often happens across separate windows: importing a collection, reading artifacts, hunting for indicators and documenting a finding.</p><p class="project-boundary">Designed for labs, incident responders and forensic teams. Heimdall analyses collected evidence; it is not a replacement for an endpoint collection platform or a validated forensic procedure.</p></div>
           <ol class="workflow-list">
             <li><span class="step" aria-hidden="true">01</span><div><h3>Bring in the evidence</h3><p>Work with Windows collections, CatScale Linux data, CSV imports, memory images and PCAP-derived connections. Keep the original context available throughout the case.</p></div></li>
-            <li><span class="step" aria-hidden="true">02</span><div><h3>Find what deserves a closer look</h3><p>Use the Super Timeline, YARA and Sigma hunting, network views and memory analysis to investigate the available traces. An optional Ollama assistant can help with case context.</p></div></li>
+            <li><span class="step" aria-hidden="true">02</span><div><h3>Find what deserves a closer look</h3><p>Use the Super Timeline, YARA and Sigma hunting and network views to investigate the available traces. Memory analysis opens in the separate VolWeb interface, using Volatility 3. An optional Ollama assistant can help with case context.</p></div></li>
             <li><span class="step" aria-hidden="true">03</span><div><h3>Explain what happened</h3><p>Collect supporting events, maintain investigation notes and prepare a report. The analyst reviews the result and remains responsible for the conclusion.</p></div></li>
           </ol>
         </div>
-        <div class="toolset"><p>Built with established forensic tools</p><span>EZTools</span><span>Hayabusa</span><span>Volatility 3</span><span>YARA</span><span>Sigma</span></div>
+        <div class="toolset"><p>Built with established forensic tools</p><span>EZTools</span><span>Hayabusa</span><a href="https://github.com/k1nd0ne/VolWeb" target="_blank" rel="noopener">VolWeb</a><span>Volatility 3</span><span>YARA</span><span>Sigma</span></div>
       </div>
     </section>
 
@@ -255,10 +255,11 @@
         <div>
           <div class="code-shell"><div class="code-header"><span>Linux</span><button class="copy" type="button" id="copyButton" aria-label="Copy installation commands">Copy commands</button></div><pre tabindex="0" id="installCode" aria-label="Installation commands"><code>git clone https://github.com/RaiseiX/Heimdall-DFIR.git
 cd Heimdall-DFIR
-bash start.sh</code></pre></div>
+cp .env.example .env</code></pre></div>
+          <p class="install-notes">Before the first start, edit <code>.env</code>: set unique passwords for both application accounts and replace every secret placeholder. An existing environment file skips full secret generation. Follow the README preparation checklist, then run <code>bash start.sh</code>.</p>
           <span class="copy-status" id="copyStatus" role="status" aria-live="polite"></span>
           <p class="install-notes">Requires <code>openssl</code>. On Windows, use <code>.&#92;start.ps1</code> in PowerShell. Open <code>https://localhost</code> after startup; a local setup uses a self-signed certificate.</p>
-          <p class="install-notes">Change the initial application passwords before exposing the instance. Start with test evidence: Heimdall is in beta. Memory analysis and local AI may require additional resources.</p>
+          <p class="install-notes">Keep the first installation on a trusted network and start with test evidence: Heimdall is in beta. Memory analysis and local AI may require additional resources. The current host bootstrap is not supported natively on macOS; use Linux or a Linux VM.</p>
         </div>
       </div>
     </section>
