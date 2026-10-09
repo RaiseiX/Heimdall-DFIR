@@ -41,4 +41,56 @@ function caseListFilter(user, alias = 'c', nextIdx = 1) {
   };
 }
 
-module.exports = { canAccessCase, caseAccessParam, caseListFilter, ELEVATED };
+const TABLES_OBJET = Object.freeze({
+  evidence: 'evidence',
+  parser_result: 'parser_results',
+  case_playbook: 'case_playbooks',
+  chat_message: 'case_messages',
+  report: 'reports',
+});
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+const SOURCES_OBJET = Object.freeze(['params', 'query', 'body']);
+
+async function resoudreDossierObjet(type, id, queryable = pool) {
+  if (typeof type !== 'string' || !Object.prototype.hasOwnProperty.call(TABLES_OBJET, type)) return null;
+  if (typeof id !== 'string' || !UUID_RE.test(id)) return null;
+  const r = await queryable.query(`SELECT case_id FROM ${TABLES_OBJET[type]} WHERE id = $1`, [id]);
+  if (!r.rows || r.rows.length === 0) return null;
+  const caseId = r.rows[0].case_id;
+  return caseId ? String(caseId) : null;
+}
+
+function exigerAccesObjet(type, nomParam, { source = 'params' } = {}) {
+  const lieu = SOURCES_OBJET.includes(source) ? source : 'params';
+  return async function exigerAccesObjetMiddleware(req, res, next) {
+    try {
+      const id = req[lieu] ? req[lieu][nomParam] : undefined;
+      const caseId = await resoudreDossierObjet(type, id);
+      if (!caseId || !(await canAccessCase(req.user, caseId))) {
+        return res.status(404).json({ error: 'Ressource introuvable' });
+      }
+      req.objetCaseId = caseId;
+      return next();
+    } catch (_err) {
+      return res.status(500).json({ error: "Erreur de contrôle d'accès." });
+    }
+  };
+}
+
+async function objetDansDossier(type, id, caseId, queryable = pool) {
+  if (typeof caseId !== 'string' || !UUID_RE.test(caseId)) return false;
+  const resolu = await resoudreDossierObjet(type, id, queryable);
+  return resolu !== null && resolu.toLowerCase() === caseId.toLowerCase();
+}
+
+module.exports = {
+  canAccessCase,
+  caseAccessParam,
+  caseListFilter,
+  ELEVATED,
+  resoudreDossierObjet,
+  exigerAccesObjet,
+  objetDansDossier,
+};

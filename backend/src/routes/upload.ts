@@ -10,9 +10,12 @@ import {
   receiveChunk,
   completeUpload,
   getSessionStatus,
+  getSessionOwner,
 } from '../services/uploadService';
 import { scanFile } from '../services/clamavService';
 import { ingestionQueue, IngestionJobData } from '../config/queue';
+
+const { canAccessCase } = require('../middleware/caseAccess');
 
 async function enqueueIngestion(data: IngestionJobData): Promise<void> {
   await ingestionQueue.add('ingest', data);
@@ -20,6 +23,12 @@ async function enqueueIngestion(data: IngestionJobData): Promise<void> {
 
 const router = express.Router() as express.Router & { enqueueIngestion: typeof enqueueIngestion };
 router.enqueueIngestion = enqueueIngestion;
+
+function sessionPossedee(uploadId: unknown, userId: string): boolean {
+  if (typeof uploadId !== 'string') return false;
+  const owner = getSessionOwner(uploadId);
+  return owner !== null && owner.userId === userId;
+}
 
 function getPool(res: Response): Pool {
   return res.app.locals.pool as Pool;
@@ -47,6 +56,10 @@ router.post('/init', async (req: AuthRequest, res: Response, next: NextFunction)
     const { error, value } = initSchema.validate(req.body);
     if (error) return res.status(400).json({ error: error.message });
 
+    if (!(await canAccessCase(req.user, value.caseId))) {
+      return res.status(404).json({ error: 'Ressource introuvable' });
+    }
+
     const result = initUpload({
       originalName: value.originalName,
       totalSize: value.totalSize,
@@ -62,6 +75,9 @@ router.post('/init', async (req: AuthRequest, res: Response, next: NextFunction)
 });
 
 router.get('/status/:uploadId', (req: AuthRequest, res: Response) => {
+  if (!sessionPossedee(req.params.uploadId, req.user.id)) {
+    return res.status(404).json({ error: 'Session non trouvée' });
+  }
   const status = getSessionStatus(req.params.uploadId);
   if (!status.found) return res.status(404).json({ error: 'Session non trouvée' });
   res.json(status);
@@ -74,6 +90,10 @@ router.post('/chunk', async (req: AuthRequest, res: Response, next: NextFunction
 
     if (!uploadId) return res.status(400).json({ error: 'uploadId requis' });
     if (isNaN(chunkIndex)) return res.status(400).json({ error: 'chunkIndex invalide' });
+
+    if (!sessionPossedee(uploadId, req.user.id)) {
+      return res.status(404).json({ error: 'Session non trouvée' });
+    }
 
     const declaredSize = parseInt(req.headers['content-length'] ?? '0', 10);
     if (declaredSize > 55 * 1024 * 1024) {
@@ -97,6 +117,16 @@ router.post('/complete', async (req: AuthRequest, res: Response, next: NextFunct
   try {
     const { error, value } = completeSchema.validate(req.body);
     if (error) return res.status(400).json({ error: error.message });
+
+    const owner = getSessionOwner(value.uploadId);
+    if (
+      !owner ||
+      owner.userId !== req.user.id ||
+      owner.caseId !== value.caseId ||
+      !(await canAccessCase(req.user, value.caseId))
+    ) {
+      return res.status(404).json({ error: 'Ressource introuvable' });
+    }
 
     const pool = getPool(res);
 
@@ -214,6 +244,9 @@ router.post('/complete', async (req: AuthRequest, res: Response, next: NextFunct
 
 router.delete('/:uploadId', async (req: AuthRequest, res: Response) => {
   const { uploadId } = req.params;
+  if (!sessionPossedee(uploadId, req.user.id)) {
+    return res.status(404).json({ error: 'Session non trouvée' });
+  }
   const status = getSessionStatus(uploadId);
   if (!status.found) return res.status(404).json({ error: 'Session non trouvée' });
 

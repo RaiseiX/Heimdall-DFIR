@@ -157,12 +157,20 @@ function startWorker(): Worker<ParserJobData> {
     // New ingestion pipeline wiring: only activates when the job carries
     // ingestionFileIds (i.e. it was enqueued by ingestionWorker's state
     // machine). Absent that, behavior is unchanged from before this wiring.
-    const ingestionFileIds: string[] = extraArgs?.ingestionFileIds ? JSON.parse(extraArgs.ingestionFileIds) : [];
+    let ingestionFileIds: string[] = [];
+    if (extraArgs?.ingestionFileIds) {
+      try {
+        const parsed = JSON.parse(extraArgs.ingestionFileIds);
+        ingestionFileIds = Array.isArray(parsed) ? parsed : [];
+      } catch {
+        ingestionFileIds = [];
+      }
+    }
     if (ingestionFileIds.length > 0) {
       const status = mapOutcomeToStatus(recordCount, failed);
       await pool.query(
-        `UPDATE ingestion_files SET status=$2, updated_at=NOW() WHERE id = ANY($1)`,
-        [ingestionFileIds, status],
+        `UPDATE ingestion_files SET status=$2, updated_at=NOW() WHERE id = ANY($1) AND case_id = $3 AND evidence_id = $4`,
+        [ingestionFileIds, status, caseId, evidenceId],
       );
       const emitIO = makeEmitterIO(job);
       const emit = (room: string, event: string, data: unknown) => emitIO.to(room).emit(event, data);

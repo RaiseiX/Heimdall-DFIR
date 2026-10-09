@@ -1,5 +1,5 @@
 const jwt = require('jsonwebtoken');
-const { canAccessCase } = require('../middleware/caseAccess');
+const { canAccessCase, objetDansDossier } = require('../middleware/caseAccess');
 const reportDocs = require('../services/reportDocRegistry');
 const notebookDocs = require('../services/notebookDocs');
 const { brancherCarnet } = require('./notebookSocket');
@@ -228,7 +228,23 @@ function registerSocketHandlers(io, { pool, logger, JWT_SECRET }) {
     socket.on('parser:start', async (data) => {
       if (!(await guard(data?.caseId))) { socket.emit('parser:error', { message: 'Accès refusé' }); return; }
       const { parserQueue } = require('../config/queue');
+      const { getAvailableTools, optionsParseurClient } = require('../services/parserService');
       try {
+        const tools = getAvailableTools();
+        const parserConnu = typeof data.parser === 'string'
+          && data.parser !== 'backup'
+          && Object.prototype.hasOwnProperty.call(tools, data.parser)
+          && tools[data.parser].available;
+        if (!parserConnu) {
+          socket.emit('parser:error', { message: 'Parseur inconnu' });
+          return;
+        }
+
+        const evidenceOk = await objetDansDossier('evidence', data.evidenceId, data.caseId, pool).catch(() => false);
+        if (!evidenceOk) {
+          socket.emit('parser:error', { message: 'Ressource introuvable' });
+          return;
+        }
 
         const [waiting, active] = await Promise.all([
           parserQueue.getJobs(['waiting']),
@@ -241,13 +257,15 @@ function registerSocketHandlers(io, { pool, logger, JWT_SECRET }) {
           return;
         }
 
+        const extraArgs = optionsParseurClient(data.extraArgs);
+
         await parserQueue.add('parse', {
           parser:     data.parser,
           evidenceId: data.evidenceId,
           caseId:     data.caseId,
           userId:     user.id,
           socketId:   socket.id,
-          extraArgs:  data.extraArgs || {},
+          extraArgs,
         });
       } catch (err) {
         socket.emit('parser:error', { message: err.message });

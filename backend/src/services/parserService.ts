@@ -266,8 +266,8 @@ export async function runParser(
   let inputFile: string;
   try {
     const result = await pool.query<{ file_path: string }>(
-      'SELECT file_path FROM evidence WHERE id = $1',
-      [evidenceId]
+      'SELECT file_path FROM evidence WHERE id = $1 AND case_id = $2',
+      [evidenceId, caseId]
     );
     if (result.rows.length === 0) throw new Error('Preuve non trouvée en base');
     inputFile = result.rows[0].file_path;
@@ -420,6 +420,27 @@ export async function runParser(
   });
 
   return totalRecords;
+}
+
+const OPTIONS_CLIENT_AUTORISEES = ['maps', 'profile', 'min-level'] as const;
+const OPTION_CLIENT_LONGUEUR_MAX = 200;
+
+export function optionsParseurClient(extraArgs: unknown): Record<string, string> {
+  const retenues: Record<string, string> = {};
+  if (!extraArgs || typeof extraArgs !== 'object' || Array.isArray(extraArgs)) return retenues;
+  for (const cle of OPTIONS_CLIENT_AUTORISEES) {
+    if (!Object.prototype.hasOwnProperty.call(extraArgs, cle)) continue;
+    const valeur = (extraArgs as Record<string, unknown>)[cle];
+    if (
+      typeof valeur === 'string' &&
+      valeur.length >= 1 &&
+      valeur.length <= OPTION_CLIENT_LONGUEUR_MAX &&
+      !valeur.startsWith('-')
+    ) {
+      retenues[cle] = valeur;
+    }
+  }
+  return retenues;
 }
 
 export function getAvailableTools(): Record<

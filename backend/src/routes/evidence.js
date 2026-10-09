@@ -25,10 +25,12 @@ const {
 const logger = require('../config/logger').default;
 const router = express.Router();
 
-const { caseAccessParam, canAccessCase } = require('../middleware/caseAccess');
+const { caseAccessParam, canAccessCase, exigerAccesObjet } = require('../middleware/caseAccess');
 const { lignesParCollecteSql } = require('../services/evidenceRowCounts');
 router.use(authenticate);
 router.param('caseId', caseAccessParam);
+
+const exigerPreuve = exigerAccesObjet('evidence', 'id');
 
 // ── MinIO streaming helpers ──────────────────────────────────────────────────
 
@@ -389,11 +391,11 @@ router.post('/:caseId/upload-stream', authenticate, async (req, res) => {
   req.pipe(bb);
 });
 
-router.put('/:id/highlight', authenticate, async (req, res) => {
+router.put('/:id/highlight', authenticate, exigerPreuve, async (req, res) => {
   try {
     const result = await pool.query(
-      'UPDATE evidence SET is_highlighted = NOT is_highlighted, updated_at = NOW() WHERE id = $1 RETURNING *',
-      [req.params.id]
+      'UPDATE evidence SET is_highlighted = NOT is_highlighted, updated_at = NOW() WHERE id = $1 AND case_id = $2 RETURNING *',
+      [req.params.id, req.objetCaseId]
     );
     if (result.rows.length === 0) return res.status(404).json({ error: 'Preuve non trouvée' });
     res.json(result.rows[0]);
@@ -403,9 +405,9 @@ router.put('/:id/highlight', authenticate, async (req, res) => {
 });
 
 // ── GET /:id/hex ──────────────────────────────────────────────────────────────
-router.get('/:id/hex', authenticate, async (req, res) => {
+router.get('/:id/hex', authenticate, exigerPreuve, async (req, res) => {
   try {
-    const result = await pool.query('SELECT file_path, name, scan_status, hash_sha256 FROM evidence WHERE id = $1', [req.params.id]);
+    const result = await pool.query('SELECT file_path, name, scan_status, hash_sha256 FROM evidence WHERE id = $1 AND case_id = $2', [req.params.id, req.objetCaseId]);
     if (result.rows.length === 0) return res.status(404).json({ error: 'Preuve non trouvée' });
 
     if (result.rows[0].scan_status === 'quarantined') {
@@ -445,9 +447,9 @@ router.get('/:id/hex', authenticate, async (req, res) => {
 });
 
 // ── GET /:id/strings ──────────────────────────────────────────────────────────
-router.get('/:id/strings', authenticate, async (req, res) => {
+router.get('/:id/strings', authenticate, exigerPreuve, async (req, res) => {
   try {
-    const result = await pool.query('SELECT file_path, scan_status, hash_sha256 FROM evidence WHERE id = $1', [req.params.id]);
+    const result = await pool.query('SELECT file_path, scan_status, hash_sha256 FROM evidence WHERE id = $1 AND case_id = $2', [req.params.id, req.objetCaseId]);
     if (result.rows.length === 0) return res.status(404).json({ error: 'Preuve non trouvée' });
 
     if (result.rows[0].scan_status === 'quarantined') {
@@ -506,11 +508,11 @@ router.get('/:id/strings', authenticate, async (req, res) => {
 });
 
 // ── GET /:id/integrity ────────────────────────────────────────────────────────
-router.get('/:id/integrity', authenticate, async (req, res) => {
+router.get('/:id/integrity', authenticate, exigerPreuve, async (req, res) => {
   try {
     const result = await pool.query(
-      'SELECT file_path, name, hash_sha256, scan_status FROM evidence WHERE id = $1',
-      [req.params.id]
+      'SELECT file_path, name, hash_sha256, scan_status FROM evidence WHERE id = $1 AND case_id = $2',
+      [req.params.id, req.objetCaseId]
     );
     if (result.rows.length === 0) return res.status(404).json({ error: 'Preuve non trouvée' });
 
@@ -537,15 +539,16 @@ router.get('/:id/integrity', authenticate, async (req, res) => {
 });
 
 // ── GET /:id/comments ─────────────────────────────────────────────────────────
-router.get('/:id/comments', authenticate, async (req, res) => {
+router.get('/:id/comments', authenticate, exigerPreuve, async (req, res) => {
   try {
     const result = await pool.query(`
       SELECT ec.*, u.full_name as author, u.role as author_role
       FROM evidence_comments ec
       JOIN users u ON ec.user_id = u.id
-      WHERE ec.evidence_id = $1
+      JOIN evidence e ON e.id = ec.evidence_id
+      WHERE ec.evidence_id = $1 AND e.case_id = $2
       ORDER BY ec.is_pinned DESC, ec.created_at DESC
-    `, [req.params.id]);
+    `, [req.params.id, req.objetCaseId]);
     res.json(result.rows);
   } catch (err) {
     res.status(500).json({ error: 'Erreur serveur' });
@@ -553,15 +556,18 @@ router.get('/:id/comments', authenticate, async (req, res) => {
 });
 
 // ── POST /:id/comments ────────────────────────────────────────────────────────
-router.post('/:id/comments', authenticate, async (req, res) => {
+router.post('/:id/comments', authenticate, exigerPreuve, async (req, res) => {
   try {
     const { content } = req.body;
     if (!content) return res.status(400).json({ error: 'Contenu requis' });
 
     const result = await pool.query(
-      'INSERT INTO evidence_comments (evidence_id, user_id, content) VALUES ($1, $2, $3) RETURNING *',
-      [req.params.id, req.user.id, content]
+      `INSERT INTO evidence_comments (evidence_id, user_id, content)
+       SELECT e.id, $2, $3 FROM evidence e WHERE e.id = $1 AND e.case_id = $4
+       RETURNING *`,
+      [req.params.id, req.user.id, content, req.objetCaseId]
     );
+    if (result.rows.length === 0) return res.status(404).json({ error: 'Ressource introuvable' });
     res.status(201).json(result.rows[0]);
   } catch (err) {
     res.status(500).json({ error: 'Erreur serveur' });

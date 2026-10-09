@@ -264,6 +264,12 @@ export async function completeUpload(params: {
   };
 }
 
+export function getSessionOwner(uploadId: string): { userId: string; caseId: string } | null {
+  const session = sessions.get(uploadId);
+  if (!session) return null;
+  return { userId: session.userId, caseId: session.caseId };
+}
+
 export function getSessionStatus(uploadId: string): {
   found: boolean;
   receivedChunks: number[];
