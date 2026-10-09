@@ -44,6 +44,6 @@ export function createCollabProvider(socket, caseId, doc, canal, { onState } = {
   };
 }
 
-export function createReportCollabProvider(socket, caseId, doc) {
-  return createCollabProvider(socket, caseId, doc, 'report');
+export function createReportCollabProvider(socket, caseId, doc, options = {}) {
+  return createCollabProvider(socket, caseId, doc, 'report', options);
 }

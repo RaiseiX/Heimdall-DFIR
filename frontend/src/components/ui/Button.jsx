@@ -12,6 +12,7 @@ export default function Button({
   onClick,
   title,
   style,
+  ariaLabel,
 }) {
   const base = 'fl-btn';
   const v = variant === 'primary'   ? 'fl-btn-primary'
@@ -29,6 +30,7 @@ export default function Button({
       disabled={disabled || loading}
       onClick={onClick}
       title={title}
+      aria-label={ariaLabel}
       style={style}
     >
       {loading

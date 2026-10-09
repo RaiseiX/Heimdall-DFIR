@@ -28,7 +28,8 @@ import { makeEvidenceReadyHandler } from './evidenceReadyHandler';
 import MemoryUploadPanel from '../components/upload/MemoryUploadPanel';
 import ReportTemplateModal from '../components/reports/ReportTemplateModal';
 import ReportWritingPane from '../components/reports/ReportWritingPane';
-import { preRemplir, narratifDuDoc, iaUtilisee, noteAnalyste } from '../components/reports/reportWriting';
+import { preRemplir, narratifDuDoc, iaUtilisee, noteAnalyste, optionsDeGeneration } from '../components/reports/reportWriting';
+import { lancerGeneration, telechargerRapport } from '../components/reports/reportGeneration';
 import { createReportCollabProvider } from '../components/reports/collab/reportCollabProvider';
 import GlobalNetworkMapPage from './GlobalNetworkMapPage';
 import NotebookPanel from '../components/notebook/NotebookPanel';
@@ -305,13 +306,23 @@ export default function CaseDetailPage({ user }) {
 
   const reportDocRef = useRef(null);
   const [reportDoc, setReportDoc] = useState(null);
+  const [reportSync, setReportSync] = useState('connexion');
   useEffect(() => {
     if (!socket || !id) return;
     const doc = new Y.Doc();
     reportDocRef.current = doc;
     setReportDoc(doc);
-    const provider = createReportCollabProvider(socket, id, doc);
+    setReportSync(socket.connected === false ? 'hors_ligne' : 'connexion');
+    const provider = createReportCollabProvider(socket, id, doc, {
+      onState: () => setReportSync('synchro'),
+    });
+    const surDeconnexion = () => setReportSync('hors_ligne');
+    const surConnexion = () => setReportSync('connexion');
+    socket.on('disconnect', surDeconnexion);
+    socket.on('connect', surConnexion);
     return () => {
+      socket.off('disconnect', surDeconnexion);
+      socket.off('connect', surConnexion);
       provider.destroy();
       doc.destroy();
       reportDocRef.current = null;
@@ -700,24 +711,15 @@ export default function CaseDetailPage({ user }) {
     setReportDone(false);
     try {
       const { reportsAPI: rAPI } = await import('../utils/api');
-      let opts;
-      if (selectedTemplate?.id) {
-        opts = { templateId: selectedTemplate.id };
-      } else {
-        opts = { sections: ['summary', ...[...reportGroups].flatMap(g => GROUP_SECTIONS[g] || [])] };
-      }
-      const doc = reportDocRef.current;
-      const note = noteAnalyste(doc);
-      if (note) opts.notes = note;
-      opts.use_ai = aiEnabled;
-      const narratif = narratifDuDoc(doc);
-      if (narratif) {
-        opts.ai_narrative = narratif;
-        opts.narrative_ai_assisted = iaUtilisee(doc);
-      }
-      const { data } = await rAPI.generate(c.id, opts);
-      setReportId(data.report?.id);
-      setReportDone(true);
+      const opts = optionsDeGeneration(reportDocRef.current, {
+        aiEnabled,
+        templateId: selectedTemplate?.id,
+        sections: ['summary', ...[...reportGroups].flatMap(g => GROUP_SECTIONS[g] || [])],
+      });
+      const res = await lancerGeneration(rAPI, c.id, opts, t('casedetail.report_generation_failed'));
+      setReportId(res.reportId);
+      setReportDone(res.termine);
+      setReportError(res.erreur);
     } catch (e) {
       setReportId(null);
       setReportError(e?.response?.data?.error || t('casedetail.report_generation_failed'));
@@ -729,8 +731,10 @@ export default function CaseDetailPage({ user }) {
     if (!reportId) return;
     setReportError('');
     try {
-      const { data } = await (await import('../utils/api')).reportsAPI.download(reportId);
-      const url = window.URL.createObjectURL(new Blob([data], { type: 'application/pdf' }));
+      const { reportsAPI: rAPI } = await import('../utils/api');
+      const res = await telechargerRapport(rAPI, reportId, t('casedetail.report_download_failed'));
+      if (res.erreur) { setReportError(res.erreur); return; }
+      const url = window.URL.createObjectURL(new Blob([res.blob], { type: 'application/pdf' }));
       const link = document.createElement('a');
       link.href = url;
       link.download = `${t('casedetail.report_filename_prefix')}_${c.case_number}.pdf`;
@@ -1765,7 +1769,8 @@ export default function CaseDetailPage({ user }) {
                     <ReportWritingPane
                       caseId={id}
                       doc={reportDoc}
-                      aiEnabled={aiEnabled && parsedCount > 0}
+                      etat={reportSync}
+                      aiRaison={!aiEnabled ? 'desactivee' : parsedCount === 0 ? 'aucune_preuve' : null}
                       aiLoading={aiLoading}
                       aiError={aiError}
                       onPrefill={generateAiDraft}
@@ -1785,6 +1790,7 @@ export default function CaseDetailPage({ user }) {
                   <button
                     onClick={generateReport}
                     disabled={generating || parsedCount === 0}
+                    aria-describedby={parsedCount === 0 ? 'fl-report-aucune-preuve' : undefined}
                     style={{
                       display: 'flex', alignItems: 'center', gap: 6,
                       padding: '8px 16px', borderRadius: 3, fontSize: FS_TEXTE,
@@ -1810,6 +1816,9 @@ export default function CaseDetailPage({ user }) {
                     </button>
                   )}
                 </div>
+                {parsedCount === 0 && (
+                  <p id="fl-report-aucune-preuve" className="fl-redac-aide-generation">{t('casedetail.report_aucune_preuve')}</p>
+                )}
                 {reportError && <Alert message={reportError} style={{ marginTop: 10 }} />}
                 {reportDone && (
                   <div style={{ marginTop: 10, padding: '8px 12px', borderRadius: 3, background: 'color-mix(in srgb, var(--fl-ok) 3%, transparent)', border: '1px solid color-mix(in srgb, var(--fl-ok) 15%, transparent)', fontSize: FS_TEXTE, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: 'var(--fl-ok)', display: 'flex', alignItems: 'center', gap: 6 }}>
