@@ -117,7 +117,7 @@ router.post('/:caseId/ai-draft', authenticate, async (req, res) => {
     res.json({ narrative });
   } catch (err) {
     logger.error('[report] ai-draft error:', err.message);
-    res.status(500).json({ error: 'Échec de la génération IA : ' + err.message });
+    res.status(500).json({ error: 'Échec de la génération IA : ' + (err && err.publique ? err.message : 'service IA indisponible.') });
   }
 });
 
@@ -181,7 +181,7 @@ router.post('/:caseId/bookmark-narrative', authenticate, async (req, res) => {
     res.json({ narrative: String(narrative).trim() });
   } catch (err) {
     logger.error('[report] bookmark-narrative error:', err.message);
-    res.status(500).json({ error: 'Échec génération narratif : ' + err.message });
+    res.status(500).json({ error: 'Échec génération narratif : service IA indisponible.' });
   }
 });
 
