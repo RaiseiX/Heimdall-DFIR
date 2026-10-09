@@ -2,6 +2,7 @@ const UUID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
 const VUES = ['timeline', 'processes', 'files', 'auth', 'artifacts'];
 const CHEMIN_RE = new RegExp(`^/cases/(${UUID})/collections/(${UUID})/(${VUES.join('|')})(?:\\?([A-Za-z0-9_\\-.~%=&]*))?$`, 'i');
 const LIEN_RE = /\[([^\]\n]{1,300})\]\((\/cases\/[^)\s"'<>`]{1,2000})\)/g;
+const MAX_SOURCES = 200;
 const UUID_RE = new RegExp(`^${UUID}$`, 'i');
 
 function analyserSource(chemin) {
@@ -25,6 +26,7 @@ function numeroterTexte(texte, etat) {
     const cle = cleCanonique(source);
     let n = etat.index.get(cle);
     if (!n) {
+      if (etat.sources.length >= MAX_SOURCES) return brut;
       n = etat.sources.length + 1;
       etat.index.set(cle, n);
       etat.sources.push({ n, libelle: libelle.trim(), ...source });
@@ -57,25 +59,40 @@ function numeroterSources({ narratif = null, notes = null } = {}) {
   return { narratif: narratifNumerote, notes: notesNumerotees, sources: etat.sources };
 }
 
-function horodatage(iso) {
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? null : `${d.toISOString().replace('T', ' ').slice(0, 19)} UTC`;
+const ISO_FUSEAU_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,9})?)?(Z|[+-]\d{2}:\d{2})$/;
+const INVISIBLES_RE = /[\u0000-\u001F\u007F-\u009F\u200B-\u200F\u202A-\u202E\u2066-\u2069\uFEFF]/g;
+const LONGUEUR_VALEUR = 128;
+
+function assainir(valeur) {
+  const propre = String(valeur).replace(INVISIBLES_RE, '');
+  return propre.length > LONGUEUR_VALEUR ? `${propre.slice(0, LONGUEUR_VALEUR - 1)}…` : propre;
+}
+
+function horodatage(valeur) {
+  const brut = String(valeur);
+  if (ISO_FUSEAU_RE.test(brut)) {
+    const d = new Date(brut);
+    if (!Number.isNaN(d.getTime())) return `${d.toISOString().replace('T', ' ').slice(0, 19)} UTC`;
+  }
+  return `${assainir(brut)} (non interprétée)`;
 }
 
 function decrire(source) {
   const f = source.filtres;
   const parties = [];
   if (source.vue === 'timeline') {
-    if (f.artifactTypes) parties.push(`artefact ${f.artifactTypes}`);
-    const debut = f.startTime && horodatage(f.startTime);
-    const fin = f.endTime && horodatage(f.endTime);
+    if (f.artifactTypes) parties.push(`artefact ${assainir(f.artifactTypes)}`);
+    const debut = f.startTime ? horodatage(f.startTime) : null;
+    const fin = f.endTime ? horodatage(f.endTime) : null;
     if (debut && fin) parties.push(`fenêtre ${debut} → ${fin}`);
-    if (f.hostFilter) parties.push(`hôte ${f.hostFilter}`);
-    if (f.userFilter) parties.push(`utilisateur ${f.userFilter}`);
-    if (f.eventIdFilter) parties.push(`Event ID ${f.eventIdFilter}`);
+    else if (debut) parties.push(`à partir de ${debut}`);
+    else if (fin) parties.push(`jusqu'à ${fin}`);
+    if (f.hostFilter) parties.push(`hôte ${assainir(f.hostFilter)}`);
+    if (f.userFilter) parties.push(`utilisateur ${assainir(f.userFilter)}`);
+    if (f.eventIdFilter) parties.push(`Event ID ${assainir(f.eventIdFilter)}`);
     if (!parties.length) parties.push('SuperTimeline');
   } else if (source.vue === 'files') {
-    parties.push(`fichier ${f.file || f.path || '(racine de la collecte)'}`);
+    parties.push(`fichier ${f.file || f.path ? assainir(f.file || f.path) : '(racine de la collecte)'}`);
   } else if (source.vue === 'processes') {
     parties.push('arbre des processus de la collecte');
   } else if (source.vue === 'auth') {
@@ -94,7 +111,7 @@ async function resoudreSources(pool, caseId, sources) {
   const supprimees = new Set();
   if (ids.length) {
     const { rows } = await pool.query(
-      'SELECT id, name, original_filename, hash_sha256 FROM evidence WHERE case_id = $1 AND id = ANY($2::uuid[])',
+      'SELECT id, name, original_filename, hash_sha256, evidence_type FROM evidence WHERE case_id = $1 AND id = ANY($2::uuid[])',
       [caseId, ids],
     );
     for (const r of rows) preuves.set(String(r.id).toLowerCase(), r);
@@ -112,9 +129,9 @@ async function resoudreSources(pool, caseId, sources) {
     const base = { n: s.n, libelle: s.libelle, element: decrire(s) };
     if (s.caseId !== dossier) return { ...base, statut: 'hors_dossier', preuve: null, sha256: null, element: null };
     const p = preuves.get(s.evidenceId);
-    if (p) return { ...base, statut: 'resolue', preuve: p.original_filename || p.name, sha256: p.hash_sha256 || null };
+    if (p) return { ...base, statut: 'resolue', preuve: p.original_filename || p.name, sha256: p.hash_sha256 || null, type: p.evidence_type || null };
     return { ...base, statut: supprimees.has(s.evidenceId) ? 'supprimee' : 'introuvable', preuve: null, sha256: null };
   });
 }
 
-module.exports = { analyserSource, numeroterSources, resoudreSources, decrire, cleCanonique };
+module.exports = { MAX_SOURCES, analyserSource, numeroterSources, resoudreSources, decrire, cleCanonique };
