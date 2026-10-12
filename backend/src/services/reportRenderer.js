@@ -704,7 +704,7 @@ function drawDfiq(doc, d, num, A) {
 
 const STATUT_SOURCE = {
   resolue: null,
-  supprimee: 'preuve supprimée depuis la rédaction',
+  supprimee: 'preuve supprimée',
   introuvable: 'preuve introuvable dans ce dossier',
   hors_dossier: 'source hors dossier, non résolue',
 };
@@ -714,15 +714,16 @@ function drawSources(doc, d, num, A) {
   if (!sources.length) return false;
   doc.addPage(); doc.y = TOP;
   sectionTitle(doc, num, 'Sources', A);
-  para(doc, "Chaque renvoi [n] du rapport renvoie à la ligne correspondante. Les empreintes sont celles enregistrées à l'import de la preuve.", { color: FAINT, size: 8.5 });
+  para(doc, "Chaque renvoi [n] du rapport renvoie à la ligne correspondante. Nom, empreinte SHA-256 et type de preuve : vérifiés dans la base du dossier au moment de la génération. Paramètres du renvoi : saisis par l'analyste, non vérifiés contre les données.", { color: FAINT, size: 8.5 });
   doc.y += 4;
   for (const s of sources) {
     ensure(doc, 44);
     const statut = STATUT_SOURCE[s.statut];
     doc.fillColor(INK).font(FB).fontSize(9.5).text(`[${s.n}]  ${s.preuve || statut || ''}`, MX, doc.y, { width: CW });
     if (s.preuve && statut) para(doc, statut, { color: SUB, size: 8.5, gap: 2 });
-    if (s.sha256) doc.fillColor(SUB).font(FM).fontSize(7.5).text(`SHA-256 ${s.sha256}`, MX + 18, doc.y + 1, { width: CW - 18 });
-    if (s.element) para(doc, s.element, { color: SUB, size: 8.5, x: MX + 18, width: CW - 18, gap: 2 });
+    if (s.type) para(doc, `type de preuve : ${s.type}`, { color: SUB, size: 8.5, x: MX + 18, width: CW - 18, gap: 2 });
+    if (s.statut === 'resolue') doc.fillColor(SUB).font(FM).fontSize(7.5).text(s.sha256 ? `SHA-256 ${s.sha256}` : 'SHA-256 non enregistré', MX + 18, doc.y + 1, { width: CW - 18 });
+    if (s.element) para(doc, `paramètres du renvoi : ${s.element}`, { color: SUB, size: 8.5, x: MX + 18, width: CW - 18, gap: 2 });
     doc.y += 6;
   }
   return true;

@@ -53,28 +53,52 @@ The complete service definition lives in [docker-compose.yml](docker-compose.yml
 ### Requirements
 
 - Docker Engine 24 or later with Docker Compose v2
-- `openssl` on Linux and macOS
+- `openssl` on Linux
 - at least 16 GB of RAM for the complete stack; memory analysis and larger Ollama models need more
 - enough free storage for Docker images, indexes and evidence; 50 GB is a practical starting point for a lab
 
-### Linux and macOS
+### Before the first start
+
+On a fresh installation, prepare `.env` before running the bootstrap. Set unique passwords for both `ADMIN_DEFAULT_PASSWORD` and `ANALYST_DEFAULT_PASSWORD`, even if the example already contains a value. Replace every `CHANGEME` secret and configure the deployment values described below. `openssl rand -hex 64` can generate a signing key; use separate values and respect each service's credential requirements.
+
+When `.env` already exists, the bootstrap preserves it and does not generate the full set of infrastructure secrets. Configure `DB_PASSWORD`, `REDIS_PASSWORD`, `JWT_SECRET`, `VOLWEB_DJANGO_SECRET`, `VOLWEB_PASSWORD`, `MINIO_ROOT_USER` and `MINIO_ROOT_PASSWORD` yourself. A distinct `AUDIT_HMAC_KEY` also needs to be wired into Compose as described under security and evidence handling.
+
+Do not overwrite an existing deployment's `.env` or rotate database credentials through this first-install procedure.
+
+### Linux
 
 ```bash
 git clone https://github.com/RaiseiX/Heimdall-DFIR.git
 cd Heimdall-DFIR
+cp .env.example .env
+```
+
+Edit `.env` and complete the configuration above, then start the stack:
+
+```bash
 bash start.sh
 ```
+
+### macOS
+
+The current bootstrap is not a supported native macOS installation path: it uses GNU `sed -i` syntax and Linux-specific host checks. Use a Linux host or Linux VM for these instructions. Docker Desktop alone does not make the host script portable; macOS support needs a separate validation pass.
 
 ### Windows PowerShell
 
 ```powershell
 git clone https://github.com/RaiseiX/Heimdall-DFIR.git
 cd Heimdall-DFIR
+Copy-Item .env.example .env
+```
+
+Edit `.env` and complete the configuration above, then run:
+
+```powershell
 Set-ExecutionPolicy -Scope Process Bypass
 .\start.ps1
 ```
 
-The bootstrap script creates `.env` from [.env.example](.env.example), generates infrastructure secrets, builds the images, starts the services and applies the database migrations.
+The bootstrap builds the images, starts the services and applies the database migrations. If `.env` is absent, it creates one from [.env.example](.env.example) and generates some infrastructure secrets, but it does not generate unique passwords for both application accounts. Follow the preparation steps above instead.
 
 After the first start:
 

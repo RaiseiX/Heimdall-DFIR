@@ -10,6 +10,13 @@ const aiRouter = require('./aiRouter');
 const FIELDS = ['executive_summary', 'key_findings', 'ioc_analysis', 'mitre_analysis', 'timeline_narrative', 'recommendations'];
 
 const CARNET_MAX = 20000;
+const NARRATIF_MAX = 4000;
+
+function erreurPublique(message) {
+  const e = new Error(message);
+  e.publique = true;
+  return e;
+}
 
 function extraitDuCarnet(texte, max = CARNET_MAX) {
   const propre = String(texte || '').trim();
@@ -40,6 +47,7 @@ function buildContext(caseData, rows = {}) {
   const bookmarks = rows.bookmarks || [];
   const pins = rows.pins || [];
   const notes = rows.notes || [];
+  const carnetExtrait = extraitDuCarnet(rows.carnet);
   return {
     // ── Identité du dossier ──
     case_number: caseData.case_number,
@@ -52,7 +60,7 @@ function buildContext(caseData, rows = {}) {
 
     // ── Contexte & conclusions fournis par l'analyste (À PRIVILÉGIER) ──
     analyst_context: rows.analystNote ? String(rows.analystNote).slice(0, 2000) : null,
-    analyst_notebook: extraitDuCarnet(rows.carnet),
+    ...(carnetExtrait ? { analyst_notebook: carnetExtrait } : {}),
     analyst_observations: (() => {
       const idToTitle = new Map(bookmarks.filter(b => b && b.id).map(b => [b.id, b.title]));
       return bookmarks
@@ -86,14 +94,17 @@ function buildContext(caseData, rows = {}) {
 }
 
 async function generateNarrative(caseCtx, model) {
+  const avecCarnet = caseCtx && caseCtx.analyst_notebook != null && caseCtx.analyst_notebook !== '';
+  const champsSys = avecCarnet ? 'analyst_context, analyst_notebook, analyst_observations' : 'analyst_context, analyst_observations';
+  const champsUser = avecCarnet ? '« analyst_context », « analyst_notebook », « analyst_observations »' : '« analyst_context », « analyst_observations »';
   const sys = [
     "Tu es un analyste DFIR senior (Digital Forensics & Incident Response), expert dans la rédaction de rapports d'investigation forensique de niveau professionnel, destinés à la direction, aux équipes techniques et, le cas échéant, à une procédure judiciaire.",
     "",
     "Méthodologie impérative :",
     "- Fonde TOUTE ton analyse UNIQUEMENT sur les données fournies. N'invente jamais un fait, un IOC, une date, un hôte ou une technique qui ne figure pas dans les données.",
-    "- Accorde la priorité absolue au CONTEXTE et aux OBSERVATIONS DE L'ANALYSTE (champs analyst_context, analyst_notebook, analyst_observations, pinned_events, artifact_notes) : ce sont les conclusions humaines de l'enquête, plus fiables que les détections brutes. Reprends-les et structure-les.",
+    `- Accorde la priorité absolue au CONTEXTE et aux OBSERVATIONS DE L'ANALYSTE (champs ${champsSys}, pinned_events, artifact_notes) : ce sont les conclusions humaines de l'enquête, plus fiables que les détections brutes. Reprends-les et structure-les.`,
     "- Corrobore les observations de l'analyste avec les preuves techniques (détections, IOCs, ATT&CK, triage).",
-    "- Dans le carnet (analyst_notebook), les liens de la forme [texte](/cases/...) sont des références de source : quand une phrase s'appuie sur une entrée qui en porte un, reprends ce lien tel quel à la fin de la phrase. N'invente, ne modifie et ne complète jamais un lien.",
+    ...(avecCarnet ? ["- Dans le carnet (analyst_notebook), les liens de la forme [texte](/cases/...) sont des références de source : quand une phrase s'appuie sur une entrée qui en porte un, reprends ce lien tel quel à la fin de la phrase. N'invente, ne modifie et ne complète jamais un lien."] : []),
     "- Distingue clairement ce qui est CONFIRMÉ de ce qui est PROBABLE ou HYPOTHÉTIQUE.",
     "- Sois factuel, précis, sobre et professionnel — pas de sensationnalisme.",
     "- Les recommandations doivent être concrètes, actionnables et priorisées (confinement, éradication, remédiation, durcissement).",
@@ -102,7 +113,7 @@ async function generateNarrative(caseCtx, model) {
     "Tu réponds UNIQUEMENT par un objet JSON valide, en français, sans markdown ni texte avant ou après.",
   ].join('\n');
 
-  const userMsg = `Rédige l'analyse de ce rapport d'investigation forensique.\n\nIMPORTANT : appuie-toi en priorité sur « analyst_context », « analyst_notebook », « analyst_observations », « pinned_events » et « artifact_notes » (les conclusions de l'analyste), puis corrobore avec les données techniques.\n\nDONNÉES DE L'INVESTIGATION :\n${JSON.stringify(caseCtx, null, 2)}\n\nRéponds avec EXACTEMENT cet objet JSON (français, factuel, fondé sur les données — n'invente rien) :\n{\n  "executive_summary": "3-5 phrases : nature de l'incident, vecteur, impact, statut — pour la direction",\n  "key_findings": "3-4 phrases : découvertes principales, en intégrant les observations de l'analyste",\n  "ioc_analysis": "2-3 phrases : analyse des IOCs et de leur signification",\n  "mitre_analysis": "2-3 phrases : TTPs observées et reconstruction de la chaîne d'attaque (ATT&CK)",\n  "timeline_narrative": "2-3 phrases : déroulé chronologique de l'attaque",\n  "recommendations": "4-5 recommandations concrètes et priorisées (confinement, éradication, remédiation, durcissement), séparées par des retours à la ligne"\n}`;
+  const userMsg = `Rédige l'analyse de ce rapport d'investigation forensique.\n\nIMPORTANT : appuie-toi en priorité sur ${champsUser}, « pinned_events » et « artifact_notes » (les conclusions de l'analyste), puis corrobore avec les données techniques.\n\nDONNÉES DE L'INVESTIGATION :\n${JSON.stringify(caseCtx, null, 2)}\n\nRéponds avec EXACTEMENT cet objet JSON (français, factuel, fondé sur les données — n'invente rien) :\n{\n  "executive_summary": "3-5 phrases : nature de l'incident, vecteur, impact, statut — pour la direction",\n  "key_findings": "3-4 phrases : découvertes principales, en intégrant les observations de l'analyste",\n  "ioc_analysis": "2-3 phrases : analyse des IOCs et de leur signification",\n  "mitre_analysis": "2-3 phrases : TTPs observées et reconstruction de la chaîne d'attaque (ATT&CK)",\n  "timeline_narrative": "2-3 phrases : déroulé chronologique de l'attaque",\n  "recommendations": "4-5 recommandations concrètes et priorisées (confinement, éradication, remédiation, durcissement), séparées par des retours à la ligne"\n}`;
 
   // Use a model that is actually installed (the hardcoded default 404'd when the
   // user had a different model pulled). selectModel('fast') prefers a small model
@@ -122,19 +133,19 @@ async function generateNarrative(caseCtx, model) {
   });
 
   const text0 = String(raw || '').trim();
-  if (!text0) throw new Error(`le modèle « ${useModel} » n'a renvoyé aucune réponse (modèle absent/non chargé ?)`);
+  if (!text0) throw erreurPublique(`le modèle « ${useModel} » n'a renvoyé aucune réponse (modèle absent/non chargé ?)`);
   // Isolate the JSON object from any stray prose / code fences.
   let txt = text0.replace(/```(?:json)?/gi, '').trim();
   const a = txt.indexOf('{'), b = txt.lastIndexOf('}');
-  if (a < 0 || b <= a) throw new Error('réponse du modèle non exploitable (aucun JSON détecté)');
+  if (a < 0 || b <= a) throw erreurPublique('réponse du modèle non exploitable (aucun JSON détecté)');
   txt = txt.slice(a, b + 1);
   let parsed;
   try { parsed = JSON.parse(txt); }
-  catch (_e) { throw new Error('le JSON renvoyé par le modèle est invalide'); }
+  catch (_e) { throw erreurPublique('le JSON renvoyé par le modèle est invalide'); }
   // Keep only known fields, coerce to strings.
   const out = {};
-  for (const f of FIELDS) if (parsed[f] != null && String(parsed[f]).trim()) out[f] = String(parsed[f]).trim();
-  if (!Object.keys(out).length) throw new Error('le modèle n\'a renvoyé aucun champ exploitable');
+  for (const f of FIELDS) if (parsed[f] != null && String(parsed[f]).trim()) out[f] = String(parsed[f]).trim().slice(0, NARRATIF_MAX);
+  if (!Object.keys(out).length) throw erreurPublique('le modèle n\'a renvoyé aucun champ exploitable');
   return out;
 }
 
@@ -144,9 +155,9 @@ function sanitizeNarrative(input) {
   const out = {};
   let any = false;
   for (const f of FIELDS) {
-    if (input[f] != null && String(input[f]).trim()) { out[f] = String(input[f]).slice(0, 4000); any = true; }
+    if (input[f] != null && String(input[f]).trim()) { out[f] = String(input[f]).slice(0, NARRATIF_MAX); any = true; }
   }
   return any ? out : null;
 }
 
-module.exports = { FIELDS, CARNET_MAX, isAvailable, buildContext, generateNarrative, sanitizeNarrative, extraitDuCarnet };
+module.exports = { FIELDS, CARNET_MAX, NARRATIF_MAX, erreurPublique, isAvailable, buildContext, generateNarrative, sanitizeNarrative, extraitDuCarnet };

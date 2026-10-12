@@ -3,9 +3,10 @@ const PDFDocument = require('pdfkit');
 const { renderReport, buildDfiqReportData } = require('../services/reportRenderer');
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const { pool } = require('../config/database');
 const { authenticate, auditLog } = require('../middleware/auth');
-const { caseAccessParam } = require('../middleware/caseAccess');
+const { caseAccessParam, canAccessCase } = require('../middleware/caseAccess');
 const { origineDuNarratif } = require('../services/reportNarrative');
 const { numeroterSources, resoudreSources } = require('../services/reportSources');
 const notebookDocs = require('../services/notebookDocs');
@@ -116,7 +117,7 @@ router.post('/:caseId/ai-draft', authenticate, async (req, res) => {
     res.json({ narrative });
   } catch (err) {
     logger.error('[report] ai-draft error:', err.message);
-    res.status(500).json({ error: 'Échec de la génération IA : ' + err.message });
+    res.status(500).json({ error: 'Échec de la génération IA : ' + (err && err.publique ? err.message : 'service IA indisponible.') });
   }
 });
 
@@ -180,13 +181,65 @@ router.post('/:caseId/bookmark-narrative', authenticate, async (req, res) => {
     res.json({ narrative: String(narrative).trim() });
   } catch (err) {
     logger.error('[report] bookmark-narrative error:', err.message);
-    res.status(500).json({ error: 'Échec génération narratif : ' + err.message });
+    res.status(500).json({ error: 'Échec génération narratif : service IA indisponible.' });
   }
 });
 
+const MAX_NOTES_CARACTERES = 100000;
+const MAX_NOTES_ELEMENTS = 200;
+
+function notesAcceptables(notes) {
+  if (notes === undefined || notes === null) return true;
+  const longueur = (v) => (typeof v === 'string' ? v.length : 0);
+  if (typeof notes === 'string') return notes.length <= MAX_NOTES_CARACTERES;
+  if (!Array.isArray(notes) || notes.length > MAX_NOTES_ELEMENTS) return false;
+  let total = 0;
+  for (const n of notes) {
+    if (typeof n === 'string') total += n.length;
+    else if (n === null || n === undefined) continue;
+    else if (typeof n === 'object' && !Array.isArray(n)) {
+      if (['text', 'note', 'title'].some((k) => n[k] != null && typeof n[k] !== 'string')) return false;
+      total += longueur(n.text) + longueur(n.note) + longueur(n.title);
+    } else return false;
+    if (total > MAX_NOTES_CARACTERES) return false;
+  }
+  return true;
+}
+
+const MAX_PRESENTATION_CARACTERES = 200;
+
+function presentationAcceptable(corps) {
+  return ['organization', 'classification', 'footer_text'].every((k) => {
+    const v = corps?.[k];
+    return v === undefined || v === null || (typeof v === 'string' && v.length <= MAX_PRESENTATION_CARACTERES);
+  });
+}
+
+function presentationDuGabarit(v) {
+  if (typeof v === 'string') return v.slice(0, MAX_PRESENTATION_CARACTERES);
+  if (typeof v === 'number' || typeof v === 'boolean') return String(v).slice(0, MAX_PRESENTATION_CARACTERES);
+  return undefined;
+}
+
 router.post('/:caseId/generate', authenticate, async (req, res) => {
+  let filePath = null;
+  let flux = null;
+  let abandonne = false;
+  const abandonner = async (err) => {
+    if (abandonne) return;
+    abandonne = true;
+    logger.error('Report generation failed:', err && (err.code || err.name));
+    try {
+      if (flux && !flux.closed) await new Promise((resolve) => { flux.once('close', resolve); flux.destroy(); });
+      if (filePath) await fs.promises.unlink(filePath).catch(() => {});
+    } catch (_e) {}
+    if (!res.headersSent) res.status(500).json({ error: 'Erreur génération rapport' });
+  };
   try {
     const caseId = req.params.caseId;
+
+    if (!notesAcceptables(req.body?.notes)) return res.status(400).json({ error: 'Notes trop volumineuses' });
+    if (!presentationAcceptable(req.body)) return res.status(400).json({ error: 'Paramètres de présentation invalides' });
 
     const {
       templateId,
@@ -210,9 +263,9 @@ router.post('/:caseId/generate', authenticate, async (req, res) => {
       (Array.isArray(bodySections) && bodySections.length > 0) ? bodySections
         : (tplConfig?.sections || ALL_SECTIONS)
     );
-    const org            = bodyOrg || tplConfig?.organization || 'Heimdall DFIR';
-    const classification = bodyClass || tplConfig?.classification || 'CONFIDENTIEL';
-    const footerText     = (bodyFooter != null ? bodyFooter : tplConfig?.footer_text) || '';
+    const org            = bodyOrg || presentationDuGabarit(tplConfig?.organization) || 'Heimdall DFIR';
+    const classification = bodyClass || presentationDuGabarit(tplConfig?.classification) || 'CONFIDENTIEL';
+    const footerText     = (bodyFooter != null ? bodyFooter : presentationDuGabarit(tplConfig?.footer_text)) || '';
     const accentColor    = bodyAccent || tplConfig?.color_accent || '#00d4ff';
     // AI enrichment is on by default when an LLM backend is configured (OLLAMA_URL),
     // unless explicitly disabled via the request body or template.
@@ -399,8 +452,10 @@ router.post('/:caseId/generate', authenticate, async (req, res) => {
       Creator: 'Heimdall DFIR v2.7.0'
     }});
 
-    const filePath = path.join(process.env.UPLOAD_DIR || '/app/uploads', `report-${caseData.case_number}-${Date.now()}.pdf`);
-    const stream = fs.createWriteStream(filePath);
+    filePath = path.join(process.env.UPLOAD_DIR || '/app/uploads', `report-${caseData.case_number}-${Date.now()}-${crypto.randomUUID()}.pdf`);
+    const stream = fs.createWriteStream(filePath, { flags: 'wx' });
+    flux = stream;
+    stream.on('error', abandonner);
     doc.pipe(stream);
 
     const evidence   = evidenceResult.rows;
@@ -434,7 +489,7 @@ router.post('/:caseId/generate', authenticate, async (req, res) => {
     doc.end();
 
     stream.on('finish', async () => {
-
+      try {
       const reportResult = await pool.query(
         `INSERT INTO reports (case_id, title, content, generated_by, file_path)
          VALUES ($1, $2, $3, $4, $5) RETURNING *`,
@@ -456,10 +511,14 @@ router.post('/:caseId/generate', authenticate, async (req, res) => {
         report: reportResult.rows[0],
         download_url: `/api/reports/download/${reportResult.rows[0].id}`
       });
+      } catch (err) {
+        await abandonner(err);
+      }
     });
   } catch (err) {
+    if (filePath) return abandonner(err);
     logger.error('Report generation error:', err);
-    res.status(500).json({ error: 'Erreur génération rapport' });
+    if (!res.headersSent) res.status(500).json({ error: 'Erreur génération rapport' });
   }
 });
 
@@ -469,13 +528,26 @@ router.get('/download/:id', authenticate, async (req, res) => {
     if (result.rows.length === 0) return res.status(404).json({ error: 'Rapport non trouvé' });
 
     const report = result.rows[0];
-    if (!fs.existsSync(report.file_path)) {
+    let autorise;
+    try {
+      autorise = await canAccessCase(req.user, report.case_id);
+    } catch (_e) {
+      return res.status(500).json({ error: "Erreur de contrôle d'accès." });
+    }
+    if (!autorise) {
+      await auditLog(req.user.id, 'download_report_denied', 'report', req.params.id, { case_id: report.case_id }, req.ip);
+      return res.status(403).json({ error: 'Accès refusé : ce cas ne vous est pas attribué.' });
+    }
+
+    const racine = path.resolve(process.env.UPLOAD_DIR || '/app/uploads');
+    const cible = path.resolve(String(report.file_path || ''));
+    if (!cible.startsWith(racine + path.sep) || !fs.existsSync(cible)) {
       return res.status(404).json({ error: 'Fichier PDF non trouvé' });
     }
 
     await auditLog(req.user.id, 'download_report', 'report', req.params.id,
       { title: report.title, case_id: report.case_id }, req.ip);
-    res.download(report.file_path, `${report.title}.pdf`);
+    res.download(cible, `${report.title}.pdf`);
   } catch (err) {
     res.status(500).json({ error: 'Erreur téléchargement' });
   }

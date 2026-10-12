@@ -6,6 +6,8 @@ export { default as EmptyState } from './EmptyState';
 export { default as Spinner }    from './Spinner';
 export { default as Pagination } from './Pagination';
 export { default as Alert }      from './Alert';
+export { default as Textarea }   from './Textarea';
+export { default as Select }     from './Select';
 export { ToastProvider, useToast } from './Toast';
 export { default as RightDrawer }  from './RightDrawer';
 export { default as CommandPalette } from './CommandPalette';

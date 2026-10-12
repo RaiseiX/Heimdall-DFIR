@@ -74,3 +74,16 @@ export function iaUtilisee(doc) {
 export function noteAnalyste(doc) {
   return doc ? doc.getText(NOTE_ANALYSTE).toString().trim() : '';
 }
+
+export function optionsDeGeneration(doc, { aiEnabled, templateId, sections }) {
+  const opts = templateId ? { templateId } : { sections };
+  const note = noteAnalyste(doc);
+  if (note) opts.notes = note;
+  opts.use_ai = aiEnabled;
+  const narratif = narratifDuDoc(doc);
+  if (narratif) {
+    opts.ai_narrative = narratif;
+    opts.narrative_ai_assisted = iaUtilisee(doc);
+  }
+  return opts;
+}
