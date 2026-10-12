@@ -3,12 +3,12 @@ import express, { Response, NextFunction } from 'express';
 import type { Server as IOServer } from 'socket.io';
 import type { Pool } from 'pg';
 import type { AuthRequest } from '../types/index';
-import { getAvailableTools } from '../services/parserService';
+import { getAvailableTools, optionsParseurClient } from '../services/parserService';
 import { parserQueue } from '../config/queue';
 import { parserRateLimiter } from '../middleware/rateLimiter';
 
 const { authenticate, auditLog } = require('../middleware/auth');
-const { caseAccessParam, canAccessCase } = require('../middleware/caseAccess');
+const { caseAccessParam, canAccessCase, exigerAccesObjet, objetDansDossier } = require('../middleware/caseAccess');
 const {
   withCaseDeletion,
   beginDeletionOperation,
@@ -21,6 +21,9 @@ const { deleteByResultId } = require('../services/elasticsearchService');
 const router = express.Router();
 router.use(authenticate);
 router.param('caseId', caseAccessParam);
+
+const exigerResultat = (req: AuthRequest, res: Response, next: NextFunction) =>
+  exigerAccesObjet('parser_result', 'resultId')(req, res, next);
 
 function getPool(res: Response): Pool {
   return res.app.locals.pool as Pool;
@@ -50,15 +53,29 @@ router.post('/run', parserRateLimiter, async (req: AuthRequest, res: Response, n
       });
     }
 
+    const argsClient = optionsParseurClient(extraArgs);
+
     const tools = getAvailableTools();
-    if (!tools[parser]) {
-      return res.status(400).json({ error: `Parseur inconnu: ${parser}` });
+    if (
+      typeof parser !== 'string' ||
+      parser === 'backup' ||
+      !Object.prototype.hasOwnProperty.call(tools, parser)
+    ) {
+      return res.status(400).json({ error: 'Parseur inconnu' });
     }
     if (!tools[parser].available) {
       return res.status(409).json({
         error: `Outil ${tools[parser].name} non installé`,
         hint: `Déposez ${tools[parser].dll} dans ${process.env.ZIMMERMAN_TOOLS_DIR || '/app/zimmerman-tools'}`,
       });
+    }
+
+    if (
+      typeof caseId !== 'string' ||
+      !(await objetDansDossier('evidence', evidenceId, caseId)) ||
+      !(await canAccessCase(req.user, caseId))
+    ) {
+      return res.status(404).json({ error: 'Ressource introuvable' });
     }
 
     const io = getIO(res);
@@ -77,7 +94,7 @@ router.post('/run', parserRateLimiter, async (req: AuthRequest, res: Response, n
       caseId,
       userId: req.user.id,
       socketId,
-      extraArgs: extraArgs || {},
+      extraArgs: argsClient,
     });
 
     res.json({
@@ -222,7 +239,7 @@ router.get('/results/:caseId', async (req: AuthRequest, res: Response, next: Nex
   }
 });
 
-router.get('/result/:resultId/types', async (req: AuthRequest, res: Response, next: NextFunction) => {
+router.get('/result/:resultId/types', exigerResultat, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const pool = getPool(res);
     // Counted from the rows that were actually written, not from output_data.
@@ -240,10 +257,11 @@ router.get('/result/:resultId/types', async (req: AuthRequest, res: Response, ne
       `SELECT artifact_type, COUNT(*)::int AS count
          FROM collection_timeline
         WHERE result_id = $1
+          AND case_id = $2
           AND artifact_type <> ''
         GROUP BY 1
         ORDER BY 2 DESC`,
-      [req.params.resultId]
+      [req.params.resultId, (req as any).objetCaseId]
     );
     res.json({ types: result.rows });
   } catch (err) {
@@ -251,7 +269,7 @@ router.get('/result/:resultId/types', async (req: AuthRequest, res: Response, ne
   }
 });
 
-router.get('/result/:resultId/data', async (req: AuthRequest, res: Response, next: NextFunction) => {
+router.get('/result/:resultId/data', exigerResultat, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const pool = getPool(res);
     const page = Math.max(1, parseInt(req.query['page'] as string || '1', 10));
@@ -271,7 +289,7 @@ router.get('/result/:resultId/data', async (req: AuthRequest, res: Response, nex
            (output_data ? 'unified_timeline') AS is_unified,
            parser_name,
            record_count
-         FROM parser_results WHERE id = $1
+         FROM parser_results WHERE id = $1 AND case_id = $5
        ),
        elems AS (
          SELECT elem FROM source, jsonb_array_elements(arr) AS elem
@@ -285,7 +303,7 @@ router.get('/result/:resultId/data', async (req: AuthRequest, res: Response, nex
          (SELECT COUNT(*)::int FROM elems) AS total,
          (SELECT jsonb_agg(e)
           FROM (SELECT elem AS e FROM elems LIMIT $2 OFFSET $3) s) AS records`,
-      [req.params.resultId, pageSize, offset, artifactType]
+      [req.params.resultId, pageSize, offset, artifactType, (req as any).objetCaseId]
     );
 
     if (result.rows.length === 0) {
@@ -306,7 +324,7 @@ router.get('/result/:resultId/data', async (req: AuthRequest, res: Response, nex
   }
 });
 
-router.get('/result/:resultId/export/csv', async (req: AuthRequest, res: Response, next: NextFunction) => {
+router.get('/result/:resultId/export/csv', exigerResultat, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const pool = getPool(res);
     const result = await pool.query(
@@ -314,8 +332,8 @@ router.get('/result/:resultId/export/csv', async (req: AuthRequest, res: Respons
               COALESCE(e.name, regexp_replace(pr.input_file, '.*/([^/]+)/?$', '\\1')) AS evidence_name
        FROM parser_results pr
        LEFT JOIN evidence e ON pr.evidence_id = e.id
-       WHERE pr.id = $1`,
-      [req.params.resultId]
+       WHERE pr.id = $1 AND pr.case_id = $2`,
+      [req.params.resultId, (req as any).objetCaseId]
     );
 
     if (result.rows.length === 0) {
