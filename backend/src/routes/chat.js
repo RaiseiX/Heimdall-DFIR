@@ -2,13 +2,20 @@
 const express = require('express');
 const { pool } = require('../config/database');
 const { authenticate } = require('../middleware/auth');
-const { caseAccessParam } = require('../middleware/caseAccess');
+const { caseAccessParam, caseListFilter, objetDansDossier, utilisateursAvecAcces, membresDuDossier } = require('../middleware/caseAccess');
 
 const logger = require('../config/logger').default;
 const router = express.Router();
 
 router.use(authenticate);
 router.param('caseId', caseAccessParam);
+
+const NON_TROUVE = { error: 'Ressource introuvable' };
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+async function messageDansDossier(messageId, caseId) {
+  return objetDansDossier('chat_message', messageId, caseId, pool);
+}
 
 router.get('/:caseId/history', authenticate, async (req, res) => {
   try {
@@ -18,11 +25,15 @@ router.get('/:caseId/history', authenticate, async (req, res) => {
 
     let beforeTs = null;
     if (beforeId) {
+      if (typeof beforeId !== 'string' || !(await messageDansDossier(beforeId, caseId))) {
+        return res.status(404).json(NON_TROUVE);
+      }
       const cur = await pool.query(
-        'SELECT created_at FROM case_messages WHERE id = $1',
-        [beforeId]
+        'SELECT created_at FROM case_messages WHERE id = $1 AND case_id = $2',
+        [beforeId, caseId]
       );
-      if (cur.rows.length) beforeTs = cur.rows[0].created_at;
+      if (!cur.rows.length) return res.status(404).json(NON_TROUVE);
+      beforeTs = cur.rows[0].created_at;
     }
 
     const msgsRes = await pool.query(
@@ -39,7 +50,7 @@ router.get('/:caseId/history', authenticate, async (req, res) => {
          pu.username    AS pinned_by_username
        FROM case_messages m
        JOIN users u  ON u.id  = m.author_id
-       LEFT JOIN case_messages rt ON rt.id = m.reply_to_id
+       LEFT JOIN case_messages rt ON rt.id = m.reply_to_id AND rt.case_id = m.case_id
        LEFT JOIN users ru ON ru.id = rt.author_id
        LEFT JOIN users pu ON pu.id = m.pinned_by
        WHERE m.case_id = $1
@@ -124,11 +135,13 @@ router.post('/:caseId/:messageId/pin', authenticate, async (req, res) => {
   try {
     const { caseId, messageId } = req.params;
 
+    if (!(await messageDansDossier(messageId, caseId))) return res.status(404).json(NON_TROUVE);
+
     const cur = await pool.query(
       'SELECT pinned FROM case_messages WHERE id = $1 AND case_id = $2',
       [messageId, caseId]
     );
-    if (!cur.rows.length) return res.status(404).json({ error: 'Message introuvable' });
+    if (!cur.rows.length) return res.status(404).json(NON_TROUVE);
 
     const nowPinned = !cur.rows[0].pinned;
 
@@ -145,8 +158,8 @@ router.post('/:caseId/:messageId/pin', authenticate, async (req, res) => {
        SET pinned    = $1,
            pinned_by = $2,
            pinned_at = $3
-       WHERE id = $4`,
-      [nowPinned, nowPinned ? req.user.id : null, nowPinned ? new Date() : null, messageId]
+       WHERE id = $4 AND case_id = $5`,
+      [nowPinned, nowPinned ? req.user.id : null, nowPinned ? new Date() : null, messageId, caseId]
     );
 
     const io = req.app.locals.io;
@@ -168,7 +181,8 @@ router.post('/:caseId/:messageId/pin', authenticate, async (req, res) => {
 
 router.post('/:caseId/:messageId/react', authenticate, async (req, res) => {
   try {
-    const { messageId } = req.params;
+    const { caseId, messageId } = req.params;
+    if (!(await messageDansDossier(messageId, caseId))) return res.status(404).json(NON_TROUVE);
     const { emoji } = req.body;
     if (!emoji || typeof emoji !== 'string' || emoji.length > 10) {
       return res.status(400).json({ error: 'Emoji invalide' });
@@ -205,11 +219,14 @@ router.post('/:caseId/:messageId/react', authenticate, async (req, res) => {
 
 router.get('/notifications', authenticate, async (req, res) => {
   try {
+    const acces = caseListFilter(req.user, 'c', 2);
     const result = await pool.query(
-      `SELECT * FROM case_notifications
-       WHERE user_id = $1 AND read = FALSE
-       ORDER BY created_at DESC LIMIT 50`,
-      [req.user.id]
+      `SELECT n.* FROM case_notifications n
+       LEFT JOIN cases c ON c.id = n.case_id
+       WHERE n.user_id = $1 AND n.read = FALSE
+         AND (n.case_id IS NULL OR (c.id IS NOT NULL ${acces.sql}))
+       ORDER BY n.created_at DESC LIMIT 50`,
+      [req.user.id, ...acces.params]
     );
     res.json(result.rows);
   } catch (err) {
@@ -247,6 +264,15 @@ router.post('/:caseId/ping', authenticate, async (req, res) => {
     const { message, target_user_id } = req.body;
     const pingMsg = (message || '').toString().trim().slice(0, 200) || 'Ping !';
 
+    if (target_user_id) {
+      const cibleOk = typeof target_user_id === 'string' && UUID_RE.test(target_user_id)
+        && (await pool.query(
+          `SELECT 1 FROM users u WHERE u.id = $2 AND ${utilisateursAvecAcces('$1')} LIMIT 1`,
+          [caseId, target_user_id]
+        )).rowCount > 0;
+      if (!cibleOk) return res.status(404).json(NON_TROUVE);
+    }
+
     const payload = JSON.stringify({
       from: req.user.username,
       from_id: req.user.id,
@@ -255,18 +281,22 @@ router.post('/:caseId/ping', authenticate, async (req, res) => {
       target_user_id: target_user_id || null,
     });
 
+    let destinataires;
     if (target_user_id) {
       await pool.query(
         `INSERT INTO case_notifications (user_id, case_id, type, payload) VALUES ($1, $2, 'ping', $3)`,
         [target_user_id, caseId, payload]
       );
+      destinataires = [target_user_id];
     } else {
-      await pool.query(
+      const ins = await pool.query(
         `INSERT INTO case_notifications (user_id, case_id, type, payload)
          SELECT u.id, $1, 'ping', $2 FROM users u
-         WHERE EXISTS (SELECT 1 FROM cases WHERE id = $1)`,
-        [caseId, payload]
+         WHERE u.id <> $3 AND ${membresDuDossier('$1')}
+         RETURNING user_id`,
+        [caseId, payload, req.user.id]
       );
+      destinataires = ins.rows.map((r) => r.user_id);
     }
 
     const socketPayload = {
@@ -279,14 +309,8 @@ router.post('/:caseId/ping', authenticate, async (req, res) => {
     };
 
     const io = req.app.locals.io;
-    if (io) {
-      if (target_user_id) {
-
-        io.to(`user:${target_user_id}`).emit('case:ping', socketPayload);
-      } else {
-
-        io.to(caseId).emit('case:ping', socketPayload);
-      }
+    if (io && destinataires.length > 0) {
+      io.to(destinataires.map((id) => `user:${id}`)).emit('case:ping', socketPayload);
     }
 
     res.json({ ok: true });
@@ -298,9 +322,11 @@ router.post('/:caseId/ping', authenticate, async (req, res) => {
 
 router.delete('/:caseId/:messageId', authenticate, async (req, res) => {
   try {
+    const { caseId, messageId } = req.params;
+    if (!(await messageDansDossier(messageId, caseId))) return res.status(404).json(NON_TROUVE);
     const result = await pool.query(
-      'DELETE FROM case_messages WHERE id = $1 AND author_id = $2 RETURNING id',
-      [req.params.messageId, req.user.id]
+      'DELETE FROM case_messages WHERE id = $1 AND author_id = $2 AND case_id = $3 RETURNING id',
+      [messageId, req.user.id, caseId]
     );
     if (result.rows.length === 0) return res.status(403).json({ error: 'Non autorisé' });
     res.json({ ok: true });
