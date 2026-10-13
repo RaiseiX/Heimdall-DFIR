@@ -135,15 +135,32 @@ function registerSocketHandlers(io, { pool, logger, JWT_SECRET }) {
       io.to(`netmap:${caseId}`).emit('networkmap:presence', getNetmapPresence(caseId));
     });
 
-    socket.on('chat:send', async ({ caseId, content, reply_to_id }) => {
-      if (!(await guard(caseId))) { socket.emit('chat:error', { message: 'Accès refusé' }); return; }
-      if (!caseId || !content || typeof content !== 'string') return;
+    socket.on('chat:send', async (payload, ack) => {
+      const { caseId, content, reply_to_id } = payload || {};
+      const repondre = (resultat) => { if (typeof ack === 'function') ack(resultat); };
+      let acquitte = false;
+      if (!(await guard(caseId))) {
+        socket.emit('chat:error', { message: 'Accès refusé' });
+        repondre({ ok: false, error: 'Accès refusé', code: 'forbidden' });
+        return;
+      }
+      if (!caseId || !content || typeof content !== 'string') {
+        repondre({ ok: false, error: 'Message invalide', code: 'invalid' });
+        return;
+      }
       const text = content.trim().slice(0, 4000);
-      if (!text) return;
+      if (!text) {
+        repondre({ ok: false, error: 'Message invalide', code: 'invalid' });
+        return;
+      }
       try {
         if (reply_to_id) {
           const citeOk = await objetDansDossier('chat_message', reply_to_id, caseId, pool).catch(() => false);
-          if (!citeOk) { socket.emit('chat:error', { message: 'Ressource introuvable' }); return; }
+          if (!citeOk) {
+            socket.emit('chat:error', { message: 'Ressource introuvable' });
+            repondre({ ok: false, error: 'Ressource introuvable', code: 'not_found' });
+            return;
+          }
         }
         const result = await pool.query(
           `INSERT INTO case_messages (case_id, author_id, content, reply_to_id)
@@ -178,6 +195,8 @@ function registerSocketHandlers(io, { pool, logger, JWT_SECRET }) {
           pinned:     false,
         };
         io.to(caseId).emit('chat:message', msg);
+        repondre({ ok: true, id: row.id });
+        acquitte = true;
 
         const mentions = [...new Set((text.match(/@(\w+)/g) || []).map(m => m.slice(1).toLowerCase()))];
         if (mentions.length > 0) {
@@ -211,7 +230,12 @@ function registerSocketHandlers(io, { pool, logger, JWT_SECRET }) {
           [caseId, JSON.stringify({ from: user.username, preview: text.slice(0, 80) }), user.id, mentions]
         ).catch(e => logger.warn('[chat:notify]', { error: e.message }));
       } catch (err) {
+        if (acquitte) {
+          logger.warn('[chat:send] suite post-envoi en echec', { error: err.message });
+          return;
+        }
         socket.emit('chat:error', { message: 'Erreur envoi message' });
+        repondre({ ok: false, error: 'Erreur envoi message', code: 'server' });
       }
     });
 

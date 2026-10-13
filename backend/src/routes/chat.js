@@ -23,17 +23,8 @@ router.get('/:caseId/history', authenticate, async (req, res) => {
     const limit = Math.min(200, parseInt(req.query.limit) || 50);
     const beforeId = req.query.before_id || null;
 
-    let beforeTs = null;
-    if (beforeId) {
-      if (typeof beforeId !== 'string' || !(await messageDansDossier(beforeId, caseId))) {
-        return res.status(404).json(NON_TROUVE);
-      }
-      const cur = await pool.query(
-        'SELECT created_at FROM case_messages WHERE id = $1 AND case_id = $2',
-        [beforeId, caseId]
-      );
-      if (!cur.rows.length) return res.status(404).json(NON_TROUVE);
-      beforeTs = cur.rows[0].created_at;
+    if (beforeId && (typeof beforeId !== 'string' || !(await messageDansDossier(beforeId, caseId)))) {
+      return res.status(404).json(NON_TROUVE);
     }
 
     const msgsRes = await pool.query(
@@ -54,10 +45,10 @@ router.get('/:caseId/history', authenticate, async (req, res) => {
        LEFT JOIN users ru ON ru.id = rt.author_id
        LEFT JOIN users pu ON pu.id = m.pinned_by
        WHERE m.case_id = $1
-         AND ($2::timestamptz IS NULL OR m.created_at < $2)
-       ORDER BY m.created_at DESC
-       LIMIT $3`,
-      [caseId, beforeTs, limit + 1]
+         AND ($3::uuid IS NULL OR (m.created_at, m.id) < (SELECT b.created_at, b.id FROM case_messages b WHERE b.id = $3::uuid AND b.case_id = $1))
+       ORDER BY m.created_at DESC, m.id DESC
+       LIMIT $2`,
+      [caseId, limit + 1, beforeId]
     );
 
     const rows = msgsRes.rows;
@@ -329,6 +320,10 @@ router.delete('/:caseId/:messageId', authenticate, async (req, res) => {
       [messageId, req.user.id, caseId]
     );
     if (result.rows.length === 0) return res.status(403).json({ error: 'Non autorisé' });
+    const io = req.app.locals.io;
+    if (io) {
+      io.to(caseId).emit('chat:deleted', { case_id: caseId, message_id: messageId });
+    }
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: 'Erreur serveur' });
