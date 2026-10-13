@@ -1,7 +1,8 @@
 const express = require('express');
 const { pool } = require('../config/database');
 const { authenticate, auditLog } = require('../middleware/auth');
-const { caseAccessParam } = require('../middleware/caseAccess');
+const { caseAccessParam, caseListFilter, canAccessCase, ELEVATED } = require('../middleware/caseAccess');
+const { withCaseDeletion } = require('../services/caseDeletion');
 const { enrichIOC, vtVerdictToColumns } = require('../services/iocEnrichmentService');
 const { denoiseByEntity } = require('../services/triageService');
 
@@ -10,6 +11,142 @@ const router = express.Router();
 const { hashIocMatchSql, unmatchableIocsSql } = require('../services/hashIocMatch');
 router.use(authenticate);
 router.param('caseId', caseAccessParam);
+
+router.get('/top-shared', authenticate, async (req, res) => {
+  try {
+    const acc = caseListFilter(req.user, 'c', 1);
+    const result = await pool.query(
+      `SELECT
+         i.value       AS ioc_value,
+         i.ioc_type,
+         COUNT(DISTINCT i.case_id) AS case_count,
+         COUNT(*)                  AS total_occurrences,
+         BOOL_OR(i.is_malicious)   AS any_malicious,
+         MAX(i.severity)           AS max_severity,
+         MAX(i.created_at)         AS last_seen
+       FROM iocs i
+       JOIN cases c ON i.case_id = c.id
+       WHERE i.value IS NOT NULL AND i.value != ''${acc.sql}
+       GROUP BY i.value, i.ioc_type
+       HAVING COUNT(DISTINCT i.case_id) > 1
+       ORDER BY case_count DESC, total_occurrences DESC
+       LIMIT 10`,
+      acc.params,
+    );
+    res.json(result.rows);
+  } catch (err) {
+    logger.error('[iocs] top-shared:', err.message);
+    res.status(500).json({ error: 'Erreur serveur' });
+  }
+});
+
+router.get('/quick-enrich', authenticate, async (req, res) => {
+  const { value, type } = req.query;
+  if (!value) return res.status(400).json({ error: 'value required' });
+  try {
+    const enrichment = await enrichIOC(value, type || 'ip');
+    res.json({ value, type: type || 'ip', enrichment, from_cache: enrichment.from_cache || false });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/internal-intel', authenticate, async (req, res) => {
+  const { query, type, limit = '50' } = req.query;
+  try {
+    const esClient = req.app.locals.esClient;
+    if (!esClient) return res.json({ hits: [], total: 0 });
+
+    const elevated = ELEVATED.has(req.user && req.user.role);
+    let accessibles = null;
+    if (!elevated) {
+      const acc = caseListFilter(req.user, 'c', 1);
+      const ids = await pool.query(`SELECT c.id FROM cases c WHERE TRUE${acc.sql}`, acc.params);
+      accessibles = ids.rows.map((r) => String(r.id));
+      if (accessibles.length === 0) return res.json({ hits: [], total: 0 });
+    }
+
+    const must = [];
+    if (query) must.push({ multi_match: { query, fields: ['value', 'notes', 'tags'] } });
+    if (type) must.push({ term: { ioc_type: type } });
+    const bool = {};
+    if (must.length > 0) bool.must = must;
+    if (accessibles) {
+      bool.filter = [{
+        bool: {
+          should: [
+            { terms: { case_id: accessibles } },
+            { terms: { 'case_id.keyword': accessibles } },
+          ],
+          minimum_should_match: 1,
+        },
+      }];
+    }
+
+    const result = await esClient.search({
+      index: 'threat_intel_internal',
+      size: Math.min(parseInt(limit, 10) || 50, 200),
+      body: {
+        query: Object.keys(bool).length > 0 ? { bool } : { match_all: {} },
+        sort: [{ last_confirmed: { order: 'desc' } }],
+      },
+    });
+
+    let hits = (result.hits?.hits || []).map(h => ({ id: h._id, ...h._source }));
+    let total = result.hits?.total?.value || hits.length;
+    if (accessibles) {
+      const permis = new Set(accessibles);
+      const avant = hits.length;
+      hits = hits.filter((h) => h.case_id && permis.has(String(h.case_id)));
+      total = Math.max(0, total - (avant - hits.length));
+    }
+    res.json({ hits, total });
+  } catch (err) {
+    if (err.message?.includes('index_not_found')) return res.json({ hits: [], total: 0 });
+    logger.error('[internal-intel] error:', err.message);
+    res.status(500).json({ error: 'Erreur serveur' });
+  }
+});
+
+async function compterAutresDossiers(user, valeur) {
+  const acc = caseListFilter(user, 'c', 2);
+  if (!acc.sql) return 0;
+  const r = await pool.query(
+    `SELECT COUNT(DISTINCT i.case_id)::int AS n
+       FROM iocs i
+       JOIN cases c ON i.case_id = c.id
+      WHERE i.value = $1 AND NOT (TRUE${acc.sql})`,
+    [valeur, ...acc.params]
+  );
+  return r.rows[0] ? Number(r.rows[0].n) || 0 : 0;
+}
+
+router.get('/cross-case', authenticate, async (req, res) => {
+  try {
+    const { value } = req.query;
+    const exacte = typeof value === 'string' ? value.trim() : '';
+    if (exacte.length < 3) return res.status(400).json({ error: 'Paramètre value requis (3 caractères minimum)' });
+    const motif = `%${exacte.replace(/[\\%_]/g, '\\$&')}%`;
+    const acc = caseListFilter(req.user, 'c', 2);
+    const result = await pool.query(
+      `SELECT DISTINCT c.id, c.case_number, c.title, c.status, c.priority,
+              i.ioc_type, i.value AS ioc_value, i.created_at AS ioc_created_at
+         FROM iocs i
+         JOIN cases c ON i.case_id = c.id
+        WHERE i.value ILIKE $1 ESCAPE '\\'${acc.sql}
+        ORDER BY i.created_at DESC
+        LIMIT 50`,
+      [motif, ...acc.params]
+    );
+    const autres = await compterAutresDossiers(req.user, exacte);
+    res.set('X-Other-Cases-Count', String(autres));
+    res.set('Access-Control-Expose-Headers', 'X-Other-Cases-Count');
+    res.json(result.rows);
+  } catch (err) {
+    logger.error('[iocs] cross-case:', err.message);
+    res.status(500).json({ error: 'Erreur serveur' });
+  }
+});
 
 // Les empreintes de la collecte confrontees aux indicateurs du dossier.
 //
@@ -69,56 +206,46 @@ router.post('/:caseId', authenticate, async (req, res) => {
   }
 });
 
-// Delete a single IOC by id (global page deletes by IOC id, not case-scoped)
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+async function resoudreIocAutorise(req, res) {
+  const id = req.params.id;
+  if (typeof id === 'string' && UUID_RE.test(id)) {
+    const r = await pool.query('SELECT id, value, ioc_type, case_id FROM iocs WHERE id = $1', [id]);
+    const ioc = r.rows[0];
+    if (ioc) {
+      const caseId = ioc.case_id ? String(ioc.case_id) : null;
+      const autorise = caseId ? await canAccessCase(req.user, caseId) : ELEVATED.has(req.user.role);
+      if (autorise) return { ioc, caseId };
+    }
+  }
+  res.status(404).json({ error: 'IOC non trouvé' });
+  return null;
+}
+
+function clausePortee(caseId, index) {
+  return caseId ? { sql: `case_id = $${index}`, params: [caseId] } : { sql: 'case_id IS NULL', params: [] };
+}
+
 router.delete('/:id', authenticate, async (req, res) => {
   try {
-    const result = await pool.query(
-      'DELETE FROM iocs WHERE id = $1 RETURNING ioc_type, value, case_id',
-      [req.params.id]
+    const cible = await resoudreIocAutorise(req, res);
+    if (!cible) return;
+    const portee = clausePortee(cible.caseId, 2);
+    const suppression = (client) => client.query(
+      `DELETE FROM iocs WHERE id = $1 AND ${portee.sql} RETURNING ioc_type, value, case_id`,
+      [req.params.id, ...portee.params]
     );
+    const result = cible.caseId ? await withCaseDeletion(pool, cible.caseId, suppression) : await suppression(pool);
     if (!result.rowCount) return res.status(404).json({ error: 'IOC non trouvé' });
     const row = result.rows[0];
     await auditLog(req.user.id, 'delete_ioc', 'ioc', req.params.id, { ioc_type: row.ioc_type, value: row.value, case_id: row.case_id }, req.ip);
     res.json({ success: true });
   } catch (err) {
+    if (err && err.code === 'LEGAL_HOLD') return res.status(409).json({ error: 'Suppression interdite : legal hold actif.', code: 'LEGAL_HOLD' });
+    if (err && err.status === 404) return res.status(404).json({ error: 'IOC non trouvé' });
     logger.error('[IOC] delete error:', err.message);
     res.status(500).json({ error: 'Erreur serveur' });
-  }
-});
-
-router.get('/top-shared', authenticate, async (req, res) => {
-  try {
-    const result = await pool.query(
-      `SELECT
-         i.value       AS ioc_value,
-         i.ioc_type,
-         COUNT(DISTINCT i.case_id) AS case_count,
-         COUNT(*)                  AS total_occurrences,
-         BOOL_OR(i.is_malicious)   AS any_malicious,
-         MAX(i.severity)           AS max_severity,
-         MAX(i.created_at)         AS last_seen
-       FROM iocs i
-       WHERE i.value IS NOT NULL AND i.value != ''
-       GROUP BY i.value, i.ioc_type
-       HAVING COUNT(DISTINCT i.case_id) > 1
-       ORDER BY case_count DESC, total_occurrences DESC
-       LIMIT 10`,
-    );
-    res.json(result.rows);
-  } catch (err) {
-    logger.error('[iocs] top-shared:', err.message);
-    res.status(500).json({ error: 'Erreur serveur' });
-  }
-});
-
-router.get('/quick-enrich', authenticate, async (req, res) => {
-  const { value, type } = req.query;
-  if (!value) return res.status(400).json({ error: 'value required' });
-  try {
-    const enrichment = await enrichIOC(value, type || 'ip');
-    res.json({ value, type: type || 'ip', enrichment, from_cache: enrichment.from_cache || false });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
   }
 });
 
@@ -144,7 +271,9 @@ router.get('/search/global', authenticate, async (req, res) => {
       conditions.push(`i.ioc_type = $${idx++}`);
       params.push(type);
     }
-    if (conditions.length) query += ' WHERE ' + conditions.join(' AND ');
+    const acc = caseListFilter(req.user, 'c', idx);
+    query += ' WHERE TRUE' + conditions.map((c) => ` AND ${c}`).join('') + acc.sql;
+    params.push(...acc.params);
     query += ' ORDER BY i.severity DESC, i.created_at DESC LIMIT 500';
 
     const result = await pool.query(query, params);
@@ -157,10 +286,9 @@ router.get('/search/global', authenticate, async (req, res) => {
 router.post('/:id/enrich', authenticate, async (req, res) => {
   try {
     const { id } = req.params;
-    const iocRes = await pool.query('SELECT id, value, ioc_type FROM iocs WHERE id = $1', [id]);
-    if (!iocRes.rows.length) return res.status(404).json({ error: 'IOC non trouvé' });
-
-    const { value, ioc_type } = iocRes.rows[0];
+    const cible = await resoudreIocAutorise(req, res);
+    if (!cible) return;
+    const { value, ioc_type } = cible.ioc;
     const enrichment = await enrichIOC(value, ioc_type);
     const vtCols = vtVerdictToColumns(enrichment.virustotal);
 
@@ -172,7 +300,7 @@ router.post('/:id/enrich', authenticate, async (req, res) => {
         abuseipdb_score = $4,
         enriched_at     = NOW(),
         enrichment_data = $5
-       WHERE id = $6`,
+       WHERE id = $6 AND ${clausePortee(cible.caseId, 7).sql}`,
       [
         vtCols.vt_malicious,
         vtCols.vt_total,
@@ -180,11 +308,12 @@ router.post('/:id/enrich', authenticate, async (req, res) => {
         enrichment.abuseipdb?.score ?? null,
         JSON.stringify(enrichment),
         id,
+        ...clausePortee(cible.caseId, 7).params,
       ]
     );
 
     if (enrichment.noise) {
-      await denoiseByEntity(value, enrichment.noise_reason);
+      await denoiseByEntity(value, enrichment.noise_reason, cible.caseId);
     }
     res.json({ success: true, from_cache: enrichment.from_cache || false, enrichment });
   } catch (err) {
@@ -215,7 +344,7 @@ router.post('/enrich-case/:caseId', authenticate, async (req, res) => {
              enrichment.abuseipdb?.score ?? null, JSON.stringify(enrichment), ioc.id]
           );
           if (enrichment.noise) {
-            await denoiseByEntity(ioc.value, enrichment.noise_reason);
+            await denoiseByEntity(ioc.value, enrichment.noise_reason, caseId);
           }
           if (!enrichment.from_cache) {
             await new Promise(r => setTimeout(r, 300));
@@ -295,64 +424,18 @@ router.get('/export-stix/:caseId', authenticate, async (req, res) => {
   }
 });
 
-router.get('/internal-intel', authenticate, async (req, res) => {
-  const { query, type, limit = '50' } = req.query;
-  try {
-    const esClient = req.app.locals.esClient;
-    if (!esClient) return res.json({ hits: [], total: 0 });
-
-    const must = [];
-    if (query) must.push({ multi_match: { query, fields: ['value', 'notes', 'tags'] } });
-    if (type) must.push({ term: { ioc_type: type } });
-
-    const result = await esClient.search({
-      index: 'threat_intel_internal',
-      size: Math.min(parseInt(limit, 10) || 50, 200),
-      body: {
-        query: must.length > 0 ? { bool: { must } } : { match_all: {} },
-        sort: [{ last_confirmed: { order: 'desc' } }],
-      },
-    });
-
-    const hits = (result.hits?.hits || []).map(h => ({ id: h._id, ...h._source }));
-    res.json({ hits, total: result.hits?.total?.value || hits.length });
-  } catch (err) {
-    if (err.message?.includes('index_not_found')) return res.json({ hits: [], total: 0 });
-    logger.error('[internal-intel] error:', err.message);
-    res.status(500).json({ error: 'Erreur serveur' });
-  }
-});
-
-router.get('/cross-case', authenticate, async (req, res) => {
-  try {
-    const { value } = req.query;
-    if (!value?.trim()) return res.status(400).json({ error: 'Paramètre value requis' });
-    const result = await pool.query(
-      `SELECT DISTINCT c.id, c.case_number, c.title, c.status, c.priority,
-              i.ioc_type, i.value AS ioc_value, i.created_at AS ioc_created_at
-         FROM iocs i
-         JOIN cases c ON i.case_id = c.id
-        WHERE i.value ILIKE $1
-        ORDER BY i.created_at DESC
-        LIMIT 50`,
-      [`%${value.trim()}%`]
-    );
-    res.json(result.rows);
-  } catch (err) {
-    logger.error('[iocs] cross-case:', err.message);
-    res.status(500).json({ error: 'Erreur serveur' });
-  }
-});
-
 router.post('/:id/confirm', authenticate, async (req, res) => {
   const { id } = req.params;
   const { confidence = 'confirmed', notes = '' } = req.body;
 
   try {
+    const cible = await resoudreIocAutorise(req, res);
+    if (!cible) return;
+    const portee = clausePortee(cible.caseId, 3);
     const iocRes = await pool.query(
       `UPDATE iocs SET is_malicious = true, notes = COALESCE($2, notes), updated_at = NOW()
-       WHERE id = $1 RETURNING *`,
-      [id, notes || null]
+       WHERE id = $1 AND ${portee.sql} RETURNING *`,
+      [id, notes || null, ...portee.params]
     );
     if (iocRes.rows.length === 0) return res.status(404).json({ error: 'IOC not found' });
     const ioc = iocRes.rows[0];
@@ -502,20 +585,23 @@ router.post('/:caseId/import-stix', authenticate, async (req, res) => {
 router.get('/:value/cross-cases', authenticate, async (req, res) => {
   try {
     const { value } = req.params;
+    const acc = caseListFilter(req.user, 'c', 2);
     const result = await pool.query(
       `SELECT c.id, c.case_number, c.title, c.status, c.priority,
               i.ioc_type, i.value AS ioc_value,
               i.severity, i.is_malicious, i.created_at AS ioc_created_at
        FROM iocs i
        JOIN cases c ON i.case_id = c.id
-       WHERE i.value = $1
+       WHERE i.value = $1${acc.sql}
        ORDER BY c.created_at DESC
        LIMIT 100`,
-      [value],
+      [value, ...acc.params],
     );
+    const autres = await compterAutresDossiers(req.user, value);
     res.json({
       ioc_value:  value,
       case_count: result.rows.length,
+      other_cases_count: autres,
       cases:      result.rows,
     });
   } catch (err) {

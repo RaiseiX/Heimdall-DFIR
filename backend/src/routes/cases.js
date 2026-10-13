@@ -81,7 +81,9 @@ router.post('/:id/detections/exceptions', authenticate, async (req, res) => {
     const value = String(req.body?.match_value || '').trim();
     if (!value) return res.status(400).json({ error: 'match_value requis' });
     const dtype = DETECTION_TYPES.includes(req.body?.detection_type) ? req.body.detection_type : null;
-    const scope = req.body?.scope === 'global' ? null : req.params.id;   // null = global
+    const globale = req.body?.scope === 'global';
+    if (globale && !ELEVATED.has(req.user.role)) return res.status(403).json({ error: 'Action réservée aux rôles élevés' });
+    const scope = globale ? null : req.params.id;   // null = global
     const reason = String(req.body?.reason || '').slice(0, 500) || null;
     const r = await pool.query(
       `INSERT INTO detection_exceptions (case_id, detection_type, match_value, reason, created_by)
@@ -95,7 +97,15 @@ router.post('/:id/detections/exceptions', authenticate, async (req, res) => {
 });
 
 router.delete('/:id/detections/exceptions/:exId', authenticate, async (req, res) => {
-  try { await pool.query('DELETE FROM detection_exceptions WHERE id = $1', [req.params.exId]); res.json({ ok: true }); }
+  try {
+    const elevated = ELEVATED.has(req.user.role);
+    const r = await pool.query(
+      `DELETE FROM detection_exceptions WHERE id = $1 AND (case_id = $2${elevated ? ' OR case_id IS NULL' : ''})`,
+      [req.params.exId, req.params.id]
+    );
+    if (!r.rowCount) return res.status(404).json({ error: 'Ressource introuvable' });
+    res.json({ ok: true });
+  }
   catch (err) { logger.error('[detections.exceptions DELETE]', err); res.status(500).json({ error: 'Erreur serveur' }); }
 });
 
@@ -149,34 +159,44 @@ router.get('/', authenticate, async (req, res) => {
 
 router.get('/stats/dashboard', authenticate, async (req, res) => {
   try {
+    const acc = caseListFilter(req.user, 'c', 1);
+    const auditAcc = acc.sql
+      ? ` AND EXISTS (SELECT 1 FROM cases c WHERE ((al.entity_type = 'case' AND al.entity_id = c.id) OR (al.entity_type IS DISTINCT FROM 'case' AND al.details->>'case_id' = c.id::text))${acc.sql})`
+      : '';
     const [stats, evidenceStats, iocStats, recentActivity, dailyActivity, artifactStats, findingsSev, scanHealth, parsedEv] = await Promise.all([
       pool.query(`
         SELECT
-          COUNT(*) FILTER (WHERE status = 'active') as active_cases,
-          COUNT(*) FILTER (WHERE status = 'pending') as pending_cases,
-          COUNT(*) FILTER (WHERE status = 'closed') as closed_cases,
-          COUNT(*) FILTER (WHERE priority = 'critical') as critical_cases,
+          COUNT(*) FILTER (WHERE c.status = 'active') as active_cases,
+          COUNT(*) FILTER (WHERE c.status = 'pending') as pending_cases,
+          COUNT(*) FILTER (WHERE c.status = 'closed') as closed_cases,
+          COUNT(*) FILTER (WHERE c.priority = 'critical') as critical_cases,
           COUNT(*) as total_cases
-        FROM cases
-      `),
+        FROM cases c
+        WHERE TRUE${acc.sql}
+      `, acc.params),
       pool.query(`
         SELECT COUNT(*) as total_evidence,
-          COUNT(*) FILTER (WHERE is_highlighted) as highlighted_evidence,
-          COALESCE(SUM(file_size), 0) as total_size
-        FROM evidence
-      `),
+          COUNT(*) FILTER (WHERE e.is_highlighted) as highlighted_evidence,
+          COALESCE(SUM(e.file_size), 0) as total_size
+        FROM evidence e
+        JOIN cases c ON c.id = e.case_id
+        WHERE TRUE${acc.sql}
+      `, acc.params),
       pool.query(`
         SELECT COUNT(*) as total_iocs,
-          COUNT(*) FILTER (WHERE is_malicious = true) as malicious_iocs,
-          COUNT(DISTINCT ioc_type::text) as ioc_types
-        FROM iocs
-      `),
+          COUNT(*) FILTER (WHERE i.is_malicious = true) as malicious_iocs,
+          COUNT(DISTINCT i.ioc_type::text) as ioc_types
+        FROM iocs i
+        JOIN cases c ON c.id = i.case_id
+        WHERE TRUE${acc.sql}
+      `, acc.params),
       pool.query(`
         SELECT al.action, al.entity_type, al.details, al.created_at, u.full_name
         FROM audit_log al
         LEFT JOIN users u ON al.user_id = u.id
+        WHERE TRUE${auditAcc}
         ORDER BY al.created_at DESC LIMIT 10
-      `),
+      `, acc.params),
       pool.query(`
         WITH days AS (
           SELECT generate_series(
@@ -192,17 +212,18 @@ router.get('/stats/dashboard', authenticate, async (req, res) => {
           COALESCE(ioc.cnt, 0) AS iocs
         FROM days
         LEFT JOIN (
-          SELECT DATE(created_at) AS d, COUNT(*) AS cnt FROM audit_log
-          WHERE created_at >= current_date - interval '6 days'
+          SELECT DATE(al.created_at) AS d, COUNT(*) AS cnt FROM audit_log al
+          WHERE al.created_at >= current_date - interval '6 days'${auditAcc}
           GROUP BY d
         ) ev ON ev.d = days.day
         LEFT JOIN (
-          SELECT DATE(created_at) AS d, COUNT(*) AS cnt FROM iocs
-          WHERE created_at >= current_date - interval '6 days'
+          SELECT DATE(i.created_at) AS d, COUNT(*) AS cnt FROM iocs i
+          JOIN cases c ON c.id = i.case_id
+          WHERE i.created_at >= current_date - interval '6 days'${acc.sql}
           GROUP BY d
         ) ioc ON ioc.d = days.day
         ORDER BY days.day
-      `).catch(() => ({ rows: [] })),
+      `, acc.params).catch(() => ({ rows: [] })),
       pool.query(`
         SELECT
           COUNT(DISTINCT artifact_type) AS artifact_types,
@@ -212,30 +233,37 @@ router.get('/stats/dashboard', authenticate, async (req, res) => {
             ORDER BY cnt DESC
           ) AS breakdown
         FROM (
-          SELECT artifact_type, COUNT(*) AS cnt
-          FROM collection_timeline
-          GROUP BY artifact_type
+          SELECT ct.artifact_type, COUNT(*) AS cnt
+          FROM collection_timeline ct
+          JOIN cases c ON c.id = ct.case_id
+          WHERE TRUE${acc.sql}
+          GROUP BY ct.artifact_type
         ) t
-      `).catch(() => ({ rows: [{ artifact_types: 0, total_lines: 0, breakdown: [] }] })),
+      `, acc.params).catch(() => ({ rows: [{ artifact_types: 0, total_lines: 0, breakdown: [] }] })),
       // Findings by severity — aggregate over persisted threat-engine detections (JSONB array per row)
       pool.query(`
         SELECT lower(COALESCE(d->>'severity','')) AS sev, COUNT(*)::int AS cnt
         FROM collection_timeline ct
+        JOIN cases c ON c.id = ct.case_id
         CROSS JOIN LATERAL jsonb_array_elements(ct.detections) AS d
-        WHERE ct.detections IS NOT NULL AND jsonb_typeof(ct.detections) = 'array'
+        WHERE ct.detections IS NOT NULL AND jsonb_typeof(ct.detections) = 'array'${acc.sql}
         GROUP BY lower(COALESCE(d->>'severity',''))
-      `).catch(() => ({ rows: [] })),
+      `, acc.params).catch(() => ({ rows: [] })),
       // Scan health — evidence scan_status distribution
       pool.query(`
-        SELECT COALESCE(NULLIF(scan_status, ''), 'pending') AS st, COUNT(*)::int AS cnt
-        FROM evidence
-        GROUP BY COALESCE(NULLIF(scan_status, ''), 'pending')
-      `).catch(() => ({ rows: [] })),
+        SELECT COALESCE(NULLIF(e.scan_status, ''), 'pending') AS st, COUNT(*)::int AS cnt
+        FROM evidence e
+        JOIN cases c ON c.id = e.case_id
+        WHERE TRUE${acc.sql}
+        GROUP BY COALESCE(NULLIF(e.scan_status, ''), 'pending')
+      `, acc.params).catch(() => ({ rows: [] })),
       // Parse coverage — evidence that produced at least one timeline row
       pool.query(`
-        SELECT COUNT(DISTINCT evidence_id)::int AS parsed
-        FROM collection_timeline WHERE evidence_id IS NOT NULL
-      `).catch(() => ({ rows: [{ parsed: 0 }] })),
+        SELECT COUNT(DISTINCT ct.evidence_id)::int AS parsed
+        FROM collection_timeline ct
+        JOIN cases c ON c.id = ct.case_id
+        WHERE ct.evidence_id IS NOT NULL${acc.sql}
+      `, acc.params).catch(() => ({ rows: [{ parsed: 0 }] })),
     ]);
 
     // ── Findings by severity (greyware folds into low) ──────────────────────
@@ -275,6 +303,7 @@ router.get('/stats/dashboard', authenticate, async (req, res) => {
 
 router.get('/leaderboard', authenticate, async (req, res) => {
   try {
+    const acc = caseListFilter(req.user, 'c', 1);
     const result = await pool.query(`
       SELECT
         u.id,
@@ -282,22 +311,26 @@ router.get('/leaderboard', authenticate, async (req, res) => {
         u.username,
         COALESCE((
           SELECT COUNT(*)::int FROM case_playbook_steps cps
+          JOIN case_playbooks cpl ON cpl.id = cps.case_playbook_id
+          JOIN cases c ON c.id = cpl.case_id
           WHERE cps.completed_by = u.id AND cps.completed = TRUE
-            AND cps.completed_at >= NOW() - INTERVAL '7 days'
+            AND cps.completed_at >= NOW() - INTERVAL '7 days'${acc.sql}
         ), 0) AS steps_this_week,
         COALESCE((
           SELECT COUNT(*)::int FROM cases c
-          WHERE c.investigator_id = u.id AND c.status = 'active'
+          WHERE c.investigator_id = u.id AND c.status = 'active'${acc.sql}
         ), 0) AS active_cases,
         COALESCE((
           SELECT COUNT(*)::int FROM case_playbook_steps cps
-          WHERE cps.completed_by = u.id AND cps.completed = TRUE
+          JOIN case_playbooks cpl ON cpl.id = cps.case_playbook_id
+          JOIN cases c ON c.id = cpl.case_id
+          WHERE cps.completed_by = u.id AND cps.completed = TRUE${acc.sql}
         ), 0) AS total_done
       FROM users u
       WHERE u.is_active = TRUE
       ORDER BY steps_this_week DESC, total_done DESC
       LIMIT 8
-    `);
+    `, acc.params);
     res.json({ leaderboard: result.rows });
   } catch (err) {
     logger.error('Leaderboard error:', err.message);
@@ -306,6 +339,7 @@ router.get('/leaderboard', authenticate, async (req, res) => {
 });
 
 router.get('/deadlines', authenticate, async (req, res) => {
+  const acc = caseListFilter(req.user, 'c', 1);
   const SQL = `
     SELECT c.id, c.title, c.case_number, c.status, c.priority, c.report_deadline,
       u.full_name as investigator_name,
@@ -315,13 +349,13 @@ router.get('/deadlines', authenticate, async (req, res) => {
     WHERE c.report_deadline IS NOT NULL
       AND c.report_deadline >= NOW()
       AND c.report_deadline <= NOW() + interval '60 days'
-      AND c.status != 'closed'
+      AND c.status != 'closed'${acc.sql}
     ORDER BY c.report_deadline ASC
   `;
 
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      const result = await pool.query(SQL);
+      const result = await pool.query(SQL, acc.params);
       return res.json({ deadlines: result.rows });
     } catch (err) {
       const isConnErr = /timeout|connection terminated|ECONNRESET/i.test(err.message);

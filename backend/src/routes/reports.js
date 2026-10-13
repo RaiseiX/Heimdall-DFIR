@@ -6,7 +6,7 @@ const path = require('path');
 const crypto = require('crypto');
 const { pool } = require('../config/database');
 const { authenticate, auditLog } = require('../middleware/auth');
-const { caseAccessParam, canAccessCase } = require('../middleware/caseAccess');
+const { caseAccessParam, canAccessCase, ELEVATED } = require('../middleware/caseAccess');
 const { origineDuNarratif } = require('../services/reportNarrative');
 const { numeroterSources, resoudreSources } = require('../services/reportSources');
 const notebookDocs = require('../services/notebookDocs');
@@ -51,16 +51,20 @@ router.post('/templates', authenticate, async (req, res) => {
   }
 });
 
+const MODELE_INTROUVABLE = { error: 'Template non trouvé' };
+const estIdModele = (v) => typeof v === 'string' && /^\d{1,9}$/.test(v);
+
 router.put('/templates/:id', authenticate, async (req, res) => {
   try {
+    if (!estIdModele(req.params.id)) return res.status(404).json(MODELE_INTROUVABLE);
     const { name, description, config, is_default } = req.body;
     const result = await pool.query(
       `UPDATE report_templates
        SET name=$1, description=$2, config=$3, is_default=$4, updated_at=NOW()
-       WHERE id=$5 RETURNING *`,
-      [name, description || '', config || {}, !!is_default, req.params.id]
+       WHERE id=$5 AND (created_by=$6 OR $7::boolean) RETURNING *`,
+      [name, description || '', config || {}, !!is_default, req.params.id, req.user.id, ELEVATED.has(req.user.role)]
     );
-    if (result.rows.length === 0) return res.status(404).json({ error: 'Template non trouvé' });
+    if (result.rows.length === 0) return res.status(404).json(MODELE_INTROUVABLE);
     res.json(result.rows[0]);
   } catch (err) {
     logger.error('Update template error:', err);
@@ -70,8 +74,12 @@ router.put('/templates/:id', authenticate, async (req, res) => {
 
 router.delete('/templates/:id', authenticate, async (req, res) => {
   try {
-    const result = await pool.query('DELETE FROM report_templates WHERE id=$1 RETURNING id', [req.params.id]);
-    if (result.rows.length === 0) return res.status(404).json({ error: 'Template non trouvé' });
+    if (!estIdModele(req.params.id)) return res.status(404).json(MODELE_INTROUVABLE);
+    const result = await pool.query(
+      'DELETE FROM report_templates WHERE id=$1 AND (created_by=$2 OR $3::boolean) RETURNING id',
+      [req.params.id, req.user.id, ELEVATED.has(req.user.role)]
+    );
+    if (result.rows.length === 0) return res.status(404).json(MODELE_INTROUVABLE);
     res.json({ deleted: true });
   } catch (err) {
     logger.error('Delete template error:', err);

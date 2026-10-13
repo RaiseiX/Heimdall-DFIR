@@ -32,7 +32,8 @@ function caseAccessParam(req, res, next, value) {
 // `alias` = the cases table alias; `nextIdx` = next positional parameter number.
 // Returns { sql, params } — params is [] for elevated roles (no restriction).
 function caseListFilter(user, alias = 'c', nextIdx = 1) {
-  if (!user || ELEVATED.has(user.role)) return { sql: '', params: [] };
+  if (!user) return { sql: ' AND FALSE', params: [] };
+  if (ELEVATED.has(user.role)) return { sql: '', params: [] };
   const p = `$${nextIdx}`;
   return {
     sql: ` AND ( ${alias}.investigator_id = ${p} OR ${alias}.created_by = ${p}

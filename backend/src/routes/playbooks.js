@@ -2,7 +2,7 @@
 const express = require('express');
 const { pool } = require('../config/database');
 const { authenticate, requireRole, auditLog } = require('../middleware/auth');
-const { caseAccessParam } = require('../middleware/caseAccess');
+const { caseAccessParam, caseListFilter } = require('../middleware/caseAccess');
 
 const router = express.Router();
 
@@ -95,11 +95,16 @@ router.put('/cases/:caseId/:instanceId/steps/:stepId', authenticate, async (req,
     const { completed, note } = req.body;
     const { instanceId, stepId, caseId } = req.params;
 
-    if (completed) {
-      const stepCheck = await pool.query('SELECT note_required FROM playbook_steps WHERE id = $1', [stepId]);
-      if (stepCheck.rows[0]?.note_required && !note?.trim()) {
-        return res.status(400).json({ error: 'Cette étape requiert une note avant d\'être cochée' });
-      }
+    const stepCheck = await pool.query(
+      `SELECT s.note_required
+         FROM case_playbooks cp
+         JOIN playbook_steps s ON s.playbook_id = cp.playbook_id
+        WHERE cp.id = $1 AND s.id = $2 AND cp.case_id = $3`,
+      [instanceId, stepId, caseId]
+    );
+    if (!stepCheck.rows.length) return res.status(404).json({ error: 'Ressource introuvable' });
+    if (completed && stepCheck.rows[0].note_required && !note?.trim()) {
+      return res.status(400).json({ error: 'Cette étape requiert une note avant d\'être cochée' });
     }
 
     const result = await pool.query(`
@@ -125,9 +130,9 @@ router.put('/cases/:caseId/:instanceId/steps/:stepId', authenticate, async (req,
     `, [instanceId]);
     const { total, done } = progress.rows[0];
     if (parseInt(done) >= parseInt(total)) {
-      await pool.query('UPDATE case_playbooks SET completed_at = NOW() WHERE id = $1 AND completed_at IS NULL', [instanceId]);
+      await pool.query('UPDATE case_playbooks SET completed_at = NOW() WHERE id = $1 AND case_id = $2 AND completed_at IS NULL', [instanceId, caseId]);
     } else {
-      await pool.query('UPDATE case_playbooks SET completed_at = NULL WHERE id = $1', [instanceId]);
+      await pool.query('UPDATE case_playbooks SET completed_at = NULL WHERE id = $1 AND case_id = $2', [instanceId, caseId]);
     }
 
     res.json(result.rows[0]);
@@ -141,6 +146,7 @@ router.put('/cases/:caseId/:instanceId/steps/:stepId', authenticate, async (req,
 // cases the user has no prior involvement with.
 router.get('/my-open-steps', authenticate, async (req, res) => {
   try {
+    const acc = caseListFilter(req.user, 'c', 2);
     const result = await pool.query(`
       SELECT s.id AS step_id, s.title AS step_title, s.note_required, s.mitre_technique, s.step_order,
              cp.id AS instance_id, cp.case_id, cp.started_at,
@@ -160,10 +166,10 @@ router.get('/my-open-steps', authenticate, async (req, res) => {
             SELECT 1 FROM case_playbook_steps cps2
             WHERE cps2.case_playbook_id = cp.id AND cps2.completed_by = $1
           )
-        )
+        )${acc.sql}
       ORDER BY cp.started_at DESC, s.step_order
       LIMIT 12
-    `, [req.user.id]);
+    `, [req.user.id, ...acc.params]);
     res.json(result.rows);
   } catch (err) {
     res.status(500).json({ error: 'Erreur serveur' });

@@ -64,6 +64,7 @@ async function createAlert(a = {}) {
               severity  = $2,
               case_id   = COALESCE(case_id, $3)
         WHERE dedup_key = $1 AND status IN ('new', 'in_progress')
+          AND case_id IS NOT DISTINCT FROM $3
         RETURNING *`,
       [dedup, severity, a.case_id || null],
     ).catch(e => { logger.warn('[triage] dedup update failed', { error: e.message }); return { rowCount: 0 }; });
@@ -116,9 +117,17 @@ async function denoiseAlert(dedupKey, reason) {
  * Downgrade any open alert whose entity_value matches, when no dedup_key is available.
  * Used by IOC enrichment to retroactively quiet noise-confirmed indicators.
  */
-async function denoiseByEntity(entityValue, reason) {
+async function denoiseByEntity(entityValue, reason, caseId) {
   if (!entityValue) return;
   await ensureTable();
+  const params = [String(entityValue).slice(0, 500), reason || 'Benign background traffic'];
+  let portee = '';
+  if (caseId === null) {
+    portee = ' AND case_id IS NULL';
+  } else if (caseId !== undefined) {
+    params.push(caseId);
+    portee = ' AND case_id = $3';
+  }
   await pool.query(
     `UPDATE triage_alerts
         SET severity    = 'info',
@@ -126,8 +135,8 @@ async function denoiseByEntity(entityValue, reason) {
             updated_at  = NOW()
       WHERE entity_value = $1
         AND status IN ('new', 'in_progress')
-        AND severity != 'info'`,
-    [String(entityValue).slice(0, 500), reason || 'Benign background traffic'],
+        AND severity != 'info'${portee}`,
+    params,
   ).catch(e => logger.warn('[triage] denoiseByEntity failed', { error: e.message }));
 }
 

@@ -6,6 +6,7 @@ const { pool } = require('../config/database');
 const { authenticate, requireRole, auditLog } = require('../middleware/auth');
 const logger = require('../config/logger').default;
 const triageSvc = require('../services/triageService');
+const { caseListFilter, canAccessCase, ELEVATED } = require('../middleware/caseAccess');
 
 const router = express.Router();
 
@@ -37,6 +38,8 @@ async function slaThresholds() {
 router.get('/', authenticate, async (req, res) => {
   try {
     const sla = await slaThresholds();
+    const accEch = caseListFilter(req.user, 'c', 2);
+    const acc = caseListFilter(req.user, 'c', 1);
     const [deadlines, quarantine, detections] = await Promise.all([
       pool.query(`
         SELECT c.id, c.case_number, c.title,
@@ -45,16 +48,16 @@ router.get('/', authenticate, async (req, res) => {
         WHERE c.report_deadline IS NOT NULL
           AND c.report_deadline >= NOW()
           AND c.report_deadline <= NOW() + ($1 || ' hours')::interval
-          AND c.status <> 'closed'
+          AND c.status <> 'closed'${accEch.sql}
         ORDER BY c.report_deadline ASC
-      `, [String(sla.upcomingH)]).catch(() => ({ rows: [] })),
+      `, [String(sla.upcomingH), ...accEch.params]).catch(() => ({ rows: [] })),
       pool.query(`
         SELECT e.id, e.name, c.id AS case_id, c.case_number, c.title
         FROM evidence e JOIN cases c ON c.id = e.case_id
-        WHERE e.scan_status = 'quarantined'
+        WHERE e.scan_status = 'quarantined'${acc.sql}
         ORDER BY e.created_at DESC NULLS LAST
         LIMIT 100
-      `).catch(() => ({ rows: [] })),
+      `, acc.params).catch(() => ({ rows: [] })),
       pool.query(`
         SELECT ct.case_id, c.case_number, c.title,
                COUNT(*) FILTER (WHERE lower(d->>'severity') = 'critical')::int AS crit,
@@ -62,10 +65,10 @@ router.get('/', authenticate, async (req, res) => {
         FROM collection_timeline ct
         JOIN cases c ON c.id = ct.case_id
         CROSS JOIN LATERAL jsonb_array_elements(ct.detections) AS d
-        WHERE ct.detections IS NOT NULL AND jsonb_typeof(ct.detections) = 'array'
+        WHERE ct.detections IS NOT NULL AND jsonb_typeof(ct.detections) = 'array'${acc.sql}
         GROUP BY ct.case_id, c.case_number, c.title
         HAVING COUNT(*) FILTER (WHERE lower(d->>'severity') IN ('critical','high')) > 0
-      `).catch(() => ({ rows: [] })),
+      `, acc.params).catch(() => ({ rows: [] })),
     ]);
 
     const items = [];
@@ -99,12 +102,16 @@ router.get('/', authenticate, async (req, res) => {
 // Stats for the inbox tabs / nav badge.
 router.get('/alerts/stats', authenticate, async (req, res) => {
   try {
+    const acc = caseListFilter(req.user, 'c', 1);
     const { rows } = await pool.query(`
-      SELECT status,
+      SELECT a.status,
              COUNT(*)::int                                                    AS n,
-             COUNT(*) FILTER (WHERE severity = 'critical')::int               AS critical,
-             COUNT(*) FILTER (WHERE severity = 'high')::int                   AS high
-        FROM triage_alerts GROUP BY status`);
+             COUNT(*) FILTER (WHERE a.severity = 'critical')::int             AS critical,
+             COUNT(*) FILTER (WHERE a.severity = 'high')::int                 AS high
+        FROM triage_alerts a
+        LEFT JOIN cases c ON c.id = a.case_id
+       WHERE TRUE${acc.sql}
+       GROUP BY a.status`, acc.params);
     const byStatus = { new: 0, in_progress: 0, resolved: 0, dismissed: 0 };
     let openCritical = 0, openHigh = 0;
     for (const r of rows) {
@@ -132,9 +139,11 @@ router.get('/alerts', authenticate, async (req, res) => {
     if (source)   { where.push(`a.source = $${i++}`);   params.push(source); }
     if (case_id)  { where.push(`a.case_id = $${i++}`);  params.push(case_id); }
     if (q)        { where.push(`(a.title ILIKE $${i} OR a.entity_value ILIKE $${i})`); params.push(`%${q}%`); i++; }
-    const clause = where.length ? `WHERE ${where.join(' AND ')}` : '';
+    const acc = caseListFilter(req.user, 'c', i);
+    const clause = `WHERE TRUE${where.map((w) => ` AND ${w}`).join('')}${acc.sql}`;
+    params.push(...acc.params);
 
-    const totalR = await pool.query(`SELECT COUNT(*)::int AS n FROM triage_alerts a ${clause}`, params);
+    const totalR = await pool.query(`SELECT COUNT(*)::int AS n FROM triage_alerts a LEFT JOIN cases c ON c.id = a.case_id ${clause}`, params);
     const rowsR  = await pool.query(
       `SELECT a.*, c.case_number, u.full_name AS assignee_name
          FROM triage_alerts a
@@ -153,13 +162,42 @@ router.get('/alerts', authenticate, async (req, res) => {
   }
 });
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+async function resoudreAlerteAutorisee(req, res) {
+  const id = req.params.id;
+  if (typeof id !== 'string' || !UUID_RE.test(id)) {
+    res.status(404).json({ error: 'Alerte non trouvée' });
+    return null;
+  }
+  const r = await pool.query('SELECT id, case_id FROM triage_alerts WHERE id = $1', [id]);
+  const caseId = r.rows[0] ? r.rows[0].case_id : null;
+  const autorise = r.rows[0]
+    ? (caseId ? await canAccessCase(req.user, String(caseId)) : ELEVATED.has(req.user.role))
+    : false;
+  if (!autorise) {
+    res.status(404).json({ error: 'Alerte non trouvée' });
+    return null;
+  }
+  return { caseId: caseId ? String(caseId) : null };
+}
+
 // Create an alert (manual, or programmatic from services).
 router.post('/alerts', authenticate, requireRole('analyst', 'admin'), async (req, res) => {
   try {
-    const alert = await triageSvc.createAlert({ ...req.body, created_by: req.user.id });
+    const demande = req.body && req.body.case_id ? req.body.case_id : null;
+    if (demande) {
+      if (typeof demande !== 'string' || !UUID_RE.test(demande) || !(await canAccessCase(req.user, demande))) {
+        return res.status(404).json({ error: 'Ressource introuvable' });
+      }
+    } else if (!ELEVATED.has(req.user.role)) {
+      return res.status(403).json({ error: 'Action réservée aux rôles élevés' });
+    }
+    const alert = await triageSvc.createAlert({ ...req.body, case_id: demande, created_by: req.user.id });
     await auditLog(req.user.id, 'create_triage_alert', 'triage_alert', alert.id, { source: alert.source, severity: alert.severity }, req.ip);
     res.status(201).json(alert);
   } catch (err) {
+    if (err && err.code === '23505') return res.status(409).json({ error: 'Alerte déjà ouverte' });
     logger.error('triage create error:', err.message);
     res.status(500).json({ error: 'Erreur serveur' });
   }
@@ -171,6 +209,8 @@ router.patch('/alerts/:id', authenticate, requireRole('analyst', 'admin'), async
     const { status, assignee, severity } = req.body;
     if (status && !triageSvc.STATUSES.includes(status))     return res.status(400).json({ error: 'Statut invalide' });
     if (severity && !triageSvc.SEVERITIES.includes(severity)) return res.status(400).json({ error: 'Sévérité invalide' });
+    const cible = await resoudreAlerteAutorisee(req, res);
+    if (!cible) return;
     const sets = [], params = []; let i = 1;
     if (status   !== undefined) { sets.push(`status = $${i++}`);   params.push(status); }
     if (severity !== undefined) { sets.push(`severity = $${i++}`); params.push(severity); }
@@ -178,7 +218,9 @@ router.patch('/alerts/:id', authenticate, requireRole('analyst', 'admin'), async
     if (!sets.length) return res.status(400).json({ error: 'Rien à mettre à jour' });
     sets.push('updated_at = NOW()');
     params.push(req.params.id);
-    const r = await pool.query(`UPDATE triage_alerts SET ${sets.join(', ')} WHERE id = $${i} RETURNING *`, params);
+    let portee = ' AND case_id IS NULL';
+    if (cible.caseId) { params.push(cible.caseId); portee = ` AND case_id = $${i + 1}`; }
+    const r = await pool.query(`UPDATE triage_alerts SET ${sets.join(', ')} WHERE id = $${i}${portee} RETURNING *`, params);
     if (!r.rowCount) return res.status(404).json({ error: 'Alerte non trouvée' });
     res.json(r.rows[0]);
   } catch (err) {
@@ -190,10 +232,13 @@ router.patch('/alerts/:id', authenticate, requireRole('analyst', 'admin'), async
 // Dismiss as false positive (feeds the future FP-tuning loop).
 router.post('/alerts/:id/dismiss', authenticate, requireRole('analyst', 'admin'), async (req, res) => {
   try {
+    const cible = await resoudreAlerteAutorisee(req, res);
+    if (!cible) return;
     const r = await pool.query(
       `UPDATE triage_alerts SET status = 'dismissed', dismiss_reason = $1, updated_at = NOW()
-       WHERE id = $2 RETURNING id, source, severity, entity_type, entity_value, dedup_key`,
-      [req.body.reason || null, req.params.id],
+       WHERE id = $2 AND ${cible.caseId ? 'case_id = $3' : 'case_id IS NULL'}
+       RETURNING id, source, severity, entity_type, entity_value, dedup_key`,
+      cible.caseId ? [req.body.reason || null, req.params.id, cible.caseId] : [req.body.reason || null, req.params.id],
     );
     if (!r.rowCount) return res.status(404).json({ error: 'Alerte non trouvée' });
     await auditLog(req.user.id, 'dismiss_triage_alert', 'triage_alert', req.params.id, { reason: req.body.reason || null, ...r.rows[0] }, req.ip);
