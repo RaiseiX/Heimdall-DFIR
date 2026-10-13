@@ -90,10 +90,13 @@ router.post('/cases/:caseId/start', authenticate, async (req, res) => {
   }
 });
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 router.put('/cases/:caseId/:instanceId/steps/:stepId', authenticate, async (req, res) => {
   try {
     const { completed, note } = req.body;
     const { instanceId, stepId, caseId } = req.params;
+    if (!UUID_RE.test(instanceId) || !UUID_RE.test(stepId)) return res.status(404).json({ error: 'Ressource introuvable' });
 
     const stepCheck = await pool.query(
       `SELECT s.note_required

@@ -136,18 +136,42 @@ router.patch('/reorder', authenticate, async (req, res) => {
     }
     if (new Set(ids.map((i) => i.toLowerCase())).size !== ids.length) return res.status(400).json({ error: 'updates invalide' });
 
-    const trouvees = await pool.query('SELECT id, case_id FROM timeline_color_rules WHERE id = ANY($1::uuid[])', [ids]);
-    if (trouvees.rows.length !== ids.length) return res.status(404).json(REGLE_INTROUVABLE);
-    for (const row of trouvees.rows) {
-      if (!(await peutEcrireRegle(req.user, row.case_id ?? null))) return res.status(404).json(REGLE_INTROUVABLE);
-    }
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const trouvees = await client.query('SELECT id, case_id FROM timeline_color_rules WHERE id = ANY($1::uuid[])', [ids]);
+      if (trouvees.rows.length !== ids.length) {
+        await client.query('ROLLBACK');
+        return res.status(404).json(REGLE_INTROUVABLE);
+      }
+      const dossierParId = new Map();
+      for (const row of trouvees.rows) {
+        const dossier = row.case_id ?? null;
+        if (!(await peutEcrireRegle(req.user, dossier))) {
+          await client.query('ROLLBACK');
+          return res.status(404).json(REGLE_INTROUVABLE);
+        }
+        dossierParId.set(String(row.id).toLowerCase(), dossier);
+      }
+      const dossiers = ids.map((i) => dossierParId.get(i.toLowerCase()) ?? null);
 
-    await pool.query(
-      `UPDATE timeline_color_rules t SET priority = v.priority, updated_at = NOW()
-         FROM (SELECT unnest($1::uuid[]) AS id, unnest($2::int[]) AS priority) v
-        WHERE t.id = v.id`,
-      [ids, priorities]
-    );
+      const maj = await client.query(
+        `UPDATE timeline_color_rules t SET priority = v.priority, updated_at = NOW()
+           FROM (SELECT unnest($1::uuid[]) AS id, unnest($2::int[]) AS priority, unnest($3::uuid[]) AS case_id) v
+          WHERE t.id = v.id AND t.case_id IS NOT DISTINCT FROM v.case_id`,
+        [ids, priorities, dossiers]
+      );
+      if (maj.rowCount < ids.length) {
+        await client.query('ROLLBACK');
+        return res.status(404).json(REGLE_INTROUVABLE);
+      }
+      await client.query('COMMIT');
+    } catch (err) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw err;
+    } finally {
+      client.release();
+    }
     res.json({ updated: updates.length });
   } catch (err) {
     logger.error('[timeline-rules] PATCH reorder error:', err.message);

@@ -82,7 +82,7 @@ const { resumeArtefactsSql, resumeArtefacts } = require('../services/artifactSum
 
 const router = express.Router();
 
-const { caseAccessParam } = require('../middleware/caseAccess');
+const { caseAccessParam, objetDansDossier } = require('../middleware/caseAccess');
 router.use(authenticate);
 router.param('caseId', caseAccessParam);
 
@@ -2349,10 +2349,31 @@ router.get('/:caseId/timeline/locate', authenticate, async (req, res) => {
   }
 });
 
+const PIT_MAX_SESSIONS = 500;
+const PIT_MAX_KEEP_ALIVE_MS = 60 * 60 * 1000;
+const PIT_UNIT_MS = { s: 1000, m: 60 * 1000, h: 60 * 60 * 1000 };
+const pitSessions = new Map();
+
+function pitKeepAliveMs(valeur) {
+  if (typeof valeur !== 'string') return null;
+  const m = /^([1-9]\d{0,3})([smh])$/.exec(valeur);
+  if (!m) return null;
+  const ms = Number(m[1]) * PIT_UNIT_MS[m[2]];
+  return ms <= PIT_MAX_KEEP_ALIVE_MS ? ms : null;
+}
+
+function purgerPitExpires(maintenant) {
+  for (const [id, session] of pitSessions) {
+    if (session.expireA <= maintenant) pitSessions.delete(id);
+  }
+}
+
 router.post('/:caseId/timeline/session', authenticate, async (req, res) => {
   try {
     const { caseId } = req.params;
-    const keepAlive = req.body?.keep_alive || '5m';
+    const keepAlive = req.body?.keep_alive === undefined || req.body?.keep_alive === null ? '5m' : req.body.keep_alive;
+    const dureeMs = pitKeepAliveMs(keepAlive);
+    if (dureeMs === null) return res.status(400).json({ error: 'keep_alive invalide' });
 
     const caseCheck = await pool.query('SELECT id FROM cases WHERE id = $1', [caseId]);
     if (caseCheck.rows.length === 0) return res.status(404).json({ error: 'Cas introuvable' });
@@ -2362,10 +2383,16 @@ router.post('/:caseId/timeline/session', authenticate, async (req, res) => {
       return res.status(404).json({ error: 'Aucun index ES pour ce cas — utilisez la pagination classique' });
     }
 
-    const pitId = await esService.openPIT(caseId, keepAlive);
-    const expiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString();
+    purgerPitExpires(Date.now());
+    if (pitSessions.size >= PIT_MAX_SESSIONS) {
+      return res.status(429).json({ error: 'Trop de sessions PIT ouvertes' });
+    }
 
-    res.json({ pit_id: pitId, expires_at: expiresAt, keep_alive: keepAlive });
+    const pitId = await esService.openPIT(caseId, keepAlive);
+    const expireA = Date.now() + dureeMs;
+    pitSessions.set(pitId, { caseId: String(caseId).toLowerCase(), userId: req.user.id, expireA });
+
+    res.json({ pit_id: pitId, expires_at: new Date(expireA).toISOString(), keep_alive: keepAlive });
   } catch (err) {
     logger.error('PIT session open error:', err);
     res.status(500).json({ error: 'Erreur ouverture session PIT' });
@@ -2376,6 +2403,12 @@ router.delete('/:caseId/timeline/session', authenticate, async (req, res) => {
   try {
     const pitId = req.body?.pit_id || req.query?.pit_id;
     if (!pitId) return res.status(400).json({ error: 'pit_id requis' });
+    purgerPitExpires(Date.now());
+    const session = typeof pitId === 'string' ? pitSessions.get(pitId) : undefined;
+    if (!session || session.caseId !== String(req.params.caseId).toLowerCase() || session.userId !== req.user.id) {
+      return res.status(404).json({ error: 'Ressource introuvable' });
+    }
+    pitSessions.delete(pitId);
     await esService.closePIT(pitId);
     res.json({ closed: true });
   } catch (err) {
@@ -4218,6 +4251,10 @@ router.post('/:caseId/pcap', authenticate, (req, res) => {
     };
 
     try {
+      if (pcapEvidenceId !== null && !(await objetDansDossier('evidence', pcapEvidenceId, caseId))) {
+        fs.unlink(pcapPath, () => {});
+        return res.status(404).json({ error: 'Ressource introuvable' });
+      }
       const fieldArgs = (fields) => ['-T', 'fields', '-E', 'separator=|', '-E', 'header=y', ...fields.flatMap(f => ['-e', f])];
 
       const dnsFields = ['frame.time_epoch', 'ip.src', 'ip.dst', 'dns.qry.name', 'dns.a', 'dns.qry.type'];

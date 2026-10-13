@@ -2,9 +2,16 @@
 const express = require('express');
 const { pool } = require('../config/database');
 const { authenticate } = require('../middleware/auth');
+const { canAccessCase } = require('../middleware/caseAccess');
 
 const logger = require('../config/logger').default;
 const router = express.Router();
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+async function dossierAccessible(user, caseId) {
+  return typeof caseId === 'string' && UUID_RE.test(caseId) && canAccessCase(user, caseId);
+}
 
 const { subtypesOf } = require('../services/artifactSubtype');
 
@@ -41,8 +48,12 @@ router.get('/', authenticate, async (req, res) => {
     }
 
     if (case_id) {
-      query += ` AND (case_id = $${pi++} OR case_id IS NULL)`;
-      params.push(case_id);
+      if (await dossierAccessible(req.user, case_id)) {
+        query += ` AND (case_id = $${pi++} OR case_id IS NULL)`;
+        params.push(case_id);
+      } else {
+        query += ' AND case_id IS NULL';
+      }
     }
 
     query += ' ORDER BY artifact_type ASC, scope ASC';
@@ -70,6 +81,10 @@ router.put('/:artifact_type', authenticate, async (req, res) => {
 
     if (scope === 'case' && !case_id) {
       return res.status(400).json({ error: 'case_id required for scope="case"' });
+    }
+
+    if (scope === 'case' && !(await dossierAccessible(req.user, case_id))) {
+      return res.status(404).json({ error: 'Ressource introuvable' });
     }
 
     const finalCaseId = scope === 'global' ? null : case_id;
@@ -105,6 +120,10 @@ router.delete('/:artifact_type', authenticate, async (req, res) => {
 
     if (scope === 'case' && !case_id) {
       return res.status(400).json({ error: 'case_id required for scope="case"' });
+    }
+
+    if (scope === 'case' && !(await dossierAccessible(req.user, case_id))) {
+      return res.status(404).json({ error: 'Préférence non trouvée' });
     }
 
     const finalCaseId = scope === 'global' ? null : case_id;
