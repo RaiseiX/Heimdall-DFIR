@@ -1,6 +1,6 @@
 
 import { Router, Request, Response } from 'express';
-const { authenticate } = require('../middleware/auth');
+const { authenticate, requireRole } = require('../middleware/auth');
 import * as llmService from '../services/llmService';
 import * as aiRouter   from '../services/aiRouter';
 import type { AuthRequest } from '../types/index';
@@ -42,7 +42,7 @@ router.post('/analyze', authenticate, async (req: Request, res: Response) => {
   }
 });
 
-router.post('/pull', authenticate, async (req: Request, res: Response) => {
+router.post('/pull', authenticate, requireRole('admin'), async (req: Request, res: Response) => {
   const { model } = req.body;
   if (!model) return res.status(400).json({ error: 'model required' });
   if (!llmService.isAvailable()) {
@@ -55,7 +55,7 @@ router.post('/pull', authenticate, async (req: Request, res: Response) => {
   }
 });
 
-router.delete('/models/:model', authenticate, async (req: Request, res: Response) => {
+router.delete('/models/:model', authenticate, requireRole('admin'), async (req: Request, res: Response) => {
   const model = decodeURIComponent(req.params.model);
   if (!llmService.isAvailable()) {
     return res.status(503).json({ error: 'OLLAMA_URL not configured' });

@@ -585,11 +585,11 @@ router.delete('/:id', authenticate, async (req, res) => {
         operationType: 'delete_evidence', targetId: req.params.id, requestedBy: req.user.id,
       });
       if (completed) return res.json({ success: true, operation_id: completed.id });
-      return res.status(404).json({ error: 'Preuve introuvable' });
+      return res.status(404).json({ error: 'Ressource introuvable' });
     }
     const caseId = parent.rows[0].case_id;
     if (!await canAccessCase(req.user, caseId)) {
-      return res.status(403).json({ error: 'Accès refusé : ce cas ne vous est pas attribué.' });
+      return res.status(404).json({ error: 'Ressource introuvable' });
     }
     const identite = await withCaseDeletion(pool, caseId, async client => {
       const row = await client.query(
@@ -680,7 +680,7 @@ router.delete('/:id', authenticate, async (req, res) => {
     }
     if (err.code === 'DELETION_INCOMPLETE') return res.status(502).json({ error: 'Suppression incomplète. Réessayez ultérieurement.', code: err.code, operation_id: operationId, ...(err.cible ? { cible: err.cible } : {}) });
     if (err.code === 'LEGAL_HOLD') return res.status(409).json({ error: 'Suppression interdite : legal hold actif.', code: err.code });
-    if (err.status === 404) return res.status(404).json({ error: 'Preuve ou dossier introuvable' });
+    if (err.status === 404) return res.status(404).json({ error: 'Ressource introuvable' });
     if (operationId) return res.status(502).json({ error: 'Suppression incomplète. Réessayez ultérieurement.', code: 'DELETION_INCOMPLETE', operation_id: operationId });
     logger.error('Delete evidence error:', err);
     res.status(500).json({ error: 'Erreur serveur' });

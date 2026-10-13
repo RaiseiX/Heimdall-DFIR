@@ -421,11 +421,11 @@ router.delete('/results/:resultId', async (req: AuthRequest, res: Response, next
           operation_id: completed.id,
         });
       }
-      return res.status(404).json({ error: 'Résultat introuvable' });
+      return res.status(404).json({ error: 'Ressource introuvable' });
     }
     const caseId = parent.rows[0].case_id;
     if (!await canAccessCase(req.user, caseId)) {
-      return res.status(403).json({ error: 'Accès refusé' });
+      return res.status(404).json({ error: 'Ressource introuvable' });
     }
 
     const row = await withCaseDeletion(pool, caseId, async (client: Pick<Pool, 'query'>) => {
@@ -515,7 +515,7 @@ router.delete('/results/:resultId', async (req: AuthRequest, res: Response, next
     if ((err as any)?.code === 'LEGAL_HOLD') {
       return res.status(409).json({ error: 'Suppression interdite : legal hold actif.', code: 'LEGAL_HOLD' });
     }
-    if ((err as any)?.status === 404) return res.status(404).json({ error: 'Résultat introuvable' });
+    if ((err as any)?.status === 404) return res.status(404).json({ error: 'Ressource introuvable' });
     if ((err as any)?.code === 'DELETION_INCOMPLETE') {
       (err as any).operationId = operationId;
     }
