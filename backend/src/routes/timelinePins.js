@@ -2,7 +2,7 @@
 const { Router } = require('express');
 const logger = require('../config/logger').default;
 const { authenticate } = require('../middleware/auth');
-const { caseAccessParam } = require('../middleware/caseAccess');
+const { caseAccessParam, objetDansDossier } = require('../middleware/caseAccess');
 
 const router = Router();
 router.use(authenticate);
@@ -37,9 +37,13 @@ router.get('/:caseId', authenticate, async (req, res) => {
 router.post('/:caseId', authenticate, async (req, res) => {
   const { pool, io } = req.app.locals;
   const { caseId } = req.params;
-  const { event_ts, artifact_type, description, source, raw_data, note, evidence_id } = req.body;
+  const { event_ts, artifact_type, description, source, raw_data, note } = req.body;
+  const evidence_id = req.body.evidence_id || null;
 
   try {
+    if (evidence_id !== null && !(await objetDansDossier('evidence', evidence_id, caseId, pool))) {
+      return res.status(404).json({ error: 'Ressource introuvable' });
+    }
     const { rows } = await pool.query(
       `INSERT INTO timeline_pins
          (case_id, author_id, evidence_id, event_ts, artifact_type, description, source, raw_data, note)

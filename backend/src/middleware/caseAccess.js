@@ -4,10 +4,12 @@
 // route carrying the case-id param without annotating each one.
 const { pool } = require('../config/database');
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 const ELEVATED = new Set(['admin', 'team_lead']);
 
 async function canAccessCase(user, caseId, queryable = pool) {
-  if (!user || !caseId) return false;
+  if (!user || typeof caseId !== 'string' || !UUID_RE.test(caseId)) return false;
   if (ELEVATED.has(user.role)) return true;
   const r = await queryable.query(
     `SELECT 1 FROM cases c
@@ -49,8 +51,6 @@ const TABLES_OBJET = Object.freeze({
   chat_message: 'case_messages',
   report: 'reports',
 });
-
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const SOURCES_OBJET = Object.freeze(['params', 'query', 'body']);
 

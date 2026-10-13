@@ -125,6 +125,14 @@ router.get('/alerts/stats', authenticate, async (req, res) => {
   }
 });
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const DEDUP_MAX = 255;
+
+function cleDedupPortee(cle, caseId) {
+  const prefixe = caseId ? `case:${caseId.toLowerCase()}:` : 'global:';
+  return `${prefixe}${cle.slice(0, DEDUP_MAX - prefixe.length)}`;
+}
+
 // List alerts with filters + pagination.
 router.get('/alerts', authenticate, async (req, res) => {
   try {
@@ -137,7 +145,11 @@ router.get('/alerts', authenticate, async (req, res) => {
     if (status)   { where.push(`a.status = $${i++}`);   params.push(status); }
     if (severity) { where.push(`a.severity = $${i++}`); params.push(severity); }
     if (source)   { where.push(`a.source = $${i++}`);   params.push(source); }
-    if (case_id)  { where.push(`a.case_id = $${i++}`);  params.push(case_id); }
+    if (case_id !== undefined) {
+      if (typeof case_id !== 'string' || !UUID_RE.test(case_id)) return res.status(400).json({ error: 'case_id invalide' });
+      where.push(`a.case_id = $${i++}`);
+      params.push(case_id);
+    }
     if (q)        { where.push(`(a.title ILIKE $${i} OR a.entity_value ILIKE $${i})`); params.push(`%${q}%`); i++; }
     const acc = caseListFilter(req.user, 'c', i);
     const clause = `WHERE TRUE${where.map((w) => ` AND ${w}`).join('')}${acc.sql}`;
@@ -161,8 +173,6 @@ router.get('/alerts', authenticate, async (req, res) => {
     res.status(500).json({ error: 'Erreur serveur' });
   }
 });
-
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 async function resoudreAlerteAutorisee(req, res) {
   const id = req.params.id;
@@ -193,7 +203,13 @@ router.post('/alerts', authenticate, requireRole('analyst', 'admin'), async (req
     } else if (!ELEVATED.has(req.user.role)) {
       return res.status(403).json({ error: 'Action réservée aux rôles élevés' });
     }
-    const alert = await triageSvc.createAlert({ ...req.body, case_id: demande, created_by: req.user.id });
+    const cleFournie = req.body ? req.body.dedup_key : undefined;
+    let dedup_key = null;
+    if (cleFournie !== undefined && cleFournie !== null && cleFournie !== '') {
+      if (typeof cleFournie !== 'string') return res.status(400).json({ error: 'dedup_key invalide' });
+      dedup_key = cleDedupPortee(cleFournie, demande);
+    }
+    const alert = await triageSvc.createAlert({ ...req.body, dedup_key, case_id: demande, created_by: req.user.id });
     await auditLog(req.user.id, 'create_triage_alert', 'triage_alert', alert.id, { source: alert.source, severity: alert.severity }, req.ip);
     res.status(201).json(alert);
   } catch (err) {
@@ -207,8 +223,8 @@ router.post('/alerts', authenticate, requireRole('analyst', 'admin'), async (req
 router.patch('/alerts/:id', authenticate, requireRole('analyst', 'admin'), async (req, res) => {
   try {
     const { status, assignee, severity } = req.body;
-    if (status && !triageSvc.STATUSES.includes(status))     return res.status(400).json({ error: 'Statut invalide' });
-    if (severity && !triageSvc.SEVERITIES.includes(severity)) return res.status(400).json({ error: 'Sévérité invalide' });
+    if (status !== undefined && !triageSvc.STATUSES.includes(status))     return res.status(400).json({ error: 'Statut invalide' });
+    if (severity !== undefined && !triageSvc.SEVERITIES.includes(severity)) return res.status(400).json({ error: 'Sévérité invalide' });
     const cible = await resoudreAlerteAutorisee(req, res);
     if (!cible) return;
     const sets = [], params = []; let i = 1;
@@ -251,6 +267,7 @@ router.post('/alerts/:id/dismiss', authenticate, requireRole('analyst', 'admin')
 
 router.delete('/alerts/:id', authenticate, requireRole('admin'), async (req, res) => {
   try {
+    if (!UUID_RE.test(req.params.id)) return res.status(404).json({ error: 'Alerte non trouvée' });
     const r = await pool.query(`DELETE FROM triage_alerts WHERE id = $1 RETURNING source, severity`, [req.params.id]);
     if (!r.rowCount) return res.status(404).json({ error: 'Alerte non trouvée' });
     await auditLog(req.user.id, 'delete_triage_alert', 'triage_alert', req.params.id, r.rows[0], req.ip);

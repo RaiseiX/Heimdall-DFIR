@@ -1,7 +1,7 @@
 const express = require('express');
 const { pool } = require('../config/database');
 const { authenticate } = require('../middleware/auth');
-const { caseAccessParam } = require('../middleware/caseAccess');
+const { caseAccessParam, objetDansDossier } = require('../middleware/caseAccess');
 
 const logger = require('../config/logger').default;
 const router = express.Router();
@@ -46,7 +46,11 @@ router.get('/:caseId', authenticate, async (req, res) => {
 
 router.post('/:caseId', authenticate, async (req, res) => {
   try {
-    const { event_time, event_type, title, description, source, evidence_id } = req.body;
+    const { event_time, event_type, title, description, source } = req.body;
+    const evidence_id = req.body.evidence_id || null;
+    if (evidence_id !== null && !(await objetDansDossier('evidence', evidence_id, req.params.caseId))) {
+      return res.status(404).json({ error: 'Ressource introuvable' });
+    }
     const result = await pool.query(
       `INSERT INTO timeline_events (case_id, event_time, event_type, title, description, source, evidence_id, created_by)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,

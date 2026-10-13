@@ -18,7 +18,7 @@ const {
 } = require('../services/volwebService');
 
 const IORedis = require('ioredis');
-const { caseAccessParam } = require('../middleware/caseAccess');
+const { caseAccessParam, canAccessCase } = require('../middleware/caseAccess');
 
 const router = express.Router();
 // /sso/:token is the VolWeb magic-link handoff (token-in-URL, no Bearer JWT — see nginx/volweb.conf); it must stay public.
@@ -27,6 +27,8 @@ router.use((req, res, next) => {
   return authenticate(req, res, next);
 });
 router.param('caseId', caseAccessParam);
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const MEMORY_CHUNK_SIZE = 50 * 1024 * 1024;
 
@@ -45,16 +47,15 @@ function getRedis() {
 }
 
 router.get('/magic-link', authenticate, async (req: any, res) => {
-  const { caseId } = req.query as { caseId?: string };
-  if (!caseId) return res.status(400).json({ error: 'caseId requis' });
+  const caseId: unknown = req.query.caseId;
+  if (caseId === undefined || caseId === null || caseId === '') return res.status(400).json({ error: 'caseId requis' });
+  if (typeof caseId !== 'string' || !UUID_RE.test(caseId)) return res.status(403).json({ error: 'Accès refusé à ce cas' });
 
   try {
+    if (!(await canAccessCase(req.user, caseId))) return res.status(403).json({ error: 'Accès refusé à ce cas' });
     const caseRes = await pool.query(
-      `SELECT id, case_number, title, volweb_case_id
-       FROM cases
-       WHERE id = $1
-         AND (investigator_id = $2 OR created_by = $2 OR $3 = 'admin')`,
-      [caseId, req.user.id, req.user.role]
+      `SELECT id, case_number, title, volweb_case_id FROM cases WHERE id = $1`,
+      [caseId]
     );
     if (!caseRes.rows.length) return res.status(403).json({ error: 'Accès refusé à ce cas' });
 
@@ -72,7 +73,7 @@ router.get('/magic-link', authenticate, async (req: any, res) => {
     res.json({ url, expiresIn: MAGIC_TOKEN_TTL });
   } catch (err: any) {
     logger.error('[VolWeb] magic-link error:', err.message);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Erreur lors de la génération du lien VolWeb' });
   }
 });
 
@@ -165,7 +166,7 @@ router.get('/status/:caseId', authenticate, async (req: any, res) => {
       evidence:     evidenceRes.rows,
     });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Erreur lors de la lecture du statut VolWeb' });
   }
 });
 
@@ -186,11 +187,8 @@ router.post('/memory/:caseId/initiate', authenticate, async (req: any, res) => {
     return res.status(400).json({ error: 'dump_os invalide (windows|linux|mac)' });
 
   try {
-    const caseRes = await pool.query(
-      `SELECT id FROM cases WHERE id = $1
-         AND (investigator_id = $2 OR created_by = $2 OR $3 = 'admin')`,
-      [caseId, req.user.id, req.user.role]
-    );
+    if (!(await canAccessCase(req.user, caseId))) return res.status(403).json({ error: 'Accès refusé' });
+    const caseRes = await pool.query(`SELECT id FROM cases WHERE id = $1`, [caseId]);
     if (!caseRes.rows.length) return res.status(403).json({ error: 'Accès refusé' });
 
     const uploadId = crypto.randomUUID();
@@ -215,7 +213,7 @@ router.post('/memory/:caseId/initiate', authenticate, async (req: any, res) => {
     });
   } catch (err: any) {
     logger.error('[MemUpload] initiate error:', err.message);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: "Erreur lors de l'initialisation de l'envoi" });
   }
 });
 
@@ -303,7 +301,7 @@ router.post('/memory/:caseId/chunk', authenticate, async (req: any, res) => {
     });
   } catch (err: any) {
     logger.error('[MemUpload] chunk error:', err.message);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Erreur lors de la réception du fragment' });
   }
 });
 
@@ -457,7 +455,7 @@ router.post('/memory/:caseId/complete', authenticate, async (req: any, res) => {
       "UPDATE memory_uploads SET status = 'error', error_message = $1, updated_at = NOW() WHERE id = $2",
       [err.message, upload_id]
     ).catch(() => {});
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: "Erreur lors de la finalisation de l'envoi" });
   }
 });
 
@@ -483,7 +481,7 @@ router.get('/memory/:caseId/status/:uploadId', authenticate, async (req: any, re
       filename:            u.filename,
     });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: "Erreur lors de la lecture du statut de l'envoi" });
   }
 });
 
@@ -561,7 +559,7 @@ router.get('/evidence-progress/:caseId/:evidenceId', authenticate, async (req: a
     });
   } catch (err: any) {
     logger.error('[VolWeb] evidence-progress error:', err.message);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Erreur lors de la lecture de la progression' });
   }
 });
 
@@ -569,11 +567,8 @@ router.post('/memory/:caseId/retry/:evidenceId', authenticate, async (req: any, 
   const { caseId, evidenceId } = req.params;
 
   try {
-    const caseRes = await pool.query(
-      `SELECT id, case_number, title FROM cases
-       WHERE id = $1 AND (investigator_id = $2 OR created_by = $2 OR $3 = 'admin')`,
-      [caseId, req.user.id, req.user.role]
-    );
+    if (!(await canAccessCase(req.user, caseId))) return res.status(403).json({ error: 'Accès refusé' });
+    const caseRes = await pool.query(`SELECT id, case_number, title FROM cases WHERE id = $1`, [caseId]);
     if (!caseRes.rows.length) return res.status(403).json({ error: 'Accès refusé' });
     const { case_number, title } = caseRes.rows[0];
 
@@ -633,7 +628,7 @@ router.post('/memory/:caseId/retry/:evidenceId', authenticate, async (req: any, 
 
   } catch (err: any) {
     logger.error('[VolWeb] retry error:', err.message);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Erreur lors de la relance du pipeline VolWeb' });
   }
 });
 

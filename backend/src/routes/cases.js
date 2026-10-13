@@ -96,8 +96,11 @@ router.post('/:id/detections/exceptions', authenticate, async (req, res) => {
   } catch (err) { logger.error('[detections.exceptions POST]', err); res.status(500).json({ error: 'Erreur serveur' }); }
 });
 
+const EXCEPTION_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 router.delete('/:id/detections/exceptions/:exId', authenticate, async (req, res) => {
   try {
+    if (!EXCEPTION_UUID_RE.test(req.params.exId)) return res.status(404).json({ error: 'Ressource introuvable' });
     const elevated = ELEVATED.has(req.user.role);
     const r = await pool.query(
       `DELETE FROM detection_exceptions WHERE id = $1 AND (case_id = $2${elevated ? ' OR case_id IS NULL' : ''})`,

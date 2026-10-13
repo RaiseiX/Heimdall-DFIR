@@ -93,38 +93,16 @@ async function createAlert(a = {}) {
 }
 
 /**
- * Downgrade an open triage alert to 'info' when enrichment confirms noise.
- * If no open alert matches the dedup_key, this is a no-op.
- * @param {string} dedupKey  - dedup_key of the alert to downgrade
- * @param {string} reason    - human-readable noise reason from assessNoise()
- */
-async function denoiseAlert(dedupKey, reason) {
-  if (!dedupKey) return;
-  await ensureTable();
-  await pool.query(
-    `UPDATE triage_alerts
-        SET severity   = 'info',
-            description = COALESCE(description, '') || E'\n[Noise] ' || $2,
-            updated_at  = NOW()
-      WHERE dedup_key = $1
-        AND status IN ('new', 'in_progress')
-        AND severity != 'info'`,
-    [dedupKey, reason || 'Benign background traffic'],
-  ).catch(e => logger.warn('[triage] denoiseAlert failed', { error: e.message }));
-}
-
-/**
  * Downgrade any open alert whose entity_value matches, when no dedup_key is available.
  * Used by IOC enrichment to retroactively quiet noise-confirmed indicators.
  */
 async function denoiseByEntity(entityValue, reason, caseId) {
+  if (caseId === undefined) throw new Error('denoiseByEntity : dossier requis (null pour les alertes globales)');
   if (!entityValue) return;
   await ensureTable();
   const params = [String(entityValue).slice(0, 500), reason || 'Benign background traffic'];
-  let portee = '';
-  if (caseId === null) {
-    portee = ' AND case_id IS NULL';
-  } else if (caseId !== undefined) {
+  let portee = ' AND case_id IS NULL';
+  if (caseId !== null) {
     params.push(caseId);
     portee = ' AND case_id = $3';
   }
@@ -140,4 +118,4 @@ async function denoiseByEntity(entityValue, reason, caseId) {
   ).catch(e => logger.warn('[triage] denoiseByEntity failed', { error: e.message }));
 }
 
-module.exports = { ensureTable, createAlert, denoiseAlert, denoiseByEntity, SEVERITIES, STATUSES, SEV_RANK };
+module.exports = { ensureTable, createAlert, denoiseByEntity, SEVERITIES, STATUSES, SEV_RANK };
