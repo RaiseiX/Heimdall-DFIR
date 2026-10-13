@@ -86,22 +86,32 @@ async function objetDansDossier(type, id, caseId, queryable = pool) {
   return resolu !== null && resolu.toLowerCase() === caseId.toLowerCase();
 }
 
-function utilisateursAvecAcces(caseIdParam, alias = 'u') {
+function verifierFragment(caseIdParam, alias) {
   if (!/^\$\d+$/.test(String(caseIdParam)) || !/^[a-z_][a-z0-9_]*$/i.test(String(alias))) {
     throw new Error('Paramètre de filtre invalide');
   }
+}
+
+function membresDuDossier(caseIdParam, alias = 'u') {
+  verifierFragment(caseIdParam, alias);
+  return `EXISTS (SELECT 1 FROM cases cx
+                   WHERE cx.id = ${caseIdParam}
+                     AND ( cx.investigator_id = ${alias}.id
+                           OR cx.created_by = ${alias}.id
+                           OR EXISTS (SELECT 1 FROM case_assignees cax WHERE cax.case_id = cx.id AND cax.user_id = ${alias}.id) ))`;
+}
+
+function utilisateursAvecAcces(caseIdParam, alias = 'u') {
+  verifierFragment(caseIdParam, alias);
   const roles = Array.from(ELEVATED).map((r) => `'${r}'`).join(', ');
   return `( ${alias}.role::text IN (${roles})
-            OR EXISTS (SELECT 1 FROM cases cx
-                        WHERE cx.id = ${caseIdParam}
-                          AND ( cx.investigator_id = ${alias}.id
-                                OR cx.created_by = ${alias}.id
-                                OR EXISTS (SELECT 1 FROM case_assignees cax WHERE cax.case_id = cx.id AND cax.user_id = ${alias}.id) )) )`;
+            OR ${membresDuDossier(caseIdParam, alias)} )`;
 }
 
 module.exports = {
   canAccessCase,
   utilisateursAvecAcces,
+  membresDuDossier,
   caseAccessParam,
   caseListFilter,
   ELEVATED,

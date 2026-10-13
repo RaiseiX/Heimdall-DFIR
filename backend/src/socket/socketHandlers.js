@@ -1,5 +1,5 @@
 const jwt = require('jsonwebtoken');
-const { canAccessCase, objetDansDossier, utilisateursAvecAcces } = require('../middleware/caseAccess');
+const { canAccessCase, objetDansDossier, utilisateursAvecAcces, membresDuDossier } = require('../middleware/caseAccess');
 const reportDocs = require('../services/reportDocRegistry');
 const notebookDocs = require('../services/notebookDocs');
 const { brancherCarnet } = require('./notebookSocket');
@@ -207,7 +207,7 @@ function registerSocketHandlers(io, { pool, logger, JWT_SECRET }) {
           `INSERT INTO case_notifications (user_id, case_id, type, payload)
            SELECT u.id, $1, 'chat', $2 FROM users u
            WHERE u.id != $3 AND NOT (lower(u.username) = ANY($4::text[]))
-             AND ${utilisateursAvecAcces('$1')}`,
+             AND ${membresDuDossier('$1')}`,
           [caseId, JSON.stringify({ from: user.username, preview: text.slice(0, 80) }), user.id, mentions]
         ).catch(e => logger.warn('[chat:notify]', { error: e.message }));
       } catch (err) {

@@ -2,7 +2,7 @@
 const express = require('express');
 const { pool } = require('../config/database');
 const { authenticate } = require('../middleware/auth');
-const { caseAccessParam, caseListFilter, objetDansDossier, utilisateursAvecAcces } = require('../middleware/caseAccess');
+const { caseAccessParam, caseListFilter, objetDansDossier, utilisateursAvecAcces, membresDuDossier } = require('../middleware/caseAccess');
 
 const logger = require('../config/logger').default;
 const router = express.Router();
@@ -292,7 +292,7 @@ router.post('/:caseId/ping', authenticate, async (req, res) => {
       const ins = await pool.query(
         `INSERT INTO case_notifications (user_id, case_id, type, payload)
          SELECT u.id, $1, 'ping', $2 FROM users u
-         WHERE u.id <> $3 AND ${utilisateursAvecAcces('$1')}
+         WHERE u.id <> $3 AND ${membresDuDossier('$1')}
          RETURNING user_id`,
         [caseId, payload, req.user.id]
       );
