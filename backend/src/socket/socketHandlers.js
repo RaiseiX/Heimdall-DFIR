@@ -1,5 +1,5 @@
 const jwt = require('jsonwebtoken');
-const { canAccessCase, objetDansDossier } = require('../middleware/caseAccess');
+const { canAccessCase, objetDansDossier, utilisateursAvecAcces } = require('../middleware/caseAccess');
 const reportDocs = require('../services/reportDocRegistry');
 const notebookDocs = require('../services/notebookDocs');
 const { brancherCarnet } = require('./notebookSocket');
@@ -141,6 +141,10 @@ function registerSocketHandlers(io, { pool, logger, JWT_SECRET }) {
       const text = content.trim().slice(0, 4000);
       if (!text) return;
       try {
+        if (reply_to_id) {
+          const citeOk = await objetDansDossier('chat_message', reply_to_id, caseId, pool).catch(() => false);
+          if (!citeOk) { socket.emit('chat:error', { message: 'Ressource introuvable' }); return; }
+        }
         const result = await pool.query(
           `INSERT INTO case_messages (case_id, author_id, content, reply_to_id)
            VALUES ($1, $2, $3, $4)
@@ -154,8 +158,8 @@ function registerSocketHandlers(io, { pool, logger, JWT_SECRET }) {
           const rt = await pool.query(
             `SELECT m.id, m.content, u.username, u.full_name
              FROM case_messages m JOIN users u ON u.id = m.author_id
-             WHERE m.id = $1`,
-            [row.reply_to_id]
+             WHERE m.id = $1 AND m.case_id = $2`,
+            [row.reply_to_id, caseId]
           );
           if (rt.rows.length) replyTo = rt.rows[0];
         }
@@ -178,8 +182,9 @@ function registerSocketHandlers(io, { pool, logger, JWT_SECRET }) {
         const mentions = [...new Set((text.match(/@(\w+)/g) || []).map(m => m.slice(1).toLowerCase()))];
         if (mentions.length > 0) {
           const mentionedUsers = await pool.query(
-            `SELECT id, username FROM users WHERE lower(username) = ANY($1::text[]) AND id != $2`,
-            [mentions, user.id]
+            `SELECT u.id, u.username FROM users u
+             WHERE lower(u.username) = ANY($1::text[]) AND u.id != $2 AND ${utilisateursAvecAcces('$3')}`,
+            [mentions, user.id, caseId]
           ).catch(() => ({ rows: [] }));
           for (const mu of mentionedUsers.rows) {
             io.to(`user:${mu.id}`).emit('chat:mention', {
@@ -202,7 +207,7 @@ function registerSocketHandlers(io, { pool, logger, JWT_SECRET }) {
           `INSERT INTO case_notifications (user_id, case_id, type, payload)
            SELECT u.id, $1, 'chat', $2 FROM users u
            WHERE u.id != $3 AND NOT (lower(u.username) = ANY($4::text[]))
-             AND EXISTS (SELECT 1 FROM cases WHERE id = $1)`,
+             AND ${utilisateursAvecAcces('$1')}`,
           [caseId, JSON.stringify({ from: user.username, preview: text.slice(0, 80) }), user.id, mentions]
         ).catch(e => logger.warn('[chat:notify]', { error: e.message }));
       } catch (err) {
@@ -211,18 +216,54 @@ function registerSocketHandlers(io, { pool, logger, JWT_SECRET }) {
     });
 
     socket.on('chat:typing', async (data) => {
-      if (!(await guard(data?.caseId))) return;
-      socket.to(data.caseId).emit('chat:typing', data);
+      try {
+        const caseId = data?.caseId;
+        if (typeof caseId !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(caseId)) return;
+        if (!(await guard(caseId))) return;
+        socket.to(caseId).emit('chat:typing', { caseId, userId: user.id, username: user.username });
+      } catch (_) {}
     });
 
     socket.on('chat:react', async (data) => {
-      if (!(await guard(data?.caseId))) return;
-      socket.to(data.caseId).emit('chat:react', data);
+      try {
+        const caseId = data?.caseId;
+        const messageId = data?.messageId;
+        const emoji = data?.emoji;
+        if (typeof caseId !== 'string' || !(await guard(caseId))) return;
+        if (typeof emoji !== 'string' || emoji.length === 0 || emoji.length > 10) return;
+        if (!(await objetDansDossier('chat_message', messageId, caseId, pool))) return;
+        const existe = await pool.query(
+          'SELECT 1 FROM case_message_reactions WHERE message_id = $1 AND user_id = $2 AND emoji = $3',
+          [messageId, user.id, emoji]
+        );
+        socket.to(caseId).emit('chat:react', {
+          caseId,
+          messageId,
+          emoji,
+          userId: user.id,
+          added: existe.rows.length > 0,
+        });
+      } catch (_) {}
     });
 
     socket.on('chat:pin', async (data) => {
-      if (!(await guard(data?.caseId))) return;
-      socket.to(data.caseId).emit('chat:pin', data);
+      try {
+        const caseId = data?.caseId;
+        const messageId = data?.messageId;
+        if (typeof caseId !== 'string' || !(await guard(caseId))) return;
+        if (!(await objetDansDossier('chat_message', messageId, caseId, pool))) return;
+        const etat = await pool.query(
+          'SELECT pinned FROM case_messages WHERE id = $1 AND case_id = $2',
+          [messageId, caseId]
+        );
+        if (!etat.rows.length) return;
+        socket.to(caseId).emit('chat:pin', {
+          message_id: messageId,
+          pinned:     etat.rows[0].pinned === true,
+          pinned_by:  user.username,
+          case_id:    caseId,
+        });
+      } catch (_) {}
     });
 
     socket.on('parser:start', async (data) => {
