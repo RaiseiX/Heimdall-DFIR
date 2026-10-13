@@ -13,6 +13,7 @@ import CommandPalette from './ui/CommandPalette';
 import GlobalAiChat from './GlobalAiChat';
 import apiClient from '../utils/api';
 import { useTranslation } from 'react-i18next';
+import { doitAfficherToastPing } from './pingToast';
 
 export default function Layout({ user, onLogout, onTourStart, children }) {
   const [collapsed, setCollapsed] = useState(false);
@@ -52,6 +53,7 @@ export default function Layout({ user, onLogout, onTourStart, children }) {
   useEffect(() => {
     if (!socket) return;
     const handler = (data) => {
+      if (!doitAfficherToastPing(data.case_id)) return;
       const who = data.from_full_name || data.from_user || '?';
       const msg = data.target_user_id
         ? t('layout.ping_no_case', { who })
