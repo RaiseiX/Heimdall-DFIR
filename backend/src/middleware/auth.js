@@ -2,6 +2,7 @@ const jwt = require('jsonwebtoken');
 const logger = require('../config/logger').default;
 const crypto = require('crypto');
 const { pool } = require('../config/database');
+const { verifierSession, MESSAGE_SESSION_INVALIDE } = require('../services/sessionGuard');
 
 const JWT_SECRET = process.env.JWT_SECRET;
 if (!JWT_SECRET) throw new Error('JWT_SECRET environment variable is required');
@@ -13,21 +14,23 @@ async function authenticate(req, res, next) {
   }
 
   try {
-    const token   = authHeader.split(' ')[1];
-    const decoded = jwt.verify(token, JWT_SECRET);
+    const token = authHeader.split(' ')[1];
+    const session = await verifierSession(token, { secret: JWT_SECRET, pool: req.app?.locals?.pool || pool });
 
-    if (decoded.jti) {
-      try {
-        const { getRedis } = require('../config/redis');
-        const redis = getRedis();
-        if (redis) {
-          const blacklisted = await redis.get(`bl:jti:${decoded.jti}`);
-          if (blacklisted) return res.status(401).json({ error: 'Token révoqué' });
-        }
-      } catch (_e) {}
+    if (!session.ok) {
+      if (session.raison === 'revoque') return res.status(401).json({ error: 'Token révoqué' });
+      if (session.raison === 'inactif') return res.status(401).json({ error: MESSAGE_SESSION_INVALIDE });
+      if (session.raison === 'remplace') return res.status(401).json({ error: 'Token remplacé', code: 'session_remplacee' });
+      if (session.raison === 'indisponible') {
+        return res.status(503).json({ error: 'Service temporairement indisponible', code: 'session_indisponible' });
+      }
+      if (session.raison === 'expiree') {
+        return res.status(401).json({ error: 'Token invalide ou expiré', code: 'session_expiree' });
+      }
+      return res.status(401).json({ error: 'Token invalide ou expiré' });
     }
 
-    req.user = decoded;
+    req.user = session.user;
     next();
   } catch (err) {
     return res.status(401).json({ error: 'Token invalide ou expiré' });

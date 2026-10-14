@@ -67,6 +67,7 @@
     "previous_page": "Previous page",
     "next_page": "Next page",
     "close_notification": "Close notification",
+    "service_unavailable": "The database is not responding, so the server cannot verify your session. Try again in a moment; you stay signed in.",
     "analyst_count_one": "{{count}} analyst",
     "analyst_count_other": "{{count}} analysts",
     "name": "Name",
@@ -1127,6 +1128,7 @@
     "sync_synchro": "Synced · saved automatically",
     "sync_hors_ligne": "Offline · your changes will be sent on reconnect",
     "sync_refuse": "Access to this notebook denied",
+    "sync_retire": "Case access removed",
     "sync_erreur": "Notebook unavailable for now"
   },
   "notes": {
@@ -1215,6 +1217,8 @@
     "error_locked_other": "Account temporarily locked after too many attempts. Try again in {{count}} minutes.",
     "error_rate_limited": "Too many attempts from this address. Please try again later.",
     "error_disabled": "This account is disabled. Contact an administrator.",
+    "session_closed": "Your session was closed: the account was disabled, its permissions changed or the sign-in was revoked. Sign in again, or contact your manager if the account is disabled.",
+    "session_expired": "Your session expired. Sign in again to continue.",
     "security_note": "Sessions are audited and protected.",
     "show_password": "Show password",
     "hide_password": "Hide password",
@@ -2164,6 +2168,11 @@
     "sev_low": "Low"
   },
   "casedetail": {
+    "access_revoked": "Your access to this case was removed (unassigned, investigator changed or case deleted). If this is a mistake, contact the case lead.",
+    "access_revoked_other": "Your access to another case was removed.",
+    "access_revoked_other_named": "Your access to case {{name}} was removed.",
+    "access_revoked_list_link": "View the case list",
+    "access_revoked_draft_kept": "Your access to this case was removed (unassigned, investigator changed or case deleted). The message you were writing was not sent: it is kept on this tab and will reappear if you regain access. If this is a mistake, contact the case lead.",
     "add_ioc": "Add IOC",
     "add_ioc_long": "Add an IOC",
     "add_pcap": "Add PCAP",

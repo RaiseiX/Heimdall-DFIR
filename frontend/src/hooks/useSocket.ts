@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { io, Socket } from 'socket.io-client';
 import type { SocketHookReturn } from '../types/forensic';
+import { guardSocketSession } from '../utils/socketSession';
+import { sessionExit } from '../utils/sessionExit';
+import { refreshSession } from '../utils/api';
 
 const SOCKET_URL =
   typeof window !== 'undefined'
@@ -15,9 +18,11 @@ export function useSocket(): SocketHookReturn {
   useEffect(() => {
     if (!localStorage.getItem('heimdall_token')) return;
 
+    let usedToken: string | null = null;
     const socket = io(SOCKET_URL, {
       auth: (cb: (data: { token: string }) => void) => {
-        cb({ token: localStorage.getItem('heimdall_token') ?? '' });
+        usedToken = localStorage.getItem('heimdall_token');
+        cb({ token: usedToken ?? '' });
       },
       transports: ['polling', 'websocket'],
       reconnectionAttempts: 10,
@@ -37,11 +42,16 @@ export function useSocket(): SocketHookReturn {
       setSocketId(null);
     });
 
-    socket.on('connect_error', (err: Error) => {
-      console.warn('[Socket.io] Connection error:', err.message);
+    const detachGuard = guardSocketSession(socket, sessionExit, {
+      refresh: refreshSession,
+      getUsedToken: () => usedToken,
+      onOtherError: (err: Error) => {
+        console.warn('[Socket.io] Connection error:', err.message);
+      },
     });
 
     return () => {
+      detachGuard();
       socket.disconnect();
       socketRef.current = null;
       setIsConnected(false);

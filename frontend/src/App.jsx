@@ -4,6 +4,8 @@ import { ThemeProvider } from './utils/theme';
 import { ToastProvider } from './components/ui/Toast';
 import { PreferencesProvider, usePreferences } from './utils/preferences';
 import { authAPI, settingsAPI } from './utils/api';
+import { sessionExit } from './utils/sessionExit';
+import { performLogout } from './utils/logout';
 import i18n from './i18n/index.js';
 import { I18nextProvider } from 'react-i18next';
 import Layout from './components/Layout';
@@ -68,13 +70,11 @@ function AppInner() {
   };
 
   const logout = async () => {
-    try {
-      const rt = localStorage.getItem('heimdall_refresh_token');
-      if (rt) await authAPI.logout(rt).catch(() => {});
-    } catch {}
-    localStorage.removeItem('heimdall_token');
-    localStorage.removeItem('heimdall_refresh_token');
-    localStorage.removeItem('heimdall_user');
+    await performLogout({
+      logout: authAPI.logout,
+      exit: sessionExit,
+      getRefreshToken: () => localStorage.getItem('heimdall_refresh_token'),
+    });
     setUser(null);
     navigate('/login');
   };

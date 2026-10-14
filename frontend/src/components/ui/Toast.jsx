@@ -13,7 +13,8 @@ export const TOAST_VARIANTS = {
   info:    { color: 'var(--fl-accent)', Icon: Info          },
 };
 
-const DEFAULT_DURATION = 4000;
+export const DEFAULT_DURATION = 4000;
+export const LONG_DURATION    = 8000;
 const MAX_TOASTS       = 5;
 
 function ToastItem({ id, variant, message, duration, onRemove }) {

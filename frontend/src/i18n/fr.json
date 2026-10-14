@@ -67,6 +67,7 @@
     "previous_page": "Page précédente",
     "next_page": "Page suivante",
     "close_notification": "Fermer la notification",
+    "service_unavailable": "La base de données ne répond pas, le serveur ne peut pas vérifier votre session. Réessayez dans un instant ; vous restez connecté.",
     "analyst_count_one": "{{count}} analyste",
     "analyst_count_other": "{{count}} analystes",
     "name": "Nom",
@@ -1127,6 +1128,7 @@
     "sync_synchro": "Synchronisé · enregistré automatiquement",
     "sync_hors_ligne": "Hors ligne · vos modifications partiront à la reconnexion",
     "sync_refuse": "Accès refusé à ce carnet",
+    "sync_retire": "Accès au dossier retiré",
     "sync_erreur": "Carnet indisponible pour le moment"
   },
   "notes": {
@@ -1215,6 +1217,8 @@
     "error_locked_other": "Compte temporairement verrouillé après trop de tentatives. Réessayez dans {{count}} minutes.",
     "error_rate_limited": "Trop de tentatives depuis cette adresse. Réessayez plus tard.",
     "error_disabled": "Ce compte est désactivé. Contactez un administrateur.",
+    "session_closed": "Votre session a été fermée : compte désactivé, droits modifiés ou connexion révoquée. Reconnectez-vous, ou contactez votre responsable si le compte est désactivé.",
+    "session_expired": "Votre session a expiré. Reconnectez-vous pour continuer.",
     "security_note": "Les sessions sont auditées et protégées.",
     "show_password": "Afficher le mot de passe",
     "hide_password": "Masquer le mot de passe",
@@ -2164,6 +2168,11 @@
     "sev_low": "Faible"
   },
   "casedetail": {
+    "access_revoked": "Votre accès à ce dossier a été retiré (désassignation, changement d'enquêteur ou dossier supprimé). Si c'est une erreur, contactez le responsable du dossier.",
+    "access_revoked_other": "Votre accès à un autre dossier a été retiré.",
+    "access_revoked_other_named": "Votre accès au dossier {{name}} a été retiré.",
+    "access_revoked_list_link": "Voir la liste des dossiers",
+    "access_revoked_draft_kept": "Votre accès à ce dossier a été retiré (désassignation, changement d'enquêteur ou dossier supprimé). Le message que vous écriviez n'a pas été envoyé : il est conservé sur cet onglet et réapparaîtra si vous retrouvez l'accès. Si c'est une erreur, contactez le responsable du dossier.",
     "add_ioc": "Ajouter IOC",
     "add_ioc_long": "Ajouter un IOC",
     "add_pcap": "Ajouter PCAP",

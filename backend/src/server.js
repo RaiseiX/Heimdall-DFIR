@@ -119,6 +119,8 @@ app.locals.io = io;
 
 const { registerSocketHandlers } = require('./socket/socketHandlers');
 registerSocketHandlers(io, { pool, logger, JWT_SECRET });
+const { demarrerFilet } = require('./socket/sessionEviction');
+app.locals.filetSessions = demarrerFilet(io);
 
 io.engine.on('connection', (rawSocket) => {
   logger.debug('[Engine.io] Nouvelle connexion brute', { transport: rawSocket.transport.name, id: rawSocket.id });

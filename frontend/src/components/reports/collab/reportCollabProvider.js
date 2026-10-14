@@ -27,21 +27,30 @@ export function createCollabProvider(socket, caseId, doc, canal, { onState } = {
     Y.applyUpdate(doc, fromB64(msg.update), 'remote');
   };
 
+  const onConnect = () => socket.emit(`${canal}:join`, { caseId });
+  let detached = false;
+  const detach = () => {
+    if (detached) return;
+    detached = true;
+    doc.off('update', onLocalUpdate);
+    socket.off(`${canal}:state`, onStateMsg);
+    socket.off(`${canal}:update`, onRemoteUpdate);
+    socket.off('connect', onConnect);
+    socket.off('case:access:revoked', onAccessRevoked);
+  };
+  const onAccessRevoked = (msg) => {
+    if (String(msg?.case_id || '').toLowerCase() !== String(caseId).toLowerCase()) return;
+    detach();
+  };
+
   doc.on('update', onLocalUpdate);
   socket.on(`${canal}:state`, onStateMsg);
   socket.on(`${canal}:update`, onRemoteUpdate);
   socket.emit(`${canal}:join`, { caseId });
-  const onConnect = () => socket.emit(`${canal}:join`, { caseId });
   socket.on('connect', onConnect);
+  socket.on('case:access:revoked', onAccessRevoked);
 
-  return {
-    destroy() {
-      doc.off('update', onLocalUpdate);
-      socket.off(`${canal}:state`, onStateMsg);
-      socket.off(`${canal}:update`, onRemoteUpdate);
-      socket.off('connect', onConnect);
-    },
-  };
+  return { destroy: detach };
 }
 
 export function createReportCollabProvider(socket, caseId, doc, options = {}) {

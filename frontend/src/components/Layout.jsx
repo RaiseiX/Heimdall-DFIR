@@ -8,6 +8,8 @@ import { usePreferences } from '../utils/preferences';
 import { casesAPI, triageAPI } from '../utils/api';
 import FeedbackMyRequests from './FeedbackMyRequests';
 import { useSocket } from '../hooks/useSocket';
+import { useCaseAccessRevoked } from '../hooks/useCaseAccessRevoked';
+import { useServiceUnavailable } from '../hooks/useServiceUnavailable';
 import { useToast } from './ui/Toast';
 import CommandPalette from './ui/CommandPalette';
 import GlobalAiChat from './GlobalAiChat';
@@ -36,6 +38,8 @@ export default function Layout({ user, onLogout, onTourStart, children }) {
     localStorage.setItem('fl_zebra', zebra ? '1' : '0');
   }, [zebra]);
   const { socket } = useSocket();
+  useCaseAccessRevoked(socket);
+  useServiceUnavailable();
   const { toast } = useToast();
 
   useEffect(() => {
