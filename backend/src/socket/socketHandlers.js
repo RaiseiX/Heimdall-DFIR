@@ -1,26 +1,43 @@
-const jwt = require('jsonwebtoken');
+const { verifierSession } = require('../services/sessionGuard');
+const { enregistrer, enregistrerSocket, normaliserCaseId, sallesDuDossier } = require('./sessionEviction');
 const { canAccessCase, objetDansDossier, utilisateursAvecAcces, membresDuDossier } = require('../middleware/caseAccess');
 const reportDocs = require('../services/reportDocRegistry');
 const notebookDocs = require('../services/notebookDocs');
 const { brancherCarnet } = require('./notebookSocket');
 
 function registerSocketHandlers(io, { pool, logger, JWT_SECRET }) {
-  io.use((socket, next) => {
+  enregistrer(io, { pool, logger });
+
+  const refuser = (next, message = 'Session invalide', code = 'session_invalide') => {
+    const err = new Error(message);
+    err.data = { code };
+    next(err);
+  };
+
+  io.use(async (socket, next) => {
     const transport = socket.conn?.transport?.name ?? 'unknown';
     logger.debug('[Socket.io] Middleware auth', { transport, sid: socket.id });
     const token = socket.handshake.auth?.token || socket.handshake.headers?.authorization?.split(' ')[1];
     if (!token) {
       logger.warn('[Socket.io] Token manquant');
-      return next(new Error('Token Socket.io manquant'));
+      return refuser(next);
     }
     try {
-      const decoded = jwt.verify(token, JWT_SECRET);
-      socket.user = decoded;
-      logger.debug('[Socket.io] Auth OK', { username: decoded.username });
+      const session = await verifierSession(token, { secret: JWT_SECRET, pool });
+      if (!session.ok) {
+        logger.warn('[Socket.io] Session refusee', { raison: session.raison });
+        if (session.raison === 'indisponible') return refuser(next, 'Service indisponible', 'session_indisponible');
+        if (session.raison === 'expiree') return refuser(next, 'Session expirée', 'session_expiree');
+        if (session.raison === 'remplace') return refuser(next, 'Session remplacée', 'session_remplacee');
+        return refuser(next);
+      }
+      socket.user = session.user;
+      socket.data = { ...(socket.data || {}), exp: session.exp };
+      logger.debug('[Socket.io] Auth OK', { username: session.user.username });
       next();
     } catch (err) {
-      logger.warn('[Socket.io] Token invalide', { error: err.message });
-      next(new Error('Token Socket.io invalide'));
+      logger.warn('[Socket.io] Verification de session en echec', { error: err.message });
+      refuser(next);
     }
   });
 
@@ -43,19 +60,21 @@ function registerSocketHandlers(io, { pool, logger, JWT_SECRET }) {
     const user = socket.user;
     logger.info('[Socket.io] Connexion', { username: user?.username, sid: socket.id });
 
-    const guard = async (caseId) => !!caseId && (await canAccessCase(user, caseId).catch(() => false));
+    const guard = async (caseId) => !!caseId && (await canAccessCase(user, caseId, pool).catch(() => false));
 
     socket.join(`user:${user.id}`);
 
     // sessionMap: socketId → { caseId, sessionId, startedAt }
     const sessionMap = new Map();
     const reportSubs = new Set(); // caseIds this socket subscribed to for report collab
-    const carnet = brancherCarnet({ socket, pool, registre: notebookDocs, guard, user, logger });
+    const carnet = brancherCarnet({ socket, pool, registre: notebookDocs, guard, user, logger, retirer: (caseId) => retirerEtNotifier(caseId) });
 
-    socket.on('case:join', async ({ caseId }) => {
+    socket.on('case:join', async (payload) => {
+      const caseId = normaliserCaseId((payload || {}).caseId);
       if (!(await guard(caseId))) { socket.emit('case:join:denied', { caseId }); return; }
       socket.join(caseId);
       socket.join(`case:${caseId}`);
+      if (!(await guard(caseId))) { await retirerEtNotifier(caseId); return; }
       if (!presenceMap.has(caseId)) presenceMap.set(caseId, new Map());
       presenceMap.get(caseId).set(socket.id, {
         id:        user.id,
@@ -71,6 +90,7 @@ function registerSocketHandlers(io, { pool, logger, JWT_SECRET }) {
           [caseId, user.id]
         );
         sessionMap.set(socket.id + ':' + caseId, { caseId, sessionId: res.rows[0].id, startedAt: Date.now() });
+        if (socket.rooms && !socket.rooms.has(caseId)) await closeSession(socket.id, caseId);
       } catch (_) {}
     });
 
@@ -88,19 +108,33 @@ function registerSocketHandlers(io, { pool, logger, JWT_SECRET }) {
       } catch (_) {}
     }
 
-    socket.on('case:leave', async ({ caseId }) => {
-      if (!caseId) return;
-      socket.leave(caseId);
-      socket.leave(`case:${caseId}`);
+    async function quitterDossier(caseId) {
+      for (const salle of sallesDuDossier(caseId)) socket.leave(salle);
       presenceMap.get(caseId)?.delete(socket.id);
       io.to(caseId).emit('case:presence', getPresence(caseId));
-      logger.info('[Presence] Utilisateur quitte', { username: user.username, caseId });
+      netmapPresenceMap.get(caseId)?.delete(socket.id);
+      io.to(`netmap:${caseId}`).emit('networkmap:presence', getNetmapPresence(caseId));
       await closeSession(socket.id, caseId);
       if (reportSubs.delete(caseId)) reportDocs.releaseDoc(pool, caseId).catch(() => {});
       carnet.quitter(caseId);
+    }
+
+    async function retirerEtNotifier(caseId) {
+      await quitterDossier(caseId);
+      socket.emit('case:access:revoked', { case_id: caseId });
+    }
+
+    enregistrerSocket(socket, { retirerDossier: retirerEtNotifier });
+
+    socket.on('case:leave', async (payload) => {
+      const caseId = normaliserCaseId((payload || {}).caseId);
+      if (!caseId || typeof caseId !== 'string') return;
+      logger.info('[Presence] Utilisateur quitte', { username: user.username, caseId });
+      await quitterDossier(caseId);
     });
 
-    socket.on('report:join', async ({ caseId }) => {
+    socket.on('report:join', async (payload) => {
+      const caseId = normaliserCaseId((payload || {}).caseId);
       if (!(await guard(caseId))) return;
       let doc;
       if (reportSubs.has(caseId)) {
@@ -112,7 +146,9 @@ function registerSocketHandlers(io, { pool, logger, JWT_SECRET }) {
       socket.emit('report:state', { caseId, update: reportDocs.encodeState(doc).toString('base64') });
     });
 
-    socket.on('report:update', async ({ caseId, update }) => {
+    socket.on('report:update', async (payload) => {
+      const { update } = payload || {};
+      const caseId = normaliserCaseId((payload || {}).caseId);
       // Bound the payload (base64 Yjs update); a single section edit is a few KB.
       if (!caseId || typeof update !== 'string' || update.length > 1_000_000) return;
       if (!(await guard(caseId))) return;
@@ -120,23 +156,27 @@ function registerSocketHandlers(io, { pool, logger, JWT_SECRET }) {
       socket.to(`case:${caseId}`).emit('report:update', { caseId, update });
     });
 
-    socket.on('networkmap:join', async ({ caseId }) => {
+    socket.on('networkmap:join', async (payload) => {
+      const caseId = normaliserCaseId((payload || {}).caseId);
       if (!(await guard(caseId))) return;
       socket.join(`netmap:${caseId}`);
+      if (!(await guard(caseId))) { await retirerEtNotifier(caseId); return; }
       if (!netmapPresenceMap.has(caseId)) netmapPresenceMap.set(caseId, new Map());
       netmapPresenceMap.get(caseId).set(socket.id, { id: user.id, username: user.username, full_name: user.full_name });
       io.to(`netmap:${caseId}`).emit('networkmap:presence', getNetmapPresence(caseId));
     });
 
-    socket.on('networkmap:leave', ({ caseId }) => {
-      if (!caseId) return;
+    socket.on('networkmap:leave', (payload) => {
+      const caseId = normaliserCaseId((payload || {}).caseId);
+      if (!caseId || typeof caseId !== 'string') return;
       socket.leave(`netmap:${caseId}`);
       netmapPresenceMap.get(caseId)?.delete(socket.id);
       io.to(`netmap:${caseId}`).emit('networkmap:presence', getNetmapPresence(caseId));
     });
 
     socket.on('chat:send', async (payload, ack) => {
-      const { caseId, content, reply_to_id } = payload || {};
+      const { content, reply_to_id } = payload || {};
+      const caseId = normaliserCaseId((payload || {}).caseId);
       const repondre = (resultat) => { if (typeof ack === 'function') ack(resultat); };
       let acquitte = false;
       if (!(await guard(caseId))) {
@@ -241,7 +281,7 @@ function registerSocketHandlers(io, { pool, logger, JWT_SECRET }) {
 
     socket.on('chat:typing', async (data) => {
       try {
-        const caseId = data?.caseId;
+        const caseId = normaliserCaseId(data?.caseId);
         if (typeof caseId !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(caseId)) return;
         if (!(await guard(caseId))) return;
         socket.to(caseId).emit('chat:typing', { caseId, userId: user.id, username: user.username });
@@ -250,7 +290,7 @@ function registerSocketHandlers(io, { pool, logger, JWT_SECRET }) {
 
     socket.on('chat:react', async (data) => {
       try {
-        const caseId = data?.caseId;
+        const caseId = normaliserCaseId(data?.caseId);
         const messageId = data?.messageId;
         const emoji = data?.emoji;
         if (typeof caseId !== 'string' || !(await guard(caseId))) return;
@@ -272,7 +312,7 @@ function registerSocketHandlers(io, { pool, logger, JWT_SECRET }) {
 
     socket.on('chat:pin', async (data) => {
       try {
-        const caseId = data?.caseId;
+        const caseId = normaliserCaseId(data?.caseId);
         const messageId = data?.messageId;
         if (typeof caseId !== 'string' || !(await guard(caseId))) return;
         if (!(await objetDansDossier('chat_message', messageId, caseId, pool))) return;

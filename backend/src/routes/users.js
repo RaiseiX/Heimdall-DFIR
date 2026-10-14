@@ -4,6 +4,8 @@ const crypto = require('crypto');
 const { pool } = require('../config/database');
 const { authenticate, requireRole, auditLog, computeAuditHmac, computeAuditHmacLegacy } = require('../middleware/auth');
 const { verifyAuditChain, GENESIS_HASH } = require('../services/auditChain');
+const { couperSessionsUtilisateur } = require('../services/sessionRevocation');
+const { revoquerJti, normaliserId } = require('../services/sessionGuard');
 
 const logger = require('../config/logger').default;
 const router = express.Router();
@@ -129,6 +131,11 @@ router.post('/me/sessions/revoke-all', authenticate, async (req, res) => {
       'UPDATE refresh_tokens SET revoked = TRUE WHERE user_id = $1 AND revoked = FALSE',
       [req.user.id]
     );
+    await couperSessionsUtilisateur(req.app.locals.io, req.user.id);
+    if (req.user.jti) {
+      const ttl = req.user.exp ? req.user.exp - Math.floor(Date.now() / 1000) : 28800;
+      await revoquerJti(req.user.jti, ttl > 0 ? ttl : 1);
+    }
     res.json({ revoked: r.rowCount });
   } catch (err) {
     logger.error('sessions revoke-all:', err.message);
@@ -150,6 +157,7 @@ router.get('/', authenticate, async (req, res) => {
 router.put('/:id', authenticate, requireRole('admin'), async (req, res) => {
   try {
     const { full_name, role, is_active } = req.body;
+    const avant = await pool.query('SELECT role, is_active FROM users WHERE id = $1', [req.params.id]);
     const result = await pool.query(
       `UPDATE users SET full_name = COALESCE($1, full_name),
        role = COALESCE($2, role), is_active = COALESCE($3, is_active), updated_at = NOW()
@@ -158,6 +166,11 @@ router.put('/:id', authenticate, requireRole('admin'), async (req, res) => {
     );
     if (result.rows.length === 0) return res.status(404).json({ error: 'Utilisateur non trouvé' });
     await auditLog(req.user.id, 'update_user', 'user', req.params.id, req.body, req.ip);
+    const ancien = avant.rows[0];
+    const apres = result.rows[0];
+    if (ancien && (apres.is_active === false || apres.role !== ancien.role)) {
+      await couperSessionsUtilisateur(req.app.locals.io, apres.id);
+    }
     res.json(result.rows[0]);
   } catch (err) {
     res.status(500).json({ error: 'Erreur serveur' });
@@ -166,7 +179,7 @@ router.put('/:id', authenticate, requireRole('admin'), async (req, res) => {
 
 router.put('/:id/password', authenticate, async (req, res) => {
   try {
-    if (req.user.id !== req.params.id && req.user.role !== 'admin') {
+    if (normaliserId(req.user.id) !== normaliserId(req.params.id) && req.user.role !== 'admin') {
       return res.status(403).json({ error: 'Non autorisé' });
     }
     const { password } = req.body;
@@ -174,8 +187,13 @@ router.put('/:id/password', authenticate, async (req, res) => {
     const minLen = (await getSecurityPolicy()).passwordMinLength;
     if (!password || password.length < minLen) return res.status(400).json({ error: `Min ${minLen} caractères` });
     const hash = await bcrypt.hash(password, 12);
-    await pool.query('UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2', [hash, req.params.id]);
+    const maj = await pool.query('UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2 RETURNING id', [hash, req.params.id]);
     await auditLog(req.user.id, 'change_password', 'user', req.params.id, {}, req.ip);
+    if (maj.rows && maj.rows[0]) {
+      const cible = maj.rows[0].id;
+      await pool.query('UPDATE refresh_tokens SET revoked = TRUE WHERE user_id = $1 AND revoked = FALSE', [cible]);
+      await couperSessionsUtilisateur(req.app.locals.io, cible);
+    }
     res.json({ message: 'Mot de passe mis à jour' });
   } catch (err) {
     res.status(500).json({ error: 'Erreur serveur' });
@@ -184,10 +202,11 @@ router.put('/:id/password', authenticate, async (req, res) => {
 
 router.delete('/:id', authenticate, requireRole('admin'), async (req, res) => {
   try {
-    if (req.user.id === req.params.id) return res.status(400).json({ error: 'Impossible de supprimer votre propre compte' });
-    const result = await pool.query('DELETE FROM users WHERE id = $1 RETURNING username', [req.params.id]);
+    if (normaliserId(req.user.id) === normaliserId(req.params.id)) return res.status(400).json({ error: 'Impossible de supprimer votre propre compte' });
+    const result = await pool.query('DELETE FROM users WHERE id = $1 RETURNING id, username', [req.params.id]);
     if (result.rows.length === 0) return res.status(404).json({ error: 'Utilisateur non trouvé' });
     await auditLog(req.user.id, 'delete_user', 'user', req.params.id, { deleted: result.rows[0].username }, req.ip);
+    await couperSessionsUtilisateur(req.app.locals.io, result.rows[0].id);
     res.json({ message: 'Utilisateur supprimé' });
   } catch (err) {
     res.status(500).json({ error: 'Erreur serveur' });

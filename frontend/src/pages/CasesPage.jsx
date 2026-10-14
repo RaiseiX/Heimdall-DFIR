@@ -9,7 +9,8 @@ import {
 } from 'lucide-react';
 import { casesAPI } from '../utils/api';
 import { isDestructionConfirmed } from '../utils/destructiveConfirm';
-import { Button, Modal, Badge, EmptyState, Spinner } from '../components/ui';
+import { Button, Modal, Badge, EmptyState, Spinner, Alert } from '../components/ui';
+import { peekAccessNotice, clearAccessNotice, rememberCaseNames } from '../utils/caseAccess';
 import { tableStyle, headStyle, cellStyle } from '../components/ui/tableIdiom';
 import { controlStyle, controlHover } from '../components/ui/controlIdiom';
 import { StatusPill, PriorityPill, RiskPill, TimePill, fmtDuration } from '../components/ui/StatusPill';
@@ -48,6 +49,7 @@ export default function CasesPage({ user }) {
   const [newCase, setNewCase] = useState({ title: '', description: '', priority: 'medium', report_deadline: '' });
 
   const [loadError, setLoadError] = useState(false);
+  const [accessNotice, setAccessNotice] = useState(() => peekAccessNotice());
   const [selected, setSelected] = useState(new Set());
   const [showBulkDelete, setShowBulkDelete] = useState(false);
   const [bulkDeleting, setBulkDeleting] = useState(false);
@@ -73,6 +75,7 @@ export default function CasesPage({ user }) {
     try {
       const { data } = await casesAPI.list({ search, status: filterStatus, priority: filterPriority });
       setCases(data.cases);
+      rememberCaseNames(data.cases);
       const stats = {};
       await Promise.all((data.cases || []).map(async c => {
         try {
@@ -140,7 +143,16 @@ export default function CasesPage({ user }) {
 
   return (
     <div className="p-6">
-      
+      {accessNotice && (
+        <div className="mb-4">
+          <Alert
+            variant="warn"
+            message={t(accessNotice)}
+            dismissible
+            onDismiss={() => { clearAccessNotice(); setAccessNotice(null); }}
+          />
+        </div>
+      )}
       <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingBottom: 18, marginBottom: 20, borderBottom: '1px solid var(--fl-border)' }}>
         <div style={{ flex: 1, minWidth: 0 }}>
           <h1 style={{ fontFamily: 'var(--f-display, "Space Grotesk", "Inter", sans-serif)', fontSize: 16, fontWeight: 600, color: 'var(--fl-text)', lineHeight: 1.2, letterSpacing: '-0.02em' }}>{t('cases.title')}</h1>

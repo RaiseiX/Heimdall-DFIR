@@ -15,6 +15,7 @@ import {
   serverErrorKey, copyText, shareDraft, iocLabel,
 } from './chatUtils';
 import { signalerChatMonte } from '../pingToast';
+import { registerUnsentDraft, takeChatDraft } from '../../utils/caseAccess';
 
 const PANEL_WIDTH = 380;
 const SEND_ACK_TIMEOUT_MS = 8000;
@@ -1011,6 +1012,14 @@ export default function CaseChatPanel({ caseId, socket, currentUser, presenceUse
     socket.on('chat:mention', handler);
     return () => socket.off('chat:mention', handler);
   }, [socket, caseId, soundEnabled]);
+
+  const unsentRef = useRef('');
+  unsentRef.current = draft != null ? draft : input;
+  useEffect(() => registerUnsentDraft(caseId, () => unsentRef.current), [caseId]);
+  useEffect(() => {
+    const saved = takeChatDraft(userId ?? 'anonymous', caseId);
+    if (saved) setInput((prev) => prev || saved);
+  }, [caseId, userId]);
 
   useEffect(() => {
     if (!socket) return undefined;

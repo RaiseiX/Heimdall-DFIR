@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { shouldDestroySession } from './session';
+import { sessionExit } from './sessionExit';
 
 const api = axios.create({
   baseURL: '/api',
@@ -13,39 +14,92 @@ api.interceptors.request.use((config) => {
 });
 
 let _refreshing = null;
+let _unavailable = false;
+
+export const SERVICE_UNAVAILABLE_EVENT = 'heimdall:service-unavailable';
+
+const currentTokens = () => localStorage.getItem('heimdall_token');
+
+function withRefreshLock(fn) {
+  if (typeof navigator !== 'undefined' && navigator.locks?.request) {
+    return navigator.locks.request('heimdall-refresh', fn);
+  }
+  return fn();
+}
 
 const _forceLogout = () => {
-  localStorage.removeItem('heimdall_token');
-  localStorage.removeItem('heimdall_refresh_token');
-  localStorage.removeItem('heimdall_user');
-  if (!window.location.pathname.startsWith('/login')) {
-    window.location.href = '/login';
-  }
+  sessionExit.end('expired');
 };
 
+export function refreshSession() {
+  const before = localStorage.getItem('heimdall_refresh_token');
+  if (!before) return Promise.reject(new Error('no_refresh_token'));
+  if (!_refreshing) {
+    _refreshing = withRefreshLock(async () => {
+      const sent = localStorage.getItem('heimdall_refresh_token');
+      if (!sent) throw new Error('no_refresh_token');
+      if (sent !== before) return currentTokens();
+      try {
+        const { data } = await api.post('/auth/refresh', { refreshToken: sent });
+        localStorage.setItem('heimdall_token', data.token);
+        if (data.refreshToken) localStorage.setItem('heimdall_refresh_token', data.refreshToken);
+        return data.token;
+      } catch (err) {
+        if (shouldDestroySession(err)) {
+          const now = localStorage.getItem('heimdall_refresh_token');
+          if (now && now !== sent) return currentTokens();
+          _forceLogout();
+        }
+        throw err;
+      }
+    }).finally(() => { _refreshing = null; });
+  }
+  return _refreshing;
+}
+
+function bearerOf(config) {
+  const h = config?.headers?.Authorization;
+  return typeof h === 'string' ? h.replace(/^Bearer /, '') : null;
+}
+
 api.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    _unavailable = false;
+    return response;
+  },
   async (error) => {
     const orig = error.config;
-    if (orig?.url?.includes('/auth/refresh') || orig?.url?.includes('/auth/logout')) {
-      if (shouldDestroySession(error)) _forceLogout();
+    if (error.response?.status === 503 && error.response?.data?.code === 'session_indisponible') {
+      if (!_unavailable) {
+        _unavailable = true;
+        window.dispatchEvent(new Event(SERVICE_UNAVAILABLE_EVENT));
+      }
       return Promise.reject(error);
+    }
+    if (orig?.url?.includes('/auth/logout') || orig?.url?.includes('/auth/refresh')) {
+      return Promise.reject(error);
+    }
+    if (error.response?.status === 401 && orig?.url?.includes('/auth/login')) {
+      return Promise.reject(error);
+    }
+    if (error.response?.status === 401 && !orig._replayed) {
+      const current = currentTokens();
+      const sent = bearerOf(orig);
+      if (current && sent && sent !== current) {
+        orig._replayed = true;
+        orig.headers.Authorization = `Bearer ${current}`;
+        return api(orig);
+      }
     }
     if (error.response?.status === 401 && !orig._retry) {
       orig._retry = true;
       const refreshToken = localStorage.getItem('heimdall_refresh_token');
       if (refreshToken) {
         try {
-          if (!_refreshing) {
-            _refreshing = api.post('/auth/refresh', { refreshToken }).finally(() => { _refreshing = null; });
-          }
-          const { data } = await _refreshing;
-          localStorage.setItem('heimdall_token', data.token);
-          if (data.refreshToken) localStorage.setItem('heimdall_refresh_token', data.refreshToken);
-          orig.headers.Authorization = `Bearer ${data.token}`;
+          const token = await refreshSession();
+          orig.headers.Authorization = `Bearer ${token}`;
           return api(orig);
         } catch (refreshError) {
-          if (shouldDestroySession(refreshError)) _forceLogout();
           return Promise.reject(error);
         }
       }
@@ -62,7 +116,7 @@ export const authAPI = {
   me:      ()             => api.get('/auth/me'),
   register:(data)         => api.post('/auth/register', data),
   refresh: (refreshToken) => api.post('/auth/refresh', { refreshToken }),
-  logout:  (refreshToken) => api.post('/auth/logout', { refreshToken }),
+  logout:  (refreshToken) => api.post('/auth/logout', { refresh_token: refreshToken }),
 };
 
 export const adminAPI = {

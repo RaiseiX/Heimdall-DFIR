@@ -110,7 +110,7 @@ async function setCached(key: string, data: EnrichmentResult): Promise<void> {
   try {
     const redis = getRedis();
     if (!redis) return;
-    await (redis as any).set(key, JSON.stringify(data), { EX: CACHE_TTL });
+    await (redis as any).set(key, JSON.stringify(data), 'EX', CACHE_TTL);
   } catch {
 
   }
@@ -227,7 +227,7 @@ async function enrichShodan(ip: string): Promise<ShodanResult | null> {
     try {
       const redis = getRedis();
       if (redis) {
-        await (redis as any).set(cacheKey, JSON.stringify(result), { EX: CACHE_TTL });
+        await (redis as any).set(cacheKey, JSON.stringify(result), 'EX', CACHE_TTL);
       }
     } catch {
 
@@ -284,7 +284,7 @@ async function enrichGeoIP(ip: string): Promise<GeoResult | null> {
     try {
       const redis = getRedis();
       if (redis) {
-        await (redis as any).set(cacheKey, JSON.stringify(result), { EX: CACHE_TTL });
+        await (redis as any).set(cacheKey, JSON.stringify(result), 'EX', CACHE_TTL);
       }
     } catch {
 

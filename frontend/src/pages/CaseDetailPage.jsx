@@ -23,6 +23,7 @@ import Icon from '../components/ui/Icon';
 import DetectionsTab from '../components/detections/DetectionsTab';
 import MitreAttackTab from '../components/mitre/MitreAttackTab';
 import { useSocket, useSocketEvent } from '../hooks/useSocket';
+import { useCaseAccessRevoked } from '../hooks/useCaseAccessRevoked';
 import { useToast } from '../components/ui/Toast';
 import { makeEvidenceReadyHandler } from './evidenceReadyHandler';
 import MemoryUploadPanel from '../components/upload/MemoryUploadPanel';
@@ -292,9 +293,14 @@ export default function CaseDetailPage({ user }) {
   const [caseTimeStats, setCaseTimeStats] = useState(null);
   const [showTimeTooltip, setShowTimeTooltip] = useState(false);
   const [showActionsMenu, setShowActionsMenu] = useState(false);
+  const accessRevokedRef = useRef(false);
+  useCaseAccessRevoked(socket, { onRevoked: () => { accessRevokedRef.current = true; } });
+  useEffect(() => {
+    accessRevokedRef.current = false;
+  }, [id]);
   useEffect(() => {
     if (!socket || !id) return;
-    const join = () => socket.emit('case:join', { caseId: id });
+    const join = () => { if (!accessRevokedRef.current) socket.emit('case:join', { caseId: id }); };
     join();
     socket.on('connect', join);
     return () => { socket.off('connect', join); socket.emit('case:leave', { caseId: id }); };

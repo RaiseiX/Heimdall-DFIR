@@ -5,16 +5,22 @@ import { useTranslation } from 'react-i18next';
 import { authAPI } from '../utils/api';
 import { getLoginContent } from '../i18n/loginContent';
 import { resolveLoginError } from './loginErrors';
+import { peekSessionNotice, takeSessionNotice, sessionNoticeTextKey } from '../utils/sessionExit';
 
 export default function LoginPage({ onLogin }) {
   const { t, i18n } = useTranslation();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [showPw, setShowPw] = useState(false);
-  const [error, setError] = useState(null);
+  const [error, setError] = useState(() => {
+    const key = sessionNoticeTextKey(peekSessionNotice());
+    return key ? { message: t(key), tone: 'warn', net: false, quiet: true } : null;
+  });
   const [loading, setLoading] = useState(false);
   const [capsOn, setCapsOn] = useState(false);
   const [qi, setQi] = useState(0);
+
+  useEffect(() => { takeSessionNotice(); }, []);
 
   useEffect(() => {
     const n = getLoginContent(i18n.language).quotes.length;
@@ -146,7 +152,7 @@ export default function LoginPage({ onLogin }) {
             const ErrIcon = error.net ? WifiOff : error.tone === 'warn' ? ShieldAlert : AlertCircle;
             return (
               <div id="login-error" role="alert" aria-live="assertive" key={error.message}
-                className="login-shake login-error" style={{ '--tone': c }}>
+                className={error.quiet ? 'login-error' : 'login-shake login-error'} style={{ '--tone': c }}>
                 <ErrIcon size={15} />
                 <span>{error.message}</span>
               </div>

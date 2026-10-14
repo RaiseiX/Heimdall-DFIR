@@ -6,6 +6,8 @@ const rateLimit = require('express-rate-limit');
 const { pool } = require('../config/database');
 const { authenticate, requireRole, auditLog, JWT_SECRET } = require('../middleware/auth');
 const { getSecurityPolicy } = require('../services/securityPolicy');
+const { revoquerJti, lireSessionActive, ecrireSessionActive, normaliserId, appelRedis, causeRevocation, CAUSE_REMPLACE, CAUSE_REVOQUE } = require('../services/sessionGuard');
+const { couperSessionsUtilisateur } = require('../services/sessionRevocation');
 
 const logger = require('../config/logger').default;
 const router = express.Router();
@@ -29,22 +31,21 @@ const ACCESS_TOKEN_EXPIRY       = '8h';
 // ── Account lockout (Redis-backed; gracefully no-ops if Redis is unavailable) ─
 async function isLockedOut(username, redis, policy) {
   if (!redis || !policy.lockoutThreshold) return false;
-  try {
-    const n = parseInt((await redis.get(`login_fail:${username}`)) || '0', 10);
-    return n >= policy.lockoutThreshold;
-  } catch { return false; }
+  const r = await appelRedis((c) => c.get(`login_fail:${username}`), 'verrouillage ignore', redis, { lecture: true });
+  if (!r.ok) return false;
+  return parseInt(r.valeur || '0', 10) >= policy.lockoutThreshold;
 }
 async function recordLoginFailure(username, redis, policy) {
   if (!redis || !policy.lockoutThreshold) return;
-  try {
-    const key = `login_fail:${username}`;
-    const n = await redis.incr(key);
-    if (n === 1) await redis.expire(key, policy.lockoutWindowMin * 60);
-  } catch { /* ignore */ }
+  const key = `login_fail:${username}`;
+  const r = await appelRedis((c) => c.incr(key), 'echec de connexion non compte', redis);
+  if (r.ok && r.valeur === 1) {
+    await appelRedis((c) => c.expire(key, policy.lockoutWindowMin * 60), 'fenetre de verrouillage non posee', redis);
+  }
 }
 async function clearLoginFailures(username, redis) {
   if (!redis) return;
-  try { await redis.del(`login_fail:${username}`); } catch { /* ignore */ }
+  await appelRedis((c) => c.del(`login_fail:${username}`), 'compteur d echecs non efface', redis);
 }
 
 function hashToken(token) {
@@ -70,29 +71,15 @@ async function getRedis() {
   return _get();
 }
 
-async function evictOldSession(userId, redis) {
+async function evictOldSession(userId, redis, cause = CAUSE_REVOQUE) {
   if (!redis) return;
-  try {
-    const oldJti = await redis.get(`user_session:${userId}`);
-    if (oldJti) {
-
-      await redis.set(`bl:jti:${oldJti}`, '1', { EX: 28800 });
-    }
-  } catch (_e) {}
+  const oldJti = await lireSessionActive(userId, redis, { pourEcriture: true });
+  if (oldJti) await revoquerJti(oldJti, 28800, redis, cause);
 }
 
 async function storeActiveSession(userId, jti, redis) {
   if (!redis) return;
-  try {
-    await redis.set(`user_session:${userId}`, jti, { EX: SESSION_KEY_TTL });
-  } catch (_e) {}
-}
-
-async function clearActiveSession(userId, redis) {
-  if (!redis) return;
-  try {
-    await redis.del(`user_session:${userId}`);
-  } catch (_e) {}
+  await ecrireSessionActive(userId, jti, SESSION_KEY_TTL, redis);
 }
 
 router.post('/login', authLimiter, async (req, res) => {
@@ -139,9 +126,8 @@ router.post('/login', authLimiter, async (req, res) => {
       return res.status(401).json({ code: 'invalid_credentials', error: 'Identifiants invalides' });
     }
 
-    await clearLoginFailures(username, redis);
 
-    await evictOldSession(user.id, redis);
+    await Promise.all([clearLoginFailures(username, redis), evictOldSession(user.id, redis)]);
 
     await pool.query(
       'UPDATE refresh_tokens SET revoked = TRUE WHERE user_id = $1 AND revoked = FALSE',
@@ -214,7 +200,15 @@ router.post('/refresh', authLimiter, async (req, res) => {
     const rt   = result.rows[0];
     if (!rt.is_active) return res.status(403).json({ error: 'Compte désactivé' });
 
-    await pool.query('UPDATE refresh_tokens SET revoked = TRUE WHERE id = $1', [rt.id]);
+    const policy = await getSecurityPolicy();
+
+    const consomme = await pool.query(
+      'UPDATE refresh_tokens SET revoked = TRUE WHERE id = $1 AND revoked = FALSE RETURNING id',
+      [rt.id]
+    );
+    if (!consomme.rows || consomme.rows.length === 0) {
+      return res.status(401).json({ error: 'Token de renouvellement invalide ou expiré' });
+    }
 
     const jti      = crypto.randomUUID();
     const newToken = jwt.sign(
@@ -222,9 +216,10 @@ router.post('/refresh', authLimiter, async (req, res) => {
       JWT_SECRET,
       { expiresIn: ACCESS_TOKEN_EXPIRY }
     );
-    const newRefreshToken = await issueRefreshToken(rt.user_id, pool);
+    const newRefreshToken = await issueRefreshToken(rt.user_id, pool, policy.sessionDurationH);
 
     const redis = await getRedis();
+    await evictOldSession(rt.user_id, redis, CAUSE_REMPLACE);
     await storeActiveSession(rt.user_id, jti, redis);
 
     await auditLog(rt.user_id, 'token_refresh', 'user', rt.user_id, { username: rt.username }, req.ip);
@@ -235,28 +230,57 @@ router.post('/refresh', authLimiter, async (req, res) => {
   }
 });
 
-router.post('/logout', authenticate, async (req, res) => {
+function lireJetonAcces(req) {
+  const entete = req.headers.authorization;
+  if (!entete || !entete.startsWith('Bearer ')) return null;
   try {
-    const { refreshToken } = req.body;
+    return jwt.verify(entete.split(' ')[1], JWT_SECRET, { ignoreExpiration: true });
+  } catch (_e) {
+    return null;
+  }
+}
 
-    if (refreshToken) {
-      const hash = hashToken(refreshToken);
-      await pool.query('UPDATE refresh_tokens SET revoked = TRUE WHERE token_hash = $1', [hash]);
+const logoutLimiter = rateLimit({
+  windowMs:        60 * 1000,
+  limit:           Number(process.env.LOGOUT_RATE_LIMIT || 30),
+  standardHeaders: 'draft-7',
+  legacyHeaders:   false,
+  message:         { code: 'rate_limited', error: 'Trop de tentatives depuis cette adresse. Réessayez plus tard.' },
+});
+
+async function accesActifValide(acces, redis, maintenant) {
+  if (!acces || !acces.jti || !acces.id || !acces.exp || acces.exp <= maintenant) return false;
+  if (await causeRevocation(acces.jti, redis)) return false;
+  const actif = await lireSessionActive(acces.id, redis);
+  return actif === acces.jti;
+}
+
+router.post('/logout', logoutLimiter, async (req, res) => {
+  try {
+    const corps = req.body || {};
+    const refresh = corps.refresh_token ?? corps.refreshToken;
+    const io = req.app.locals.io;
+    const redis = await getRedis();
+    const maintenant = Math.floor(Date.now() / 1000);
+
+    let userRefresh = null;
+    if (typeof refresh === 'string' && refresh) {
+      const r = await pool.query(
+        'UPDATE refresh_tokens SET revoked = TRUE WHERE token_hash = $1 AND revoked = FALSE AND expires_at > NOW() RETURNING user_id',
+        [hashToken(refresh)]
+      );
+      userRefresh = r.rows && r.rows[0] ? normaliserId(String(r.rows[0].user_id)) : null;
     }
 
-    if (req.user?.jti) {
-      try {
-        const redis = await getRedis();
-        if (redis) {
-          const decoded = req.user;
-          const ttl = decoded.exp ? Math.max(0, decoded.exp - Math.floor(Date.now() / 1000)) : 900;
-          await redis.set(`bl:jti:${decoded.jti}`, '1', { EX: ttl });
-          await clearActiveSession(decoded.id, redis);
-        }
-      } catch (_e) {}
+    const acces = lireJetonAcces(req);
+    const userAcces = (await accesActifValide(acces, redis, maintenant)) ? normaliserId(String(acces.id)) : null;
+
+    const identifies = new Set([userRefresh, userAcces].filter(Boolean));
+    for (const userId of identifies) {
+      await couperSessionsUtilisateur(io, userId);
+      await auditLog(userId, 'logout', 'user', userId, {}, req.ip);
     }
 
-    await auditLog(req.user.id, 'logout', 'user', req.user.id, {}, req.ip);
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: 'Erreur serveur' });

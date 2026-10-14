@@ -2,12 +2,20 @@
 
 const TAILLE_MAX = 1_000_000;
 
-function brancherCarnet({ socket, pool, registre, guard, user, logger = null }) {
+const normaliser = (id) => (typeof id === 'string' ? id.toLowerCase() : id);
+
+function brancherCarnet({ socket, pool, registre, guard, user, logger = null, retirer = null }) {
   const abonnements = new Set();
 
-  socket.on('notebook:join', async ({ caseId } = {}) => {
+  socket.on('notebook:join', async (payload) => {
+    const caseId = normaliser((payload || {}).caseId);
     if (!(await guard(caseId))) { socket.emit('notebook:denied', { caseId }); return; }
     socket.join(`case:${caseId}`);
+    if (!(await guard(caseId))) {
+      if (retirer) await retirer(caseId);
+      else socket.leave(`case:${caseId}`);
+      return;
+    }
     let doc;
     try {
       if (abonnements.has(caseId)) {
@@ -25,7 +33,9 @@ function brancherCarnet({ socket, pool, registre, guard, user, logger = null }) 
     socket.emit('notebook:state', { caseId, update: registre.encodeState(doc).toString('base64') });
   });
 
-  socket.on('notebook:update', async ({ caseId, update } = {}) => {
+  socket.on('notebook:update', async (payload) => {
+    const { update } = payload || {};
+    const caseId = normaliser((payload || {}).caseId);
     if (!caseId || typeof update !== 'string' || update.length > TAILLE_MAX) return;
     if (!abonnements.has(caseId)) return;
     if (!(await guard(caseId))) return;

@@ -15,6 +15,7 @@ const TON = {
   synchro: 'var(--fl-ok)',
   hors_ligne: 'var(--fl-warn)',
   refuse: 'var(--fl-danger)',
+  retire: 'var(--fl-danger)',
   erreur: 'var(--fl-danger)',
 };
 
@@ -44,13 +45,16 @@ export default function NotebookPanel({ caseId, socket }) {
     const surDeconnexion = () => setEtat('hors_ligne');
     const surRefus = (m) => { if (m?.caseId === caseId) setEtat('refuse'); };
     const surErreur = (m) => { if (m?.caseId === caseId) setEtat('erreur'); };
+    const surRetrait = (m) => { if (String(m?.case_id || '').toLowerCase() === String(caseId).toLowerCase()) setEtat('retire'); };
     socket.on('disconnect', surDeconnexion);
+    socket.on('case:access:revoked', surRetrait);
     socket.on('notebook:denied', surRefus);
     socket.on('notebook:error', surErreur);
     return () => {
       socket.off('disconnect', surDeconnexion);
       socket.off('notebook:denied', surRefus);
       socket.off('notebook:error', surErreur);
+      socket.off('case:access:revoked', surRetrait);
       provider.destroy();
       texte.unobserve(surChangement);
       doc.destroy();

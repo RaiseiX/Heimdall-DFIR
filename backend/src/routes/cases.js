@@ -3,6 +3,7 @@ const crypto = require('crypto');
 const { pool, readPool } = require('../config/database');
 const { authenticate, requireRole, auditLog } = require('../middleware/auth');
 const { hardDeleteCase } = require('../services/hardDeleteService');
+const { reevaluerAcces, retirerDossierDesSockets } = require('../services/sessionRevocation');
 const { getRiskScore } = require('../services/riskScoreService');
 const logger = require('../config/logger').default;
 const { computeTriageScores, saveTriageScores, getTriageScores } = require('../services/triageScoreService');
@@ -57,8 +58,9 @@ router.post('/:id/assignees', authenticate, requireRole('admin', 'team_lead'), a
 
 router.delete('/:id/assignees/:userId', authenticate, requireRole('admin', 'team_lead'), async (req, res) => {
   try {
-    await pool.query('DELETE FROM case_assignees WHERE case_id = $1 AND user_id = $2', [req.params.id, req.params.userId]);
+    const retire = await pool.query('DELETE FROM case_assignees WHERE case_id = $1 AND user_id = $2 RETURNING user_id', [req.params.id, req.params.userId]);
     await auditLog(req.user.id, 'update_case', 'case', req.params.id, { action: 'unassign', user_id: req.params.userId }, req.ip);
+    await reevaluerAcces(req.app.locals.io, retire.rows?.[0]?.user_id ?? String(req.params.userId).toLowerCase());
     res.json({ ok: true });
   } catch (e) { logger.error('remove assignee:', e.message); res.status(500).json({ error: 'Erreur serveur' }); }
 });
@@ -442,6 +444,8 @@ router.put('/:id', authenticate, async (req, res) => {
     const { title, description, status, priority, investigator_id, report_deadline } = req.body;
     const hasDeadline = 'report_deadline' in req.body;
     const deadline = hasDeadline ? (report_deadline ? new Date(report_deadline) : null) : undefined;
+    const avant = await pool.query('SELECT investigator_id FROM cases WHERE id = $1', [req.params.id]);
+    const ancienEnqueteur = avant.rows?.[0]?.investigator_id || null;
     const params = [title, description, status, priority, investigator_id, req.params.id];
     const deadlineClause = hasDeadline ? ', report_deadline = $7' : '';
     if (hasDeadline) params.push(deadline);
@@ -457,6 +461,9 @@ router.put('/:id', authenticate, async (req, res) => {
 
     if (result.rows.length === 0) return res.status(404).json({ error: 'Cas non trouvé' });
     await auditLog(req.user.id, 'update_case', 'case', req.params.id, req.body, req.ip);
+    if (ancienEnqueteur && result.rows[0].investigator_id !== ancienEnqueteur) {
+      await reevaluerAcces(req.app.locals.io, ancienEnqueteur);
+    }
     req.app.locals.io?.emit('dashboard:update');
     res.json(result.rows[0]);
   } catch (err) {
@@ -1648,6 +1655,7 @@ router.delete('/:id/hard-delete', authenticate, requireRole('admin'), async (req
       return res.status(400).json({ error: 'Confirmation destructive requise.', code: 'DESTRUCTIVE_CONFIRMATION_REQUIRED' });
     }
     const result = await hardDeleteCase(pool, req.params.id, req.user.id, req.ip, { confirmation });
+    await retirerDossierDesSockets(req.app.locals.io, req.params.id);
     req.app.locals.io?.emit('dashboard:update');
     res.json({
       message: `Cas ${result.caseNumber} détruit de manière permanente.`,
