@@ -4560,18 +4560,6 @@ router.post('/:caseId/verdicts', authenticate, async (req, res) => {
   const VALID = ['malicious', 'suspicious', 'benign', 'unknown'];
   if (!VALID.includes(verdict)) return res.status(400).json({ error: 'Invalid verdict' });
   try {
-    await req.app.locals.pool.query(`
-      CREATE TABLE IF NOT EXISTS artifact_verdicts (
-        id           BIGSERIAL PRIMARY KEY,
-        case_id      UUID NOT NULL,
-        event_ref    TEXT NOT NULL,
-        verdict      TEXT NOT NULL,
-        analyst_note TEXT,
-        created_by   UUID,
-        updated_at   TIMESTAMPTZ DEFAULT NOW(),
-        UNIQUE(case_id, event_ref)
-      )
-    `);
     const result = await req.app.locals.pool.query(`
       INSERT INTO artifact_verdicts (case_id, event_ref, verdict, analyst_note, created_by)
       VALUES ($1, $2, $3, $4, $5)

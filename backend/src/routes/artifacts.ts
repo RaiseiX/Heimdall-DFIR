@@ -11,25 +11,8 @@ const router = express.Router();
 router.use(authenticate);
 router.param('caseId', caseAccessParam);
 
-function ensureTable(pool: Pool) {
-  pool.query(`
-    CREATE TABLE IF NOT EXISTS artifact_notes (
-      id           UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-      case_id      UUID NOT NULL REFERENCES cases(id) ON DELETE CASCADE,
-      artifact_ref VARCHAR(128) NOT NULL,
-      note         TEXT NOT NULL,
-      author_id    UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      created_at   TIMESTAMPTZ DEFAULT NOW(),
-      updated_at   TIMESTAMPTZ DEFAULT NOW()
-    )
-  `).then(() =>
-    pool.query(`CREATE INDEX IF NOT EXISTS idx_artifact_notes_case_ref ON artifact_notes(case_id, artifact_ref)`)
-  ).catch(() => {});
-}
-
 function pool(req: express.Request): Pool {
   const p = (req as any).app.locals.pool as Pool;
-  ensureTable(p);
   return p;
 }
 

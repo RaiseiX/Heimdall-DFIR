@@ -2,7 +2,7 @@ import * as Y from 'yjs';
 import { Pool } from 'pg';
 import { createDocRegistry, DocRegistry } from './yDocRegistry';
 import {
-  ensureNotebookTableSql, loadNotebookDocSql, saveNotebookDocSql, getNotebookSql, NOTEBOOK_MAX,
+  loadNotebookDocSql, saveNotebookDocSql, getNotebookSql, NOTEBOOK_MAX,
 } from './notebookStore';
 
 export const TEXTE = 'carnet';
@@ -21,17 +21,8 @@ export function separer(existant: string, bloc: string): string {
 }
 
 export function createNotebookRegistry({ audit, debounceMs }: { audit?: Audit; debounceMs?: number } = {}) {
-  const tablesPretes = new WeakSet<object>();
-
-  async function preparer(pool: Pool): Promise<void> {
-    if (tablesPretes.has(pool)) return;
-    await pool.query(ensureNotebookTableSql());
-    tablesPretes.add(pool);
-  }
-
   const registre: DocRegistry = createDocRegistry({
     async load(pool, caseId) {
-      await preparer(pool);
       const doc = new Y.Doc();
       const { rows: [ligne] } = await pool.query(loadNotebookDocSql(), [caseId]);
       if (ligne?.ydoc) Y.applyUpdate(doc, new Uint8Array(ligne.ydoc), 'db');
@@ -39,7 +30,6 @@ export function createNotebookRegistry({ audit, debounceMs }: { audit?: Audit; d
       return doc;
     },
     async save(pool, caseId, doc, meta) {
-      await preparer(pool);
       const texte = doc.getText(TEXTE).toString();
       await pool.query(saveNotebookDocSql(), [caseId, texte, Buffer.from(Y.encodeStateAsUpdate(doc)), meta.auteur]);
       if (audit && meta.auteur && meta.distant) {
@@ -49,7 +39,6 @@ export function createNotebookRegistry({ audit, debounceMs }: { audit?: Audit; d
   }, { label: 'notebook', debounceMs });
 
   async function lire(pool: Pool, caseId: string) {
-    await preparer(pool);
     if (registre.isLive(caseId)) await registre.flush(pool, caseId);
     const { rows: [ligne] } = await pool.query(getNotebookSql(), [caseId]);
     return ligne || { content: '', updated_at: null, updated_by_name: null };

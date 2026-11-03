@@ -788,9 +788,7 @@ INSERT INTO schema_migrations (filename) VALUES
     ('005_timeline_pins.sql'),
     ('006_parser_perf_indexes.sql'),
     ('007_risk_score.sql'),
-    ('008_ioc_cross_case_view.sql'),
-    ('20260322120000_ai_case_context.sql'),
-    ('20260322140000_report_templates.sql')
+    ('008_ioc_cross_case_view.sql')
 ON CONFLICT DO NOTHING;
 
 -- Case assignment for RBAC (analysts only see assigned cases).

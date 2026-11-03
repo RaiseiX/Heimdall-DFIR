@@ -8,16 +8,6 @@ const logger = require('../config/logger').default;
 
 const router = express.Router();
 
-// ── Idempotent schema (project pattern: DDL at module load) ──────────────────
-pool.query(`
-  CREATE TABLE IF NOT EXISTS system_settings (
-    key        TEXT PRIMARY KEY,
-    value      JSONB NOT NULL,
-    updated_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_by UUID
-  )
-`).catch(err => logger.error('system_settings DDL error:', err.message));
-
 // ── Platform defaults (hours). SLA buckets for the dashboard deadline widget. ─
 const DEFAULT_DASHBOARD = {
   sla: { urgentH: 24, warningH: 72, upcomingH: 168 }, // ≤24h, ≤72h, ≤7d

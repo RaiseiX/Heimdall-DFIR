@@ -10,18 +10,6 @@ const { revoquerJti, normaliserId } = require('../services/sessionGuard');
 const logger = require('../config/logger').default;
 const router = express.Router();
 
-// Personal API tokens — idempotent DDL at module load (project convention).
-pool.query(`
-  CREATE TABLE IF NOT EXISTS api_tokens (
-    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    name        VARCHAR(120) NOT NULL,
-    token_hash  VARCHAR(64) NOT NULL UNIQUE,
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    last_used   TIMESTAMPTZ
-  )
-`).catch(err => logger.error('api_tokens DDL:', err.message));
-
 const DEFAULT_PREFERENCES = {
   language: 'fr',
   timezone: 'utc',

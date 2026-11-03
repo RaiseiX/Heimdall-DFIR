@@ -5,28 +5,6 @@ const { authenticate, requireRole } = require('../middleware/auth');
 const logger = require('../config/logger').default;
 const router = express.Router();
 
-pool.query(`
-  CREATE TABLE IF NOT EXISTS feedback (
-    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id     UUID REFERENCES users(id) ON DELETE SET NULL,
-    type        VARCHAR(20) NOT NULL DEFAULT 'bug',
-    title       VARCHAR(200),
-    description TEXT NOT NULL,
-    page_url    VARCHAR(500),
-    status      VARCHAR(20) NOT NULL DEFAULT 'open',
-    admin_reply TEXT,
-    updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
-  )
-`).catch(e => logger.warn('[feedback] table init:', e.message));
-
-pool.query(`
-  ALTER TABLE feedback
-    ADD COLUMN IF NOT EXISTS status     VARCHAR(20) NOT NULL DEFAULT 'open',
-    ADD COLUMN IF NOT EXISTS admin_reply TEXT,
-    ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-`).catch(e => logger.warn('[feedback] migration:', e.message));
-
 router.post('/', authenticate, async (req, res) => {
   try {
     const { type = 'bug', title = '', description, page_url = '' } = req.body;

@@ -6,10 +6,6 @@ const { hardDeleteCase } = require('./hardDeleteService');
 const { auditLog } = require('../middleware/auth');
 const logger = require('../config/logger').default;
 
-// Idempotent: per-case manual exemption flag.
-pool.query(`ALTER TABLE cases ADD COLUMN IF NOT EXISTS retention_exempt BOOLEAN NOT NULL DEFAULT FALSE`)
-  .catch(err => logger.error('retention_exempt DDL:', err.message));
-
 async function getRetentionConfig() {
   try {
     const r = await pool.query(`SELECT value FROM system_settings WHERE key = 'retention'`);

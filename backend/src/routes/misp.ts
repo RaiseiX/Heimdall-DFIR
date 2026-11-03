@@ -1,39 +1,10 @@
 import express from 'express';
-import logger from '../config/logger';
 import type { Pool } from 'pg';
 import { authenticate, requireRole } from '../middleware/auth';
 import type { AuthRequest } from '../types/index';
 import { syncMispInstance, testMispConnection, type MispInstance } from '../services/mispService';
 
 const router = express.Router();
-
-async function ensureTables(pool: Pool): Promise<void> {
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS misp_instances (
-      id              UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
-      name            VARCHAR(200) NOT NULL,
-      url             TEXT NOT NULL,
-      api_key         TEXT NOT NULL,
-      verify_ssl      BOOLEAN DEFAULT true,
-      is_active       BOOLEAN DEFAULT true,
-      last_synced     TIMESTAMPTZ,
-      indicator_count INTEGER DEFAULT 0,
-      created_at      TIMESTAMPTZ DEFAULT NOW()
-    );
-  `);
-}
-
-let _tablesReady = false;
-function initTables(pool: Pool): void {
-  if (_tablesReady) return;
-  _tablesReady = true;
-  ensureTables(pool).catch(e => logger.error('[MISP] ensureTables error:', e.message));
-}
-
-router.use((req, res, next) => {
-  initTables(res.app.locals.pool as Pool);
-  next();
-});
 
 // api_key is never returned to the client.
 const PUBLIC_COLS =

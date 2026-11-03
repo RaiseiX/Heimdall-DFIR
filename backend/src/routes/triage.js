@@ -10,16 +10,6 @@ const { caseListFilter, canAccessCase, ELEVATED } = require('../middleware/caseA
 
 const router = express.Router();
 
-// Ensure the persistent alert table exists (lazy, once).
-let _alertTableInit = false;
-router.use((req, res, next) => {
-  if (!_alertTableInit) {
-    _alertTableInit = true;
-    triageSvc.ensureTable().catch(e => logger.error('[triage] ensureTable error:', e.message));
-  }
-  next();
-});
-
 const SEV_RANK = { critical: 0, high: 1, medium: 2, low: 3 };
 
 // SLA thresholds (hours) from system_settings, with safe defaults.
