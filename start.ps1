@@ -131,6 +131,21 @@ if (-not (Test-Path ".env")) {
     if ($envContent -notmatch "(?m)^VOLWEB_PUBLIC_URL=") { Add-Content ".env" "VOLWEB_PUBLIC_URL=http://localhost:8888" }
 }
 
+$auditKeyCurrent = Get-EnvValue "AUDIT_HMAC_KEY"
+if ([string]::IsNullOrWhiteSpace($auditKeyCurrent) -or $auditKeyCurrent.StartsWith("CHANGEME")) {
+    $auditKeyNew = New-RandomHex 64
+    $envLines = @(Get-Content ".env")
+    if ($envLines | Where-Object { $_ -match "^AUDIT_HMAC_KEY=" }) {
+        $envLines = $envLines | ForEach-Object { if ($_ -match "^AUDIT_HMAC_KEY=") { "AUDIT_HMAC_KEY=$auditKeyNew" } else { $_ } }
+    } else {
+        $envLines += "AUDIT_HMAC_KEY=$auditKeyNew"
+    }
+    Set-Content ".env" $envLines
+    Remove-Variable auditKeyNew
+    Write-Ok "AUDIT_HMAC_KEY generated"
+}
+Remove-Variable auditKeyCurrent
+
 $VOLWEB_USER_VAL         = Get-EnvValue "VOLWEB_USER"
 $VOLWEB_PASSWORD_VAL     = Get-EnvValue "VOLWEB_PASSWORD"
 $MINIO_ROOT_USER_VAL     = Get-EnvValue "MINIO_ROOT_USER"

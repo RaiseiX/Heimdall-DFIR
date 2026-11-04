@@ -1,8 +1,9 @@
 const express = require('express');
 const crypto = require('crypto');
 const { pool, readPool } = require('../config/database');
-const { authenticate, requireRole, auditLog } = require('../middleware/auth');
+const { authenticate, requireRole, auditLog, auditCritical } = require('../middleware/auth');
 const { hardDeleteCase } = require('../services/hardDeleteService');
+const { createPseudonymizer } = require('../services/pseudonymisation');
 const { reevaluerAcces, retirerDossierDesSockets } = require('../services/sessionRevocation');
 const { getRiskScore } = require('../services/riskScoreService');
 const logger = require('../config/logger').default;
@@ -14,6 +15,20 @@ const { buildLateralMovement, mapNetworkRowsToLateral } = require('../services/l
 const { SYSMON_BEHAVIOR_VECTORS, TIMESTOMP_QUERY, EXEC_ANOMALY_VECTORS, WMI_PERSISTENCE_VECTORS } = require('../services/detectionVectors');
 
 const router = express.Router();
+
+const ASSIGNABLE_ROLES = ['analyst', 'team_lead', 'admin'];
+const INVESTIGATOR_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+async function validerEnqueteur(valeur) {
+  if (typeof valeur !== 'string' || !INVESTIGATOR_UUID_RE.test(valeur)) {
+    return { status: 400, error: 'investigator_id invalide' };
+  }
+  const r = await pool.query(
+    `SELECT id FROM users WHERE id = $1 AND role = ANY($2::text[]) AND is_active IS NOT FALSE`,
+    [valeur.toLowerCase(), ASSIGNABLE_ROLES]);
+  if (!r.rows || r.rows.length === 0) return { status: 404, error: 'Enquêteur introuvable ou inactif' };
+  return { id: String(r.rows[0].id || valeur).toLowerCase() };
+}
 
 const { caseAccessParam, caseListFilter, canAccessCase, ELEVATED } = require('../middleware/caseAccess');
 // Enforce case-level access on every route carrying :id (the case id). The cases
@@ -405,7 +420,20 @@ router.post('/', authenticate, async (req, res) => {
     const num = maxResult.rows[0].max_num + 1;
     const case_number = `CASE-${year}-${String(num).padStart(3, '0')}`;
 
-    const validInvestigator = investigator_id && investigator_id.match(/^[0-9a-f-]{36}$/i) ? investigator_id : null;
+    let validInvestigator = null;
+    if (investigator_id !== undefined && investigator_id !== null && investigator_id !== '') {
+      const soiMeme = typeof investigator_id === 'string' && investigator_id.toLowerCase() === String(req.user.id).toLowerCase();
+      if (!soiMeme && !ELEVATED.has(req.user.role)) {
+        return res.status(403).json({ error: 'Désignation d\'un enquêteur réservée aux administrateurs et chefs d\'équipe' });
+      }
+      if (soiMeme) {
+        validInvestigator = req.user.id;
+      } else {
+        const cible = await validerEnqueteur(investigator_id);
+        if (cible.error) return res.status(cible.status).json({ error: cible.error });
+        validInvestigator = cible.id;
+      }
+    }
 
     const deadline = report_deadline ? new Date(report_deadline) : null;
     if (deadline && isNaN(deadline.getTime())) {
@@ -446,7 +474,19 @@ router.put('/:id', authenticate, async (req, res) => {
     const deadline = hasDeadline ? (report_deadline ? new Date(report_deadline) : null) : undefined;
     const avant = await pool.query('SELECT investigator_id FROM cases WHERE id = $1', [req.params.id]);
     const ancienEnqueteur = avant.rows?.[0]?.investigator_id || null;
-    const params = [title, description, status, priority, investigator_id, req.params.id];
+    let nouvelEnqueteur = investigator_id;
+    const demande = investigator_id !== undefined && investigator_id !== null;
+    const inchange = demande && typeof investigator_id === 'string' && ancienEnqueteur
+      && investigator_id.toLowerCase() === String(ancienEnqueteur).toLowerCase();
+    if (demande && !inchange) {
+      if (!ELEVATED.has(req.user.role)) {
+        return res.status(403).json({ error: 'Changement d\'enquêteur réservé aux administrateurs et chefs d\'équipe' });
+      }
+      const cible = await validerEnqueteur(investigator_id);
+      if (cible.error) return res.status(cible.status).json({ error: cible.error });
+      nouvelEnqueteur = cible.id;
+    }
+    const params = [title, description, status, priority, nouvelEnqueteur, req.params.id];
     const deadlineClause = hasDeadline ? ', report_deadline = $7' : '';
     if (hasDeadline) params.push(deadline);
     const result = await pool.query(
@@ -461,6 +501,10 @@ router.put('/:id', authenticate, async (req, res) => {
 
     if (result.rows.length === 0) return res.status(404).json({ error: 'Cas non trouvé' });
     await auditLog(req.user.id, 'update_case', 'case', req.params.id, req.body, req.ip);
+    if (result.rows[0].investigator_id !== ancienEnqueteur) {
+      await auditLog(req.user.id, 'update_case', 'case', req.params.id,
+        { action: 'set_investigator', from: ancienEnqueteur, to: result.rows[0].investigator_id }, req.ip);
+    }
     if (ancienEnqueteur && result.rows[0].investigator_id !== ancienEnqueteur) {
       await reevaluerAcces(req.app.locals.io, ancienEnqueteur);
     }
@@ -1416,6 +1460,21 @@ router.get('/:id/detections/vuln-drivers', authenticate, async (req, res) => {
   }
 });
 
+async function inTransaction(work) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const value = await work(client);
+    await client.query('COMMIT');
+    return value;
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
 router.post('/:id/legal-hold', authenticate, requireRole('admin'), async (req, res) => {
   const { reason } = req.body;
   try {
@@ -1424,14 +1483,24 @@ router.post('/:id/legal-hold', authenticate, requireRole('admin'), async (req, r
     const c = caseRes.rows[0];
     if (c.legal_hold) return res.status(409).json({ error: 'Legal hold déjà actif sur ce cas' });
 
-    const updated = await pool.query(
-      'UPDATE cases SET legal_hold = TRUE, legal_hold_at = NOW(), legal_hold_by = $1 WHERE id = $2 RETURNING id',
-      [req.user.id, req.params.id]
-    );
-    if (!updated.rowCount) return res.status(404).json({ error: 'Cas introuvable' });
-
-    await auditLog(req.user.id, 'legal_hold_enable', 'case', req.params.id,
-      { reason: reason || null }, req.ip);
+    const outcome = await inTransaction(async (client) => {
+      const upd = await client.query(
+        'UPDATE cases SET legal_hold = TRUE, legal_hold_at = NOW(), legal_hold_by = $1 WHERE id = $2 AND legal_hold = FALSE RETURNING id',
+        [req.user.id, req.params.id]
+      );
+      if (!upd.rowCount) {
+        const current = await client.query('SELECT legal_hold FROM cases WHERE id = $1', [req.params.id]);
+        return { applied: false, exists: current.rows.length > 0 };
+      }
+      await auditCritical(client, req.user.id, 'legal_hold_enable', 'case', req.params.id,
+        { reason: reason || null }, req.ip);
+      return { applied: true, exists: true };
+    });
+    if (!outcome.applied) {
+      return outcome.exists
+        ? res.status(409).json({ error: 'Legal hold déjà actif sur ce cas' })
+        : res.status(404).json({ error: 'Cas introuvable' });
+    }
 
     res.json({ message: 'Legal Hold activé', case_id: req.params.id });
   } catch (err) {
@@ -1446,12 +1515,23 @@ router.delete('/:id/legal-hold', authenticate, requireRole('admin'), async (req,
     if (caseRes.rows.length === 0) return res.status(404).json({ error: 'Cas introuvable' });
     if (!caseRes.rows[0].legal_hold) return res.status(409).json({ error: 'Aucun legal hold actif' });
 
-    await pool.query(
-      'UPDATE cases SET legal_hold = FALSE, legal_hold_at = NULL, legal_hold_by = NULL WHERE id = $1',
-      [req.params.id]
-    );
-
-    await auditLog(req.user.id, 'legal_hold_disable', 'case', req.params.id, {}, req.ip);
+    const outcome = await inTransaction(async (client) => {
+      const upd = await client.query(
+        'UPDATE cases SET legal_hold = FALSE, legal_hold_at = NULL, legal_hold_by = NULL WHERE id = $1 AND legal_hold = TRUE RETURNING id',
+        [req.params.id]
+      );
+      if (!upd.rowCount) {
+        const current = await client.query('SELECT legal_hold FROM cases WHERE id = $1', [req.params.id]);
+        return { applied: false, exists: current.rows.length > 0 };
+      }
+      await auditCritical(client, req.user.id, 'legal_hold_disable', 'case', req.params.id, {}, req.ip);
+      return { applied: true, exists: true };
+    });
+    if (!outcome.applied) {
+      return outcome.exists
+        ? res.status(409).json({ error: 'Aucun legal hold actif' })
+        : res.status(404).json({ error: 'Cas introuvable' });
+    }
     res.json({ message: 'Legal Hold désactivé' });
   } catch (err) {
     res.status(500).json({ error: 'Erreur serveur' });
@@ -1545,103 +1625,72 @@ router.get('/:id/legal-hold/manifest', authenticate, requireRole('admin'), async
   }
 });
 
-function pseudoIP(ip, ipMap) {
-  if (!ip || typeof ip !== 'string') return ip;
-  if (!ipMap.has(ip)) {
-    const idx = ipMap.size + 1;
-    ipMap.set(ip, `10.ANON.${Math.floor((idx - 1) / 254) + 1}.${((idx - 1) % 254) + 1}`);
-  }
-  return ipMap.get(ip);
-}
+const EXPORT_ANONYMIZED_LIMIT = 500;
 
-function pseudoName(name, nameMap, prefix) {
-  if (!name || typeof name !== 'string' || !name.trim()) return name;
-  const key = name.trim().toLowerCase();
-  if (!nameMap.has(key)) {
-    nameMap.set(key, `${prefix}_${nameMap.size + 1}`);
-  }
-  return nameMap.get(key);
-}
-
-function anonymizeRaw(raw, ipMap, userMap, hostMap) {
-  if (!raw || typeof raw !== 'object') return raw;
-  const result = { ...raw };
-
-  for (const field of ['RemoteHost','RemoteAddress','DstIP','dst_ip','DestinationIp','id.resp_h','SourceIP','src_ip','ip']) {
-    if (result[field]) result[field] = pseudoIP(result[field], ipMap);
-  }
-
-  for (const field of ['User','Username','UserName','SubjectUserName','TargetUserName','email','Email']) {
-    if (result[field]) result[field] = pseudoName(result[field], userMap, 'USER');
-  }
-
-  for (const field of ['Computer','Hostname','hostname','host','WorkstationName']) {
-    if (result[field]) result[field] = pseudoName(result[field], hostMap, 'HOST');
-  }
-
-  return result;
-}
-
-router.get('/:id/export/anonymized', authenticate, async (req, res) => {
+router.get('/:id/export/anonymized', authenticate, requireRole('admin', 'team_lead'), async (req, res) => {
   const { id } = req.params;
 
   try {
-    const [caseRes, eventsRes, iocsRes] = await Promise.all([
+    const [caseRes, countRes, eventsRes, iocsRes] = await Promise.all([
       pool.query(`SELECT id, case_number, title, status, created_at FROM cases WHERE id = $1`, [id]),
-      pool.query(`SELECT id, timestamp, artifact_type, source, description, raw FROM collection_timeline WHERE case_id = $1 ORDER BY timestamp LIMIT 500`, [id]),
+      pool.query(`SELECT COUNT(*)::int AS total FROM collection_timeline WHERE case_id = $1`, [id]),
+      pool.query(`SELECT id, timestamp, artifact_type, source, description, raw FROM collection_timeline WHERE case_id = $1 ORDER BY timestamp LIMIT $2`, [id, EXPORT_ANONYMIZED_LIMIT]),
       pool.query(`SELECT id, ioc_type, value, is_malicious, tags FROM iocs WHERE case_id = $1`, [id]),
     ]);
 
     if (caseRes.rows.length === 0) return res.status(404).json({ error: 'Cas introuvable' });
     const caseInfo = caseRes.rows[0];
 
-    const ipMap = new Map();
-    const userMap = new Map();
-    const hostMap = new Map();
+    const pseudo = createPseudonymizer();
 
-    const anonymizedIOCs = iocsRes.rows.map(ioc => {
-      const val = ioc.ioc_type === 'ip' ? pseudoIP(ioc.value, ipMap) : ioc.value;
-      return { type: ioc.ioc_type, value: val, is_malicious: ioc.is_malicious, tags: ioc.tags };
-    });
-
+    for (const ev of eventsRes.rows) pseudo.raw(ev.raw);
     const anonymizedEvents = eventsRes.rows.map(ev => ({
       timestamp: ev.timestamp,
       artifact_type: ev.artifact_type,
-      source: ev.source,
-      description: ev.description?.replace(/\b(\d{1,3}\.){3}\d{1,3}\b/g, ip => pseudoIP(ip, ipMap)) || ev.description,
-      raw: anonymizeRaw(ev.raw, ipMap, userMap, hostMap),
+      source: pseudo.text(ev.source),
+      description: pseudo.text(ev.description),
+      raw: pseudo.raw(ev.raw),
     }));
 
-    const pseudonymMap = {
-      hosts: Object.fromEntries([...hostMap.entries()].map(([real, pseudo]) => [real, pseudo])),
-      users: Object.fromEntries([...userMap.entries()].map(([real, pseudo]) => [real, pseudo])),
-      ips: Object.fromEntries([...ipMap.entries()].map(([real, pseudo]) => [real, pseudo])),
-    };
+    const anonymizedIOCs = iocsRes.rows.map(ioc => ({
+      type: ioc.ioc_type,
+      value: pseudo.ioc(ioc.ioc_type, ioc.value),
+      is_malicious: ioc.is_malicious,
+      tags: Array.isArray(ioc.tags) ? ioc.tags.map(t => pseudo.text(t)) : ioc.tags,
+    }));
 
+    const totalEvents = Number(countRes.rows[0]?.total ?? anonymizedEvents.length);
+    const exportedEvents = anonymizedEvents.length;
+    const truncated = totalEvents > exportedEvents;
+
+    await auditCritical(pool, req.user.id, 'export_anonymized', 'case', id,
+      { exported_events: exportedEvents, total_events: totalEvents, truncated }, req.ip);
+
+    const opaqueId = crypto.randomUUID();
     const exportData = {
       case: {
-        id: caseInfo.id,
-        title: 'Données anonymisées RGPD',
-        case_number: `ANON-${caseInfo.case_number || id.slice(0, 8)}`,
+        id: opaqueId,
+        title: 'Données pseudonymisées RGPD',
+        case_number: `ANON-${opaqueId.slice(0, 8)}`,
         status: caseInfo.status,
         original_created: caseInfo.created_at,
       },
       events: anonymizedEvents,
       iocs: anonymizedIOCs,
-      pseudonym_map: pseudonymMap,
+      total_events: totalEvents,
+      exported_events: exportedEvents,
+      limit: EXPORT_ANONYMIZED_LIMIT,
+      truncated,
       exported_at: new Date().toISOString(),
-      format_version: '1.0',
+      format_version: '1.1',
       anonymization: true,
-      rgpd_notice: 'Ce fichier a été anonymisé conformément au RGPD. Les données personnelles ont été pseudonymisées.',
+      rgpd_notice: 'Ce fichier a été pseudonymisé : les données personnelles ont été remplacées par des pseudonymes et aucune table de correspondance n\'est fournie.',
     };
 
-    const filename = `forensiclab-anonymized-${caseInfo.case_number || id.slice(0,8)}-${new Date().toISOString().slice(0,10)}.json`;
+    const filename = `forensiclab-pseudonymized-${opaqueId.slice(0, 8)}-${new Date().toISOString().slice(0,10)}.json`;
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
     res.setHeader('Content-Type', 'application/json');
     res.json(exportData);
-
-    pool.query(`INSERT INTO audit_logs (user_id, action, resource_type, resource_id) VALUES ($1, 'export_anonymized', 'case', $2)`,
-      [req.user.id, id]).catch(() => {});
   } catch (err) {
     logger.error('[export-anonymized] error:', err.message);
     res.status(500).json({ error: 'Erreur serveur' });

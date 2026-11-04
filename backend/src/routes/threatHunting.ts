@@ -24,6 +24,12 @@ const { withCaseDeletion } = require('../services/caseDeletion');
 
 const router = express.Router();
 
+const AUDIT_ACTION_MAX = 50;
+function boundedAuditAction(prefix: string, suffix: unknown): string {
+  const clean = String(suffix ?? '').replace(/[^a-z0-9_]/gi, '').toLowerCase();
+  return `${prefix}_${clean}`.slice(0, AUDIT_ACTION_MAX);
+}
+
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const { caseAccessParam, canAccessCase } = require('../middleware/caseAccess');
 router.use(authenticate as any);
@@ -33,96 +39,9 @@ function getPool(req: express.Request): Pool {
   return (req as any).app.locals.pool as Pool;
 }
 
-async function ensureTables(pool: Pool): Promise<void> {
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS yara_rules (
-      id          UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
-      name        VARCHAR(200) NOT NULL,
-      description TEXT,
-      content     TEXT NOT NULL,
-      author_id   UUID REFERENCES users(id) ON DELETE SET NULL,
-      tags        VARCHAR[] DEFAULT '{}',
-      is_active   BOOLEAN DEFAULT true,
-      created_at  TIMESTAMPTZ DEFAULT NOW(),
-      updated_at  TIMESTAMPTZ DEFAULT NOW()
-    )
-  `);
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS yara_scan_results (
-      id              UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
-      evidence_id     UUID REFERENCES evidence(id) ON DELETE CASCADE,
-      case_id         UUID REFERENCES cases(id) ON DELETE CASCADE,
-      rule_id         UUID REFERENCES yara_rules(id) ON DELETE CASCADE,
-      rule_name       VARCHAR(200) NOT NULL,
-      matched_strings JSONB DEFAULT '[]',
-      scanned_at      TIMESTAMPTZ DEFAULT NOW()
-    )
-  `);
-  await pool.query(`CREATE INDEX IF NOT EXISTS idx_yara_scan_case     ON yara_scan_results(case_id)`);
-  await pool.query(`CREATE INDEX IF NOT EXISTS idx_yara_scan_evidence ON yara_scan_results(evidence_id)`);
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS sigma_rules (
-      id                  UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
-      name                VARCHAR(200) NOT NULL,
-      description         TEXT,
-      content             TEXT NOT NULL,
-      author_id           UUID REFERENCES users(id) ON DELETE SET NULL,
-      logsource_category  VARCHAR(100),
-      logsource_product   VARCHAR(100),
-      tags                VARCHAR[] DEFAULT '{}',
-      level               VARCHAR(20),
-      mitre_techniques    TEXT[] NOT NULL DEFAULT '{}',
-      upstream_status     VARCHAR(20),
-      is_active           BOOLEAN DEFAULT true,
-      created_at          TIMESTAMPTZ DEFAULT NOW(),
-      updated_at          TIMESTAMPTZ DEFAULT NOW()
-    )
-  `);
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS sigma_hunt_results (
-      id              UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
-      case_id         UUID REFERENCES cases(id) ON DELETE CASCADE,
-      rule_id         UUID REFERENCES sigma_rules(id) ON DELETE CASCADE,
-      rule_name       VARCHAR(200) NOT NULL,
-      match_count     INTEGER DEFAULT 0,
-      matched_events  JSONB DEFAULT '[]',
-      hunted_at       TIMESTAMPTZ DEFAULT NOW()
-    )
-  `);
-  await pool.query(`CREATE INDEX IF NOT EXISTS idx_sigma_hunt_case ON sigma_hunt_results(case_id)`);
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS sysmon_library (
-      config_key   VARCHAR(80) PRIMARY KEY,
-      name         VARCHAR(200) NOT NULL,
-      author       VARCHAR(120),
-      license      VARCHAR(120),
-      source_url   TEXT,
-      content      TEXT NOT NULL,
-      imported_by  UUID REFERENCES users(id) ON DELETE SET NULL,
-      imported_at  TIMESTAMPTZ DEFAULT NOW(),
-      updated_at   TIMESTAMPTZ DEFAULT NOW()
-    )
-  `);
-}
-
-let migrationDone = false;
-function withMigration(pool: Pool): Pool {
-  if (!migrationDone) {
-    migrationDone = true;
-    ensureTables(pool).catch((e) =>
-      logger.warn('[ThreatHunting] migration warning:', e.message),
-    );
-  }
-  return pool;
-}
-
-function poolMig(req: express.Request): Pool {
-  return withMigration(getPool(req));
-}
-
 router.get('/yara/rules', authenticate, async (req, res) => {
   try {
-    const result = await poolMig(req).query(
+    const result = await getPool(req).query(
       `SELECT r.id, r.name, r.description, r.content, r.tags, r.is_active, r.created_at, r.updated_at,
               u.username AS author_username, u.full_name AS author_name
          FROM yara_rules r
@@ -145,7 +64,7 @@ router.post('/yara/rules', authenticate, (requireRole as any)('analyst', 'admin'
 
     const userId = (req as AuthRequest).user?.id;
     const tagsArr = Array.isArray(tags) ? tags : [];
-    const result = await poolMig(req).query(
+    const result = await getPool(req).query(
       `INSERT INTO yara_rules (name, description, content, author_id, tags)
        VALUES ($1, $2, $3, $4, $5)
        RETURNING id, name, description, tags, is_active, created_at`,
@@ -162,7 +81,7 @@ router.put('/yara/rules/:id', authenticate, (requireRole as any)('analyst', 'adm
     const { id } = req.params;
     const { name, description, content, tags, is_active } = req.body;
 
-    const pool = poolMig(req);
+    const pool = getPool(req);
     const current = await pool.query('SELECT * FROM yara_rules WHERE id = $1', [id]);
     if (current.rows.length === 0) return res.status(404).json({ error: 'Règle introuvable' });
 
@@ -194,7 +113,7 @@ router.put('/yara/rules/:id', authenticate, (requireRole as any)('analyst', 'adm
 router.delete('/yara/rules/:id', authenticate, (requireRole as any)('analyst', 'admin'), async (req: express.Request, res: express.Response) => {
   try {
     const { id } = req.params;
-    const result = await poolMig(req).query(
+    const result = await getPool(req).query(
       'DELETE FROM yara_rules WHERE id = $1 RETURNING id',
       [id],
     );
@@ -208,7 +127,7 @@ router.delete('/yara/rules/:id', authenticate, (requireRole as any)('analyst', '
 router.post('/yara/scan/:evidenceId', authenticate, (requireRole as any)('analyst', 'admin'), async (req: express.Request, res: express.Response) => {
   try {
     const { evidenceId } = req.params;
-    const pool = poolMig(req);
+    const pool = getPool(req);
 
     const evResult = await pool.query(
       'SELECT id, case_id, file_path, name FROM evidence WHERE id = $1',
@@ -297,7 +216,7 @@ router.post('/yara/scan-case/:caseId', authenticate, (requireRole as any)('analy
 
   try {
     const { caseId } = req.params;
-    const pool = poolMig(req);
+    const pool = getPool(req);
     await withCaseDeletion(pool, caseId, async () => {});
 
     const [evResult, rulesResult] = await Promise.all([
@@ -426,7 +345,7 @@ router.post('/yara/scan-case/:caseId', authenticate, (requireRole as any)('analy
 router.get('/yara/results/:caseId', authenticate, async (req, res) => {
   try {
     const { caseId } = req.params;
-    const result = await poolMig(req).query(
+    const result = await getPool(req).query(
       `SELECT s.id, s.evidence_id, s.rule_id, s.rule_name, s.matched_strings, s.scanned_at,
               e.name AS evidence_name, e.file_path
          FROM yara_scan_results s
@@ -444,7 +363,7 @@ router.get('/yara/results/:caseId', authenticate, async (req, res) => {
 router.get('/yara/results/evidence/:evidenceId', authenticate, async (req, res) => {
   try {
     const { evidenceId } = req.params;
-    const pool = poolMig(req);
+    const pool = getPool(req);
     const parent = await pool.query('SELECT case_id FROM evidence WHERE id = $1', [evidenceId]);
     if (!parent.rows.length) return res.status(404).json({ error: 'Evidence introuvable' });
     const caseId = parent.rows[0].case_id;
@@ -471,7 +390,7 @@ router.get('/yara/results/evidence/:evidenceId', authenticate, async (req, res) 
 // its results with it) without this query needing to know it ever existed.
 router.get('/yara/rule-stats', authenticate, async (req, res) => {
   try {
-    const result = await poolMig(req).query(
+    const result = await getPool(req).query(
       `SELECT rule_id,
               COUNT(*)::int                AS match_count,
               COUNT(DISTINCT case_id)::int AS case_count,
@@ -488,7 +407,7 @@ router.get('/yara/rule-stats', authenticate, async (req, res) => {
 
 router.get('/sigma/rules', authenticate, async (req, res) => {
   try {
-    const result = await poolMig(req).query(
+    const result = await getPool(req).query(
       `SELECT ${ruleSelect(false)}
          FROM sigma_rules r
          LEFT JOIN users u ON u.id = r.author_id
@@ -502,7 +421,7 @@ router.get('/sigma/rules', authenticate, async (req, res) => {
 
 router.get('/sigma/rules/:id', authenticate, async (req, res) => {
   try {
-    const result = await poolMig(req).query(
+    const result = await getPool(req).query(
       `SELECT ${ruleSelect(true)}
          FROM sigma_rules r
          LEFT JOIN users u ON u.id = r.author_id
@@ -530,7 +449,7 @@ router.post('/sigma/rules', authenticate, (requireRole as any)('analyst', 'admin
     // extracted separately into mitre_techniques below (Task 4 of the
     // platform-scoping plan). See sigmaService.ts::extractMitreTechniques.
     const tagsArr = Array.isArray(tags) ? tags : [];
-    const result = await poolMig(req).query(
+    const result = await getPool(req).query(
       `INSERT INTO sigma_rules
          (name, description, content, author_id, logsource_category, logsource_product, tags,
           level, mitre_techniques, upstream_status)
@@ -576,7 +495,7 @@ router.put('/sigma/rules/:id', authenticate, (requireRole as any)('analyst', 'ad
       upstreamStatus  = validation.upstreamStatus ?? null;
     }
 
-    const pool = poolMig(req);
+    const pool = getPool(req);
     const current = await pool.query('SELECT * FROM sigma_rules WHERE id = $1', [id]);
     if (current.rows.length === 0) return res.status(404).json({ error: 'Règle introuvable' });
 
@@ -612,7 +531,7 @@ router.put('/sigma/rules/:id', authenticate, (requireRole as any)('analyst', 'ad
 router.delete('/sigma/rules/:id', authenticate, (requireRole as any)('analyst', 'admin'), async (req: express.Request, res: express.Response) => {
   try {
     const { id } = req.params;
-    const result = await poolMig(req).query(
+    const result = await getPool(req).query(
       'DELETE FROM sigma_rules WHERE id = $1 RETURNING id',
       [id],
     );
@@ -771,7 +690,7 @@ router.post('/sigma/hunt/:caseId', authenticate, (requireRole as any)('analyst',
     const { ruleId } = req.body;
     if (!ruleId) return res.status(400).json({ error: 'ruleId est requis' });
 
-    const pool = poolMig(req);
+    const pool = getPool(req);
 
     const ruleResult = await pool.query(
       'SELECT * FROM sigma_rules WHERE id = $1',
@@ -880,7 +799,7 @@ router.post('/sigma/hunt/:caseId', authenticate, (requireRole as any)('analyst',
 router.get('/sigma/hunt/:caseId/:huntId/timeline-ids', authenticate, async (req: express.Request, res: express.Response) => {
   try {
     const { caseId, huntId } = req.params;
-    const pool = poolMig(req);
+    const pool = getPool(req);
 
     const huntResult = await pool.query(
       `SELECT h.id, h.rule_id, h.rule_name, r.content
@@ -937,7 +856,7 @@ router.post('/sigma/scan-case/:caseId', authenticate, (requireRole as any)('anal
 
   try {
     const { caseId } = req.params;
-    const pool = poolMig(req);
+    const pool = getPool(req);
 
     const totalActiveResult = await pool.query('SELECT COUNT(*)::int AS count FROM sigma_rules WHERE is_active = true');
     const totalActive: number = totalActiveResult.rows[0].count;
@@ -1094,7 +1013,7 @@ router.get('/sigma/hunts/:caseId', authenticate, async (req, res) => {
   try {
     const { caseId } = req.params;
     const q = huntHistoryQuery(caseId, Number(req.query.limit) || 50);
-    const result = await poolMig(req).query(q.text, q.values);
+    const result = await getPool(req).query(q.text, q.values);
 
     const hunts = result.rows.map((row: any) => {
       const { rule_content, verdict_status_raw, verdict_fingerprint, verdict_note_raw,
@@ -1120,7 +1039,7 @@ router.put('/sigma/verdict/:caseId/:ruleId', authenticate, (requireRole as any)(
       return res.status(400).json({ error: `Statut invalide. Attendu : ${VERDICT_STATUSES.join(', ')}` });
     }
 
-    const pool = poolMig(req);
+    const pool = getPool(req);
     const ruleRow = await pool.query('SELECT id, name, content FROM sigma_rules WHERE id = $1', [ruleId]);
     if (ruleRow.rows.length === 0) return res.status(404).json({ error: 'Règle Sigma introuvable' });
 
@@ -1269,7 +1188,7 @@ router.post('/github/import', authenticate, (requireRole as any)('admin'),
     if (paths.length > 50) return res.status(400).json({ error: 'Maximum 50 règles par import' });
 
     const userId = (req as AuthRequest).user?.id;
-    const pool   = poolMig(req);
+    const pool   = getPool(req);
 
     let imported = 0;
     let skipped  = 0;
@@ -1312,8 +1231,8 @@ router.post('/github/import', authenticate, (requireRole as any)('admin'),
       }
     }
 
-    await auditLog(userId, `github_import_${type}`, 'system', null as any,
-      { repo: `${owner}/${repo}`, branch, imported, skipped }, req.ip);
+    await auditLog(userId, boundedAuditAction('github_import', type), 'system', null as any,
+      { repo: `${owner}/${repo}`, rule_type: String(type), branch, imported, skipped }, req.ip);
 
     res.json({ imported, skipped, errors });
   } catch (e: any) {
@@ -1378,7 +1297,7 @@ router.post('/github/import-zip', authenticate, (requireRole as any)('admin'),
     }
 
     const userId = (req as AuthRequest).user?.id;
-    const pool   = poolMig(req);
+    const pool   = getPool(req);
 
     const tmpZip = path.join(os.tmpdir(), `heimdall_${uuidv4()}.zip`);
     const tmpDir = path.join(os.tmpdir(), `heimdall_${uuidv4()}`);
@@ -1443,8 +1362,8 @@ router.post('/github/import-zip', authenticate, (requireRole as any)('admin'),
         }
       }
 
-      await auditLog(userId, `github_zip_import_${type}`, 'system', null as any,
-        { repo: `${owner}/${repo}`, branch, total: files.length, imported, skipped }, req.ip);
+      await auditLog(userId, boundedAuditAction('github_zip_import', type), 'system', null as any,
+        { repo: `${owner}/${repo}`, rule_type: String(type), branch, total: files.length, imported, skipped }, req.ip);
 
       logger.info(`[ZipImport] Terminé — ${imported} importées, ${skipped} ignorées`);
       res.json({ total: files.length, imported, skipped, errors });
@@ -1492,7 +1411,6 @@ router.post('/sysmon/configs/:key/import', authenticate, (requireRole as any)('a
   if (!cfg) return res.status(404).json({ error: 'Configuration Sysmon inconnue' });
   try {
     const pool = getPool(req);
-    await ensureTables(pool);
     const xml = await httpsGetText(cfg.url);
     if (!xml || !xml.toLowerCase().includes('<sysmon')) throw new Error('Contenu inattendu (XML Sysmon non détecté)');
     await pool.query(
@@ -1501,7 +1419,7 @@ router.post('/sysmon/configs/:key/import', authenticate, (requireRole as any)('a
        ON CONFLICT (config_key) DO UPDATE SET content = $6, source_url = $5, imported_by = $7, updated_at = NOW()`,
       [req.params.key, cfg.name, cfg.author, cfg.license, cfg.url, xml, req.user!.id]
     );
-    await auditLog(req.user!.id, 'download_sysmon_config', 'sysmon', req.params.key, { url: cfg.url, action: 'import', bytes: xml.length }, req.ip);
+    await auditLog(req.user!.id, 'download_sysmon_config', 'sysmon', null as any, { config_key: req.params.key, url: cfg.url, action: 'import', bytes: xml.length }, req.ip);
     res.json({ ok: true, key: req.params.key, bytes: xml.length });
   } catch (e: any) {
     logger.error('[sysmon import]', e.message);
@@ -1564,7 +1482,7 @@ const { startRunAll, getRunAllJob } = require('../services/runAllService');
 router.get('/run-all/:caseId/scope', authenticate, async (req: express.Request, res: express.Response) => {
   try {
     const { caseId } = req.params;
-    const pool = poolMig(req);
+    const pool = getPool(req);
 
     const [yaraRulesResult, evidenceCountResult, sigmaTotalResult, timelineCountResult] = await Promise.all([
       pool.query('SELECT COUNT(*)::int AS count FROM yara_rules WHERE is_active = true'),

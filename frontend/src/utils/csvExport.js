@@ -1,7 +1,8 @@
+import { csvCell } from './csvCell.js';
 
 export function downloadCSV(rows, columns, filename) {
   const BOM = '\uFEFF';
-  const escape = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+  const escape = (v) => csvCell(v);
 
   const header = columns.map(c => escape(c.label)).join(',');
   const body   = rows.map(r =>

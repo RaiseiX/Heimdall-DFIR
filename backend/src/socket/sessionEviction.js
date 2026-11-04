@@ -1,7 +1,7 @@
 'use strict';
 
 const { canAccessCase } = require('../middleware/caseAccess');
-const { lireUtilisateur, causeRevocation, CAUSE_REMPLACE, normaliserId, avecDelai } = require('../services/sessionGuard');
+const { lireUtilisateur, causeRevocation, CAUSE_REMPLACE, normaliserId, avecDelai, sessionVersionValide } = require('../services/sessionGuard');
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const EVT_INTERNE = 'session:eviction:interne';
@@ -87,7 +87,7 @@ function deconnecterUtilisateurLocal(io, userId) {
 async function reevaluerSocket(io, socket, ligne) {
   const pool = contextes.get(io)?.pool;
   const log = journal(io);
-  if (!ligne || ligne.is_active === false) {
+  if (!ligne || ligne.is_active === false || !sessionVersionValide(socket.user, ligne)) {
     deconnecterSocket(socket);
     return;
   }

@@ -23,7 +23,7 @@ const { parse } = require('csv-parse/sync');
 const { parse: parseStream } = require('csv-parse');
 const multer = require('multer');
 const { pool, readPool } = require('../config/database');
-const { authenticate, auditLog } = require('../middleware/auth');
+const { authenticate, auditLog, auditCritical } = require('../middleware/auth');
 
 const esService = require('../services/elasticsearchService');
 const { esMayServe } = require('../services/timelineSource');
@@ -37,6 +37,7 @@ const { detectMapping, loadMappings } = require('../services/timelineMappings');
 const { buildSlimRaw } = require('../services/timelineFieldExtract');
 const { buildHayabusaDescription } = require('../services/hayabusaDescription');
 const { pushTimelineFilters, aDesFiltresAvances, validerEvidenceIds } = require('../services/timelineFilters');
+const { csvCell } = require('../utils/csvCell');
 const { hostTimeContextSql } = require('../services/hostTimeContext');
 const { GROUPABLE_COLUMNS } = require('../services/timelineGroupColumns');
 const { timelineRowsSql } = require('../services/timelineRowsSql');
@@ -3796,10 +3797,12 @@ router.delete('/:caseId/fs-timeline', authenticate, async (req, res) => {
       });
     }
     const evidenceId = req.body?.evidence_id || null;
-    const removed = await withCaseDeletion(pool, caseId,
-      client => purgeFsTimeline(client, caseId, { evidenceId }));
-    await auditLog(req.user.id, 'purge_fs_timeline', 'case', caseId,
-      { removed, evidence_id: evidenceId }, req.ip);
+    const removed = await withCaseDeletion(pool, caseId, async client => {
+      const count = await purgeFsTimeline(client, caseId, { evidenceId });
+      await auditCritical(client, req.user.id, 'purge_fs_timeline', 'case', caseId,
+        { removed: count, evidence_id: evidenceId }, req.ip);
+      return count;
+    });
     logger.info(`[collection] fs timeline purged: ${removed} row(s) for case ${caseId}`);
     return res.json({ removed, evidence_id: evidenceId });
   } catch (err) {
@@ -3822,10 +3825,12 @@ router.delete('/:caseId/state', authenticate, async (req, res) => {
     }
     const kind = req.body?.kind || null;
     const evidenceId = req.body?.evidence_id || null;
-    const removed = await withCaseDeletion(pool, caseId,
-      client => purgeCatScaleState(client, caseId, { kind, evidenceId }));
-    await auditLog(req.user.id, 'purge_catscale_state', 'case', caseId,
-      { removed, kind, evidence_id: evidenceId }, req.ip);
+    const removed = await withCaseDeletion(pool, caseId, async client => {
+      const count = await purgeCatScaleState(client, caseId, { kind, evidenceId });
+      await auditCritical(client, req.user.id, 'purge_catscale_state', 'case', caseId,
+        { removed: count, kind, evidence_id: evidenceId }, req.ip);
+      return count;
+    });
     logger.info(`[collection] catscale_state purged: ${removed} row(s) for case ${caseId}${kind ? ` (kind=${kind})` : ''}`);
     return res.json({ removed, kind, evidence_id: evidenceId });
   } catch (err) {
@@ -3875,6 +3880,12 @@ router.delete('/:caseId/data', authenticate, async (req, res) => {
         ],
       });
       operationId = operation.id;
+
+      await auditCritical(pool, req.user.id, 'delete_collection_data_started', 'case', caseId, {
+        operation_id: operation.id,
+        case_id: caseId,
+        directories: collDirs.length,
+      }, req.ip);
 
       for (const item of operation.items.filter(entry => entry.kind === 'disk')) {
         if (item.status === 'deleted' || item.status === 'already_absent') continue;
@@ -3944,24 +3955,32 @@ router.delete('/:caseId/data', authenticate, async (req, res) => {
       await markDeletionOperation(client, operation.id, 'completed');
 
       const freedMb = Math.round(freedBytes / 1024 / 1024);
-      return {
+      const outcome = {
         success: true,
         freed_mb: freedMb,
         rows_deleted: deleted.rowCount,
         timeline_records_deleted: ctDeleted.rowCount,
         operation_id: operation.id,
       };
+      await auditCritical(client, req.user.id, 'delete_collection_data', 'case', caseId,
+        { freed_mb: outcome.freed_mb, rows_deleted: outcome.rows_deleted,
+          timeline_records_deleted: outcome.timeline_records_deleted,
+          operation_id: outcome.operation_id }, req.ip);
+      return outcome;
     });
-    await auditLog(req.user.id, 'delete_collection_data', 'case', caseId,
-      { freed_mb: result.freed_mb, rows_deleted: result.rows_deleted,
-        timeline_records_deleted: result.timeline_records_deleted,
-        operation_id: result.operation_id }, req.ip);
     res.json(result);
   } catch (err) {
     if (operationId && !operationPrepared) {
       try { await markDeletionOperation(pool, operationId, 'incomplete', safeErrorCode(err)); } catch (journalError) {
         logger.error('[collection] operation journal failure:', safeErrorCode(journalError));
       }
+    }
+    if (err && err.auditFailure) {
+      logger.error('collection delete audit failure:', err.message);
+      if (operationPrepared) {
+        return res.status(502).json({ error: 'Collection deletion incomplete', code: 'DELETION_INCOMPLETE', operation_id: operationId });
+      }
+      return res.status(500).json({ error: 'Collection deletion failed' });
     }
     if (err.code === 'LEGAL_HOLD') {
       return res.status(409).json({ error: 'Case is under legal hold', code: 'LEGAL_HOLD' });
@@ -4062,17 +4081,6 @@ router.get('/:caseId/export/csv', authenticate, async (req, res) => {
 
     const COLS = [...baseCols, ...extraCols, ...rawKeys.map(k => `raw_${k}`)];
 
-    function csvCell(v) {
-      if (v == null) return '';
-      let s;
-      if (Array.isArray(v) || typeof v === 'object') s = JSON.stringify(v);
-      else s = String(v);
-      if (s.includes(sep) || s.includes('"') || s.includes('\n') || s.includes('\r')) {
-        return '"' + s.replace(/"/g, '""') + '"';
-      }
-      return s;
-    }
-
     const filename = singleArtifact
       ? `timeline-${singleArtifact}-${caseId}-${Date.now()}.csv`
       : `timeline-${caseId}-${Date.now()}.csv`;
@@ -4080,14 +4088,14 @@ router.get('/:caseId/export/csv', authenticate, async (req, res) => {
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
 
     res.write('\uFEFF');
-    res.write(COLS.join(sep) + '\r\n');
+    res.write(COLS.map(c => csvCell(c, { sep })).join(sep) + '\r\n');
     for (const row of result.rows) {
       const line = COLS.map(c => {
         if (c.startsWith('raw_')) {
           const k = c.slice(4);
-          return csvCell(row.raw?.[k]);
+          return csvCell(row.raw?.[k], { sep });
         }
-        return csvCell(row[c]);
+        return csvCell(row[c], { sep });
       }).join(sep);
       res.write(line + '\r\n');
     }
@@ -4116,12 +4124,9 @@ router.get('/:caseId/export-csv-stream', authenticate, async (req, res) => {
   const CSV_HEADERS = ['timestamp', 'artifact_type', 'artifact_name', 'description', 'source',
                         'host_name', 'user_name', 'process_name', 'mitre_tactic', 'mitre_technique_id'];
 
-  function escapeCsv(val) {
-    const s = String(val ?? '').replace(/"/g, '""');
-    return s.includes(separator) || s.includes('"') || s.includes('\n') ? `"${s}"` : s;
-  }
+  const escapeCsv = val => csvCell(val, { sep: separator });
 
-  res.write(CSV_HEADERS.join(separator) + '\n');
+  res.write(CSV_HEADERS.map(escapeCsv).join(separator) + '\n');
 
   let written = 0;
   try {
@@ -4560,18 +4565,6 @@ router.post('/:caseId/verdicts', authenticate, async (req, res) => {
   const VALID = ['malicious', 'suspicious', 'benign', 'unknown'];
   if (!VALID.includes(verdict)) return res.status(400).json({ error: 'Invalid verdict' });
   try {
-    await req.app.locals.pool.query(`
-      CREATE TABLE IF NOT EXISTS artifact_verdicts (
-        id           BIGSERIAL PRIMARY KEY,
-        case_id      UUID NOT NULL,
-        event_ref    TEXT NOT NULL,
-        verdict      TEXT NOT NULL,
-        analyst_note TEXT,
-        created_by   UUID,
-        updated_at   TIMESTAMPTZ DEFAULT NOW(),
-        UNIQUE(case_id, event_ref)
-      )
-    `);
     const result = await req.app.locals.pool.query(`
       INSERT INTO artifact_verdicts (case_id, event_ref, verdict, analyst_note, created_by)
       VALUES ($1, $2, $3, $4, $5)

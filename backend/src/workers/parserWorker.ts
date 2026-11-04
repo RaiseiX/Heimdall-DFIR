@@ -130,11 +130,8 @@ function startWorker(): Worker<ParserJobData> {
       const stat = fs.statSync(outPath);
       logger.info(`[Worker/backup] Backup created: ${filename} (${stat.size} bytes)`);
 
-      await pool.query(
-        `INSERT INTO audit_log (user_id, action, entity_type, entity_id, details, ip_address)
-         VALUES ($1, 'backup_db', 'system', NULL, $2, 'worker')`,
-        [userId || null, JSON.stringify({ filename, size: stat.size, scheduled: true })]
-      );
+      const { auditLog } = require('../middleware/auth');
+      await auditLog(userId || null, 'backup_db', 'system', null, { filename, size: stat.size, scheduled: true }, 'worker');
       return;
     }
 

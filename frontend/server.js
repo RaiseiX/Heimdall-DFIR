@@ -8,9 +8,21 @@ function cacheControlFor(url) {
     : "no-cache, must-revalidate";
 }
 
+const INDEX = path.join(DIR, "index.html");
+
+function resolveRequestPath(url) {
+  const raw = String(url || "/").split("?")[0].split("#")[0];
+  let decoded;
+  try { decoded = decodeURIComponent(raw); } catch { return INDEX; }
+  if (decoded.includes("\0")) return INDEX;
+  const p = path.resolve(DIR, "." + path.posix.normalize("/" + decoded));
+  if (p !== DIR && !p.startsWith(DIR + path.sep)) return INDEX;
+  if (!fs.existsSync(p) || fs.statSync(p).isDirectory()) return INDEX;
+  return p;
+}
+
 const server = http.createServer((req, res) => {
-  let p = path.join(DIR, req.url === "/" ? "index.html" : req.url.split("?")[0]);
-  if (!fs.existsSync(p) || fs.statSync(p).isDirectory()) p = path.join(DIR, "index.html");
+  const p = resolveRequestPath(req.url);
   fs.readFile(p, (err, data) => {
     if (err) { res.writeHead(404); res.end("Not found"); return; }
     res.writeHead(200, {
@@ -25,4 +37,4 @@ if (require.main === module) {
   server.listen(3000, () => console.log("Frontend serving on :3000"));
 }
 
-module.exports = { server, cacheControlFor };
+module.exports = { server, cacheControlFor, resolveRequestPath, DIR };

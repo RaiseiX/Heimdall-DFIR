@@ -32,6 +32,7 @@ export function extractZip(archivePath: string, destDir: string, limits: Extract
     yauzl.open(archivePath, { lazyEntries: true }, (err, zip) => {
       if (err || !zip) return reject(new ExtractionError(`cannot open zip: ${err?.message}`));
       let entries = 0, bytes = 0;
+      const seen = new Set<string>();
       zip.on('entry', (entry) => {
         // yauzl autoCloses the zip fd on 'error'/'end', but the reject paths
         // below emit neither, so close it explicitly to avoid a slow fd leak
@@ -40,11 +41,22 @@ export function extractZip(archivePath: string, destDir: string, limits: Extract
         // Zip-slip guard that preserves subdirectories.
         const target = safeJoin(destDir, entry.fileName);
         if (!target) { zip.close(); return reject(new ExtractionError(`zip-slip blocked: ${entry.fileName}`)); }
-        if (/\/$/.test(entry.fileName)) { fs.mkdirSync(target, { recursive: true }); return zip.readEntry(); }
+        if (!/\/$/.test(entry.fileName)) {
+          if (seen.has(target)) { zip.close(); return reject(new ExtractionError(`duplicate zip entry: ${entry.fileName}`)); }
+          seen.add(target);
+        }
+        const makeDir = (dir: string): boolean => {
+          try { fs.mkdirSync(dir, { recursive: true }); return true; } catch (mkErr) {
+            zip.close();
+            reject(new ExtractionError(`path collision: ${entry.fileName} (${(mkErr as NodeJS.ErrnoException).code})`));
+            return false;
+          }
+        };
+        if (/\/$/.test(entry.fileName)) { if (makeDir(target)) zip.readEntry(); return; }
         zip.openReadStream(entry, (e, rs) => {
           if (e || !rs) { zip.close(); return reject(new ExtractionError(`read entry failed: ${e?.message}`)); }
-          fs.mkdirSync(path.dirname(target), { recursive: true });
-          const ws = fs.createWriteStream(target);
+          if (!makeDir(path.dirname(target))) { rs.destroy(); return; }
+          const ws = fs.createWriteStream(target, { flags: 'wx' });
           rs.on('data', (c: Buffer) => { bytes += c.length; if (bytes > limits.maxTotalBytes) { rs.destroy(); ws.destroy(); zip.close(); reject(new ExtractionError('archive size limit exceeded')); } });
           ws.on('close', () => zip.readEntry());
           ws.on('error', err2 => reject(new ExtractionError(String(err2))));

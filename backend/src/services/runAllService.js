@@ -73,8 +73,9 @@ async function callEngine(e, base, caseId, sign, pause) {
 }
 
 async function runAllEngines(p, caseId, userId, huntRunId, { pause = sleep } = {}) {
-  const u = (await p.query('SELECT username, role FROM users WHERE id=$1', [userId])).rows[0] || { username: 'system', role: 'admin' };
-  const sign = () => jwt.sign({ id: userId, username: u.username, role: u.role || 'admin' }, JWT_SECRET, { expiresIn: '30m' });
+  const u = (await p.query('SELECT username, role, session_version FROM users WHERE id=$1', [userId])).rows[0] || { username: 'system', role: 'admin' };
+  const sv = Number.isInteger(Number(u.session_version)) ? Number(u.session_version) : 0;
+  const sign = () => jwt.sign({ id: userId, username: u.username, role: u.role || 'admin', sv }, JWT_SECRET, { expiresIn: '30m' });
   const base = process.env.INTERNAL_API_BASE || 'http://backend:4000';
   for (const e of RUN_ALL_ENGINES) {
     await updateHuntStep(p, huntRunId, e.key, { status: 'running' });

@@ -153,15 +153,6 @@ function enrichNodes(nodeMap, edges) {
   });
 }
 
-// network_annotations: one row per case, stores zone rects and node type overrides
-pool.query(`
-  CREATE TABLE IF NOT EXISTS network_annotations (
-    case_id    UUID PRIMARY KEY REFERENCES cases(id) ON DELETE CASCADE,
-    data       JSONB NOT NULL DEFAULT '{"zones":[],"node_overrides":{}}',
-    updated_at TIMESTAMPTZ DEFAULT NOW()
-  )
-`).catch(err => logger.error('[network_annotations] table init failed:', err));
-
 router.get('/:caseId', authenticate, async (req, res) => {
   try {
     const { suspicious } = req.query;

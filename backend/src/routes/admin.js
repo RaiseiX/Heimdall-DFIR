@@ -4,7 +4,7 @@ const fs        = require('fs');
 const path      = require('path');
 const net       = require('net');
 const { pool }  = require('../config/database');
-const { authenticate, requireRole, auditLog } = require('../middleware/auth');
+const { authenticate, requireRole, auditLog, auditCritical, getAuditFailureStats } = require('../middleware/auth');
 const logger    = require('../config/logger').default;
 
 const router = express.Router();
@@ -91,6 +91,10 @@ router.get('/health', authenticate, requireRole('admin'), async (req, res) => {
       bullmq_worker: { ...bullmq, name: 'BullMQ Worker' },
     },
   });
+});
+
+router.get('/audit-health', authenticate, requireRole('admin'), (req, res) => {
+  res.json(getAuditFailureStats());
 });
 
 router.get('/backups', authenticate, requireRole('admin'), async (req, res) => {
@@ -221,7 +225,7 @@ router.get('/backups/:filename', authenticate, requireRole('admin'), async (req,
     const filePath = path.join(BACKUP_DIR, name);
     if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'Fichier non trouvé' });
 
-    await auditLog(req.user.id, 'download_backup', 'system', null, { filename: name }, req.ip);
+    await auditCritical(pool, req.user.id, 'download_backup', 'system', null, { filename: name }, req.ip);
     res.download(filePath, name);
   } catch (err) {
     res.status(500).json({ error: 'Erreur téléchargement' });

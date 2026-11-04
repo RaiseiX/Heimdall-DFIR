@@ -3,7 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const { execFile } = require('child_process');
 const { pool } = require('../config/database');
-const { authenticate, auditLog } = require('../middleware/auth');
+const { authenticate, auditCritical } = require('../middleware/auth');
 const { canAccessCase } = require('../middleware/caseAccess');
 const { resoudreRacineDeCollecte } = require('../services/collectionRoot');
 const fichiers = require('../services/collectionFiles');
@@ -32,7 +32,8 @@ function repondreErreur(res, err, contexte) {
 }
 
 function creerRouteur({
-  db = pool, racines = RACINES_PAR_DEFAUT, audit = auditLog, authentifier = authenticate,
+  db = pool, racines = RACINES_PAR_DEFAUT,
+  auditCritique = (...args) => auditCritical(db, ...args), authentifier = authenticate,
   executer = executerPython, scriptRuche = SCRIPT_RUCHE,
 } = {}) {
   const router = express.Router();
@@ -81,8 +82,12 @@ function creerRouteur({
       return repondreErreur(res, err, 'telechargement');
     }
     const relatif = String(req.query.path || '');
-    await audit(req.user.id, 'download_collection_file', 'evidence', racine.evidenceId,
-      { case_id: req.params.caseId, path: relatif, size: cible.taille }, req.ip);
+    try {
+      await auditCritique(req.user.id, 'download_collection_file', 'evidence', racine.evidenceId,
+        { case_id: req.params.caseId, path: relatif, size: cible.taille }, req.ip);
+    } catch (err) {
+      return repondreErreur(res, { message: err && err.message }, 'audit du telechargement');
+    }
     res.setHeader('Content-Type', 'application/octet-stream');
     res.setHeader('Content-Length', String(cible.taille));
     res.setHeader('Content-Disposition', fichiers.nomDeTelechargement(relatif.split('/').pop() || 'fichier'));

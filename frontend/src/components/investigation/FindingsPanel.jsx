@@ -5,6 +5,7 @@ import { bookmarksAPI, reportsAPI } from '../../utils/api';
 import { fmtLocal } from '../../utils/formatters';
 import StructuredNoteEditor from './StructuredNoteEditor';
 import { Alert } from '../ui';
+import { csvCell } from '../../utils/csvCell';
 
 const TACTIC_COLOR = {
   'Reconnaissance': 'var(--fl-dim)', 'Resource Development': 'var(--fl-dim)',
@@ -80,7 +81,7 @@ export default function FindingsPanel({ caseId, onChange }) {
 
   function exportCSV() {
     const cols = ['Timestamp', 'Title', 'Fact', 'Significance', 'Confidence', 'Tactic', 'Technique', 'Author'];
-    const esc = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const esc = v => csvCell(v);
     const rows = findings.map(b => [
       b.event_timestamp ? fmtLocal(b.event_timestamp) : '', b.title, b.description,
       b.significance, b.confidence, b.mitre_tactic, b.mitre_technique, b.author_name || b.username,

@@ -5,7 +5,7 @@ import { Worker, Job } from 'bullmq';
 import { Pool } from 'pg';
 import { Emitter } from '@socket.io/redis-emitter';
 import { createRedisConnection, IngestionJobData, ingestionQueue, parserQueue } from '../config/queue';
-import { isArchive, extractZip } from '../services/ingestion/extractor';
+import { isArchive, extractZip, safeJoin } from '../services/ingestion/extractor';
 import { walk } from '../services/ingestion/walker';
 import { classify, toEvidenceTypeContext } from '../services/ingestion/classifier';
 import { checkAndRecord } from '../services/ingestion/dedupService';
@@ -30,6 +30,24 @@ export type IngestionDeps = {
   pool: Pool;
 };
 
+export async function stageFile(absPath: string, stagingDir: string, relativePath: string): Promise<void> {
+  const dest = safeJoin(stagingDir, relativePath);
+  if (!dest) throw new Error(`staging path escapes staging dir: ${relativePath}`);
+  fs.mkdirSync(path.dirname(dest), { recursive: true });
+  try {
+    await fs.promises.copyFile(absPath, dest, fs.constants.COPYFILE_EXCL);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'EEXIST') throw new Error(`staging collision, refusing to overwrite: ${relativePath}`);
+    throw err;
+  }
+}
+
+const FILE_MODE_PARSERS = new Set(['webcache']);
+
+function flattenRelativePath(rel: string): string {
+  return rel.split(/[\\/]+/).filter(Boolean).join('__');
+}
+
 export async function processIngestion(data: IngestionJobData, deps: IngestionDeps): Promise<void> {
   // Translate the artifact-oriented UI evidenceType (disk/log/registry/…)
   // into the classifier's OS-oriented prior context. See FIX D rationale in
@@ -38,6 +56,8 @@ export async function processIngestion(data: IngestionJobData, deps: IngestionDe
   const evType = toEvidenceTypeContext(data.evidenceType);
   const stagingRoot = path.join(path.dirname(data.uploadPath), `_stage_${data.evidenceId}`);
   const byParser = new Map<string, { ids: string[]; version: string | null }>();
+  fs.rmSync(stagingRoot, { recursive: true, force: true });
+  let extractDir: string | null = null;
 
   // Extraction + directory walk are wrapped together: a `.zip` that fails to
   // open (corrupt/truncated) or a walk that throws (e.g. unreadable dir)
@@ -51,6 +71,7 @@ export async function processIngestion(data: IngestionJobData, deps: IngestionDe
     let workDir = data.uploadPath;
     if (deps.isArchive(data.uploadPath)) {
       workDir = fs.mkdtempSync(path.join(os.tmpdir(), `ing-${data.evidenceId}-`));
+      extractDir = workDir;
       await deps.extractZip(data.uploadPath, workDir);
     }
 
@@ -62,7 +83,13 @@ export async function processIngestion(data: IngestionJobData, deps: IngestionDe
       }, { forceReparse: data.forceReparse });
       if (rec.isDuplicate || rec.quarantined || !c.parser) continue;
       const stagingDir = path.join(stagingRoot, c.parser);
-      await deps.stageFile(f.absPath, stagingDir, f.relativePath);
+      try {
+        await deps.stageFile(f.absPath, stagingDir, FILE_MODE_PARSERS.has(c.parser) ? flattenRelativePath(f.relativePath) : f.relativePath);
+      } catch (stageErr) {
+        const why = stageErr instanceof Error ? stageErr.message : String(stageErr);
+        await deps.pool.query(`UPDATE ingestion_files SET status='error', status_detail=$2, updated_at=NOW() WHERE id = $1`, [rec.ingestionFileId, why]);
+        continue;
+      }
       const g = byParser.get(c.parser) ?? { ids: [], version: c.parserVersion };
       g.ids.push(rec.ingestionFileId); byParser.set(c.parser, g);
     }
@@ -82,6 +109,8 @@ export async function processIngestion(data: IngestionJobData, deps: IngestionDe
     );
     await deps.finalize(deps.pool, data.evidenceId, data.caseId);
     return;
+  } finally {
+    if (extractDir) fs.rmSync(extractDir, { recursive: true, force: true });
   }
 
   for (const [parser, g] of byParser) {
@@ -102,9 +131,6 @@ export async function processIngestion(data: IngestionJobData, deps: IngestionDe
 // so no real Worker/Redis connection is spun up.
 if (process.env.NODE_ENV !== 'test') {
   const pool = new Pool({ host: process.env.DB_HOST || 'db', database: process.env.DB_NAME || 'forensiclab', user: process.env.DB_USER || 'forensiclab', password: process.env.DB_PASSWORD });
-  const stageFile = async (absPath: string, stagingDir: string, rel: string) => {
-    const dest = path.join(stagingDir, path.basename(rel)); fs.mkdirSync(stagingDir, { recursive: true }); await fs.promises.copyFile(absPath, dest);
-  };
   // Real socket.io-over-redis emitter (mirrors parserWorker.ts's Emitter
   // wiring) so the zero-parser-jobs case (all-duplicate / all-quarantined /
   // extraction-failure) actually reaches connected clients instead of

@@ -61,7 +61,7 @@ La définition complète des services se trouve dans [docker-compose.yml](docker
 
 Pour une installation neuve, préparez `.env` avant de lancer le script. Définissez des mots de passe uniques pour `ADMIN_DEFAULT_PASSWORD` et `ANALYST_DEFAULT_PASSWORD`, même si l'exemple contient déjà une valeur. Remplacez chaque secret `CHANGEME` et renseignez les paramètres de déploiement décrits plus bas. `openssl rand -hex 64` permet de générer une clé de signature ; utilisez des valeurs distinctes et respectez les contraintes d'identifiants de chaque service.
 
-Lorsque `.env` existe déjà, le script le conserve et ne génère pas l'ensemble des secrets d'infrastructure. Renseignez vous-même `DB_PASSWORD`, `REDIS_PASSWORD`, `JWT_SECRET`, `VOLWEB_DJANGO_SECRET`, `VOLWEB_PASSWORD`, `MINIO_ROOT_USER` et `MINIO_ROOT_PASSWORD`. Une clé `AUDIT_HMAC_KEY` distincte doit aussi être transmise par Compose, comme indiqué dans la section sécurité et gestion des preuves.
+Lorsque `.env` existe déjà, le script le conserve et ne génère pas l'ensemble des secrets d'infrastructure. Renseignez vous-même `DB_PASSWORD`, `REDIS_PASSWORD`, `JWT_SECRET`, `VOLWEB_DJANGO_SECRET`, `VOLWEB_PASSWORD`, `MINIO_ROOT_USER` et `MINIO_ROOT_PASSWORD`. `AUDIT_HMAC_KEY` est aussi obligatoire : `start.sh` et `start.ps1` la génèrent et Compose la transmet au backend.
 
 N'écrasez pas le fichier `.env` d'une installation existante et n'utilisez pas cette procédure de première installation pour changer les identifiants de la base.
 
@@ -155,7 +155,7 @@ bash db/migrate.sh
 
 - Conservez la plateforme sur un réseau de confiance tant que son déploiement n'a pas été revu pour votre environnement.
 - Remplacez les mots de passe initiaux et toutes les valeurs temporaires de `.env`.
-- Le code accepte une clé `AUDIT_HMAC_KEY` distincte, mais le service Compose par défaut ne la transmet pas encore au backend. Ajoutez cette clé au backend avant de compter sur la séparation des clés.
+- `AUDIT_HMAC_KEY` est obligatoire, générée par `start.sh` et `start.ps1` et transmise par Compose. Le backend refuse de démarrer si elle est absente, égale à `JWT_SECRET` ou laissée à `CHANGEME`.
 - Vérifiez TLS, CORS, les limites d'import, l'exposition de MinIO et le pare-feu de l'hôte avant tout accès distant.
 - Le backend monte le socket Docker pour la vue d'exploitation. Considérez l'accès administrateur au backend comme sensible pour l'hôte et retirez cette capacité si elle n'est pas utile.
 - Une analyse ClamAV ne rend pas un fichier sûr à ouvrir en dehors du workflow d'analyse.

@@ -5,18 +5,6 @@
 const { pool } = require('../config/database');
 const logger = require('../config/logger').default;
 
-pool.query(`
-  CREATE TABLE IF NOT EXISTS detection_exceptions (
-    id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    case_id        UUID REFERENCES cases(id) ON DELETE CASCADE,   -- null = global
-    detection_type TEXT,                                          -- null = all detections
-    match_value    TEXT NOT NULL,
-    reason         TEXT,
-    created_by     UUID,
-    created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
-  )
-`).catch(e => logger.error('detection_exceptions DDL:', e.message));
-
 // Active exceptions for a case = its own + global ones.
 async function getExceptions(caseId) {
   try {

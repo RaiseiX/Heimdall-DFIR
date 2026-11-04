@@ -110,6 +110,20 @@ else
     fi
 fi
 
+AUDIT_KEY_CURRENT=$(grep "^AUDIT_HMAC_KEY=" .env | tail -n 1 | cut -d= -f2- || true)
+if [ -z "$AUDIT_KEY_CURRENT" ] || [[ "$AUDIT_KEY_CURRENT" == CHANGEME* ]]; then
+    AUDIT_HMAC_KEY=$(openssl rand -hex 64)
+    if grep -q "^AUDIT_HMAC_KEY=" .env; then
+        sed -i "s|^AUDIT_HMAC_KEY=.*|AUDIT_HMAC_KEY=${AUDIT_HMAC_KEY}|" .env
+    else
+        if [ -n "$(tail -c 1 .env)" ]; then echo >> .env; fi
+        echo "AUDIT_HMAC_KEY=${AUDIT_HMAC_KEY}" >> .env
+    fi
+    unset AUDIT_HMAC_KEY
+    echo -e "${GREEN}  ✓ AUDIT_HMAC_KEY generated${NC}"
+fi
+unset AUDIT_KEY_CURRENT
+
 # Read final values from .env for the summary
 VOLWEB_USER_VAL=$(grep "^VOLWEB_USER=" .env | cut -d= -f2)
 VOLWEB_PASSWORD_VAL=$(grep "^VOLWEB_PASSWORD=" .env | cut -d= -f2)
@@ -198,13 +212,17 @@ if [ -n "$_DB_NET" ]; then
         echo "  with a different password. PostgreSQL ignores POSTGRES_PASSWORD"
         echo "  when data already exists."
         echo ""
-        echo "  ── To reset and reinstall (WARNING: deletes all data) ──────────"
-        echo "     docker compose down -v"
-        echo "     rm .env"
+        echo "  ── Keep all data: align the database role with .env (recommended) ──"
+        echo "     bash update.sh --realign-db-password"
         echo "     bash start.sh"
         echo ""
-        echo "  ── To keep existing data (find the old password) ────────────────"
-        echo "     Check your previous .env backup, then update DB_PASSWORD in .env"
+        echo "  ── Or restore the old password ──────────────────────────────────"
+        echo "     Put the DB_PASSWORD from your previous .env backup back into .env"
+        echo ""
+        echo "  ── Last resort only: wipe everything and reinstall ──────────────"
+        echo "     WARNING: this permanently deletes every case, evidence file,"
+        echo "     collection and audit record. Back up first."
+        echo "     docker compose down -v && rm .env && bash start.sh"
         echo -e "${NC}"
         exit 1
     else

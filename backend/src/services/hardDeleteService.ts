@@ -3,7 +3,7 @@ import fs from 'fs';
 import logger from '../config/logger';
 import path from 'path';
 import type { Pool } from 'pg';
-import { auditLog } from '../middleware/auth';
+import { auditCritical } from '../middleware/auth';
 import { deleteIndex } from './elasticsearchService';
 import { destroyStorageTarget } from './storageDeletionService';
 const { deleteMinioLocator } = require('./deletionStorage');
@@ -32,6 +32,8 @@ export interface HardDeleteResult {
 export interface HardDeleteOptions {
   confirmation?: string;
   automated?: boolean;
+  auditAction?: string;
+  auditDetails?: Record<string, unknown>;
 }
 
 export async function hardDeleteCase(
@@ -44,11 +46,9 @@ export async function hardDeleteCase(
   let operationId: string | null = null;
   let operationPrepared = false;
   try {
-    const { result, auditDetails } = await withCaseDeletion(pool, caseId,
+    return await withCaseDeletion(pool, caseId,
       (client: Pick<Pool, 'query'>) => deleteLockedCase(client, pool, caseId, userId, ip, options,
         id => { operationId = id; }, () => { operationPrepared = true; }));
-    await (auditLog as Function)(userId, 'hard_delete_case', 'case', caseId, auditDetails, ip);
-    return result;
   } catch (error) {
     if ((error as any)?.status === 404 && !operationId) {
       const completed = await findCompletedDeletionOperation(pool, {
@@ -71,6 +71,9 @@ export async function hardDeleteCase(
         logger.error('[hardDelete] operation journal failure:', safeErrorCode(journalError));
       }
     }
+    if ((error as any)?.auditFailure && operationId && operationPrepared) {
+      Object.assign(error as object, { status: 502, code: 'DELETION_INCOMPLETE' });
+    }
     if (operationId && error && typeof error === 'object') (error as any).operationId = operationId;
     throw error;
   }
@@ -85,7 +88,7 @@ async function deleteLockedCase(
   options: HardDeleteOptions,
   setOperationId: (id: string) => void,
   setOperationPrepared: () => void,
-): Promise<{ result: HardDeleteResult; auditDetails: Record<string, unknown> }> {
+): Promise<HardDeleteResult> {
 
   const caseRes = await client.query(
     'SELECT id, case_number, title FROM cases WHERE id = $1',
@@ -130,6 +133,14 @@ async function deleteLockedCase(
     items: [...targets, { kind: 'elasticsearch', locator: caseId }],
   });
   setOperationId(operation.id);
+
+  await auditCritical(journalPool, userId, `${options.auditAction || 'hard_delete_case'}_started`, 'case', caseId, {
+    operation_id: operation.id,
+    case_id: caseId,
+    case_number,
+    title,
+    targets: operation.items.length,
+  }, ip);
 
   for (const item of operation.items) {
     if (item.kind === 'elasticsearch') continue;
@@ -212,16 +223,16 @@ async function deleteLockedCase(
     files_already_absent: filesAlreadyAbsent,
   });
 
-  return {
-    result: { caseId, caseNumber: case_number, filesDestroyed, filesAlreadyAbsent, filesErrors, operationId: operation.id },
-    auditDetails: {
-      operation_id: operation.id,
-      case_number,
-      title,
-      files_destroyed: filesDestroyed,
-      files_already_absent: filesAlreadyAbsent,
-      files_errors: filesErrors,
-      wipe_methods: wipeMethods,
-    },
-  };
+  await auditCritical(client, userId, options.auditAction || 'hard_delete_case', 'case', caseId, {
+    ...(options.auditDetails || {}),
+    operation_id: operation.id,
+    case_number,
+    title,
+    files_destroyed: filesDestroyed,
+    files_already_absent: filesAlreadyAbsent,
+    files_errors: filesErrors,
+    wipe_methods: wipeMethods,
+  }, ip);
+
+  return { caseId, caseNumber: case_number, filesDestroyed, filesAlreadyAbsent, filesErrors, operationId: operation.id };
 }

@@ -1,6 +1,5 @@
 
 import express from 'express';
-import logger from '../config/logger';
 import type { Pool } from 'pg';
 import { authenticate, requireRole } from '../middleware/auth';
 import type { AuthRequest } from '../types/index';
@@ -18,49 +17,6 @@ const { caseAccessParam } = require('../middleware/caseAccess');
 const router = express.Router();
 router.use(authenticate);
 router.param('caseId', caseAccessParam);
-
-async function ensureTables(pool: Pool): Promise<void> {
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS taxii_feeds (
-      id              UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
-      name            VARCHAR(200) NOT NULL,
-      url             TEXT NOT NULL,
-      api_root        VARCHAR(200),
-      collection_id   VARCHAR(200),
-      auth_type       VARCHAR(20) DEFAULT 'none',
-      auth_value      TEXT,
-      is_active       BOOLEAN DEFAULT true,
-      last_fetched    TIMESTAMPTZ,
-      indicator_count INTEGER DEFAULT 0,
-      created_at      TIMESTAMPTZ DEFAULT NOW()
-    );
-    CREATE TABLE IF NOT EXISTS threat_correlations (
-      id             UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
-      case_id        UUID REFERENCES cases(id) ON DELETE CASCADE,
-      ioc_value      VARCHAR(500) NOT NULL,
-      ioc_type       VARCHAR(20) NOT NULL,
-      stix_id        VARCHAR(200),
-      indicator_name VARCHAR(500),
-      source_name    VARCHAR(200),
-      matched_at     TIMESTAMPTZ DEFAULT NOW(),
-      UNIQUE(case_id, ioc_value, stix_id)
-    );
-    CREATE INDEX IF NOT EXISTS idx_threat_corr_case ON threat_correlations(case_id);
-  `);
-}
-
-let _tablesReady = false;
-function initTables(pool: Pool): void {
-  if (_tablesReady) return;
-  _tablesReady = true;
-  ensureTables(pool).catch(e => logger.error('[ThreatIntel] ensureTables error:', e.message));
-}
-
-router.use((req, res, next) => {
-  const pool: Pool = res.app.locals.pool;
-  initTables(pool);
-  next();
-});
 
 function maskFeed(feed: Record<string, unknown>) {
   return { ...feed, auth_value: feed.auth_value ? '***' : null };
