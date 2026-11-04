@@ -21,6 +21,16 @@ function unsupportedStorageTarget(): Error {
 async function nodeWipe(filePath: fs.PathLike): Promise<void> {
   const before = await fs.promises.lstat(filePath);
   if (!before.isFile() || before.isSymbolicLink()) throw unsupportedStorageTarget();
+  if ((before.mode & 0o200) === 0) {
+    const ro = await fs.promises.open(filePath, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+    try {
+      const seen = await ro.stat();
+      if (!seen.isFile() || seen.dev !== before.dev || seen.ino !== before.ino) throw unsupportedStorageTarget();
+      await ro.chmod((seen.mode & 0o7777) | 0o200);
+    } finally {
+      await ro.close();
+    }
+  }
   const fd = await fs.promises.open(filePath, fs.constants.O_RDWR | fs.constants.O_NOFOLLOW);
   let opened;
   try {

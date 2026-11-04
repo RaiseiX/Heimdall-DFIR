@@ -66,6 +66,7 @@ const { foldHistogramRows, BKT_BEFORE_LO, BKT_AFTER_HI } = require('../services/
 const { cheminCorrespond } = require('../services/artifactMatch');
 const { perimetreDeParsing } = require('../services/parseScope');
 const { arbreDeCollecte } = require('../services/collectionTree');
+const { preserveSourceArchive, sourceArchiveEntry } = require('../services/sourceArchive');
 const { mesurerLecture, parseursInitiaux } = require('../services/parseWeight');
 const { creerFileParCas } = require('../services/caseQueue');
 const fileDurable = require('../services/parseQueue');
@@ -707,6 +708,8 @@ router.post('/:caseId/import', authenticate, upload.single('collection'), async 
     });
 
     executerDansJournal({ caseId, preuve: collectionDir, emettre: ligne => { if (io) io.to(`case:${caseId}`).emit('collection:log', { ...ligne, caseId }); } }, async () => {
+      let preserved = null;
+      let evidenceRecorded = false;
       try {
 
         let fileHashes = { md5: null, sha1: null, sha256: null };
@@ -719,21 +722,25 @@ router.post('/:caseId/import', authenticate, upload.single('collection'), async 
           logger.warn('[collection] hash computation failed:', e.message);
         }
 
+        preserved = await preserveSourceArchive(uploadedPath, collectionDir, originalFilename, fileHashes.sha256);
+        try { fs.unlinkSync(uploadedPath); } catch (_) {}
+        const sourcePath = preserved.path;
+
         if (isRawArtifact) {
           // Single raw artifact file — copy directly into collectionDir, no extraction needed
           const destPath = path.join(collectionDir, safeBasename(req.file.originalname));
-          fs.copyFileSync(uploadedPath, destPath);
+          fs.copyFileSync(sourcePath, destPath);
           logger.info(`[collection] raw artifact copied: ${req.file.originalname} → ${destPath}`);
         } else if (ext === '.zip') {
           try {
-            await spawnTool(['unzip', '-o', '-q', uploadedPath, '-d', collectionDir], { timeout: 3600000 });
+            await spawnTool(['unzip', '-o', '-q', sourcePath, '-d', collectionDir], { timeout: 3600000 });
           } catch (unzipErr) {
 
             logger.warn('[collection] unzip failed, retrying with 7z:', unzipErr.message);
-            await spawnTool(['7z', 'x', uploadedPath, `-o${collectionDir}`, '-y'], { timeout: 3600000 });
+            await spawnTool(['7z', 'x', sourcePath, `-o${collectionDir}`, '-y'], { timeout: 3600000 });
           }
         } else {
-          await spawnTool(extractArgs(ext, uploadedPath, collectionDir), { timeout: 3600000 });
+          await spawnTool(extractArgs(ext, sourcePath, collectionDir), { timeout: 3600000 });
         }
 
         // Belt and braces: unzip and 7z have their own opinions about stored modes,
@@ -748,8 +755,6 @@ router.post('/:caseId/import', authenticate, upload.single('collection'), async 
         } catch (e) {
           logger.warn(`[collection] could not normalise permissions: ${e.message}`);
         }
-
-        try { fs.unlinkSync(uploadedPath); } catch (_) {}
 
         if (socketId && io) io.to(socketId).emit('collection:progress', { type: 'extracted' });
 
@@ -811,13 +816,14 @@ router.post('/:caseId/import', authenticate, upload.single('collection'), async 
 
         await pool.query(
           `INSERT INTO evidence (case_id, name, original_filename, file_path, evidence_type, notes, added_by, metadata,
-                                 hash_md5, hash_sha1, hash_sha256, file_size)
-           VALUES ($1, $2, $3, $4, 'collection', $5, $6, $7, $8, $9, $10, $11)`,
+                                 hash_md5, hash_sha1, hash_sha256, file_size, additional_files)
+           VALUES ($1, $2, $3, $4, 'collection', $5, $6, $7, $8, $9, $10, $11, $12)`,
           [caseId, 'Collecte: ' + originalFilename, originalFilename, collectionDir,
            'Import collecte forensique - ' + Object.keys(detectedArtifacts).length + ' types, ' + totalFiles + ' fichiers',
-           userId, JSON.stringify({ detected: detectedArtifacts, total_files: totalFiles, archive_size: archiveSize, archive_name: originalFilename }),
-           fileHashes.md5, fileHashes.sha1, fileHashes.sha256, collectionDirSize]
+           userId, JSON.stringify({ detected: detectedArtifacts, total_files: totalFiles, archive_size: archiveSize, archive_name: originalFilename, source_archive: preserved.name }),
+           fileHashes.md5, fileHashes.sha1, fileHashes.sha256, collectionDirSize, JSON.stringify([sourceArchiveEntry(preserved)])]
         );
+        evidenceRecorded = true;
 
         await pool.query(
           `INSERT INTO timeline_events (case_id, event_time, event_type, title, description, source, created_by)
@@ -828,7 +834,7 @@ router.post('/:caseId/import', authenticate, upload.single('collection'), async 
         );
 
         await auditLog(userId, 'import_collection', 'collection', collectionResult.rows[0].id,
-          { filename: originalFilename, artifacts_detected: Object.keys(detectedArtifacts) }, userIp);
+          { filename: originalFilename, artifacts_detected: Object.keys(detectedArtifacts), source_archive: preserved.name, sha256: preserved.sha256 }, userIp);
 
         if (socketId && io) {
           io.to(socketId).emit('collection:import:done', {
@@ -847,6 +853,9 @@ router.post('/:caseId/import', authenticate, upload.single('collection'), async 
       } catch (err) {
         logger.error('[collection] async import error:', err.message);
         try { fs.unlinkSync(uploadedPath); } catch (_) {}
+        if (preserved && !evidenceRecorded) {
+          try { fs.unlinkSync(preserved.path); } catch (_) {}
+        }
         if (socketId && io) {
           io.to(socketId).emit('collection:import:error', {
             collection_dir: collectionDir,
