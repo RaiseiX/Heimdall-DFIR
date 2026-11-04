@@ -37,6 +37,11 @@ ZIMMERMAN_DIR="${ZIMMERMAN_TOOLS_DIR:-/app/zimmerman-tools}"
 HAYABUSA_DIR="${HAYABUSA_DIR:-/app/hayabusa}"
 HAYABUSA_BIN="${HAYABUSA_BIN:-/app/hayabusa/hayabusa}"
 
+if [ -x /app/scripts/sync-zimmerman.sh ]; then
+  /app/scripts/sync-zimmerman.sh /opt/zimmerman-tools "$ZIMMERMAN_DIR" /app/zimmerman-tools.lock \
+    || echo "AVERTISSEMENT: synchronisation des outils Zimmerman incomplete"
+fi
+
 echo "╔══════════════════════════════════════════════╗"
 echo "║   Heimdall DFIR — Vérification des outils    ║"
 echo "╚══════════════════════════════════════════════╝"

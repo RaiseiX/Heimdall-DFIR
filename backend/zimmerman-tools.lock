@@ -30,30 +30,31 @@
 #
 # Versions relevees dans l'image du 2026-09-17 (dotnet <outil>.dll --help).
 # AmcacheParser 2026.5.0 — amont Last-Modified: Mon, 27 Apr 2026 18:53:54 GMT
-d40d1e7863159dbd9aa3ae826d919edc490ca33df84bde57e86da848a583af03  AmcacheParser.zip
-# AppCompatCacheParser 2026.5.0 — amont Last-Modified: Sun, 03 May 2026 21:31:09 GMT
-67756841dbcd8ca3f47083be2b016a22f61bde0ea3450f0a776cf878bf66d42d  AppCompatCacheParser.zip
-# EvtxECmd 2026.5.0 — amont Last-Modified: Tue, 05 May 2026 19:34:58 GMT
-4d740e51c4532c340d080f832c766c2acb0351832dae118d1abe9bb49203faa4  EvtxECmd.zip
-# JLECmd 2026.5.0 — amont Last-Modified: Tue, 05 May 2026 16:32:19 GMT
-155ee54e6ac6b70bce1aa636ec52d0b0165263933764d9a45c85af97df546892  JLECmd.zip
-# LECmd 2026.5.0 — amont Last-Modified: Wed, 13 May 2026 19:01:03 GMT
-f3e9c799ec7d3fa4cd5f553ec3f9d544c80c8e48afd04ef43456da3d48ad0760  LECmd.zip
-# MFTECmd 2026.5.0 — amont Last-Modified: Sun, 10 May 2026 13:53:35 GMT
-60ae857a554b830243e38e91fafdfdf6066f31c703282c5c6f40daf3b64d3160  MFTECmd.zip
-# PECmd 2026.5.0 — amont Last-Modified: Wed, 29 Apr 2026 17:56:30 GMT
-e361d397c8c64959fd537e1826fcb89ea2d6fe24b3b4b63e6666479d565caa15  PECmd.zip
-# RBCmd 2026.5.0 — amont Last-Modified: Sun, 26 Apr 2026 23:44:25 GMT
-e2b5c6ba8929a8731d861577c796763730e303ec2d4dd8d294ee0de8d5ceb541  RBCmd.zip
-# RECmd non exposee — amont Last-Modified: Wed, 06 May 2026 18:59:28 GMT
-4a4e2f4beba54fdb9ba4eeb5e6f9d323e666b309e407ac89e047f82be0c963a2  RECmd.zip
-# SBECmd 2026.5.0 — amont Last-Modified: Mon, 27 Apr 2026 22:45:07 GMT
-88edb98a32baaf68114aa106f25f999e46d387d9d0003d3222a1168cc1b7eb9b  SBECmd.zip
-# SQLECmd 2026.5.0 — amont Last-Modified: Tue, 28 Apr 2026 14:48:49 GMT
-2024b6395e2b2cd724ef6dd8f7608a9586e5de43206bb822e76eefc891578892  SQLECmd.zip
-# SrumECmd 2026.5.0 — amont Last-Modified: Sun, 26 Apr 2026 18:05:03 GMT
-4d7035100f771a7ef5d75ac30e7edb70761976f2c92476213d19abb50d4c8489  SrumECmd.zip
-# SumECmd 2026.5.0.0 — amont Last-Modified: Sun, 26 Apr 2026 21:06:50 GMT
-15c6aafc9084854824c8703cbf7aec74b49eb7cd84b82407bf4d90e2ba6bddf2  SumECmd.zip
-# WxTCmd 2026.5.0 — amont Last-Modified: Tue, 28 Apr 2026 19:49:04 GMT
-aa08a020cc9daa22551edbf07bca336cb8249ce29830d67cf09bc3703dffec6d  WxTCmd.zip
+# AmcacheParser — amont Last-Modified: Sun, 25 Oct 2026 13:27:24 GMT
+dd60cfe25f3560ee4878eb864e266303855eb660ada9a3a265bf90624b0f481a  AmcacheParser.zip
+# AppCompatCacheParser — amont Last-Modified: Sun, 25 Oct 2026 13:27:24 GMT
+a6705156ad16d33163cad87674b6b4c8cefe68015db711bae153720073262ce9  AppCompatCacheParser.zip
+# EvtxECmd — amont Last-Modified: Sun, 25 Oct 2026 13:27:26 GMT
+efd5b3df9a526fad7e2f2a628911f6db80553e3e0468caef8f9e9a49926cb5d0  EvtxECmd.zip
+# JLECmd — amont Last-Modified: Thu, 29 Oct 2026 15:41:27 GMT
+5867b9103e66ee160ce9e4e93b5b0cd15ae376683a89503cb3f95d2fdc2cd6e2  JLECmd.zip
+# LECmd — amont Last-Modified: Thu, 29 Oct 2026 15:41:30 GMT
+efd85ba6694a4aab89121653d7a5512f54406448eabc7b569d364ed9f7db2f2a  LECmd.zip
+# MFTECmd — amont Last-Modified: Sun, 25 Oct 2026 13:59:32 GMT
+f390ce9077f96bcf34561a75c82933f21403fa3e5fda49bcb739a5dda7cddd47  MFTECmd.zip
+# PECmd — amont Last-Modified: Sun, 25 Oct 2026 13:27:30 GMT
+9e71c85290f518af53db9928552c2344a130c984bf4451e0ec158e5c2f80f105  PECmd.zip
+# RBCmd — amont Last-Modified: Sun, 25 Oct 2026 13:27:30 GMT
+e08420440e7d81da4aa0f85748cab54c3f2d4facff7ffe38f43bcac84b31ca3b  RBCmd.zip
+# RECmd — amont Last-Modified: Thu, 29 Oct 2026 15:41:31 GMT
+dcdf32f5b75733c5a7cd6d9fc97572c8466b11cdb9cfb4eaa7d56416c6e1dae9  RECmd.zip
+# SBECmd — amont Last-Modified: Thu, 29 Oct 2026 15:41:36 GMT
+aeb664b7416b2d527ba2b8b9df219d800e66e5234787b35f07864360a261b841  SBECmd.zip
+# SQLECmd — amont Last-Modified: Sun, 25 Oct 2026 13:59:32 GMT
+0bbfd432e393d23b16401d8729d53c9e98fac4118ad8f61221484d2aa68490aa  SQLECmd.zip
+# SrumECmd — amont Last-Modified: Sun, 25 Oct 2026 13:27:32 GMT
+10c36aae45e5be856070e192453ffcb7a38f75cacb8a74a2a77085b91927181e  SrumECmd.zip
+# SumECmd — amont Last-Modified: Sun, 25 Oct 2026 13:27:32 GMT
+21c44883f19108aacf49eaaeb06fdfdba68a302890ccf5a465cb6fe258b65b43  SumECmd.zip
+# WxTCmd — amont Last-Modified: Sun, 25 Oct 2026 13:27:33 GMT
+0a0c055ee467bd6800e4300dde5b650f28c11e7447205344fd3bbcd00832bc0e  WxTCmd.zip
