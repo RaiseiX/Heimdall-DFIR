@@ -120,6 +120,18 @@ json_object() {
     printf '%s' "$1" | grep -o "\"$2\":{[^}]*}" | head -n 1 | cut -d: -f2-
 }
 
+counts_not_worse() {
+    local before="$1" after="$2" pair key n prev
+    for pair in $(printf '%s' "$after" | grep -o '"[a-z_]*":[0-9]*'); do
+        key="${pair%%:*}"
+        n="${pair##*:}"
+        prev="$(printf '%s' "$before" | grep -o "${key}:[0-9]*" | head -n 1 | cut -d: -f2)"
+        [ -n "$prev" ] || return 1
+        [ "$n" -le "$prev" ] || return 1
+    done
+    return 0
+}
+
 free_mb() {
     local target="$1"
     while [ ! -d "$target" ]; do target="$(dirname "$target")"; done
@@ -439,8 +451,8 @@ AUDIT_RC=$?
 printf '%s\n' "$AUDIT_AFTER" > "${BACKUP_DIR}/audit-after.json"
 BEFORE_COUNTS="$(json_object "$AUDIT_BEFORE" problem_counts)"
 AFTER_COUNTS="$(json_object "$AUDIT_AFTER" problem_counts)"
-if [ "$AUDIT_RC" -eq 2 ] && [ "$ACCEPT_AUDIT" -eq 1 ] && [ -n "$AFTER_COUNTS" ] && [ "$AFTER_COUNTS" = "$BEFORE_COUNTS" ]; then
-    warn "Chaîne toujours en défaut, mais sans nouveau problème depuis avant la mise à jour : ${AFTER_COUNTS}"
+if [ "$AUDIT_RC" -eq 2 ] && [ "$ACCEPT_AUDIT" -eq 1 ] && [ -n "$AFTER_COUNTS" ] && [ -n "$BEFORE_COUNTS" ] && counts_not_worse "$BEFORE_COUNTS" "$AFTER_COUNTS"; then
+    warn "Chaîne toujours en défaut, sans problème nouveau ni aggravé depuis avant la mise à jour : ${AFTER_COUNTS} (avant : ${BEFORE_COUNTS})"
     AUDIT_RC=0
 fi
 if [ "$AUDIT_RC" -ne 0 ]; then
