@@ -2383,6 +2383,9 @@ router.post('/:caseId/timeline/session', authenticate, async (req, res) => {
     if (!hasIndex) {
       return res.status(404).json({ error: 'Aucun index ES pour ce cas — utilisez la pagination classique' });
     }
+    if (!(await esCanAnswerFor(caseId))) {
+      return res.status(409).json({ error: 'Index ES incomplet pour ce cas — utilisez la pagination classique' });
+    }
 
     purgerPitExpires(Date.now());
     if (pitSessions.size >= PIT_MAX_SESSIONS) {
@@ -4130,7 +4133,7 @@ router.get('/:caseId/export-csv-stream', authenticate, async (req, res) => {
 
   let written = 0;
   try {
-    const hasIndex = await esService.indexExists(caseId) && !aDesFiltresAvances(req.query);
+    const hasIndex = await esService.indexExists(caseId) && !aDesFiltresAvances(req.query) && await esCanAnswerFor(caseId);
 
     if (hasIndex) {
       const { Client } = await import('@elastic/elasticsearch');
