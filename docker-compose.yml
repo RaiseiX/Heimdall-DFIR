@@ -1,7 +1,7 @@
 services:
   # ─── PostgreSQL Database ───
   db:
-    image: postgres:16-alpine
+    image: postgres:16.15-alpine@sha256:0cefaabd882e42bcb2a2f3dc56d3ce4770560ba62fd7f197f1a2e008fd5731ab
     container_name: yggdrasil
     restart: unless-stopped
     environment:
@@ -37,7 +37,7 @@ services:
   # PostgreSQL max_connections under concurrent parsing + VolWeb + AI analysis.
   # ─── Redis Cache & Sessions ───
   redis:
-    image: redis:7-alpine
+    image: redis:7.4.12-alpine@sha256:8da19c7399dca900c6822a1cf30f9d2285585e2c4b457ff4095b0f4500054d3f
     container_name: hermod
     restart: unless-stopped
     command: redis-server --requirepass ${REDIS_PASSWORD}
@@ -151,7 +151,7 @@ services:
 
   # ─── Elasticsearch — Super Timeline full-text search ───
   elasticsearch:
-    image: docker.elastic.co/elasticsearch/elasticsearch:8.19.19
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.19.24@sha256:d6dfe6626d645cfec66e91009aca60c6c1bb6f94d34253528f24d8cea2f94ba6
     container_name: mimir
     restart: unless-stopped
     environment:
@@ -180,7 +180,7 @@ services:
 
   # ─── ClamAV Antivirus Scanner ───
   clamav:
-    image: clamav/clamav:1.4.3
+    image: clamav/clamav:1.4.6@sha256:8ad6197396974726c35d017e50aaaaf4b91745726a04faec8480c203edd98052
     container_name: tyr
     restart: unless-stopped
     environment:
@@ -216,8 +216,8 @@ services:
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
       MINIO_SERVER_URL: ${MINIO_PUBLIC_URL}
     ports:
-      - "9000:9000"
-      - "9001:9001"
+      - "${MINIO_BIND_ADDRESS:-127.0.0.1}:9000:9000"
+      - "${MINIO_BIND_ADDRESS:-127.0.0.1}:9001:9001"
     volumes:
       - minio_data:/data
     networks:
@@ -400,7 +400,7 @@ services:
 
   # ─── VolWeb Nginx (port 8888 — localhost only) ───
   volweb-nginx:
-    image: nginx:alpine
+    image: nginx:1.30.6-alpine@sha256:0e52bd054126cdc040b1276c0af347aeb02a41b9cfe305d6094767ac30e97949
     container_name: hel-proxy
     restart: unless-stopped
     # Bound to localhost only — VolWeb not directly accessible from external networks.
@@ -518,7 +518,7 @@ services:
   # On first start with a real public domain, Traefik issues a cert automatically.
   # For localhost or private networks it falls back to an internal self-signed cert.
   traefik:
-    image: traefik:v3.7
+    image: traefik:v3.7.17@sha256:68ae5fe5b64ca166704b746a9e8afcd385e36b3f569a5691401bf652d57b3748
     container_name: bifrost
     restart: unless-stopped
     command:

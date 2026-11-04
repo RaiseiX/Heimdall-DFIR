@@ -4,7 +4,7 @@
 # This stage is Docker-layer-cached independently from the application code.
 # It only re-runs when tool URLs or versions change — not on every code edit.
 # ════════════════════════════════════════════════════════════════════════════
-FROM node:24-bookworm-slim AS tool-fetcher
+FROM node:24.22.2-bookworm-slim@sha256:c86ecead9e55a5210ac1727de38a4ca840bf03dcaf34dc9749addbf383b1920c AS tool-fetcher
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
@@ -114,7 +114,7 @@ RUN git clone --depth=1 --single-branch \
 # Installs system deps and the Node app. Rebuilds fast on code changes because
 # the heavy tool-fetcher stage above is pulled from cache.
 # ════════════════════════════════════════════════════════════════════════════
-FROM node:24-bookworm-slim
+FROM node:24.22.2-bookworm-slim@sha256:c86ecead9e55a5210ac1727de38a4ca840bf03dcaf34dc9749addbf383b1920c
 
 WORKDIR /app
 
