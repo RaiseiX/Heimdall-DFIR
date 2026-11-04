@@ -16,6 +16,20 @@ const { SYSMON_BEHAVIOR_VECTORS, TIMESTOMP_QUERY, EXEC_ANOMALY_VECTORS, WMI_PERS
 
 const router = express.Router();
 
+const ASSIGNABLE_ROLES = ['analyst', 'team_lead', 'admin'];
+const INVESTIGATOR_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+async function validerEnqueteur(valeur) {
+  if (typeof valeur !== 'string' || !INVESTIGATOR_UUID_RE.test(valeur)) {
+    return { status: 400, error: 'investigator_id invalide' };
+  }
+  const r = await pool.query(
+    `SELECT id FROM users WHERE id = $1 AND role = ANY($2::text[]) AND is_active IS NOT FALSE`,
+    [valeur.toLowerCase(), ASSIGNABLE_ROLES]);
+  if (!r.rows || r.rows.length === 0) return { status: 404, error: 'Enquêteur introuvable ou inactif' };
+  return { id: String(r.rows[0].id || valeur).toLowerCase() };
+}
+
 const { caseAccessParam, caseListFilter, canAccessCase, ELEVATED } = require('../middleware/caseAccess');
 // Enforce case-level access on every route carrying :id (the case id). The cases
 // list (no :id) and global routes (e.g. /detections/exceptions/:exId) are unaffected.
@@ -406,7 +420,20 @@ router.post('/', authenticate, async (req, res) => {
     const num = maxResult.rows[0].max_num + 1;
     const case_number = `CASE-${year}-${String(num).padStart(3, '0')}`;
 
-    const validInvestigator = investigator_id && investigator_id.match(/^[0-9a-f-]{36}$/i) ? investigator_id : null;
+    let validInvestigator = null;
+    if (investigator_id !== undefined && investigator_id !== null && investigator_id !== '') {
+      const soiMeme = typeof investigator_id === 'string' && investigator_id.toLowerCase() === String(req.user.id).toLowerCase();
+      if (!soiMeme && !ELEVATED.has(req.user.role)) {
+        return res.status(403).json({ error: 'Désignation d\'un enquêteur réservée aux administrateurs et chefs d\'équipe' });
+      }
+      if (soiMeme) {
+        validInvestigator = req.user.id;
+      } else {
+        const cible = await validerEnqueteur(investigator_id);
+        if (cible.error) return res.status(cible.status).json({ error: cible.error });
+        validInvestigator = cible.id;
+      }
+    }
 
     const deadline = report_deadline ? new Date(report_deadline) : null;
     if (deadline && isNaN(deadline.getTime())) {
@@ -447,7 +474,19 @@ router.put('/:id', authenticate, async (req, res) => {
     const deadline = hasDeadline ? (report_deadline ? new Date(report_deadline) : null) : undefined;
     const avant = await pool.query('SELECT investigator_id FROM cases WHERE id = $1', [req.params.id]);
     const ancienEnqueteur = avant.rows?.[0]?.investigator_id || null;
-    const params = [title, description, status, priority, investigator_id, req.params.id];
+    let nouvelEnqueteur = investigator_id;
+    const demande = investigator_id !== undefined && investigator_id !== null;
+    const inchange = demande && typeof investigator_id === 'string' && ancienEnqueteur
+      && investigator_id.toLowerCase() === String(ancienEnqueteur).toLowerCase();
+    if (demande && !inchange) {
+      if (!ELEVATED.has(req.user.role)) {
+        return res.status(403).json({ error: 'Changement d\'enquêteur réservé aux administrateurs et chefs d\'équipe' });
+      }
+      const cible = await validerEnqueteur(investigator_id);
+      if (cible.error) return res.status(cible.status).json({ error: cible.error });
+      nouvelEnqueteur = cible.id;
+    }
+    const params = [title, description, status, priority, nouvelEnqueteur, req.params.id];
     const deadlineClause = hasDeadline ? ', report_deadline = $7' : '';
     if (hasDeadline) params.push(deadline);
     const result = await pool.query(
@@ -462,6 +501,10 @@ router.put('/:id', authenticate, async (req, res) => {
 
     if (result.rows.length === 0) return res.status(404).json({ error: 'Cas non trouvé' });
     await auditLog(req.user.id, 'update_case', 'case', req.params.id, req.body, req.ip);
+    if (result.rows[0].investigator_id !== ancienEnqueteur) {
+      await auditLog(req.user.id, 'update_case', 'case', req.params.id,
+        { action: 'set_investigator', from: ancienEnqueteur, to: result.rows[0].investigator_id }, req.ip);
+    }
     if (ancienEnqueteur && result.rows[0].investigator_id !== ancienEnqueteur) {
       await reevaluerAcces(req.app.locals.io, ancienEnqueteur);
     }

@@ -37,6 +37,7 @@ const { detectMapping, loadMappings } = require('../services/timelineMappings');
 const { buildSlimRaw } = require('../services/timelineFieldExtract');
 const { buildHayabusaDescription } = require('../services/hayabusaDescription');
 const { pushTimelineFilters, aDesFiltresAvances, validerEvidenceIds } = require('../services/timelineFilters');
+const { csvCell } = require('../utils/csvCell');
 const { hostTimeContextSql } = require('../services/hostTimeContext');
 const { GROUPABLE_COLUMNS } = require('../services/timelineGroupColumns');
 const { timelineRowsSql } = require('../services/timelineRowsSql');
@@ -4080,17 +4081,6 @@ router.get('/:caseId/export/csv', authenticate, async (req, res) => {
 
     const COLS = [...baseCols, ...extraCols, ...rawKeys.map(k => `raw_${k}`)];
 
-    function csvCell(v) {
-      if (v == null) return '';
-      let s;
-      if (Array.isArray(v) || typeof v === 'object') s = JSON.stringify(v);
-      else s = String(v);
-      if (s.includes(sep) || s.includes('"') || s.includes('\n') || s.includes('\r')) {
-        return '"' + s.replace(/"/g, '""') + '"';
-      }
-      return s;
-    }
-
     const filename = singleArtifact
       ? `timeline-${singleArtifact}-${caseId}-${Date.now()}.csv`
       : `timeline-${caseId}-${Date.now()}.csv`;
@@ -4098,14 +4088,14 @@ router.get('/:caseId/export/csv', authenticate, async (req, res) => {
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
 
     res.write('\uFEFF');
-    res.write(COLS.join(sep) + '\r\n');
+    res.write(COLS.map(c => csvCell(c, { sep })).join(sep) + '\r\n');
     for (const row of result.rows) {
       const line = COLS.map(c => {
         if (c.startsWith('raw_')) {
           const k = c.slice(4);
-          return csvCell(row.raw?.[k]);
+          return csvCell(row.raw?.[k], { sep });
         }
-        return csvCell(row[c]);
+        return csvCell(row[c], { sep });
       }).join(sep);
       res.write(line + '\r\n');
     }
@@ -4134,12 +4124,9 @@ router.get('/:caseId/export-csv-stream', authenticate, async (req, res) => {
   const CSV_HEADERS = ['timestamp', 'artifact_type', 'artifact_name', 'description', 'source',
                         'host_name', 'user_name', 'process_name', 'mitre_tactic', 'mitre_technique_id'];
 
-  function escapeCsv(val) {
-    const s = String(val ?? '').replace(/"/g, '""');
-    return s.includes(separator) || s.includes('"') || s.includes('\n') ? `"${s}"` : s;
-  }
+  const escapeCsv = val => csvCell(val, { sep: separator });
 
-  res.write(CSV_HEADERS.join(separator) + '\n');
+  res.write(CSV_HEADERS.map(escapeCsv).join(separator) + '\n');
 
   let written = 0;
   try {

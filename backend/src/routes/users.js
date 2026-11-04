@@ -115,10 +115,13 @@ router.get('/me/sessions', authenticate, async (req, res) => {
 
 router.post('/me/sessions/revoke-all', authenticate, async (req, res) => {
   try {
-    const r = await pool.query(
-      'UPDATE refresh_tokens SET revoked = TRUE WHERE user_id = $1 AND revoked = FALSE',
-      [req.user.id]
-    );
+    const r = await inTransaction(async (client) => {
+      await client.query('UPDATE users SET session_version = session_version + 1 WHERE id = $1', [req.user.id]);
+      return client.query(
+        'UPDATE refresh_tokens SET revoked = TRUE WHERE user_id = $1 AND revoked = FALSE',
+        [req.user.id]
+      );
+    });
     await couperSessionsUtilisateur(req.app.locals.io, req.user.id);
     if (req.user.jti) {
       const ttl = req.user.exp ? req.user.exp - Math.floor(Date.now() / 1000) : 28800;
@@ -164,13 +167,19 @@ router.put('/:id', authenticate, requireRole('admin'), async (req, res) => {
     const { full_name, role, is_active } = req.body;
     const outcome = await inTransaction(async (client) => {
       const avant = await client.query('SELECT role, is_active FROM users WHERE id = $1 FOR UPDATE', [req.params.id]);
+      const anterieur = avant.rows && avant.rows[0];
+      const revoquer = is_active === false || (role != null && anterieur && role !== anterieur.role) ? 1 : 0;
       const result = await client.query(
         `UPDATE users SET full_name = COALESCE($1, full_name),
-         role = COALESCE($2, role), is_active = COALESCE($3, is_active), updated_at = NOW()
+         role = COALESCE($2, role), is_active = COALESCE($3, is_active), updated_at = NOW(),
+         session_version = session_version + $5::int
          WHERE id = $4 RETURNING id, username, full_name, role, is_active`,
-        [full_name, role, is_active, req.params.id]
+        [full_name, role, is_active, req.params.id, revoquer]
       );
       if (result.rows.length === 0) return null;
+      if (revoquer) {
+        await client.query('UPDATE refresh_tokens SET revoked = TRUE WHERE user_id = $1 AND revoked = FALSE', [req.params.id]);
+      }
       const ancien = avant.rows[0];
       const apres = result.rows[0];
       const submitted = req.body && typeof req.body === 'object' ? req.body : {};
@@ -206,7 +215,7 @@ router.put('/:id/password', authenticate, async (req, res) => {
     if (!password || password.length < minLen) return res.status(400).json({ error: `Min ${minLen} caractères` });
     const hash = await bcrypt.hash(password, 12);
     const maj = await inTransaction(async (client) => {
-      const updated = await client.query('UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2 RETURNING id', [hash, req.params.id]);
+      const updated = await client.query('UPDATE users SET password_hash = $1, session_version = session_version + 1, updated_at = NOW() WHERE id = $2 RETURNING id', [hash, req.params.id]);
       if (updated.rows && updated.rows[0]) {
         await client.query('UPDATE refresh_tokens SET revoked = TRUE WHERE user_id = $1 AND revoked = FALSE', [updated.rows[0].id]);
       }

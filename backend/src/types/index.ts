@@ -16,7 +16,9 @@ export type UploadStatus =
   | 'pending'
   | 'uploading'
   | 'assembling'
+  | 'finalizing'
   | 'hashing'
+  | 'aborting'
   | 'complete'
   | 'failed';
 
@@ -43,6 +45,10 @@ export interface UploadSession {
   createdAt: number;
 
   status: UploadStatus;
+
+  uploadDir: string;
+
+  checksumSha256: string | null;
 }
 
 export interface InitUploadResponse {

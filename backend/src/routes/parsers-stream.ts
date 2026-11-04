@@ -9,6 +9,7 @@ import { parserQueue } from '../config/queue';
 import { parserRateLimiter } from '../middleware/rateLimiter';
 
 const { authenticate, auditCritical } = require('../middleware/auth');
+const { csvCell } = require('../utils/csvCell');
 const { caseAccessParam, canAccessCase, exigerAccesObjet, objetDansDossier } = require('../middleware/caseAccess');
 const {
   withCaseDeletion,
@@ -366,13 +367,7 @@ router.get('/result/:resultId/export/csv', exigerResultat, async (req: AuthReque
 
     const headers = Object.keys(first);
 
-    const escape = (v: unknown): string => {
-      const s = v === null || v === undefined ? '' : String(typeof v === 'object' ? JSON.stringify(v) : v);
-      if (s.includes(',') || s.includes('"') || s.includes('\n') || s.includes('\r')) {
-        return '"' + s.replace(/"/g, '""') + '"';
-      }
-      return s;
-    };
+    const escape = (v: unknown): string => csvCell(v);
 
     const ts = new Date(created_at).toISOString().slice(0, 10).replace(/-/g, '');
     const safeName = parser_name.replace(/[^a-zA-Z0-9_-]/g, '_');

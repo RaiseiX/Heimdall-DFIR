@@ -103,7 +103,7 @@ router.post('/login', authLimiter, async (req, res) => {
     }
 
     const result = await pool.query(
-      'SELECT id, username, email, password_hash, full_name, role, is_active, preferences FROM users WHERE username = $1',
+      'SELECT id, username, email, password_hash, full_name, role, is_active, preferences, session_version FROM users WHERE username = $1',
       [username]
     );
 
@@ -140,7 +140,7 @@ router.post('/login', authLimiter, async (req, res) => {
 
     const jti   = crypto.randomUUID();
     const token = jwt.sign(
-      { id: user.id, username: user.username, role: user.role, full_name: user.full_name, jti },
+      { id: user.id, username: user.username, role: user.role, full_name: user.full_name, jti, sv: Number(user.session_version) || 0 },
       JWT_SECRET,
       { expiresIn: ACCESS_TOKEN_EXPIRY }
     );
@@ -187,7 +187,7 @@ router.post('/refresh', authLimiter, async (req, res) => {
 
     const hash = hashToken(refreshToken);
     const result = await pool.query(
-      `SELECT rt.*, u.username, u.role, u.full_name, u.is_active
+      `SELECT rt.*, u.username, u.role, u.full_name, u.is_active, u.session_version
        FROM refresh_tokens rt JOIN users u ON u.id = rt.user_id
        WHERE rt.token_hash = $1 AND rt.revoked = FALSE AND rt.expires_at > NOW()`,
       [hash]
@@ -212,7 +212,7 @@ router.post('/refresh', authLimiter, async (req, res) => {
 
     const jti      = crypto.randomUUID();
     const newToken = jwt.sign(
-      { id: rt.user_id, username: rt.username, role: rt.role, full_name: rt.full_name, jti },
+      { id: rt.user_id, username: rt.username, role: rt.role, full_name: rt.full_name, jti, sv: Number(rt.session_version) || 0 },
       JWT_SECRET,
       { expiresIn: ACCESS_TOKEN_EXPIRY }
     );

@@ -81,10 +81,16 @@ async function jetonRevoque(jti, redis) {
 
 async function lireUtilisateur(userId, pool = poolParDefaut) {
   const r = await pool.query(
-    'SELECT id, username, full_name, role, is_active FROM users WHERE id = $1',
+    'SELECT id, username, full_name, role, is_active, session_version FROM users WHERE id = $1',
     [userId]
   );
   return r.rows && r.rows.length ? r.rows[0] : null;
+}
+
+function sessionVersionValide(decoded, ligne) {
+  const courante = ligne && ligne.session_version != null ? Number(ligne.session_version) : 0;
+  if (decoded && decoded.sv === undefined) return courante === 0;
+  return Number.isInteger(decoded && decoded.sv) && decoded.sv === courante;
 }
 
 async function verifierSession(token, { secret = process.env.JWT_SECRET, pool = poolParDefaut, redis } = {}) {
@@ -105,6 +111,7 @@ async function verifierSession(token, { secret = process.env.JWT_SECRET, pool = 
     return { ok: false, raison: 'indisponible' };
   }
   if (!ligne || ligne.is_active === false) return { ok: false, raison: 'inactif' };
+  if (!sessionVersionValide(decoded, ligne)) return { ok: false, raison: 'revoque' };
   const user = {
     ...decoded,
     id: ligne.id,
@@ -157,6 +164,7 @@ async function revoquerSessionActive(userId, redis) {
 
 module.exports = {
   verifierSession,
+  sessionVersionValide,
   lireUtilisateur,
   revoquerJti,
   revoquerSessionActive,
