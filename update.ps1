@@ -199,6 +199,17 @@ function Get-JsonField([string]$json, [string]$field) {
     return ''
 }
 
+function Test-CountsNotWorse([string]$before, [string]$after) {
+    foreach ($m in [regex]::Matches($after, '"([a-z_]+)":(\d+)')) {
+        $key = $m.Groups[1].Value
+        $n = [int64]$m.Groups[2].Value
+        $prev = [regex]::Match($before, '"' + $key + '":(\d+)')
+        if (-not $prev.Success) { return $false }
+        if ($n -gt [int64]$prev.Groups[1].Value) { return $false }
+    }
+    return $true
+}
+
 function Get-JsonObject([string]$json, [string]$field) {
     $m = [regex]::Match($json, '"' + [regex]::Escape($field) + '":(\{[^}]*\})')
     if ($m.Success) { return $m.Groups[1].Value }
@@ -846,8 +857,8 @@ Write-TextFile (Join-Path $BackupDir 'audit-after.json') ($auditAfter + "`n")
 $afterCode = $verifyAfter.Code
 $beforeCounts = Get-JsonObject $auditBefore 'problem_counts'
 $afterCounts = Get-JsonObject $auditAfter 'problem_counts'
-if ($afterCode -eq 2 -and $AcceptAuditProblems -and $afterCounts -and $afterCounts -ceq $beforeCounts) {
-    Write-Warn "Chaîne toujours en défaut, mais sans nouveau problème depuis avant la mise à jour : $afterCounts"
+if ($afterCode -eq 2 -and $AcceptAuditProblems -and $afterCounts -and $beforeCounts -and (Test-CountsNotWorse $beforeCounts $afterCounts)) {
+    Write-Warn "Chaîne toujours en défaut, sans problème nouveau ni aggravé depuis avant la mise à jour : $afterCounts (avant : $beforeCounts)"
     $afterCode = 0
 }
 if ($afterCode -ne 0) {
