@@ -280,6 +280,7 @@ async function runMigrations() {
 
 async function start() {
   try {
+    require('./services/auditChain').assertAuditKeyConfigured();
     await testConnection();
     logger.info('✓ PostgreSQL connecté');
 

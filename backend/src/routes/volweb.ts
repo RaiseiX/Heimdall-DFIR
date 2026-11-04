@@ -5,7 +5,8 @@ import fs      from 'fs';
 import crypto  from 'crypto';
 import { safeBasename } from '../services/uploadService';
 
-const { authenticate, auditLog } = require('../middleware/auth');
+const { authenticate, auditCritical } = require('../middleware/auth');
+const { removeOrphanFile } = require('../services/orphanUploadCleanup');
 const { pool }                   = require('../config/database');
 const {
   generateMagicToken,
@@ -370,37 +371,48 @@ router.post('/memory/:caseId/complete', authenticate, async (req: any, res) => {
     const sha1   = hashSha1.digest('hex');
     const sha256 = hashSha256.digest('hex');
 
-    const evidenceRes = await pool.query(
-      `INSERT INTO evidence
-         (case_id, name, original_filename, file_path, file_size, evidence_type,
-          hash_md5, hash_sha1, hash_sha256, added_by, volweb_status, chain_of_custody)
-       VALUES ($1, $2, $3, $4, $5, 'memory', $6, $7, $8, $9, 'uploading', $10)
-       RETURNING *`,
-      [
-        req.params.caseId,
-        upload.filename,
-        upload.filename,
-        finalPath,
-        upload.total_size,
-        md5, sha1, sha256,
-        req.user.id,
-        JSON.stringify([{
-          action:     'uploaded',
-          user:       req.user.full_name,
-          timestamp:  new Date().toISOString(),
-          hash_sha256: sha256,
-        }]),
-      ]
-    );
-    const evidence = evidenceRes.rows[0];
+    const client = await pool.connect();
+    let evidence: any;
+    try {
+      await client.query('BEGIN');
+      const evidenceRes = await client.query(
+        `INSERT INTO evidence
+           (case_id, name, original_filename, file_path, file_size, evidence_type,
+            hash_md5, hash_sha1, hash_sha256, added_by, volweb_status, chain_of_custody)
+         VALUES ($1, $2, $3, $4, $5, 'memory', $6, $7, $8, $9, 'uploading', $10)
+         RETURNING *`,
+        [
+          req.params.caseId,
+          upload.filename,
+          upload.filename,
+          finalPath,
+          upload.total_size,
+          md5, sha1, sha256,
+          req.user.id,
+          JSON.stringify([{
+            action:     'uploaded',
+            user:       req.user.full_name,
+            timestamp:  new Date().toISOString(),
+            hash_sha256: sha256,
+          }]),
+        ]
+      );
+      evidence = evidenceRes.rows[0];
+      await auditCritical(client, req.user.id, 'upload_memory_dump', 'evidence', evidence.id,
+        { filename: upload.filename, hash_sha256: sha256 }, req.ip);
+      await client.query('COMMIT');
+    } catch (txErr: any) {
+      await client.query('ROLLBACK').catch(() => {});
+      if (txErr?.auditFailure) await removeOrphanFile(finalPath, { sha256 });
+      throw txErr;
+    } finally {
+      client.release();
+    }
 
     await pool.query(
       "UPDATE memory_uploads SET evidence_id = $1, status = 'forwarding', updated_at = NOW() WHERE id = $2",
       [evidence.id, upload_id]
     );
-
-    await auditLog(req.user.id, 'upload_memory_dump', 'evidence', evidence.id,
-      { filename: upload.filename, hash_sha256: sha256 }, req.ip);
 
     res.status(201).json(evidence);
 

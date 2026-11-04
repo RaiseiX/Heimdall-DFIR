@@ -1,13 +1,14 @@
 
 import express, { Response, NextFunction } from 'express';
 import type { Server as IOServer } from 'socket.io';
+import logger from '../config/logger';
 import type { Pool } from 'pg';
 import type { AuthRequest } from '../types/index';
 import { getAvailableTools, optionsParseurClient } from '../services/parserService';
 import { parserQueue } from '../config/queue';
 import { parserRateLimiter } from '../middleware/rateLimiter';
 
-const { authenticate, auditLog } = require('../middleware/auth');
+const { authenticate, auditCritical } = require('../middleware/auth');
 const { caseAccessParam, canAccessCase, exigerAccesObjet, objetDansDossier } = require('../middleware/caseAccess');
 const {
   withCaseDeletion,
@@ -473,6 +474,12 @@ router.delete('/results/:resultId', async (req: AuthRequest, res: Response, next
       }
       const indexItem = operation.items[0];
       if (indexItem.status !== 'deleted' && indexItem.status !== 'already_absent') {
+        await auditCritical(pool, req.user.id, 'delete_parser_result_started', 'case', caseId, {
+          operation_id: operation.id,
+          result_id: resultId,
+          parser_name: locked.rows[0].parser_name,
+          record_count: locked.rows[0].record_count,
+        }, req.ip);
         await markDeletionItem(pool, operation.id, indexItem.item_key, 'running');
         try {
           await deleteByResultId(caseId, resultId, { strict: true });
@@ -495,12 +502,10 @@ router.delete('/results/:resultId', async (req: AuthRequest, res: Response, next
         parser_name: deleted.rows[0].parser_name,
         record_count: deleted.rows[0].record_count,
       });
+      await auditCritical(client, req.user.id, 'delete_parser_result', 'case', caseId,
+        { result_id: resultId, operation_id: operation.id }, req.ip);
       return { ...deleted.rows[0], operationId: operation.id, replayed: false };
     });
-    if (!row.replayed) {
-      await auditLog(req.user.id, 'delete_parser_result', 'case', caseId,
-        { result_id: resultId, operation_id: row.operationId }, req.ip);
-    }
     res.json({
       success: true,
       deleted_id: row.id,
@@ -511,6 +516,13 @@ router.delete('/results/:resultId', async (req: AuthRequest, res: Response, next
   } catch (err) {
     if (operationId && !operationPrepared) {
       try { await markDeletionOperation(getPool(res), operationId, 'incomplete', safeErrorCode(err)); } catch {}
+    }
+    if ((err as any)?.auditFailure) {
+      logger.error('[parsers] delete result audit failure:', (err as any).message);
+      if (operationPrepared) {
+        return res.status(502).json({ error: 'Suppression incomplète. Réessayez ultérieurement.', code: 'DELETION_INCOMPLETE', operation_id: operationId });
+      }
+      return res.status(500).json({ error: 'Erreur serveur' });
     }
     if ((err as any)?.code === 'LEGAL_HOLD') {
       return res.status(409).json({ error: 'Suppression interdite : legal hold actif.', code: 'LEGAL_HOLD' });

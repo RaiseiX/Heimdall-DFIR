@@ -24,6 +24,12 @@ const { withCaseDeletion } = require('../services/caseDeletion');
 
 const router = express.Router();
 
+const AUDIT_ACTION_MAX = 50;
+function boundedAuditAction(prefix: string, suffix: unknown): string {
+  const clean = String(suffix ?? '').replace(/[^a-z0-9_]/gi, '').toLowerCase();
+  return `${prefix}_${clean}`.slice(0, AUDIT_ACTION_MAX);
+}
+
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const { caseAccessParam, canAccessCase } = require('../middleware/caseAccess');
 router.use(authenticate as any);
@@ -1225,8 +1231,8 @@ router.post('/github/import', authenticate, (requireRole as any)('admin'),
       }
     }
 
-    await auditLog(userId, `github_import_${type}`, 'system', null as any,
-      { repo: `${owner}/${repo}`, branch, imported, skipped }, req.ip);
+    await auditLog(userId, boundedAuditAction('github_import', type), 'system', null as any,
+      { repo: `${owner}/${repo}`, rule_type: String(type), branch, imported, skipped }, req.ip);
 
     res.json({ imported, skipped, errors });
   } catch (e: any) {
@@ -1356,8 +1362,8 @@ router.post('/github/import-zip', authenticate, (requireRole as any)('admin'),
         }
       }
 
-      await auditLog(userId, `github_zip_import_${type}`, 'system', null as any,
-        { repo: `${owner}/${repo}`, branch, total: files.length, imported, skipped }, req.ip);
+      await auditLog(userId, boundedAuditAction('github_zip_import', type), 'system', null as any,
+        { repo: `${owner}/${repo}`, rule_type: String(type), branch, total: files.length, imported, skipped }, req.ip);
 
       logger.info(`[ZipImport] Terminé — ${imported} importées, ${skipped} ignorées`);
       res.json({ total: files.length, imported, skipped, errors });
@@ -1413,7 +1419,7 @@ router.post('/sysmon/configs/:key/import', authenticate, (requireRole as any)('a
        ON CONFLICT (config_key) DO UPDATE SET content = $6, source_url = $5, imported_by = $7, updated_at = NOW()`,
       [req.params.key, cfg.name, cfg.author, cfg.license, cfg.url, xml, req.user!.id]
     );
-    await auditLog(req.user!.id, 'download_sysmon_config', 'sysmon', req.params.key, { url: cfg.url, action: 'import', bytes: xml.length }, req.ip);
+    await auditLog(req.user!.id, 'download_sysmon_config', 'sysmon', null as any, { config_key: req.params.key, url: cfg.url, action: 'import', bytes: xml.length }, req.ip);
     res.json({ ok: true, key: req.params.key, bytes: xml.length });
   } catch (e: any) {
     logger.error('[sysmon import]', e.message);

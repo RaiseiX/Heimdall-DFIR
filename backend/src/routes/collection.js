@@ -23,7 +23,7 @@ const { parse } = require('csv-parse/sync');
 const { parse: parseStream } = require('csv-parse');
 const multer = require('multer');
 const { pool, readPool } = require('../config/database');
-const { authenticate, auditLog } = require('../middleware/auth');
+const { authenticate, auditLog, auditCritical } = require('../middleware/auth');
 
 const esService = require('../services/elasticsearchService');
 const { esMayServe } = require('../services/timelineSource');
@@ -3796,10 +3796,12 @@ router.delete('/:caseId/fs-timeline', authenticate, async (req, res) => {
       });
     }
     const evidenceId = req.body?.evidence_id || null;
-    const removed = await withCaseDeletion(pool, caseId,
-      client => purgeFsTimeline(client, caseId, { evidenceId }));
-    await auditLog(req.user.id, 'purge_fs_timeline', 'case', caseId,
-      { removed, evidence_id: evidenceId }, req.ip);
+    const removed = await withCaseDeletion(pool, caseId, async client => {
+      const count = await purgeFsTimeline(client, caseId, { evidenceId });
+      await auditCritical(client, req.user.id, 'purge_fs_timeline', 'case', caseId,
+        { removed: count, evidence_id: evidenceId }, req.ip);
+      return count;
+    });
     logger.info(`[collection] fs timeline purged: ${removed} row(s) for case ${caseId}`);
     return res.json({ removed, evidence_id: evidenceId });
   } catch (err) {
@@ -3822,10 +3824,12 @@ router.delete('/:caseId/state', authenticate, async (req, res) => {
     }
     const kind = req.body?.kind || null;
     const evidenceId = req.body?.evidence_id || null;
-    const removed = await withCaseDeletion(pool, caseId,
-      client => purgeCatScaleState(client, caseId, { kind, evidenceId }));
-    await auditLog(req.user.id, 'purge_catscale_state', 'case', caseId,
-      { removed, kind, evidence_id: evidenceId }, req.ip);
+    const removed = await withCaseDeletion(pool, caseId, async client => {
+      const count = await purgeCatScaleState(client, caseId, { kind, evidenceId });
+      await auditCritical(client, req.user.id, 'purge_catscale_state', 'case', caseId,
+        { removed: count, kind, evidence_id: evidenceId }, req.ip);
+      return count;
+    });
     logger.info(`[collection] catscale_state purged: ${removed} row(s) for case ${caseId}${kind ? ` (kind=${kind})` : ''}`);
     return res.json({ removed, kind, evidence_id: evidenceId });
   } catch (err) {
@@ -3875,6 +3879,12 @@ router.delete('/:caseId/data', authenticate, async (req, res) => {
         ],
       });
       operationId = operation.id;
+
+      await auditCritical(pool, req.user.id, 'delete_collection_data_started', 'case', caseId, {
+        operation_id: operation.id,
+        case_id: caseId,
+        directories: collDirs.length,
+      }, req.ip);
 
       for (const item of operation.items.filter(entry => entry.kind === 'disk')) {
         if (item.status === 'deleted' || item.status === 'already_absent') continue;
@@ -3944,24 +3954,32 @@ router.delete('/:caseId/data', authenticate, async (req, res) => {
       await markDeletionOperation(client, operation.id, 'completed');
 
       const freedMb = Math.round(freedBytes / 1024 / 1024);
-      return {
+      const outcome = {
         success: true,
         freed_mb: freedMb,
         rows_deleted: deleted.rowCount,
         timeline_records_deleted: ctDeleted.rowCount,
         operation_id: operation.id,
       };
+      await auditCritical(client, req.user.id, 'delete_collection_data', 'case', caseId,
+        { freed_mb: outcome.freed_mb, rows_deleted: outcome.rows_deleted,
+          timeline_records_deleted: outcome.timeline_records_deleted,
+          operation_id: outcome.operation_id }, req.ip);
+      return outcome;
     });
-    await auditLog(req.user.id, 'delete_collection_data', 'case', caseId,
-      { freed_mb: result.freed_mb, rows_deleted: result.rows_deleted,
-        timeline_records_deleted: result.timeline_records_deleted,
-        operation_id: result.operation_id }, req.ip);
     res.json(result);
   } catch (err) {
     if (operationId && !operationPrepared) {
       try { await markDeletionOperation(pool, operationId, 'incomplete', safeErrorCode(err)); } catch (journalError) {
         logger.error('[collection] operation journal failure:', safeErrorCode(journalError));
       }
+    }
+    if (err && err.auditFailure) {
+      logger.error('collection delete audit failure:', err.message);
+      if (operationPrepared) {
+        return res.status(502).json({ error: 'Collection deletion incomplete', code: 'DELETION_INCOMPLETE', operation_id: operationId });
+      }
+      return res.status(500).json({ error: 'Collection deletion failed' });
     }
     if (err.code === 'LEGAL_HOLD') {
       return res.status(409).json({ error: 'Case is under legal hold', code: 'LEGAL_HOLD' });

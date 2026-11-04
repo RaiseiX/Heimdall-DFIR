@@ -83,6 +83,7 @@ services:
       REDIS_PORT: 6379
       REDIS_PASSWORD: ${REDIS_PASSWORD}
       JWT_SECRET: ${JWT_SECRET}
+      AUDIT_HMAC_KEY: "${AUDIT_HMAC_KEY:?AUDIT_HMAC_KEY is required, run start.sh or set a strong value in .env}"
       UPLOAD_DIR: /app/uploads
       ZIMMERMAN_TOOLS_DIR: /app/zimmerman-tools
       HAYABUSA_BIN: /app/hayabusa/hayabusa
@@ -444,6 +445,7 @@ services:
       REDIS_PORT: 6379
       REDIS_PASSWORD: ${REDIS_PASSWORD}
       JWT_SECRET: ${JWT_SECRET}
+      AUDIT_HMAC_KEY: "${AUDIT_HMAC_KEY:?AUDIT_HMAC_KEY is required, run start.sh or set a strong value in .env}"
       INTERNAL_API_BASE: http://backend:4000
       UPLOAD_DIR: /app/uploads
       ZIMMERMAN_TOOLS_DIR: /app/zimmerman-tools

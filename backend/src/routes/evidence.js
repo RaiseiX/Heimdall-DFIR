@@ -5,7 +5,7 @@ const path    = require('path');
 const fs      = require('fs');
 const { Transform, PassThrough } = require('stream');
 const { pool } = require('../config/database');
-const { authenticate, auditLog } = require('../middleware/auth');
+const { authenticate, auditCritical } = require('../middleware/auth');
 const { processMemoryDump } = require('../services/volwebService');
 const { safeBasename } = require('../services/uploadService');
 const { deleteMinioLocator } = require('../services/deletionStorage');
@@ -13,6 +13,7 @@ const { destroyStorageTarget } = require('../services/storageDeletionService');
 const { deleteByResultId } = require('../services/elasticsearchService');
 const { planEvidenceDeletion } = require('../services/evidenceDeletionPlan');
 const { racinesDeStockage, estSousUneRacine } = require('../services/storagePathGuard');
+const { removeOrphanFile, removeOrphanObject } = require('../services/orphanUploadCleanup');
 const {
   withCaseDeletion,
   beginDeletionOperation,
@@ -197,18 +198,33 @@ router.post('/:caseId/upload', authenticate, upload.single('file'), async (req, 
       size:          f.size,
     }));
 
-    const result = await pool.query(
-      `INSERT INTO evidence (case_id, name, original_filename, file_path, file_size, evidence_type, hash_md5, hash_sha1, hash_sha256, notes, added_by, chain_of_custody, additional_files)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING *`,
-      [
-        req.params.caseId, file.originalname, file.originalname, file.path,
-        file.size, evidence_type || 'other', md5, sha1, sha256,
-        notes, req.user.id,
-        JSON.stringify([{ action: 'uploaded', user: req.user.full_name, timestamp: new Date().toISOString(), hash_sha256: sha256 }]),
-      ]
-    );
-
-    await auditLog(req.user.id, 'upload_evidence', 'evidence', result.rows[0].id, { filename: file.originalname, hash_sha256: sha256 }, req.ip);
+    const client = await pool.connect();
+    let result;
+    try {
+      await client.query('BEGIN');
+      result = await client.query(
+        `INSERT INTO evidence (case_id, name, original_filename, file_path, file_size, evidence_type, hash_md5, hash_sha1, hash_sha256, notes, added_by, chain_of_custody, additional_files)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING *`,
+        [
+          req.params.caseId, file.originalname, file.originalname, file.path,
+          file.size, evidence_type || 'other', md5, sha1, sha256,
+          notes, req.user.id,
+          JSON.stringify([{ action: 'uploaded', user: req.user.full_name, timestamp: new Date().toISOString(), hash_sha256: sha256 }]),
+        ]
+      );
+      await auditCritical(client, req.user.id, 'upload_evidence', 'evidence', result.rows[0].id, { filename: file.originalname, hash_sha256: sha256 }, req.ip);
+      await client.query('COMMIT');
+    } catch (txErr) {
+      await client.query('ROLLBACK').catch(() => {});
+      if (txErr && txErr.auditFailure) {
+        for (const orphan of [file.path, ...additionalFiles]) {
+          await removeOrphanFile(orphan, { sha256 });
+        }
+      }
+      throw txErr;
+    } finally {
+      client.release();
+    }
     res.status(201).json(result.rows[0]);
 
     if ((evidence_type || '').toLowerCase() === 'memory') {
@@ -322,45 +338,61 @@ router.post('/:caseId/upload-stream', authenticate, async (req, res) => {
         object_key:    r.objectKey,
       }));
 
-      const dbResult = await pool.query(
-        `INSERT INTO evidence
-           (case_id, name, original_filename, file_path, file_size,
-            evidence_type, hash_md5, hash_sha1, hash_sha256,
-            notes, added_by, chain_of_custody, additional_files)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
-         RETURNING *`,
-        [
-          caseId,
-          mainResult.filename,
-          mainResult.filename,
-          `minio://${bucket}/${mainResult.objectKey}`,
-          mainResult.size,
-          evidenceType,
-          mainResult.md5,
-          mainResult.sha1,
-          mainResult.sha256,
-          null,
-          req.user.id,
-          JSON.stringify([{
-            action:    'uploaded_stream',
-            user:      req.user.full_name,
-            timestamp: new Date().toISOString(),
-            objectKey: mainResult.objectKey,
-            finalName: mainResult.finalName,
-            hash_sha256: mainResult.sha256,
-          }]),
-          JSON.stringify(additionalFilesMeta),
-        ]
-      );
+      const client = await pool.connect();
+      let evidence;
+      try {
+        await client.query('BEGIN');
+        const dbResult = await client.query(
+          `INSERT INTO evidence
+             (case_id, name, original_filename, file_path, file_size,
+              evidence_type, hash_md5, hash_sha1, hash_sha256,
+              notes, added_by, chain_of_custody, additional_files)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+           RETURNING *`,
+          [
+            caseId,
+            mainResult.filename,
+            mainResult.filename,
+            `minio://${bucket}/${mainResult.objectKey}`,
+            mainResult.size,
+            evidenceType,
+            mainResult.md5,
+            mainResult.sha1,
+            mainResult.sha256,
+            null,
+            req.user.id,
+            JSON.stringify([{
+              action:    'uploaded_stream',
+              user:      req.user.full_name,
+              timestamp: new Date().toISOString(),
+              objectKey: mainResult.objectKey,
+              finalName: mainResult.finalName,
+              hash_sha256: mainResult.sha256,
+            }]),
+            JSON.stringify(additionalFilesMeta),
+          ]
+        );
 
-      const evidence = dbResult.rows[0];
+        evidence = dbResult.rows[0];
 
-      await auditLog(req.user.id, 'upload_evidence_stream', 'evidence', evidence.id, {
-        filename:   mainResult.filename,
-        objectKey:  mainResult.objectKey,
-        hash_sha256: mainResult.sha256,
-        additionals: additionalResults.length,
-      }, req.ip);
+        await auditCritical(client, req.user.id, 'upload_evidence_stream', 'evidence', evidence.id, {
+          filename:   mainResult.filename,
+          objectKey:  mainResult.objectKey,
+          hash_sha256: mainResult.sha256,
+          additionals: additionalResults.length,
+        }, req.ip);
+        await client.query('COMMIT');
+      } catch (txErr) {
+        await client.query('ROLLBACK').catch(() => {});
+        if (txErr && txErr.auditFailure) {
+          for (const r of results) {
+            await removeOrphanObject(`minio://${bucket}/${r.objectKey}`, { sha256: r.sha256, objectKey: r.objectKey });
+          }
+        }
+        throw txErr;
+      } finally {
+        client.release();
+      }
 
       res.status(201).json(evidence);
 
@@ -379,7 +411,7 @@ router.post('/:caseId/upload-stream', authenticate, async (req, res) => {
       }
     } catch (err) {
       logger.error(`[Stream] finish error : ${err.message}`);
-      if (!res.headersSent) res.status(500).json({ error: err.message });
+      if (!res.headersSent) res.status(500).json({ error: err.auditFailure ? 'Erreur serveur' : err.message });
     }
   });
 
@@ -591,7 +623,7 @@ router.delete('/:id', authenticate, async (req, res) => {
     if (!await canAccessCase(req.user, caseId)) {
       return res.status(404).json({ error: 'Ressource introuvable' });
     }
-    const identite = await withCaseDeletion(pool, caseId, async client => {
+    await withCaseDeletion(pool, caseId, async client => {
       const row = await client.query(
         'SELECT file_path, name, additional_files, original_filename, file_size, hash_md5, hash_sha1, hash_sha256 FROM evidence WHERE id = $1 AND case_id = $2 FOR UPDATE',
         [req.params.id, caseId]
@@ -624,6 +656,15 @@ router.delete('/:id', authenticate, async (req, res) => {
         ],
       });
       operationId = operation.id;
+
+      await auditCritical(pool, req.user.id, 'delete_evidence_started', 'evidence', req.params.id, {
+        operation_id: operation.id,
+        evidence_id: req.params.id,
+        case_id: caseId,
+        name: evidence.name,
+        sha256: evidence.hash_sha256 ?? null,
+        targets: operation.items.length,
+      }, req.ip);
 
       for (const item of operation.items) {
         if (item.status === 'deleted' || item.status === 'already_absent') continue;
@@ -660,7 +701,7 @@ router.delete('/:id', authenticate, async (req, res) => {
       await client.query('UPDATE timeline_events SET evidence_id = NULL WHERE evidence_id = $1', [req.params.id]);
       await client.query('DELETE FROM evidence WHERE id = $1', [req.params.id]);
       await markDeletionOperation(client, operation.id, 'completed');
-      return {
+      const identite = {
         name: evidence.name,
         original_filename: evidence.original_filename ?? null,
         file_size: evidence.file_size == null ? null : Number(evidence.file_size),
@@ -668,15 +709,23 @@ router.delete('/:id', authenticate, async (req, res) => {
         sha1: evidence.hash_sha1 ?? null,
         md5: evidence.hash_md5 ?? null,
       };
+      await auditCritical(client, req.user.id, 'delete_evidence', 'evidence', req.params.id, identite, req.ip);
+      return identite;
     });
 
-    await auditLog(req.user.id, 'delete_evidence', 'evidence', req.params.id, identite, req.ip);
     res.json({ success: true });
   } catch (err) {
     if (operationId && !operationPrepared) {
       try { await markDeletionOperation(pool, operationId, 'incomplete', safeErrorCode(err)); } catch (journalError) {
         logger.error('[Evidence] operation journal failure:', safeErrorCode(journalError));
       }
+    }
+    if (err && err.auditFailure) {
+      logger.error('Delete evidence audit failure:', err.message);
+      if (operationPrepared) {
+        return res.status(502).json({ error: 'Suppression incomplète. Réessayez ultérieurement.', code: 'DELETION_INCOMPLETE', operation_id: operationId });
+      }
+      return res.status(500).json({ error: 'Erreur serveur' });
     }
     if (err.code === 'DELETION_INCOMPLETE') return res.status(502).json({ error: 'Suppression incomplète. Réessayez ultérieurement.', code: err.code, operation_id: operationId, ...(err.cible ? { cible: err.cible } : {}) });
     if (err.code === 'LEGAL_HOLD') return res.status(409).json({ error: 'Suppression interdite : legal hold actif.', code: err.code });

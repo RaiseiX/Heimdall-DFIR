@@ -3,7 +3,6 @@
 // AND NOT retention_exempt. Cases without a closed_at are NEVER eligible.
 const { pool } = require('../config/database');
 const { hardDeleteCase } = require('./hardDeleteService');
-const { auditLog } = require('../middleware/auth');
 const logger = require('../config/logger').default;
 
 async function getRetentionConfig() {
@@ -41,9 +40,11 @@ async function runRetentionPurge({ dryRun = false, actorId = null, ip = null } =
   const errors = [];
   for (const c of eligible) {
     try {
-      await hardDeleteCase(pool, c.id, actorId, ip, { automated: true });
-      await auditLog(actorId, 'retention_auto_purge', 'case', c.id,
-        { case_number: c.case_number, days_closed: c.days_closed, policy_days: cfg.days }, ip);
+      await hardDeleteCase(pool, c.id, actorId, ip, {
+        automated: true,
+        auditAction: 'retention_auto_purge',
+        auditDetails: { days_closed: c.days_closed, policy_days: cfg.days },
+      });
       purged++;
     } catch (err) {
       logger.error(`[retention] purge ${c.case_number} failed:`, err.message);

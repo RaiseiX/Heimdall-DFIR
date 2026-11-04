@@ -60,7 +60,7 @@ router.get('/configs/:id/download', authenticate, async (req, res) => {
     const resolved = path.resolve(filePath);
     if (!resolved.startsWith(CONFIGS_DIR)) return res.status(403).json({ error: 'Accès refusé' });
 
-    await auditLog(req.user.id, 'download_sysmon_config', 'sysmon', req.params.id, { filename: config.filename }, req.ip);
+    await auditLog(req.user.id, 'download_sysmon_config', 'sysmon', null, { config_id: req.params.id, filename: config.filename }, req.ip);
     res.setHeader('Content-Disposition', `attachment; filename="${config.filename}"`);
     res.setHeader('Content-Type', 'application/xml');
     fs.createReadStream(filePath).pipe(res);
@@ -77,7 +77,7 @@ router.post('/configs/:id/mark-deployed', authenticate, requireRole('admin'), as
        WHERE config_key = $3`,
       [req.user.id, notes || null, req.params.id]
     );
-    await auditLog(req.user.id, 'deploy_sysmon_config', 'sysmon', req.params.id, { notes }, req.ip);
+    await auditLog(req.user.id, 'deploy_sysmon_config', 'sysmon', null, { config_key: req.params.id, notes }, req.ip);
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: 'Erreur mise à jour' });

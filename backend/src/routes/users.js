@@ -2,8 +2,8 @@ const express = require('express');
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const { pool } = require('../config/database');
-const { authenticate, requireRole, auditLog, computeAuditHmac, computeAuditHmacLegacy } = require('../middleware/auth');
-const { verifyAuditChain, GENESIS_HASH } = require('../services/auditChain');
+const { authenticate, requireRole, auditLog, auditCritical, computeAuditHmac, computeAuditHmacLegacy } = require('../middleware/auth');
+const { verifyAuditLog } = require('../services/auditChain');
 const { couperSessionsUtilisateur } = require('../services/sessionRevocation');
 const { revoquerJti, normaliserId } = require('../services/sessionGuard');
 
@@ -131,6 +131,23 @@ router.post('/me/sessions/revoke-all', authenticate, async (req, res) => {
   }
 });
 
+async function inTransaction(work) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const value = await work(client);
+    await client.query('COMMIT');
+    return value;
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+const USER_UPDATE_FIELDS = ['full_name', 'role', 'is_active'];
+
 router.get('/', authenticate, async (req, res) => {
   try {
     const result = await pool.query(
@@ -145,21 +162,34 @@ router.get('/', authenticate, async (req, res) => {
 router.put('/:id', authenticate, requireRole('admin'), async (req, res) => {
   try {
     const { full_name, role, is_active } = req.body;
-    const avant = await pool.query('SELECT role, is_active FROM users WHERE id = $1', [req.params.id]);
-    const result = await pool.query(
-      `UPDATE users SET full_name = COALESCE($1, full_name),
-       role = COALESCE($2, role), is_active = COALESCE($3, is_active), updated_at = NOW()
-       WHERE id = $4 RETURNING id, username, full_name, role, is_active`,
-      [full_name, role, is_active, req.params.id]
-    );
-    if (result.rows.length === 0) return res.status(404).json({ error: 'Utilisateur non trouvé' });
-    await auditLog(req.user.id, 'update_user', 'user', req.params.id, req.body, req.ip);
-    const ancien = avant.rows[0];
-    const apres = result.rows[0];
+    const outcome = await inTransaction(async (client) => {
+      const avant = await client.query('SELECT role, is_active FROM users WHERE id = $1 FOR UPDATE', [req.params.id]);
+      const result = await client.query(
+        `UPDATE users SET full_name = COALESCE($1, full_name),
+         role = COALESCE($2, role), is_active = COALESCE($3, is_active), updated_at = NOW()
+         WHERE id = $4 RETURNING id, username, full_name, role, is_active`,
+        [full_name, role, is_active, req.params.id]
+      );
+      if (result.rows.length === 0) return null;
+      const ancien = avant.rows[0];
+      const apres = result.rows[0];
+      const submitted = req.body && typeof req.body === 'object' ? req.body : {};
+      const changed = USER_UPDATE_FIELDS.filter(f => submitted[f] !== undefined && submitted[f] !== null);
+      await auditCritical(client, req.user.id, 'update_user', 'user', req.params.id, {
+        changed_fields: changed,
+        previous_role: ancien ? ancien.role : null,
+        new_role: apres.role,
+        previous_is_active: ancien ? ancien.is_active : null,
+        new_is_active: apres.is_active,
+      }, req.ip);
+      return { ancien, apres };
+    });
+    if (!outcome) return res.status(404).json({ error: 'Utilisateur non trouvé' });
+    const { ancien, apres } = outcome;
     if (ancien && (apres.is_active === false || apres.role !== ancien.role)) {
       await couperSessionsUtilisateur(req.app.locals.io, apres.id);
     }
-    res.json(result.rows[0]);
+    res.json(apres);
   } catch (err) {
     res.status(500).json({ error: 'Erreur serveur' });
   }
@@ -175,11 +205,16 @@ router.put('/:id/password', authenticate, async (req, res) => {
     const minLen = (await getSecurityPolicy()).passwordMinLength;
     if (!password || password.length < minLen) return res.status(400).json({ error: `Min ${minLen} caractères` });
     const hash = await bcrypt.hash(password, 12);
-    const maj = await pool.query('UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2 RETURNING id', [hash, req.params.id]);
-    await auditLog(req.user.id, 'change_password', 'user', req.params.id, {}, req.ip);
+    const maj = await inTransaction(async (client) => {
+      const updated = await client.query('UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2 RETURNING id', [hash, req.params.id]);
+      if (updated.rows && updated.rows[0]) {
+        await client.query('UPDATE refresh_tokens SET revoked = TRUE WHERE user_id = $1 AND revoked = FALSE', [updated.rows[0].id]);
+      }
+      await auditCritical(client, req.user.id, 'change_password', 'user', req.params.id, {}, req.ip);
+      return updated;
+    });
     if (maj.rows && maj.rows[0]) {
       const cible = maj.rows[0].id;
-      await pool.query('UPDATE refresh_tokens SET revoked = TRUE WHERE user_id = $1 AND revoked = FALSE', [cible]);
       await couperSessionsUtilisateur(req.app.locals.io, cible);
     }
     res.json({ message: 'Mot de passe mis à jour' });
@@ -191,10 +226,14 @@ router.put('/:id/password', authenticate, async (req, res) => {
 router.delete('/:id', authenticate, requireRole('admin'), async (req, res) => {
   try {
     if (normaliserId(req.user.id) === normaliserId(req.params.id)) return res.status(400).json({ error: 'Impossible de supprimer votre propre compte' });
-    const result = await pool.query('DELETE FROM users WHERE id = $1 RETURNING id, username', [req.params.id]);
-    if (result.rows.length === 0) return res.status(404).json({ error: 'Utilisateur non trouvé' });
-    await auditLog(req.user.id, 'delete_user', 'user', req.params.id, { deleted: result.rows[0].username }, req.ip);
-    await couperSessionsUtilisateur(req.app.locals.io, result.rows[0].id);
+    const deleted = await inTransaction(async (client) => {
+      const result = await client.query('DELETE FROM users WHERE id = $1 RETURNING id, username', [req.params.id]);
+      if (result.rows.length === 0) return null;
+      await auditCritical(client, req.user.id, 'delete_user', 'user', req.params.id, { deleted: result.rows[0].username }, req.ip);
+      return result.rows[0];
+    });
+    if (!deleted) return res.status(404).json({ error: 'Utilisateur non trouvé' });
+    await couperSessionsUtilisateur(req.app.locals.io, deleted.id);
     res.json({ message: 'Utilisateur supprimé' });
   } catch (err) {
     res.status(500).json({ error: 'Erreur serveur' });
@@ -202,59 +241,71 @@ router.delete('/:id', authenticate, requireRole('admin'), async (req, res) => {
 });
 
 // ── Audit log integrity verification (HMAC recompute) ───────────────────────
-// Classifies each entry: verified | tampered | legacy_unverifiable | missing.
-// Legacy rows (pre-canonicalization) whose JSONB details lost key order cannot
-// be distinguished from tampering — reported honestly as "legacy_unverifiable"
-// unless details is trivial (≤1 key), where order is irrelevant → tampered.
 router.get('/audit/verify', authenticate, requireRole('admin'), async (req, res) => {
   try {
-    const cap = Math.min(parseInt(req.query.limit) || 5000, 20000);
-    // Legacy rows only (pre-chain). Chained rows are checked as a chain below —
-    // recomputing them per-row would prove integrity but never completeness.
-    const r = await pool.query(
-      `SELECT id, user_id, action, entity_type, entity_id, details, created_at, hmac
-       FROM audit_log WHERE prev_hash IS NULL ORDER BY created_at DESC LIMIT $1`, [cap]
-    );
-    let verified = 0, tampered = 0, legacy = 0, missing = 0;
-    const tamperedIds = [];
-    for (const row of r.rows) {
-      if (!row.hmac) { missing++; continue; }
-      const fields = {
-        user_id: row.user_id, action: row.action, entity_type: row.entity_type,
-        entity_id: row.entity_id, details: row.details ?? {},
-        ts: new Date(row.created_at).toISOString(),
-      };
-      if (computeAuditHmac(fields) === row.hmac || computeAuditHmacLegacy(fields) === row.hmac) {
-        verified++;
-      } else {
-        const keys = row.details && typeof row.details === 'object' ? Object.keys(row.details) : [];
-        if (keys.length <= 1) { tampered++; if (tamperedIds.length < 20) tamperedIds.push(row.id); }
-        else legacy++;
-      }
-    }
-    // ── Chain verification: proves COMPLETENESS, which per-row HMACs cannot ──
-    // A deleted row leaves every surviving HMAC valid; only the broken prev_hash
-    // link of its successor exposes it.
-    const chainRows = (await pool.query(
-      `SELECT seq, user_id, action, entity_type, entity_id, details, created_at, prev_hash, hmac
-         FROM audit_log WHERE prev_hash IS NOT NULL ORDER BY seq DESC LIMIT $1`, [cap]
-    )).rows.reverse().map(row => ({
-      ...row, details: row.details ?? {}, ts: new Date(row.created_at).toISOString(),
-    }));
+    const PAGE = 1000;
+    const meta = await pool.query('SELECT genesis_seq::text AS genesis_seq FROM audit_chain_meta LIMIT 1');
+    const genesis = meta.rows[0] ? meta.rows[0].genesis_seq : null;
 
-    let chain = { ok: true, checked: 0 };
-    if (chainRows.length) {
-      // Seed with the hmac immediately preceding the window, so a capped scan
-      // does not report a false break on its own first row.
-      const seed = (await pool.query(
-        `SELECT hmac FROM audit_log WHERE prev_hash IS NOT NULL AND seq < $1
-         ORDER BY seq DESC LIMIT 1`, [chainRows[0].seq])).rows[0];
-      chain = verifyAuditChain(chainRows, seed ? seed.hmac : GENESIS_HASH);
+    let verified = 0, tampered = 0, legacy = 0, missing = 0, legacyChecked = 0;
+    const tamperedIds = [];
+    let cursor = '0';
+    for (;;) {
+      const page = await pool.query(
+        `SELECT seq::text AS seq_text, id, user_id, action, entity_type, entity_id, details, created_at, hmac
+           FROM audit_log
+          WHERE prev_hash IS NULL AND seq > $1::bigint AND ($2::bigint IS NULL OR seq < $2::bigint)
+          ORDER BY audit_log.seq ASC LIMIT $3`, [cursor, genesis, PAGE]
+      );
+      for (const row of page.rows) {
+        legacyChecked++;
+        if (!row.hmac) { missing++; continue; }
+        const fields = {
+          user_id: row.user_id, action: row.action, entity_type: row.entity_type,
+          entity_id: row.entity_id, details: row.details ?? {},
+          ts: new Date(row.created_at).toISOString(),
+        };
+        if (computeAuditHmac(fields) === row.hmac || computeAuditHmacLegacy(fields) === row.hmac) {
+          verified++;
+        } else {
+          const keys = row.details && typeof row.details === 'object' ? Object.keys(row.details) : [];
+          if (keys.length <= 1) { tampered++; if (tamperedIds.length < 20) tamperedIds.push(row.id); }
+          else legacy++;
+        }
+      }
+      if (page.rows.length < PAGE) break;
+      cursor = page.rows[page.rows.length - 1].seq_text;
     }
+
+    const report = await verifyAuditLog(pool);
+    const firstProblem = report.problems[0];
+    const chain = firstProblem
+      ? { ok: false, checked: report.checked, reason: firstProblem.type, breakAtSeq: firstProblem.seq }
+      : { ok: true, checked: report.checked };
+
+    const summary = {
+      checked: legacyChecked + report.checked,
+      legacy_checked: legacyChecked,
+      verified, tampered, legacy_unverifiable: legacy, missing,
+      tampered_ids: tamperedIds,
+      chain,
+      complete: report.complete,
+      genesis_seq: report.genesis_seq,
+      first_seq: report.first_seq,
+      last_seq: report.last_seq,
+      last_hmac: report.last_hmac,
+      problem_counts: report.problem_counts,
+      problems: report.problems,
+      problems_truncated: report.problems_truncated,
+    };
 
     await auditLog(req.user.id, 'verify_audit_integrity', 'system', null,
-      { checked: r.rows.length, verified, tampered, legacy_unverifiable: legacy, missing, chain }, req.ip);
-    res.json({ checked: r.rows.length, verified, tampered, legacy_unverifiable: legacy, missing, tampered_ids: tamperedIds, chain });
+      {
+        checked: summary.checked, verified, tampered, legacy_unverifiable: legacy, missing, chain,
+        complete: summary.complete, first_seq: summary.first_seq, last_seq: summary.last_seq,
+        last_hmac: summary.last_hmac, problem_counts: summary.problem_counts,
+      }, req.ip);
+    res.json(summary);
   } catch (err) {
     logger.error('audit verify error:', err.message);
     res.status(500).json({ error: 'Erreur serveur' });
@@ -286,6 +337,11 @@ router.get('/audit', authenticate, requireRole('admin'), async (req, res) => {
       'run_parser',
       'verify_audit_integrity', 'update_settings',
       'retention_auto_purge', 'retention_run_manual',
+      'audit_key_rotation', 'export_anonymized', 'download_collection_file',
+      'upload_evidence_stream', 'confirm_ioc', 'upload_memory_dump',
+      'delete_parser_result', 'purge_fs_timeline', 'purge_catscale_state',
+      'hard_delete_case_started', 'retention_auto_purge_started', 'delete_evidence_started',
+      'delete_collection_data_started', 'delete_parser_result_started',
     ];
 
     let query = `

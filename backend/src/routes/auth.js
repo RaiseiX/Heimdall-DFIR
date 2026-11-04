@@ -4,7 +4,7 @@ const jwt     = require('jsonwebtoken');
 const crypto  = require('crypto');
 const rateLimit = require('express-rate-limit');
 const { pool } = require('../config/database');
-const { authenticate, requireRole, auditLog, JWT_SECRET } = require('../middleware/auth');
+const { authenticate, requireRole, auditLog, auditCritical, JWT_SECRET } = require('../middleware/auth');
 const { getSecurityPolicy } = require('../services/securityPolicy');
 const { revoquerJti, lireSessionActive, ecrireSessionActive, normaliserId, appelRedis, causeRevocation, CAUSE_REMPLACE, CAUSE_REVOQUE } = require('../services/sessionGuard');
 const { couperSessionsUtilisateur } = require('../services/sessionRevocation');
@@ -94,7 +94,7 @@ router.post('/login', authLimiter, async (req, res) => {
 
     // Account lockout — keyed by username (also throttles user enumeration).
     if (await isLockedOut(username, redis, policy)) {
-      await auditLog(null, 'login_blocked', 'user', null, { username, reason: 'lockout' }, req.ip);
+      await auditCritical(pool, null, 'login_blocked', 'user', null, { username, reason: 'lockout' }, req.ip);
       return res.status(429).json({
         code: 'account_locked',
         windowMin: policy.lockoutWindowMin,
@@ -109,23 +109,25 @@ router.post('/login', authLimiter, async (req, res) => {
 
     if (result.rows.length === 0) {
       await recordLoginFailure(username, redis, policy);
-      await auditLog(null, 'login_failed', 'user', null, { username, reason: 'user_not_found' }, req.ip);
+      await auditCritical(pool, null, 'login_failed', 'user', null, { username, reason: 'user_not_found' }, req.ip);
       return res.status(401).json({ code: 'invalid_credentials', error: 'Identifiants invalides' });
     }
 
     const user = result.rows[0];
     if (!user.is_active) {
-      await auditLog(user.id, 'login_blocked', 'user', user.id, { username, reason: 'account_disabled' }, req.ip);
+      await auditCritical(pool, user.id, 'login_blocked', 'user', user.id, { username, reason: 'account_disabled' }, req.ip);
       return res.status(403).json({ code: 'account_disabled', error: 'Compte désactivé' });
     }
 
     const valid = await bcrypt.compare(password, user.password_hash);
     if (!valid) {
       await recordLoginFailure(username, redis, policy);
-      await auditLog(user.id, 'login_failed', 'user', user.id, { username, reason: 'wrong_password' }, req.ip);
+      await auditCritical(pool, user.id, 'login_failed', 'user', user.id, { username, reason: 'wrong_password' }, req.ip);
       return res.status(401).json({ code: 'invalid_credentials', error: 'Identifiants invalides' });
     }
 
+
+    await auditCritical(pool, user.id, 'login', 'user', user.id, {}, req.ip);
 
     await Promise.all([clearLoginFailures(username, redis), evictOldSession(user.id, redis)]);
 
@@ -146,8 +148,6 @@ router.post('/login', authLimiter, async (req, res) => {
     const refreshToken = await issueRefreshToken(user.id, pool, policy.sessionDurationH);
 
     await storeActiveSession(user.id, jti, redis);
-
-    await auditLog(user.id, 'login', 'user', user.id, {}, req.ip);
 
     res.json({
       token,
@@ -263,22 +263,38 @@ router.post('/logout', logoutLimiter, async (req, res) => {
     const redis = await getRedis();
     const maintenant = Math.floor(Date.now() / 1000);
 
-    let userRefresh = null;
-    if (typeof refresh === 'string' && refresh) {
-      const r = await pool.query(
-        'UPDATE refresh_tokens SET revoked = TRUE WHERE token_hash = $1 AND revoked = FALSE AND expires_at > NOW() RETURNING user_id',
-        [hashToken(refresh)]
-      );
-      userRefresh = r.rows && r.rows[0] ? normaliserId(String(r.rows[0].user_id)) : null;
-    }
-
     const acces = lireJetonAcces(req);
     const userAcces = (await accesActifValide(acces, redis, maintenant)) ? normaliserId(String(acces.id)) : null;
+    const hasRefresh = typeof refresh === 'string' && refresh;
 
-    const identifies = new Set([userRefresh, userAcces].filter(Boolean));
+    let identifies = new Set();
+    if (hasRefresh || userAcces) {
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        let userRefresh = null;
+        if (hasRefresh) {
+          const r = await client.query(
+            'UPDATE refresh_tokens SET revoked = TRUE WHERE token_hash = $1 AND revoked = FALSE AND expires_at > NOW() RETURNING user_id',
+            [hashToken(refresh)]
+          );
+          userRefresh = r.rows && r.rows[0] ? normaliserId(String(r.rows[0].user_id)) : null;
+        }
+        identifies = new Set([userRefresh, userAcces].filter(Boolean));
+        for (const userId of identifies) {
+          await auditCritical(client, userId, 'logout', 'user', userId, {}, req.ip);
+        }
+        await client.query('COMMIT');
+      } catch (txErr) {
+        await client.query('ROLLBACK').catch(() => {});
+        throw txErr;
+      } finally {
+        client.release();
+      }
+    }
+
     for (const userId of identifies) {
       await couperSessionsUtilisateur(io, userId);
-      await auditLog(userId, 'logout', 'user', userId, {}, req.ip);
     }
 
     res.json({ ok: true });
@@ -299,13 +315,24 @@ router.post('/register', authenticate, requireRole('admin'), async (req, res) =>
     }
     const password_hash = await bcrypt.hash(password, 12);
 
-    const result = await pool.query(
-      'INSERT INTO users (username, password_hash, full_name, role) VALUES ($1, $2, $3, $4) RETURNING id, username, full_name, role',
-      [username, password_hash, full_name, role || 'analyst']
-    );
-
-    await auditLog(req.user.id, 'create_user', 'user', result.rows[0].id, { username, role: role || 'analyst' }, req.ip);
-    res.status(201).json(result.rows[0]);
+    const client = await pool.connect();
+    let created;
+    try {
+      await client.query('BEGIN');
+      const result = await client.query(
+        'INSERT INTO users (username, password_hash, full_name, role) VALUES ($1, $2, $3, $4) RETURNING id, username, full_name, role',
+        [username, password_hash, full_name, role || 'analyst']
+      );
+      created = result.rows[0];
+      await auditCritical(client, req.user.id, 'create_user', 'user', created.id, { username, role: role || 'analyst' }, req.ip);
+      await client.query('COMMIT');
+    } catch (txErr) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw txErr;
+    } finally {
+      client.release();
+    }
+    res.status(201).json(created);
   } catch (err) {
     if (err.code === '23505') return res.status(409).json({ error: 'Utilisateur déjà existant' });
     res.status(500).json({ error: 'Erreur serveur' });

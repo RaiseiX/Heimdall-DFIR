@@ -67,21 +67,44 @@ function computeAuditHmacLegacy({ user_id, action, entity_type, entity_id, detai
   return crypto.createHmac('sha256', JWT_SECRET).update(payload).digest('hex');
 }
 
-/**
- * Append an audit entry to the tamper-evident chain.
- *
- * Failures stay swallowed on purpose: a broken audit write must not take down the
- * request that triggered it. The verify endpoint is what surfaces gaps — and a
- * missing entry now shows up as a chain break rather than silently vanishing.
- *
- * @param {string|null|undefined} [ipAddress]
- */
-async function auditLog(userId, action, entityType, entityId, details = {}, ipAddress = null) {
+let auditFailures = 0;
+let lastAuditFailureAt = null;
+let lastAuditFailureAction = null;
+
+function getAuditFailureCount() {
+  return auditFailures;
+}
+
+function getAuditFailureStats() {
+  return { failures: auditFailures, last_failure_at: lastAuditFailureAt, last_failure_action: lastAuditFailureAction };
+}
+
+function recordAuditFailure(action, err) {
+  auditFailures += 1;
+  lastAuditFailureAt = new Date().toISOString();
+  lastAuditFailureAction = typeof action === 'string' ? action : null;
+  logger.error(`Audit log write failed for action "${action}" (failures: ${auditFailures}):`, err);
+}
+
+async function auditLog(userId, action, entityType, entityId, details = {}, ipAddress) {
   try {
-    await appendAuditRow(pool, { userId, action, entityType, entityId, details, ipAddress });
+    await appendAuditRow(pool, { userId, action, entityType, entityId, details, ipAddress: ipAddress ?? null });
   } catch (err) {
-    logger.error('Audit log error:', err);
+    recordAuditFailure(action, err);
   }
 }
 
-module.exports = { authenticate, requireRole, auditLog, computeAuditHmac, computeAuditHmacLegacy, JWT_SECRET };
+async function auditCritical(db, userId, action, entityType, entityId, details = {}, ipAddress) {
+  try {
+    return await appendAuditRow(db || pool, { userId, action, entityType, entityId, details, ipAddress: ipAddress ?? null });
+  } catch (err) {
+    recordAuditFailure(action, err);
+    if (err && typeof err === 'object') err.auditFailure = true;
+    throw err;
+  }
+}
+
+module.exports = {
+  authenticate, requireRole, auditLog, auditCritical, getAuditFailureCount, getAuditFailureStats,
+  computeAuditHmac, computeAuditHmacLegacy, JWT_SECRET,
+};

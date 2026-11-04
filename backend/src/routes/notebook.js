@@ -25,7 +25,7 @@ function creerRouteur({ db, registre, audit, authentifier, controleAcces }) {
     return res.status(500).json({ error: 'Erreur serveur' });
   };
   const tracer = (req, action, chars) =>
-    Promise.resolve(audit(req.user.id, action, 'case', req.params.id, { chars }, req.ip)).catch(() => {});
+    audit(req.user.id, action, 'case', req.params.id, { chars }, req.ip);
 
   router.get('/:id', async (req, res) => {
     try {
@@ -39,7 +39,7 @@ function creerRouteur({ db, registre, audit, authentifier, controleAcces }) {
       const update = await registre.remplacer(db, req.params.id, contenu, req.body?.base_updated_at ?? null, req.user.id);
       diffuser(req.app.locals.io, req.params.id, update);
       const { updated_at } = await registre.lire(db, req.params.id);
-      tracer(req, 'save_notebook', contenu.length);
+      await tracer(req, 'save_notebook', contenu.length);
       res.json({ saved: true, updated_at });
     } catch (err) { echec(res, err, 'put'); }
   });
@@ -50,7 +50,7 @@ function creerRouteur({ db, registre, audit, authentifier, controleAcces }) {
       const update = await registre.ajouter(db, req.params.id, bloc, req.user.id);
       diffuser(req.app.locals.io, req.params.id, update);
       const { updated_at } = await registre.lire(db, req.params.id);
-      tracer(req, 'append_notebook', bloc.trim().length);
+      await tracer(req, 'append_notebook', bloc.trim().length);
       res.json({ appended: true, updated_at });
     } catch (err) { echec(res, err, 'append'); }
   });

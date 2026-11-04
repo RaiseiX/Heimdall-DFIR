@@ -5,7 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { pool } = require('../config/database');
-const { authenticate, auditLog } = require('../middleware/auth');
+const { authenticate, auditLog, auditCritical } = require('../middleware/auth');
 const { caseAccessParam, canAccessCase, ELEVATED } = require('../middleware/caseAccess');
 const { origineDuNarratif } = require('../services/reportNarrative');
 const { numeroterSources, resoudreSources } = require('../services/reportSources');
@@ -121,7 +121,7 @@ router.post('/:caseId/ai-draft', authenticate, async (req, res) => {
     });
     const resolvedModel = await require('../services/aiService').resolveModel(pool).catch(() => undefined);
     const narrative = await reportAi.generateNarrative(ctx, resolvedModel);
-    Promise.resolve(auditLog(req.user.id, 'report_ai_draft', 'case', caseId, {}, req.ip)).catch(() => {});
+    await auditLog(req.user.id, 'report_ai_draft', 'case', caseId, {}, req.ip);
     res.json({ narrative });
   } catch (err) {
     logger.error('[report] ai-draft error:', err.message);
@@ -185,7 +185,7 @@ router.post('/:caseId/bookmark-narrative', authenticate, async (req, res) => {
       temperature: 0.3,
     });
 
-    Promise.resolve(auditLog(req.user.id, 'bookmark_narrative_draft', 'case', caseId, { bookmarks: bookmarks.length }, req.ip)).catch(() => {});
+    await auditLog(req.user.id, 'bookmark_narrative_draft', 'case', caseId, { bookmarks: bookmarks.length }, req.ip);
     res.json({ narrative: String(narrative).trim() });
   } catch (err) {
     logger.error('[report] bookmark-narrative error:', err.message);
@@ -553,7 +553,7 @@ router.get('/download/:id', authenticate, async (req, res) => {
       return res.status(404).json({ error: 'Fichier PDF non trouvé' });
     }
 
-    await auditLog(req.user.id, 'download_report', 'report', req.params.id,
+    await auditCritical(pool, req.user.id, 'download_report', 'report', req.params.id,
       { title: report.title, case_id: report.case_id }, req.ip);
     res.download(cible, `${report.title}.pdf`);
   } catch (err) {

@@ -33,7 +33,7 @@ export function createNotebookRegistry({ audit, debounceMs }: { audit?: Audit; d
       const texte = doc.getText(TEXTE).toString();
       await pool.query(saveNotebookDocSql(), [caseId, texte, Buffer.from(Y.encodeStateAsUpdate(doc)), meta.auteur]);
       if (audit && meta.auteur && meta.distant) {
-        Promise.resolve(audit(meta.auteur, 'save_notebook', 'case', caseId, { chars: texte.length }, null)).catch(() => {});
+        await audit(meta.auteur, 'save_notebook', 'case', caseId, { chars: texte.length }, null);
       }
     },
   }, { label: 'notebook', debounceMs });

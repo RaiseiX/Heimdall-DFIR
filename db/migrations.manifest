@@ -99,3 +99,4 @@ db/migrations/20260917120000_ingestion_files_parsed_empty.sql
 db/migrations/20260923150000_parse_queue.sql
 db/migrations/20260924160000_case_notebooks.sql
 db/migrations/20261103120000_runtime_schema_authority.sql
+db/migrations/20261103130000_audit_key_version.sql

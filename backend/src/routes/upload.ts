@@ -16,6 +16,8 @@ import { scanFile } from '../services/clamavService';
 import { ingestionQueue, IngestionJobData } from '../config/queue';
 
 const { canAccessCase } = require('../middleware/caseAccess');
+const { auditCritical } = require('../middleware/auth');
+const { removeOrphanFile } = require('../services/orphanUploadCleanup');
 
 async function enqueueIngestion(data: IngestionJobData): Promise<void> {
   await ingestionQueue.add('ingest', data);
@@ -158,37 +160,61 @@ router.post('/complete', async (req: AuthRequest, res: Response, next: NextFunct
       logger.info(`[ClamAV] Clean — ${fileInfo.name}`);
     }
 
-    const evidenceResult = await pool.query(
-      `INSERT INTO evidence
-         (case_id, name, original_filename, file_path, file_size,
-          evidence_type, hash_md5, hash_sha1, hash_sha256,
-          notes, added_by, chain_of_custody, scan_status, scan_threat)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
-       RETURNING *`,
-      [
-        value.caseId,
-        fileInfo.name,
-        fileInfo.name,
-        fileInfo.filePath,
-        fileInfo.fileSize,
-        value.evidenceType,
-        fileInfo.hash_md5,
-        fileInfo.hash_sha1,
-        fileInfo.hash_sha256,
-        value.notes || null,
-        req.user.id,
-        JSON.stringify([{
-          action: 'uploaded_chunked',
-          user: req.user.full_name,
-          timestamp: new Date().toISOString(),
-          hash_sha256: fileInfo.hash_sha256,
-        }]),
-        scanStatus,
-        scanThreat,
-      ]
-    );
+    let evidence: any;
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const evidenceResult = await client.query(
+        `INSERT INTO evidence
+           (case_id, name, original_filename, file_path, file_size,
+            evidence_type, hash_md5, hash_sha1, hash_sha256,
+            notes, added_by, chain_of_custody, scan_status, scan_threat)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+         RETURNING *`,
+        [
+          value.caseId,
+          fileInfo.name,
+          fileInfo.name,
+          fileInfo.filePath,
+          fileInfo.fileSize,
+          value.evidenceType,
+          fileInfo.hash_md5,
+          fileInfo.hash_sha1,
+          fileInfo.hash_sha256,
+          value.notes || null,
+          req.user.id,
+          JSON.stringify([{
+            action: 'uploaded_chunked',
+            user: req.user.full_name,
+            timestamp: new Date().toISOString(),
+            hash_sha256: fileInfo.hash_sha256,
+          }]),
+          scanStatus,
+          scanThreat,
+        ]
+      );
 
-    const evidence = evidenceResult.rows[0];
+      evidence = evidenceResult.rows[0];
+
+      await auditCritical(client, req.user.id, 'upload_evidence_chunked', 'evidence', evidence.id, {
+        filename:    fileInfo.name,
+        size:        fileInfo.fileSize,
+        hash_sha256: fileInfo.hash_sha256,
+        uploadId:    value.uploadId,
+        scan_status: scanStatus,
+        scan_threat: scanThreat,
+      }, req.ip);
+
+      await client.query('COMMIT');
+    } catch (txErr) {
+      await client.query('ROLLBACK').catch(() => {});
+      if ((txErr as any)?.auditFailure) {
+        await removeOrphanFile(fileInfo.finalPath || fileInfo.filePath, { sha256: fileInfo.hash_sha256 });
+      }
+      throw txErr;
+    } finally {
+      client.release();
+    }
 
     try {
       await enqueueIngestion({
@@ -207,26 +233,6 @@ router.post('/complete', async (req: AuthRequest, res: Response, next: NextFunct
       logger.error(`[Ingestion] Échec de mise en file pour l'evidence ${evidence.id}: ${enqueueErr}`);
     }
 
-    await pool.query(
-      `INSERT INTO audit_log (user_id, action, entity_type, entity_id, details, ip_address)
-       VALUES ($1, $2, $3, $4, $5, $6)`,
-      [
-        req.user.id,
-        'upload_evidence_chunked',
-        'evidence',
-        evidence.id,
-        JSON.stringify({
-          filename:    fileInfo.name,
-          size:        fileInfo.fileSize,
-          hash_sha256: fileInfo.hash_sha256,
-          uploadId:    value.uploadId,
-          scan_status: scanStatus,
-          scan_threat: scanThreat,
-        }),
-        req.ip,
-      ]
-    );
-
     res.status(201).json({
       evidenceId:  evidence.id,
       name:        evidence.name,
@@ -238,6 +244,10 @@ router.post('/complete', async (req: AuthRequest, res: Response, next: NextFunct
       scanThreat:  evidence.scan_threat ?? undefined,
     });
   } catch (err) {
+    if ((err as any)?.auditFailure) {
+      logger.error('[upload/complete] audit failure:', (err as any).message);
+      return res.status(500).json({ error: 'Erreur serveur' });
+    }
     next(err);
   }
 });

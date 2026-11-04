@@ -110,6 +110,20 @@ else
     fi
 fi
 
+AUDIT_KEY_CURRENT=$(grep "^AUDIT_HMAC_KEY=" .env | tail -n 1 | cut -d= -f2- || true)
+if [ -z "$AUDIT_KEY_CURRENT" ] || [[ "$AUDIT_KEY_CURRENT" == CHANGEME* ]]; then
+    AUDIT_HMAC_KEY=$(openssl rand -hex 64)
+    if grep -q "^AUDIT_HMAC_KEY=" .env; then
+        sed -i "s|^AUDIT_HMAC_KEY=.*|AUDIT_HMAC_KEY=${AUDIT_HMAC_KEY}|" .env
+    else
+        if [ -n "$(tail -c 1 .env)" ]; then echo >> .env; fi
+        echo "AUDIT_HMAC_KEY=${AUDIT_HMAC_KEY}" >> .env
+    fi
+    unset AUDIT_HMAC_KEY
+    echo -e "${GREEN}  ✓ AUDIT_HMAC_KEY generated${NC}"
+fi
+unset AUDIT_KEY_CURRENT
+
 # Read final values from .env for the summary
 VOLWEB_USER_VAL=$(grep "^VOLWEB_USER=" .env | cut -d= -f2)
 VOLWEB_PASSWORD_VAL=$(grep "^VOLWEB_PASSWORD=" .env | cut -d= -f2)

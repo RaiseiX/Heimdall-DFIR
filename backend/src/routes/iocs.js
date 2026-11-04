@@ -1,6 +1,6 @@
 const express = require('express');
 const { pool } = require('../config/database');
-const { authenticate, auditLog } = require('../middleware/auth');
+const { authenticate, auditLog, auditCritical } = require('../middleware/auth');
 const { caseAccessParam, caseListFilter, canAccessCase, ELEVATED } = require('../middleware/caseAccess');
 const { withCaseDeletion } = require('../services/caseDeletion');
 const { enrichIOC, vtVerdictToColumns } = require('../services/iocEnrichmentService');
@@ -223,6 +223,21 @@ async function resoudreIocAutorise(req, res) {
   return null;
 }
 
+async function inTransaction(work) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const value = await work(client);
+    await client.query('COMMIT');
+    return value;
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
 function clausePortee(caseId, index) {
   return caseId ? { sql: `case_id = $${index}`, params: [caseId] } : { sql: 'case_id IS NULL', params: [] };
 }
@@ -232,14 +247,21 @@ router.delete('/:id', authenticate, async (req, res) => {
     const cible = await resoudreIocAutorise(req, res);
     if (!cible) return;
     const portee = clausePortee(cible.caseId, 2);
-    const suppression = (client) => client.query(
-      `DELETE FROM iocs WHERE id = $1 AND ${portee.sql} RETURNING ioc_type, value, case_id`,
-      [req.params.id, ...portee.params]
-    );
-    const result = cible.caseId ? await withCaseDeletion(pool, cible.caseId, suppression) : await suppression(pool);
+    const suppression = async (client) => {
+      const deleted = await client.query(
+        `DELETE FROM iocs WHERE id = $1 AND ${portee.sql} RETURNING ioc_type, value, case_id`,
+        [req.params.id, ...portee.params]
+      );
+      if (!deleted.rowCount) return deleted;
+      const row = deleted.rows[0];
+      await auditCritical(client, req.user.id, 'delete_ioc', 'ioc', req.params.id,
+        { ioc_type: row.ioc_type, value: row.value, case_id: row.case_id }, req.ip);
+      return deleted;
+    };
+    const result = cible.caseId
+      ? await withCaseDeletion(pool, cible.caseId, suppression)
+      : await inTransaction(suppression);
     if (!result.rowCount) return res.status(404).json({ error: 'IOC non trouvé' });
-    const row = result.rows[0];
-    await auditLog(req.user.id, 'delete_ioc', 'ioc', req.params.id, { ioc_type: row.ioc_type, value: row.value, case_id: row.case_id }, req.ip);
     res.json({ success: true });
   } catch (err) {
     if (err && err.code === 'LEGAL_HOLD') return res.status(409).json({ error: 'Suppression interdite : legal hold actif.', code: 'LEGAL_HOLD' });
@@ -412,12 +434,11 @@ router.get('/export-stix/:caseId', authenticate, async (req, res) => {
     const bundle = { type: 'bundle', id: `bundle--${crypto.randomUUID()}`, objects };
 
     const filename = `stix-${caseData.case_number}-${Date.now()}.json`;
+    await auditCritical(pool, req.user.id, 'export_stix', 'case', caseId,
+      { case_number: caseData.case_number, ioc_count: objects.length }, req.ip);
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
     res.json(bundle);
-
-    await auditLog(req.user.id, 'export_stix', 'case', caseId,
-      { case_number: caseData.case_number, ioc_count: objects.length }, req.ip);
   } catch (err) {
     logger.error('[export stix]', err);
     if (!res.headersSent) res.status(500).json({ error: 'Erreur export STIX' });
@@ -464,13 +485,7 @@ router.post('/:id/confirm', authenticate, async (req, res) => {
       logger.warn('[IOC confirm] ES index failed (non-critical):', esErr.message);
     }
 
-    try {
-      await pool.query(
-        `INSERT INTO audit_logs (user_id, action, resource_type, resource_id, details)
-         VALUES ($1, 'confirm_ioc', 'ioc', $2, $3)`,
-        [req.user.id, id, JSON.stringify({ value: ioc.value, type: ioc.ioc_type, confidence })]
-      );
-    } catch {}
+    await auditLog(req.user.id, 'confirm_ioc', 'ioc', id, { value: ioc.value, type: ioc.ioc_type, confidence }, req.ip);
 
     res.json({ ok: true, ioc });
   } catch (err) {
