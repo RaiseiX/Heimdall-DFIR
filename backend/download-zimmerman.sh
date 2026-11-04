@@ -16,7 +16,7 @@ set -euo pipefail
 
 DEST="${ZIMMERMAN_TOOLS_DIR:-/app/zimmerman-tools}"
 LOCK="${ZIMMERMAN_LOCK:-/app/zimmerman-tools.lock}"
-BASE_URL="https://download.ericzimmermanstools.com/net9"
+BASE_URL="https://download.ericzimmermanstools.com/net"
 TEMP="$(mktemp -d)"
 trap 'rm -rf "$TEMP"' EXIT
 mkdir -p "$DEST" "$TEMP/extracted"
@@ -61,6 +61,7 @@ done
 
 find "$TEMP/extracted" -name "*.dll" -exec cp -n {} "$DEST/" \; 2>/dev/null || true
 find "$TEMP/extracted" -name "*.runtimeconfig.json" -exec cp -n {} "$DEST/" \; 2>/dev/null || true
+find "$TEMP/extracted" -maxdepth 1 -name "libe_sqlite3.so" -exec cp -n {} "$DEST/" \; 2>/dev/null || true
 
 mkdir -p "$DEST/Maps" "$DEST/SQLMaps" "$DEST/BatchExamples"
 unzip -o -q EvtxECmd.zip -d "$DEST/Maps/"

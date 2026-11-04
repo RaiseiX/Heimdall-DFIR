@@ -15,7 +15,7 @@
 #   3. verifier qu'aucune map n'a disparu (voir zimmerman-maps-retained/README)
 set -euo pipefail
 
-BASE="https://download.ericzimmermanstools.com/net9"
+BASE="https://download.ericzimmermanstools.com/net"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LOCK="$HERE/zimmerman-tools.lock"
 TMP="$(mktemp -d)"

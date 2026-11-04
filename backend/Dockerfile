@@ -4,7 +4,7 @@
 # This stage is Docker-layer-cached independently from the application code.
 # It only re-runs when tool URLs or versions change — not on every code edit.
 # ════════════════════════════════════════════════════════════════════════════
-FROM node:24-bookworm-slim AS tool-fetcher
+FROM node:24.22.2-bookworm-slim@sha256:c86ecead9e55a5210ac1727de38a4ca840bf03dcaf34dc9749addbf383b1920c AS tool-fetcher
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
@@ -18,7 +18,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # ─── .NET 9 Runtime (required by all Zimmerman tools) ───
 RUN wget -q https://dot.net/v1/dotnet-install.sh -O /tmp/dotnet-install.sh \
     && chmod +x /tmp/dotnet-install.sh \
-    && /tmp/dotnet-install.sh --channel 9.0 --runtime dotnet --install-dir /usr/share/dotnet \
+    && /tmp/dotnet-install.sh --channel 10.0 --runtime dotnet --install-dir /usr/share/dotnet \
     && ln -s /usr/share/dotnet/dotnet /usr/local/bin/dotnet \
     && rm /tmp/dotnet-install.sh \
     && dotnet --info || echo "dotnet installed"
@@ -39,7 +39,7 @@ COPY zimmerman-tools.lock /tmp/zimmerman-tools.lock
 RUN set -e; \
     mkdir -p /app/zimmerman-tools /tmp/ztools/extracted; \
     cd /tmp/ztools; \
-    BASE="https://download.ericzimmermanstools.com/net9"; \
+    BASE="https://download.ericzimmermanstools.com/net"; \
     awk '!/^#/ && NF==2 {print $2}' /tmp/zimmerman-tools.lock > /tmp/tools.txt; \
     test -s /tmp/tools.txt; \
     while read -r z; do \
@@ -50,6 +50,7 @@ RUN set -e; \
     while read -r z; do unzip -o -q "$z" -d /tmp/ztools/extracted/; done < /tmp/tools.txt; \
     find /tmp/ztools/extracted -name "*.dll" -exec cp -n {} /app/zimmerman-tools/ \; ; \
     find /tmp/ztools/extracted -name "*.runtimeconfig.json" -exec cp -n {} /app/zimmerman-tools/ \; ; \
+    find /tmp/ztools/extracted -maxdepth 1 -name "libe_sqlite3.so" -exec cp -n {} /app/zimmerman-tools/ \; ; \
     mkdir -p /app/zimmerman-tools/Maps /app/zimmerman-tools/SQLMaps /app/zimmerman-tools/BatchExamples; \
     unzip -o -q EvtxECmd.zip -d /app/zimmerman-tools/Maps/; \
     unzip -o -q SQLECmd.zip  -d /app/zimmerman-tools/SQLMaps/; \
@@ -114,7 +115,7 @@ RUN git clone --depth=1 --single-branch \
 # Installs system deps and the Node app. Rebuilds fast on code changes because
 # the heavy tool-fetcher stage above is pulled from cache.
 # ════════════════════════════════════════════════════════════════════════════
-FROM node:24-bookworm-slim
+FROM node:24.22.2-bookworm-slim@sha256:c86ecead9e55a5210ac1727de38a4ca840bf03dcaf34dc9749addbf383b1920c
 
 WORKDIR /app
 
@@ -159,6 +160,7 @@ RUN mkdir -p /app/tools \
 # ─── Copy forensic tools from tool-fetcher (no re-download) ───
 COPY --from=tool-fetcher /usr/share/dotnet /usr/share/dotnet
 COPY --from=tool-fetcher /app/zimmerman-tools /app/zimmerman-tools
+COPY --from=tool-fetcher /app/zimmerman-tools /opt/zimmerman-tools
 COPY --from=tool-fetcher /app/hayabusa /app/hayabusa
 
 RUN ln -sf /usr/share/dotnet/dotnet /usr/local/bin/dotnet
