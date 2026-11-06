@@ -683,7 +683,12 @@ router.post('/:caseId/import', authenticate, upload.single('collection'), async 
   try {
 
     const caseResult = await pool.query('SELECT id FROM cases WHERE id = $1', [caseId]);
-    if (caseResult.rows.length === 0) return res.status(404).json({ error: 'Cas non trouvé' });
+    if (caseResult.rows.length === 0) {
+      if (req.file) {
+        try { fs.unlinkSync(req.file.path); } catch (_) {}
+      }
+      return res.status(404).json({ error: 'Cas non trouvé' });
+    }
 
     if (!req.file) return res.status(400).json({ error: 'Aucun fichier uploadé' });
 
@@ -710,6 +715,7 @@ router.post('/:caseId/import', authenticate, upload.single('collection'), async 
     executerDansJournal({ caseId, preuve: collectionDir, emettre: ligne => { if (io) io.to(`case:${caseId}`).emit('collection:log', { ...ligne, caseId }); } }, async () => {
       let preserved = null;
       let evidenceRecorded = false;
+      let parserResultId = null;
       try {
 
         let fileHashes = { md5: null, sha1: null, sha256: null };
@@ -806,6 +812,8 @@ router.post('/:caseId/import', authenticate, upload.single('collection'), async 
           [caseId, collectionDir, JSON.stringify({ status: 'imported', detected: detectedArtifacts }), userId, collectionPlatform]
         );
 
+        parserResultId = collectionResult.rows[0].id;
+
         const totalFiles = Object.values(detectedArtifacts).reduce((s, a) => s + a.count, 0);
 
         let collectionDirSize = 0;
@@ -853,8 +861,25 @@ router.post('/:caseId/import', authenticate, upload.single('collection'), async 
       } catch (err) {
         logger.error('[collection] async import error:', err.message);
         try { fs.unlinkSync(uploadedPath); } catch (_) {}
-        if (preserved && !evidenceRecorded) {
-          try { fs.unlinkSync(preserved.path); } catch (_) {}
+        if (!evidenceRecorded) {
+          let directoryInUse = true;
+          try {
+            const inUse = await pool.query('SELECT 1 FROM evidence WHERE file_path = $1', [collectionDir]);
+            directoryInUse = inUse.rows.length > 0;
+          } catch (_) {}
+          if (!directoryInUse) {
+            if (preserved) {
+              try { fs.unlinkSync(preserved.path); } catch (_) {}
+            }
+            try { fs.rmSync(collectionDir, { recursive: true, force: true }); } catch (_) {}
+            if (parserResultId) {
+              try {
+                await pool.query('DELETE FROM parser_results WHERE id = $1', [parserResultId]);
+              } catch (e) {
+                logger.warn('[collection] parser_results cleanup failed:', e.message);
+              }
+            }
+          }
         }
         if (socketId && io) {
           io.to(socketId).emit('collection:import:error', {

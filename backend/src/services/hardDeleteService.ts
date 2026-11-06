@@ -9,6 +9,7 @@ import { destroyStorageTarget } from './storageDeletionService';
 const { deleteMinioLocator } = require('./deletionStorage');
 const { planEvidenceDeletion } = require('./evidenceDeletionPlan');
 const { racinesDeStockage, estSousUneRacine } = require('./storagePathGuard');
+const { isCaseCollectionName } = require('./storageInventory');
 const {
   withCaseDeletion,
   beginDeletionOperation,
@@ -19,6 +20,7 @@ const {
 } = require('./caseDeletion');
 
 const UPLOAD_DIR = process.env.UPLOAD_DIR || '/app/uploads';
+const COLLECTIONS_DIR = process.env.COLLECTIONS_DIR || '/app/collections';
 
 export interface HardDeleteResult {
   caseId: string;
@@ -79,6 +81,58 @@ export async function hardDeleteCase(
   }
 }
 
+async function readDirectoryNames(dir: string, tolerated: string[]): Promise<string[]> {
+  try {
+    return await fs.promises.readdir(dir);
+  } catch (error) {
+    if (tolerated.includes((error as NodeJS.ErrnoException)?.code || '')) return [];
+    throw Object.assign(error as Error, { status: 502, code: 'DELETION_INCOMPLETE' });
+  }
+}
+
+async function planCollectionTargets(
+  client: Pick<Pool, 'query'>,
+  caseId: string,
+): Promise<Array<{ kind: 'disk'; locator: string }>> {
+  const planned: Array<{ kind: 'disk'; locator: string }> = [];
+  const collectionsRoot = path.resolve(COLLECTIONS_DIR);
+
+  const importRes = await client.query(
+    `SELECT COALESCE(NULLIF(output_data->>'collection_dir', ''), input_file) AS dir
+       FROM parser_results WHERE case_id = $1 AND parser_name = 'MagnetRESPONSE_Import'`,
+    [caseId],
+  );
+  let rejected = 0;
+  for (const row of importRes.rows) {
+    const dir = row?.dir;
+    if (typeof dir !== 'string' || !dir) {
+      rejected++;
+      continue;
+    }
+    const resolved = path.resolve(dir);
+    if (path.dirname(resolved) !== collectionsRoot || !isCaseCollectionName(path.basename(resolved), caseId)) {
+      rejected++;
+      continue;
+    }
+    planned.push({ kind: 'disk', locator: resolved });
+  }
+  if (rejected > 0) logger.warn(`[hardDelete] ignored ${rejected} import director${rejected === 1 ? 'y' : 'ies'} outside the case collection naming`);
+
+  for (const name of await readDirectoryNames(collectionsRoot, ['ENOENT'])) {
+    if (typeof name === 'string' && isCaseCollectionName(name, caseId)) {
+      planned.push({ kind: 'disk', locator: path.resolve(collectionsRoot, name) });
+    }
+  }
+
+  const cacheRoot = path.join(collectionsRoot, 'rdp-cache');
+  for (const name of await readDirectoryNames(cacheRoot, ['ENOENT', 'ENOTDIR'])) {
+    if (typeof name === 'string' && name.toLowerCase() === caseId.toLowerCase()) {
+      planned.push({ kind: 'disk', locator: path.resolve(cacheRoot, name) });
+    }
+  }
+  return planned;
+}
+
 async function deleteLockedCase(
   client: Pick<Pool, 'query'>,
   journalPool: Pool,
@@ -120,7 +174,12 @@ async function deleteLockedCase(
   } catch (error) {
     throw Object.assign(error as Error, { status: 502, code: 'DELETION_INCOMPLETE' });
   }
+  const evidenceKeys = new Set(targets.map(target => `${target.kind}:${target.locator}`));
+
+  targets.push(...await planCollectionTargets(client, caseRes.rows[0].id || caseId));
+
   targets = Array.from(new Map(targets.map(target => [`${target.kind}:${target.locator}`, target])).values());
+  const orphanTargets = targets.filter(target => !evidenceKeys.has(`${target.kind}:${target.locator}`)).length;
 
   const operation = await beginDeletionOperation(journalPool, {
     operationType: 'hard_delete_case',
@@ -129,7 +188,7 @@ async function deleteLockedCase(
     targetId: caseId,
     requestedBy: userId,
     requestIp: ip,
-    context: { evidence_count: evidenceRes.rows.length },
+    context: { evidence_count: evidenceRes.rows.length, orphan_targets: orphanTargets },
     items: [...targets, { kind: 'elasticsearch', locator: caseId }],
   });
   setOperationId(operation.id);
