@@ -1,5 +1,6 @@
 'use strict';
 const { libellesNarratif } = require('./reportNarrative');
+const { integrityLabel, integritySummary } = require('./reportIntegrity');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Premium forensic report renderer (pdfkit vector engine).
@@ -471,10 +472,15 @@ function drawEvidence(doc, d, num, A) {
   const ev = d.evidence || [];
   doc.addPage(); doc.y = TOP;
   sectionTitle(doc, num, 'Preuves & chaîne de custody', A);
-  para(doc, `${ev.length} preuve(s) collectée(s), dont ${ev.filter(e => e.is_highlighted).length} mise(s) en évidence. Intégrité vérifiée par empreintes cryptographiques.`, { color: SUB });
+  const labels = ev.map(e => e.integrity || integrityLabel(e, null));
+  para(doc, `${ev.length} preuve(s) collectée(s), dont ${ev.filter(e => e.is_highlighted).length} mise(s) en évidence. ${integritySummary(labels)}`, { color: SUB });
   doc.y += 4;
 
-  for (const e of ev) {
+  const TONE_COLOR = { ok: SEV.FAIBLE, alert: SEV.CRITIQUE, warn: SEV['ÉLEVÉ'], neutral: FAINT };
+
+  for (let i = 0; i < ev.length; i++) {
+    const e = ev[i];
+    const lab = labels[i];
     ensure(doc, 64);
     const y = doc.y;
     doc.save();
@@ -487,8 +493,10 @@ function drawEvidence(doc, d, num, A) {
     doc.fillColor(SUB).font(FM).fontSize(6.8);
     doc.text(hsh('SHA256', e.hash_sha256), MX + 14, y + 27, { width: CW - 28, lineBreak: false });
     doc.text(`${hsh('MD5', e.hash_md5)}     ${hsh('SHA1', e.hash_sha1)}`, MX + 14, y + 37, { width: CW - 28, lineBreak: false });
-    doc.fillColor(FAINT).font(FM).fontSize(6.8).text(`Ajouté ${fmtDate(e.created_at)}   ·   `, MX + 14, y + 47, { continued: true });
-    doc.fillColor(SEV.FAIBLE).text('Intégrité vérifiée', { lineBreak: false });
+    const added = `Ajouté ${fmtDate(e.created_at)}   ·   `;
+    const room = Math.max(8, Math.floor((CW - 28 - doc.widthOfString(added)) / doc.widthOfString('M')));
+    doc.fillColor(FAINT).font(FM).fontSize(6.8).text(added, MX + 14, y + 47, { continued: true });
+    doc.fillColor(TONE_COLOR[lab.tone] || FAINT).text(short(lab.text, room), { lineBreak: false });
     doc.restore();
     doc.y = y + 64;
   }

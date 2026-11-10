@@ -9,6 +9,7 @@ const { authenticate, auditLog, auditCritical } = require('../middleware/auth');
 const { caseAccessParam, canAccessCase, ELEVATED } = require('../middleware/caseAccess');
 const { origineDuNarratif } = require('../services/reportNarrative');
 const { numeroterSources, resoudreSources } = require('../services/reportSources');
+const { latestIntegrityChecks, integrityLabel } = require('../services/reportIntegrity');
 const notebookDocs = require('../services/notebookDocs');
 
 const lireCarnet = (caseId) => notebookDocs.lire(pool, caseId).then((r) => r.content || '').catch(() => '');
@@ -289,6 +290,15 @@ router.post('/:caseId/generate', authenticate, async (req, res) => {
     const caseData = caseResult.rows[0];
 
     const evidenceResult = await pool.query('SELECT * FROM evidence WHERE case_id = $1 ORDER BY created_at', [caseId]);
+    let integrityChecks = new Map();
+    try {
+      integrityChecks = await latestIntegrityChecks(pool, evidenceResult.rows.map(e => e.id));
+    } catch (integrityErr) {
+      logger.warn('[report] integrity checks unavailable, continuing without:', integrityErr.message);
+    }
+    for (const e of evidenceResult.rows) {
+      e.integrity = integrityLabel(e, integrityChecks.get(String(e.id)));
+    }
 
     // Analyst-flagged events only (bookmarks + pins + noted rows)
     const bookmarkFlagResult = await pool.query(`
