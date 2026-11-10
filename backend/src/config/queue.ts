@@ -76,6 +76,21 @@ export const ingestionQueue = lazyQueue<IngestionJobData>('ingestion-jobs', {
   removeOnComplete: { age: 86_400, count: 500 }, removeOnFail: { age: 7 * 86_400, count: 200 },
 });
 
+export interface IntegrityJobData {
+  caseId?: string; evidenceId?: string | null; userId?: string | null; trigger: string; all?: boolean;
+}
+export const integrityQueue = (() => {
+  let queue: Queue<IntegrityJobData> | undefined;
+  return () => {
+    if (!queue) {
+      queue = lazyQueue<IntegrityJobData>('integrity-jobs', {
+        attempts: 1, removeOnComplete: true, removeOnFail: { count: 50 },
+      });
+    }
+    return queue;
+  };
+})();
+
 export interface HuntJobData {
   caseId: string; userId: string; trigger: string; evidenceId?: string; huntRunId: string;
 }

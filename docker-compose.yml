@@ -85,6 +85,8 @@ services:
       JWT_SECRET: ${JWT_SECRET}
       AUDIT_HMAC_KEY: "${AUDIT_HMAC_KEY:?AUDIT_HMAC_KEY is required, run start.sh or set a strong value in .env}"
       UPLOAD_DIR: /app/uploads
+      INTEGRITY_CHECK_CRON: ${INTEGRITY_CHECK_CRON:-}
+      INTEGRITY_RATE_LIMIT_MAX: ${INTEGRITY_RATE_LIMIT_MAX:-}
       ZIMMERMAN_TOOLS_DIR: /app/zimmerman-tools
       HAYABUSA_BIN: /app/hayabusa/hayabusa
       HAYABUSA_DIR: /app/hayabusa
