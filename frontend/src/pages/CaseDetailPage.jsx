@@ -36,6 +36,8 @@ import GlobalNetworkMapPage from './GlobalNetworkMapPage';
 import NotebookPanel from '../components/notebook/NotebookPanel';
 import InvestigationWorkspace from '../components/investigation/InvestigationWorkspace';
 import { faitsDePiece, actionsDePiece, octetsArchiveDe } from './evidenceRow';
+import { etatIntegrite, enCoursPour } from './evidenceIntegrity';
+import { useIntegrityChecks } from '../hooks/useIntegrityChecks';
 
 const FS_TITRE = 15;
 const FS_TEXTE = 11;
@@ -68,6 +70,23 @@ function texteDuFait(seg, t, langue, analyse) {
     case 'non-parse': return analyse ? t('casedetail.analyzing') : t('casedetail.fact_non_parse');
     default: return '';
   }
+}
+
+const TON_INTEGRITE = { ok: 'var(--fl-ok)', warn: 'var(--fl-warn)', alert: 'var(--fl-danger)', neutral: 'var(--fl-dim)' };
+const PICTO_INTEGRITE = { 'en-cours': Loader2, ok: Check, ecart: AlertTriangle, perime: Clock, absent: AlertTriangle, 'original-perdu': Info, 'stockage-objet': Info, impossible: AlertTriangle, 'non-controle': Info };
+
+function BadgeIntegrite({ etat, dernierControle, t, langue }) {
+  const Picto = PICTO_INTEGRITE[etat.cle] || Info;
+  const libelle = t(`casedetail.integ_etat_${etat.cle.replace(/-/g, '_')}`);
+  const date = etat.date ? new Date(etat.date).toLocaleDateString(langue) : null;
+  const dateTitre = dernierControle ? new Date(dernierControle).toLocaleDateString(langue) : null;
+  return (
+    <span title={dateTitre ? t('casedetail.integ_checked_on', { date: dateTitre }) : undefined}
+      style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: FS_MICRO, fontFamily: 'var(--f-mono, "JetBrains Mono", monospace)', color: TON_INTEGRITE[etat.ton] }}>
+      <Picto size={10} aria-hidden="true" style={etat.cle === 'en-cours' ? { animation: 'spin 1s linear infinite' } : undefined} />
+      {libelle}{date ? ` · ${date}` : ''}
+    </span>
+  );
 }
 
 const PC = { critical: 'var(--fl-danger)', high: 'var(--fl-warn)', medium: 'var(--fl-gold)', low: 'var(--fl-ok)' };
@@ -262,6 +281,7 @@ export default function CaseDetailPage({ user }) {
   const [showImportPanel, setShowImportPanel] = useState(false);
   const [evResultMap, setEvResultMap] = useState({});
   const { socket, socketId } = useSocket();
+  const integrite = useIntegrityChecks(socket, id);
   const { toast } = useToast();
   const [evToDelete, setEvToDelete] = useState(null);
   const [presenceUsers, setPresenceUsers] = useState([]);
@@ -1345,6 +1365,19 @@ export default function CaseDetailPage({ user }) {
             </div>
             <div style={{ display: 'flex', gap: 6 }}>
               <button
+                onClick={() => integrite.lancer()}
+                disabled={evidence.length === 0 || integrite.loading || integrite.job.enCours}
+                className="fl-btn fl-btn-ghost fl-btn-sm"
+                aria-live="polite"
+                title={integrite.job.enCours ? t('casedetail.integ_running_title') : t('casedetail.integ_check_case_title')}
+              >
+                {integrite.job.enCours ? <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <Shield size={12} />}
+                {' '}
+                {integrite.job.enCours
+                  ? (integrite.job.total > 0 ? t('casedetail.integ_progress', { done: integrite.job.done, total: integrite.job.total }) : t('casedetail.integ_progress_start'))
+                  : t('casedetail.integ_check_case')}
+              </button>
+              <button
                 onClick={() => downloadCSV(evidence, [
                   { key: 'name',          label: t('casedetail.col_name') },
                   { key: 'evidence_type', label: t('casedetail.col_type') },
@@ -1370,6 +1403,20 @@ export default function CaseDetailPage({ user }) {
               </button>
             </div>
           </div>
+
+          {integrite.loading && (
+            <p className="text-xs mb-3" style={{ color: 'var(--fl-dim)' }}>
+              <Loader2 size={11} style={{ ...INLINE_PICTO, animation: 'spin 1s linear infinite' }} /> {t('casedetail.integ_loading')}
+            </p>
+          )}
+          {integrite.error && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+              <Alert message={t(`casedetail.integ_err_${integrite.error}`)} />
+              <button className="fl-btn fl-btn-ghost fl-btn-sm" onClick={integrite.error === 'chargement' ? integrite.recharger : integrite.relancer}>
+                {t('casedetail.integ_retry')}
+              </button>
+            </div>
+          )}
 
           {showMemUpload && (
             <div style={{ marginBottom: 16 }}>
@@ -1467,6 +1514,11 @@ export default function CaseDetailPage({ user }) {
                           </Fragment>
                         ))}
                       </div>
+                      {!integrite.loading && (
+                        <div className="fl-piece-faits">
+                          <BadgeIntegrite etat={etatIntegrite(integrite.checks[ev.id], enCoursPour(ev, integrite))} dernierControle={integrite.checks[ev.id]?.checked_at} t={t} langue={i18n.language} />
+                        </div>
+                      )}
                       {ev.additional_files?.length > 0 && (
                         <div className="fl-piece-jointes">
                           {ev.additional_files.map(f => (
@@ -1489,6 +1541,13 @@ export default function CaseDetailPage({ user }) {
                         onClick={() => collectionAPI.parse(id, { evidence_id: ev.id, socketId }).catch(() => {})}
                         title={actions.parsing === 'parse' ? t('casedetail.parse_action_title') : t('casedetail.reparse_title')}>
                         {actions.parsing === 'parse' ? t('casedetail.parse_action') : t('casedetail.reparse')}
+                      </button>
+
+                      <button style={controlStyle(false)} {...controlHover(false)}
+                        disabled={integrite.loading || integrite.job.enCours}
+                        onClick={() => integrite.lancer(ev.id)}
+                        title={integrite.job.enCours ? t('casedetail.integ_running_title') : t('casedetail.integ_check_item_title')}>
+                        {t('casedetail.integ_check_item')}
                       </button>
 
                       <input

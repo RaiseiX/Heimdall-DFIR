@@ -539,37 +539,6 @@ router.get('/:id/strings', authenticate, exigerPreuve, async (req, res) => {
   }
 });
 
-// ── GET /:id/integrity ────────────────────────────────────────────────────────
-router.get('/:id/integrity', authenticate, exigerPreuve, async (req, res) => {
-  try {
-    const result = await pool.query(
-      'SELECT file_path, name, hash_sha256, scan_status FROM evidence WHERE id = $1 AND case_id = $2',
-      [req.params.id, req.objetCaseId]
-    );
-    if (result.rows.length === 0) return res.status(404).json({ error: 'Preuve non trouvée' });
-
-    const { file_path: filePath, name, hash_sha256: storedHash } = result.rows[0];
-
-    if (!filePath || !fs.existsSync(filePath)) {
-      return res.status(404).json({ error: 'Fichier non trouvé sur le disque', integrity_ok: false });
-    }
-
-    const integrity = await verifyFileIntegrity(filePath, storedHash);
-
-    res.json({
-      evidence_id:   req.params.id,
-      name,
-      integrity_ok:  integrity.ok,
-      stored_hash:   integrity.stored,
-      computed_hash: integrity.computed,
-      ...(integrity.reason ? { reason: integrity.reason } : {}),
-    });
-  } catch (err) {
-    logger.error('Integrity check error:', err);
-    res.status(500).json({ error: 'Erreur vérification intégrité' });
-  }
-});
-
 // ── GET /:id/comments ─────────────────────────────────────────────────────────
 router.get('/:id/comments', authenticate, exigerPreuve, async (req, res) => {
   try {

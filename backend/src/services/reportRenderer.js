@@ -1,6 +1,6 @@
 'use strict';
 const { libellesNarratif } = require('./reportNarrative');
-const { integrityLabel, integritySummary } = require('./reportIntegrity');
+const { integrityLabel, integritySummary, formatUtcDateTime } = require('./reportIntegrity');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Premium forensic report renderer (pdfkit vector engine).
@@ -493,7 +493,7 @@ function drawEvidence(doc, d, num, A) {
     doc.fillColor(SUB).font(FM).fontSize(6.8);
     doc.text(hsh('SHA256', e.hash_sha256), MX + 14, y + 27, { width: CW - 28, lineBreak: false });
     doc.text(`${hsh('MD5', e.hash_md5)}     ${hsh('SHA1', e.hash_sha1)}`, MX + 14, y + 37, { width: CW - 28, lineBreak: false });
-    const added = `Ajouté ${fmtDate(e.created_at)}   ·   `;
+    const added = `Ajouté ${formatUtcDateTime(e.created_at)}   ·   `;
     const room = Math.max(8, Math.floor((CW - 28 - doc.widthOfString(added)) / doc.widthOfString('M')));
     doc.fillColor(FAINT).font(FM).fontSize(6.8).text(added, MX + 14, y + 47, { continued: true });
     doc.fillColor(TONE_COLOR[lab.tone] || FAINT).text(short(lab.text, room), { lineBreak: false });

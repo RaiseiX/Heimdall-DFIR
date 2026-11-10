@@ -68,6 +68,7 @@ const volwebRoutes        = require('./routes/volweb');
 const llmRoutes           = require('./routes/llm');
 const aiRoutes            = require('./routes/ai');
 const bookmarksRoutes     = require('./routes/bookmarks');
+const integrityChecksRoutes = require('./routes/integrityChecks');
 const investigationRoutes = require('./routes/investigation');
 const savedSearchesRoutes = require('./routes/savedSearches');
 const dfiqRoutes = require('./routes/dfiq');
@@ -196,6 +197,7 @@ app.use('/api/notebook',               notebookRoutes);
 app.use('/api/playbooks',              playbooksRoutes);
 app.use('/api/cases/:caseId/soar',    soarRoutes);
 app.use('/api/cases/:caseId/bookmarks',     bookmarksRoutes);
+app.use('/api/cases/:caseId/integrity-checks', integrityChecksRoutes);
 app.use('/api/cases/:caseId/investigation', investigationRoutes);
 app.use('/api/cases/:caseId/saved-searches', savedSearchesRoutes);
 app.use('/api/cases/:caseId/dfiq',    dfiqCaseRoutes);
@@ -309,6 +311,15 @@ async function start() {
       setInterval(() => retentionTick().catch(e => logger.error('[retention] tick:', e.message)), RETENTION_INTERVAL_MS);
     } catch (e) {
       logger.error('[retention] scheduler init failed:', e.message);
+    }
+
+    try {
+      const { integrityQueue } = require('./config/queue');
+      const { scheduleNightly } = require('./services/integrityScheduler');
+      scheduleNightly(integrityQueue(), process.env.INTEGRITY_CHECK_CRON)
+        .catch(e => logger.warn('[integrity] planification nocturne impossible', { error: e.message }));
+    } catch (e) {
+      logger.warn('[integrity] planification nocturne impossible', { error: e.message });
     }
   } catch (err) {
     logger.error('Échec du démarrage', { error: err.message, stack: err.stack });

@@ -184,7 +184,11 @@ export const evidenceAPI = {
   strings: (id, minLength) => api.get(`/evidence/${id}/strings`, { params: { min_length: minLength } }),
   comments: (id) => api.get(`/evidence/${id}/comments`),
   addComment: (id, content) => api.post(`/evidence/${id}/comments`, { content }),
-  integrityCheck: (id) => api.get(`/evidence/${id}/integrity`),
+};
+
+export const integrityAPI = {
+  list: (caseId) => api.get(`/cases/${caseId}/integrity-checks`),
+  start: (caseId, evidenceId) => api.post(`/cases/${caseId}/integrity-checks`, evidenceId ? { evidenceId } : {}),
 };
 
 export const timelineAPI = {
