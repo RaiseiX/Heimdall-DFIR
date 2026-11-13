@@ -64,12 +64,21 @@ function creerRouteur({
   });
 
   router.get('/:caseId/file/content', authentifier, verifierAcces, async (req, res) => {
+    let racine;
+    let extrait;
     try {
-      const racine = await racineDe(req);
-      res.json(await fichiers.lireExtrait(racine.reel, req.query.path, { offset: req.query.offset, limite: req.query.limit }));
+      racine = await racineDe(req);
+      extrait = await fichiers.lireExtrait(racine.reel, req.query.path, { offset: req.query.offset, limite: req.query.limit });
     } catch (err) {
-      repondreErreur(res, err, 'contenu');
+      return repondreErreur(res, err, 'contenu');
     }
+    try {
+      await auditCritique(req.user.id, 'read_collection_file', 'evidence', racine.evidenceId,
+        { case_id: req.params.caseId, path: extrait.chemin }, req.ip);
+    } catch (err) {
+      return repondreErreur(res, { message: err && err.message }, 'audit de la lecture');
+    }
+    res.json(extrait);
   });
 
   router.get('/:caseId/file/download', authentifier, verifierAcces, async (req, res) => {
@@ -84,7 +93,7 @@ function creerRouteur({
     const relatif = String(req.query.path || '');
     try {
       await auditCritique(req.user.id, 'download_collection_file', 'evidence', racine.evidenceId,
-        { case_id: req.params.caseId, path: relatif, size: cible.taille }, req.ip);
+        { case_id: req.params.caseId, path: fichiers.relatifDe(racine.reel, cible.chemin), size: cible.taille }, req.ip);
     } catch (err) {
       return repondreErreur(res, { message: err && err.message }, 'audit du telechargement');
     }
@@ -101,12 +110,26 @@ function creerRouteur({
   });
 
   router.get('/:caseId/files/search', authentifier, verifierAcces, async (req, res) => {
+    let racine;
+    let resultats;
     try {
-      const racine = await racineDe(req);
-      res.json(await fichiers.rechercher(racine.reel, req.query.path, req.query.q));
+      racine = await racineDe(req);
+      resultats = await fichiers.rechercher(racine.reel, req.query.path, req.query.q);
     } catch (err) {
-      repondreErreur(res, err, 'recherche');
+      return repondreErreur(res, err, 'recherche');
     }
+    try {
+      await auditCritique(req.user.id, 'search_collection_files', 'evidence', racine.evidenceId,
+        {
+          case_id: req.params.caseId,
+          query: Array.from(String(req.query.q || '')).slice(0, 200).join(''),
+          path: String(req.query.path || ''),
+          results: resultats.resultats.length,
+        }, req.ip);
+    } catch (err) {
+      return repondreErreur(res, { message: err && err.message }, 'audit de la recherche');
+    }
+    res.json(resultats);
   });
 
   router.get('/:caseId/file/hive', authentifier, verifierAcces, async (req, res) => {
