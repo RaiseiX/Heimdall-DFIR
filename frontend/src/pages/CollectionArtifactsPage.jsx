@@ -12,14 +12,14 @@ const MONO = 'var(--f-mono, "JetBrains Mono", monospace)';
 const S = {
   page: { display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 },
   barre: { display: 'flex', alignItems: 'center', gap: 14, padding: '8px 12px', borderBottom: '1px solid var(--fl-border)', flexWrap: 'wrap' },
-  titre: { display: 'flex', alignItems: 'center', gap: 6, margin: 0, fontFamily: MONO, fontSize: 12, fontWeight: 600, color: 'var(--fl-text)' },
-  chiffres: { fontFamily: MONO, fontSize: 10, color: 'var(--fl-dim)' },
+  titre: { display: 'flex', alignItems: 'center', gap: 6, margin: 0, fontFamily: MONO, fontSize: 'var(--fs-md)', fontWeight: 600, color: 'var(--fl-text)' },
+  chiffres: { fontFamily: MONO, fontSize: 'var(--fs-sm)', color: 'var(--fl-dim)' },
   droite: { marginLeft: 'auto' },
-  note: { padding: '6px 12px', fontFamily: MONO, fontSize: 10, color: 'var(--fl-muted)' },
+  note: { padding: '6px 12px', fontFamily: MONO, fontSize: 'var(--fs-sm)', color: 'var(--fl-muted)' },
   defile: { overflow: 'auto', flex: 1, minHeight: 0 },
-  bouton: { display: 'inline-flex', alignItems: 'center', gap: 6, background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--fl-accent)', fontFamily: MONO, fontSize: 11, textAlign: 'left' },
-  mono: { fontFamily: MONO, fontSize: 10, color: 'var(--fl-dim)', whiteSpace: 'nowrap' },
-  alerte: { fontFamily: MONO, fontSize: 10, color: 'var(--fl-warn)', whiteSpace: 'nowrap' },
+  bouton: { display: 'inline-flex', alignItems: 'center', gap: 6, background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--fl-accent)', fontFamily: MONO, fontSize: 'var(--fs-base)', textAlign: 'left' },
+  mono: { fontFamily: MONO, fontSize: 'var(--fs-sm)', color: 'var(--fl-dim)', whiteSpace: 'nowrap' },
+  alerte: { fontFamily: MONO, fontSize: 'var(--fs-sm)', color: 'var(--fl-warn)', whiteSpace: 'nowrap' },
 };
 
 export default function CollectionArtifactsPage() {

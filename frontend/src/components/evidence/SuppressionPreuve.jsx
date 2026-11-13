@@ -11,18 +11,18 @@ const MONO = 'var(--f-mono, "JetBrains Mono", monospace)';
 
 const S = {
   entete: { display: 'grid', gap: 3, marginBottom: 14 },
-  nom: { fontFamily: MONO, fontSize: 12, fontWeight: 600, color: 'var(--fl-text)', wordBreak: 'break-all' },
-  sous: { fontFamily: MONO, fontSize: 10, color: 'var(--fl-dim)' },
+  nom: { fontFamily: MONO, fontSize: 'var(--fs-md)', fontWeight: 600, color: 'var(--fl-text)', wordBreak: 'break-all' },
+  sous: { fontFamily: MONO, fontSize: 'var(--fs-sm)', color: 'var(--fl-dim)' },
   section: { marginBottom: 12 },
-  titre: (couleur) => ({ margin: '0 0 6px', fontFamily: MONO, fontSize: 10, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: couleur }),
+  titre: (couleur) => ({ margin: '0 0 6px', fontFamily: MONO, fontSize: 'var(--fs-sm)', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: couleur }),
   liste: { display: 'grid', gap: 0, margin: 0, borderTop: '1px solid var(--fl-border)' },
   ligne: { display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: 12, padding: '5px 0', borderBottom: '1px solid var(--fl-border)' },
-  libelle: { margin: 0, fontSize: 11, color: 'var(--fl-text)' },
-  valeur: { margin: 0, fontFamily: MONO, fontSize: 11, color: 'var(--fl-text)', textAlign: 'right', whiteSpace: 'nowrap' },
-  detail: { gridColumn: '1 / -1', margin: 0, fontFamily: MONO, fontSize: 10, color: 'var(--fl-muted)' },
-  avertissement: { margin: '12px 0 0', fontSize: 11, color: 'var(--fl-muted)' },
+  libelle: { margin: 0, fontSize: 'var(--fs-base)', color: 'var(--fl-text)' },
+  valeur: { margin: 0, fontFamily: MONO, fontSize: 'var(--fs-base)', color: 'var(--fl-text)', textAlign: 'right', whiteSpace: 'nowrap' },
+  detail: { gridColumn: '1 / -1', margin: 0, fontFamily: MONO, fontSize: 'var(--fs-sm)', color: 'var(--fl-muted)' },
+  avertissement: { margin: '12px 0 0', fontSize: 'var(--fs-base)', color: 'var(--fl-muted)' },
   irreversible: { color: 'var(--fl-danger)', fontWeight: 700 },
-  enCours: { margin: '6px 0 0', fontFamily: MONO, fontSize: 10, color: 'var(--fl-dim)' },
+  enCours: { margin: '6px 0 0', fontFamily: MONO, fontSize: 'var(--fs-sm)', color: 'var(--fl-dim)' },
   alerte: { marginBottom: 12 },
 };
 
