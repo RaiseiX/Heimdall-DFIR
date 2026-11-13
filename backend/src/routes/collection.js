@@ -1,5 +1,6 @@
 const express = require('express');
 const { prefetchCommand } = require('../services/prefetchCommand');
+const { champsDeBase } = require('../services/champsDeBase');
 const { processTreeSql, sharedResourcesSql, processFileCountsSql, processNetworkSql, processFilesSql } = require('../services/processTreeSql');
 const { snapshotBootSql, processEventsScopeSql } = require('../services/processEventScope');
 const { windowsProcessTreeSql } = require('../services/windowsProcessTree');
@@ -476,16 +477,7 @@ async function streamNormalizeToDB(csvPath, caseId, resultId, artifactType, conf
       const slimRaw = buildSlimRaw(clean, artifactType);
 
       const ecs = extractEcsFields(clean, artifactType);
-      let baseDesc = extractDescription(clean, config.descriptionColumns);
-      // AmcacheParser KeyName format: "ProgramName|hexhash" — strip the hash suffix
-      if (artifactType === 'amcache' && baseDesc && /\|[0-9a-f]{8,}$/i.test(baseDesc)) {
-        baseDesc = baseDesc.replace(/\|[0-9a-f]{8,}$/i, '').trim();
-      }
-      let baseSource = clean[config.sourceColumn] || '';
-      // amcache ShortCuts CSV has no ProgramName — fall back to LnkName path
-      if (artifactType === 'amcache' && !baseSource && clean['LnkName']) {
-        baseSource = clean['LnkName'];
-      }
+      const { description: baseDesc, source: baseSource } = champsDeBase(clean, artifactType, config);
       const forensic = extractForensicFields(clean, artifactType, config, tsResult.column, baseDesc, baseSource);
       batch.push({
         timestamp:     tsResult.timestamp,
@@ -1521,11 +1513,16 @@ async function executerParsing({ caseId, resultId, collDir, perimetre, typesToPa
   } catch (e) {
     // Without an entry here the UI shows nothing at all about CatScale, exactly as
     // if the archive had never been a Linux collection.
-    logger.error('[CatScale] detection/parse error:', e.message);
+    const sansPreuve = e && e.code === 'EVIDENCE_REQUIRED';
+    const motif = sansPreuve
+      ? 'CatScale parsing refused: this collection is not linked to any evidence. Attach it to an evidence item, then parse again.'
+      : 'CatScale parsing failed. See the server log for details.';
+    logger.error(`[CatScale] detection/parse error: ${(e && e.message) || (e && e.code) || 'unknown'}`);
     results['catscale'] = {
       status: 'error', name: 'CatScale Linux IR', records: 0,
-      error: `CatScale parsing failed: ${e.message}`,
+      error: motif,
     };
+    emitProgress({ type: 'artifact_done', artifact: 'catscale', name: 'CatScale Linux IR', status: 'error', records: 0, current: totalTypes + 1, total: totalTypes + 1 });
   }
 
   // CSVs are claimed by no ARTIFACT_PATTERNS entry, so without this step they
