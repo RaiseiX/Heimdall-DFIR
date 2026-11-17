@@ -35,6 +35,7 @@ import { createReportCollabProvider } from '../components/reports/collab/reportC
 import GlobalNetworkMapPage from './GlobalNetworkMapPage';
 import NotebookPanel from '../components/notebook/NotebookPanel';
 import InvestigationWorkspace from '../components/investigation/InvestigationWorkspace';
+import { lienSur } from '../utils/safeUrl';
 import { faitsDePiece, actionsDePiece, octetsArchiveDe } from './evidenceRow';
 import { etatIntegrite, enCoursPour } from './evidenceIntegrity';
 import { useIntegrityChecks } from '../hooks/useIntegrityChecks';
@@ -423,7 +424,8 @@ export default function CaseDetailPage({ user }) {
     const win = window.open('', '_blank');
     try {
       const res = await api.get('/volweb/magic-link', { params: { caseId } });
-      const { url } = res.data;
+      const url = lienSur(res.data?.url, { autoriserRelatif: false });
+      if (!url) throw new Error('URL VolWeb invalide');
       setVolwebSsoUrl(url);
       if (win) {
         win.location.href = url;

@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { HardDrive, Crosshair, Search, FileText, MessageCircle, X, Minimize2, Maximize2, Send, RotateCcw, ChevronDown, BookOpen, Copy, Check, RefreshCw } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import i18n from '../i18n/index.js';
+import { lienSur } from '../utils/safeUrl';
 
 const INLINE_ICON = { verticalAlign: '-1px' };
 
@@ -37,7 +38,7 @@ function getPromptCategories(t) {
 const INLINE_CODE = { fontFamily: MONO, fontSize: '0.92em', background: 'color-mix(in srgb, var(--fl-accent) 11%, transparent)', color: 'var(--fl-accent)', borderRadius: 3, padding: '0.5px 4px' };
 const LINK = { color: 'var(--fl-accent)', textDecoration: 'underline' };
 
-function renderInline(text, kp) {
+export function renderInline(text, kp) {
   const out = [];
   let rest = String(text), k = 0;
   const re = /(`[^`]+`)|(\*\*[^*]+\*\*)|(\*[^*]+\*)|(\[[^\]]+\]\([^)]+\))/;
@@ -49,7 +50,12 @@ function renderInline(text, kp) {
     if (tok.startsWith('`')) out.push(<code key={`${kp}-${k++}`} style={INLINE_CODE}>{tok.slice(1, -1)}</code>);
     else if (tok.startsWith('**')) out.push(<strong key={`${kp}-${k++}`}>{tok.slice(2, -2)}</strong>);
     else if (tok.startsWith('*')) out.push(<em key={`${kp}-${k++}`}>{tok.slice(1, -1)}</em>);
-    else { const mm = tok.match(/\[([^\]]+)\]\(([^)]+)\)/); out.push(<a key={`${kp}-${k++}`} href={mm[2]} target="_blank" rel="noreferrer" style={LINK}>{mm[1]}</a>); }
+    else {
+      const mm = tok.match(/\[([^\]]+)\]\(([^)]+)\)/);
+      const href = lienSur(mm[2]);
+      if (href) out.push(<a key={`${kp}-${k++}`} href={href} target="_blank" rel="noopener noreferrer" style={LINK}>{mm[1]}</a>);
+      else out.push(mm[1]);
+    }
     rest = rest.slice(m.index + tok.length);
   }
   return out;
