@@ -15,19 +15,19 @@ const MONO = 'var(--f-mono, "JetBrains Mono", monospace)';
 const S = {
   racine: { display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 },
   barre: { display: 'flex', alignItems: 'center', gap: 14, padding: '8px 12px', borderBottom: '1px solid var(--fl-border)', flexWrap: 'wrap' },
-  titre: { display: 'flex', alignItems: 'center', gap: 6, margin: 0, fontFamily: MONO, fontSize: 12, fontWeight: 600, color: 'var(--fl-text)' },
-  chiffres: { display: 'flex', gap: 14, fontFamily: MONO, fontSize: 10, color: 'var(--fl-dim)', flexWrap: 'wrap' },
-  option: { display: 'flex', alignItems: 'center', gap: 5, fontFamily: MONO, fontSize: 10, color: 'var(--fl-dim)', cursor: 'pointer' },
+  titre: { display: 'flex', alignItems: 'center', gap: 6, margin: 0, fontFamily: MONO, fontSize: 'var(--fs-md)', fontWeight: 600, color: 'var(--fl-text)' },
+  chiffres: { display: 'flex', gap: 14, fontFamily: MONO, fontSize: 'var(--fs-sm)', color: 'var(--fl-dim)', flexWrap: 'wrap' },
+  option: { display: 'flex', alignItems: 'center', gap: 5, fontFamily: MONO, fontSize: 'var(--fs-sm)', color: 'var(--fl-dim)', cursor: 'pointer' },
   actions: { display: 'flex', alignItems: 'center', gap: 10, marginLeft: 'auto' },
-  note: { padding: '6px 12px', fontFamily: MONO, fontSize: 10, color: 'var(--fl-muted)' },
+  note: { padding: '6px 12px', fontFamily: MONO, fontSize: 'var(--fs-sm)', color: 'var(--fl-muted)' },
   corps: { display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(360px, 44%)', flex: 1, minHeight: 0 },
   graphe: { minHeight: 0, borderRight: '1px solid var(--fl-border)' },
   tableau: { overflow: 'auto', minHeight: 0 },
   ligne: (active) => ({ background: active ? 'var(--fl-surface-active, var(--fl-card))' : 'transparent' }),
-  bouton: { background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--fl-text)', fontFamily: MONO, fontSize: 11, textAlign: 'left' },
-  mono: { fontFamily: MONO, fontSize: 10, color: 'var(--fl-dim)' },
-  echec: { fontFamily: MONO, fontSize: 10, color: 'var(--fl-danger)', fontWeight: 600 },
-  detail: { padding: '8px 12px', borderTop: '1px solid var(--fl-border)', fontFamily: MONO, fontSize: 10, color: 'var(--fl-dim)', display: 'grid', gap: 4 },
+  bouton: { background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--fl-text)', fontFamily: MONO, fontSize: 'var(--fs-base)', textAlign: 'left' },
+  mono: { fontFamily: MONO, fontSize: 'var(--fs-sm)', color: 'var(--fl-dim)' },
+  echec: { fontFamily: MONO, fontSize: 'var(--fs-sm)', color: 'var(--fl-danger)', fontWeight: 600 },
+  detail: { padding: '8px 12px', borderTop: '1px solid var(--fl-border)', fontFamily: MONO, fontSize: 'var(--fs-sm)', color: 'var(--fl-dim)', display: 'grid', gap: 4 },
 };
 
 export default function AuthGraphPanel({ caseId, collectionId }) {

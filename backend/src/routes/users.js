@@ -334,6 +334,7 @@ router.get('/audit', authenticate, requireRole('admin'), async (req, res) => {
       'upload_evidence', 'delete_evidence', 'upload_evidence_chunked',
       'import_collection', 'parse_collection', 'delete_collection_data', 'pcap_parse',
       'run_hayabusa',
+      'read_collection_file', 'search_collection_files',
       'add_mitre_technique', 'update_mitre_technique', 'delete_mitre_technique',
       'generate_report', 'download_report',
       'create_ioc', 'delete_ioc', 'export_stix', 'correlate_case',

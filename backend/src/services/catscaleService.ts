@@ -915,6 +915,9 @@ export async function parseCatScale(
    *  Measured cost on a real host: 4.4M rows instead of 332k. Off by default. */
   options: { exhaustiveFsTimeline?: boolean } = {},
 ): Promise<CatScaleParseResult> {
+  if (!link.evidenceId) {
+    throw Object.assign(new Error('CatScale collection has no linked evidence'), { code: 'EVIDENCE_REQUIRED' });
+  }
   let totalEvents = 0;
   const artifacts: string[] = [];
   const tempDirs: string[] = [];

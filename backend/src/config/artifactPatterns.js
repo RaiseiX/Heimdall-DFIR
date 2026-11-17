@@ -100,7 +100,7 @@ const ARTIFACT_PATTERNS = {
     name: 'Amcache',
     argsBuilder: (input, output) => ['dotnet', path.join(ZIMMERMAN_DIR, 'AmcacheParser.dll'), '-f', input, '-i', '--csv', output, '--csvf', 'amcache_results.csv'],
     timestampColumns: ['FileKeyLastWriteTimestamp', 'LinkDate'],
-    descriptionColumns: ['FileDescription', 'FullPath', 'ProgramName', 'KeyName'],
+    descriptionColumns: ['FileDescription', 'FullPath', 'ProgramName', 'KeyName', 'Name', 'PackageFullName'],
     sourceColumn: 'ProgramName',
   },
   appcompat: {

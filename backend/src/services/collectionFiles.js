@@ -159,7 +159,8 @@ function nomDeTelechargement(nom) {
 
 function termeDeRecherche(brut) {
   const terme = typeof brut === 'string' ? brut.trim() : '';
-  if (terme.length < LIMITES.rechercheTermeMin || terme.length > LIMITES.rechercheTermeMax) {
+  const longueur = [...terme].length;
+  if (/[\u0000-\u001F\u007F]/.test(terme) || longueur < LIMITES.rechercheTermeMin || longueur > LIMITES.rechercheTermeMax) {
     throw refus(400, 'TERME_INVALIDE', `Le terme doit contenir entre ${LIMITES.rechercheTermeMin} et ${LIMITES.rechercheTermeMax} caractères`);
   }
   return terme;
@@ -224,6 +225,7 @@ async function rechercher(racineReelle, relatif, brut, { limites = LIMITES, main
 module.exports = {
   LIMITES,
   cibleConfinee,
+  relatifDe,
   fichierConfine,
   listerRepertoire,
   lireExtrait,

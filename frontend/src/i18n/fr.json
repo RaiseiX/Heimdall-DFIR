@@ -685,7 +685,8 @@
       "audit": "Audit",
       "timeline": "Super Timeline",
       "logs": "Logs Parser",
-      "volweb_hint": "Ouvrir VolWeb (analyse mémoire Volatility 3) dans un nouvel onglet"
+      "volweb_hint": "Ouvrir VolWeb (analyse mémoire Volatility 3) dans un nouvel onglet",
+      "more": "Plus"
     },
     "pm_bytes_read": "{{lus}} lus sur {{total}}",
     "pm_bytes_read_hint": "Volume lu par les parseurs. Un fichier lu par plusieurs parseurs compte autant de fois : {{total}} lus pour {{distincts}} de fichiers distincts.",

@@ -57,7 +57,7 @@ const srcDir = path.join(root, 'src');
 export const CEILINGS = {
   inlineStyle: 4248,
   halfPixel: 193,
-  literalFontSize: 1523,
+  literalFontSize: 1506,
   pictogramCode: 142,
   hardcodedText: 93,
 };
