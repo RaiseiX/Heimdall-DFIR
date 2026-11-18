@@ -3656,5 +3656,477 @@
     "jump_to_bottom": "Aller au dernier message",
     "jump_to_bottom_unread_one": "Aller au dernier message ({{count}} nouveau message)",
     "jump_to_bottom_unread_other": "Aller au dernier message ({{count}} nouveaux messages)"
+  },
+  "cyberchef": {
+    "categories": {
+      "specialized": "Spécialisé",
+      "encoding": "Encodage",
+      "hash": "Empreintes",
+      "cipher": "Chiffrement",
+      "network": "Réseau",
+      "extraction": "Extraction",
+      "timestamps": "Horodatages",
+      "formatting": "Mise en forme",
+      "info": "Informations"
+    },
+    "ops": {
+      "psCommandDecode": {
+        "desc": "Décode un argument PowerShell -EncodedCommand (Base64 puis UTF-16LE)."
+      },
+      "fromBase64": {
+        "label": "Depuis Base64",
+        "desc": "Décode du Base64 standard ou URL-safe en octets."
+      },
+      "toBase64": {
+        "label": "Vers Base64",
+        "desc": "Encode les octets en Base64 standard."
+      },
+      "fromBase32": {
+        "label": "Depuis Base32",
+        "desc": "Décode du Base32 (RFC 4648) en octets."
+      },
+      "toBase32": {
+        "label": "Vers Base32",
+        "desc": "Encode les octets en Base32 avec bourrage à un multiple de 8 (RFC 4648)."
+      },
+      "fromBase58": {
+        "label": "Depuis Base58",
+        "desc": "Décode du Base58 (alphabet Bitcoin) en octets."
+      },
+      "fromHex": {
+        "label": "Depuis Hex",
+        "desc": "Convertit 4142, \\x41\\x42 ou 0x41 0x42 en octets."
+      },
+      "toHex": {
+        "label": "Vers Hex",
+        "desc": "Représente chaque octet en hexadécimal.",
+        "param_sep": "Séparateur"
+      },
+      "fromBinary": {
+        "label": "Depuis Binaire",
+        "desc": "Convertit des groupes de 8 bits en octets."
+      },
+      "toBinary": {
+        "label": "Vers Binaire",
+        "desc": "Représente chaque octet sur 8 bits."
+      },
+      "fromUnicodeEscape": {
+        "label": "Depuis échappements Unicode",
+        "desc": "Décode \\uXXXX, les paires de substitution et \\u{X…}."
+      },
+      "toUnicodeEscape": {
+        "label": "Vers échappements Unicode",
+        "desc": "Écrit \\uXXXX pour le plan de base et \\u{X…} au-delà de U+FFFF."
+      },
+      "urlDecode": {
+        "label": "Décodage URL",
+        "desc": "Décode %XX en octets et + en espace."
+      },
+      "urlEncode": {
+        "label": "Encodage URL",
+        "desc": "Encode les octets en %XX, hors caractères non réservés."
+      },
+      "fromHtmlEntity": {
+        "label": "Depuis entités HTML",
+        "desc": "Décode un seul niveau d’entités nommées, décimales et hexadécimales."
+      },
+      "fromCharcode": {
+        "label": "Depuis codes de caractères",
+        "desc": "Convertit des points de code séparés en texte UTF-8.",
+        "param_base": "Base"
+      },
+      "decodeUtf16le": {
+        "label": "Décoder UTF-16LE",
+        "desc": "Interprète les octets comme du texte UTF-16 petit-boutiste."
+      },
+      "md5Hash": {
+        "desc": "Empreinte MD5 des octets (128 bits)."
+      },
+      "sha1Hash": {
+        "desc": "Empreinte SHA-1 des octets (160 bits)."
+      },
+      "sha256Hash": {
+        "desc": "Empreinte SHA-256 des octets (256 bits)."
+      },
+      "sha512Hash": {
+        "desc": "Empreinte SHA-512 des octets (512 bits)."
+      },
+      "ntlmHash": {
+        "desc": "Empreinte NTLM : MD4 du texte encodé en UTF-16LE."
+      },
+      "rot13": {
+        "label": "ROT13 / César",
+        "desc": "Décale les lettres de l’alphabet (13 par défaut).",
+        "param_amount": "Décalage"
+      },
+      "atbash": {
+        "desc": "Substitution alphabétique inversée (A devient Z)."
+      },
+      "vigenereDecode": {
+        "label": "Vigenère (déchiffrer)",
+        "desc": "Déchiffre un texte avec une clé alphabétique.",
+        "param_key": "Clé"
+      },
+      "vigenereEncode": {
+        "label": "Vigenère (chiffrer)",
+        "desc": "Chiffre un texte avec une clé alphabétique.",
+        "param_key": "Clé"
+      },
+      "xorDecode": {
+        "label": "XOR (1 octet)",
+        "desc": "XOR de chaque octet avec une clé d’un octet en hexadécimal (ex. 0x41).",
+        "param_key": "Clé hexadécimale"
+      },
+      "xorMultibyte": {
+        "label": "XOR (clé multi-octets)",
+        "desc": "XOR avec une clé hexadécimale répétée (ex. deadbeef).",
+        "param_key": "Clé hexadécimale"
+      },
+      "rc4Decode": {
+        "desc": "Chiffrement RC4 symétrique. Clé en texte UTF-8.",
+        "param_key": "Clé"
+      },
+      "reverseString": {
+        "label": "Inverser",
+        "desc": "Inverse le texte par caractère, par ligne ou par mot.",
+        "param_by": "Inverser par"
+      },
+      "stripNulls": {
+        "label": "Supprimer les octets nuls",
+        "desc": "Retire tous les octets 0x00."
+      },
+      "jsonPrettify": {
+        "desc": "Met en forme un JSON avec une indentation de 2 espaces."
+      },
+      "jsonMinify": {
+        "desc": "Supprime les espaces inutiles d’un JSON."
+      },
+      "xmlPrettify": {
+        "desc": "Indente un document XML."
+      },
+      "toUpper": {
+        "label": "Majuscules",
+        "desc": "Convertit le texte en majuscules."
+      },
+      "toLower": {
+        "label": "Minuscules",
+        "desc": "Convertit le texte en minuscules."
+      },
+      "sortLines": {
+        "label": "Trier les lignes",
+        "desc": "Trie les lignes par ordre alphabétique.",
+        "param_order": "Ordre"
+      },
+      "removeDuplicates": {
+        "label": "Supprimer les doublons",
+        "desc": "Retire les lignes en double en gardant la première."
+      },
+      "removeBlankLines": {
+        "label": "Supprimer les lignes vides",
+        "desc": "Retire les lignes vides ou composées d’espaces."
+      },
+      "extractStrings": {
+        "label": "Extraire les chaînes",
+        "desc": "Extrait les chaînes ASCII et UTF-16LE imprimables (comme strings).",
+        "param_min_len": "Longueur minimale"
+      },
+      "extractUrls": {
+        "label": "Extraire les URL",
+        "desc": "Extrait les URL http, https et ftp sans ponctuation finale."
+      },
+      "extractIps": {
+        "label": "Extraire les adresses IP",
+        "desc": "Extrait les adresses IPv4 valides et les adresses IPv6, y compris compressées."
+      },
+      "extractEmails": {
+        "label": "Extraire les e-mails",
+        "desc": "Extrait les adresses e-mail."
+      },
+      "extractDomains": {
+        "label": "Extraire les domaines",
+        "desc": "Extrait les noms de domaine, hors noms de fichiers et numéros de version."
+      },
+      "extractHashes": {
+        "label": "Extraire les empreintes",
+        "desc": "Extrait les empreintes MD5, SHA-1, SHA-256 et SHA-512."
+      },
+      "extractWinPaths": {
+        "label": "Extraire les chemins Windows",
+        "desc": "Extrait les chemins de type C:\\ ou \\\\serveur."
+      },
+      "extractLinuxPaths": {
+        "label": "Extraire les chemins Linux",
+        "desc": "Extrait les chemins sous /etc, /tmp, /var, /home, etc."
+      },
+      "extractGuids": {
+        "label": "Extraire les GUID",
+        "desc": "Extrait les identifiants GUID/UUID."
+      },
+      "regexExtract": {
+        "label": "Extraction par regex",
+        "desc": "Extrait les correspondances d’une expression régulière.",
+        "param_pattern": "Motif",
+        "param_flags": "Options"
+      },
+      "filetimeConvert": {
+        "label": "FILETIME vers date",
+        "desc": "Convertit un FILETIME (décimal ou hexadécimal) en date UTC."
+      },
+      "unixConvert": {
+        "label": "Horodatage Unix vers date",
+        "desc": "Convertit un horodatage Unix en secondes ou en millisecondes."
+      },
+      "dateToUnix": {
+        "label": "Date vers horodatage Unix",
+        "desc": "Convertit une date ISO en horodatage Unix. Sans fuseau, la date est lue en UTC."
+      },
+      "countChars": {
+        "label": "Statistiques",
+        "desc": "Affiche la longueur en octets, l’entropie de Shannon et les octets les plus fréquents."
+      },
+      "defangIoc": {
+        "label": "Neutraliser les IOC",
+        "desc": "Neutralise les URL, domaines, adresses IP et e-mails reconnus (hxxp, [.], [@])."
+      },
+      "refangIoc": {
+        "label": "Rétablir les IOC",
+        "desc": "Rétablit les IOC neutralisés (hxxp, [.], [@])."
+      },
+      "ipToDecimal": {
+        "label": "IPv4 vers entier",
+        "desc": "Convertit une adresse IPv4 en entier décimal et hexadécimal."
+      },
+      "decimalToIp": {
+        "label": "Entier vers IPv4",
+        "desc": "Convertit un entier de 32 bits en adresse IPv4."
+      },
+      "jwtDecode": {
+        "desc": "Décode l’en-tête, la charge utile et les dates d’un jeton JWT sans vérifier la signature."
+      },
+      "rot47": {
+        "desc": "Rotation de 47 positions sur les caractères ASCII imprimables."
+      },
+      "crc32Hash": {
+        "desc": "Somme de contrôle CRC32 des octets."
+      },
+      "toBase58": {
+        "label": "Vers Base58",
+        "desc": "Encode les octets en Base58 (alphabet Bitcoin)."
+      },
+      "toCharcode": {
+        "label": "Vers codes de caractères",
+        "desc": "Convertit chaque point de code Unicode en nombre.",
+        "param_base": "Base"
+      },
+      "toHtmlEntity": {
+        "label": "Vers entités HTML",
+        "desc": "Encode &, <, >, guillemets et caractères non ASCII en entités."
+      },
+      "encodeUtf16le": {
+        "label": "Encoder UTF-16LE",
+        "desc": "Encode le texte en UTF-16 petit-boutiste."
+      },
+      "fromMorse": {
+        "label": "Depuis Morse",
+        "desc": "Décode du code Morse ; « / » sépare les mots."
+      },
+      "toMorse": {
+        "label": "Vers Morse",
+        "desc": "Encode le texte en code Morse ; « / » sépare les mots."
+      },
+      "fromQuotedPrintable": {
+        "label": "Depuis Quoted-Printable",
+        "desc": "Décode =XX et les coupures de ligne souples en octets."
+      },
+      "toQuotedPrintable": {
+        "label": "Vers Quoted-Printable",
+        "desc": "Encode les octets hors ASCII imprimable en =XX."
+      },
+      "psCommandEncode": {
+        "desc": "Encode un script en UTF-16LE puis Base64 pour -EncodedCommand."
+      },
+      "dateToFiletime": {
+        "label": "Date vers FILETIME",
+        "desc": "Convertit une date ISO en FILETIME. Sans fuseau, la date est lue en UTC."
+      },
+      "gunzip": {
+        "desc": "Décompresse des octets Gzip (signature 1f 8b). À chaîner après Depuis Base64."
+      },
+      "rawInflate": {
+        "desc": "DEFLATE brut sans en-tête, tel que produit par DeflateStream. À chaîner après Depuis Base64."
+      },
+      "zlibInflate": {
+        "desc": "Décompresse un flux zlib (en-tête 78 01, 78 9c ou 78 da). À chaîner après Depuis Base64."
+      },
+      "aesDecrypt": {
+        "desc": "Déchiffre en AES (CBC, GCM ou CTR). Clé et IV en hexadécimal ou en texte UTF-8. Entrée Base64 ou Hex.",
+        "param_key": "Clé",
+        "param_iv": "IV / nonce",
+        "param_input_format": "Entrée"
+      },
+      "xorBruteForce": {
+        "label": "XOR par force brute (1 octet)",
+        "desc": "Teste les 256 clés d’un octet et classe les résultats par qualité de décodage."
+      },
+      "caesarBruteForce": {
+        "desc": "Affiche les 25 décalages ROT pour repérer un texte lisible."
+      },
+      "fromBase85": {
+        "label": "Depuis Base85 (Ascii85)",
+        "desc": "Décode de l’Ascii85, avec ou sans délimiteurs <~ ~>."
+      },
+      "fromOctal": {
+        "label": "Depuis Octal",
+        "desc": "Décode des échappements \\NNN ou des nombres octaux séparés."
+      },
+      "fromHexdump": {
+        "label": "Depuis Hexdump",
+        "desc": "Reconstitue les octets d’un hexdump (hexdump -C, xxd, Format-Hex)."
+      },
+      "jscriptDecode": {
+        "desc": "Décode les scripts encodés Microsoft (#@~^…^#~@), fichiers .jse et .vbe."
+      }
+    },
+    "options": {
+      "space": "Espace",
+      "none": "Aucun",
+      "decimal": "Décimal",
+      "hex": "Hexadécimal",
+      "octal": "Octal",
+      "char": "Caractère",
+      "line": "Ligne",
+      "word": "Mot",
+      "asc": "Croissant",
+      "desc": "Décroissant"
+    },
+    "errors": {
+      "base32_invalid": "Caractère Base32 invalide : {{char}}",
+      "base58_invalid": "Caractère Base58 invalide : {{char}}",
+      "base64_invalid": "Base64 invalide",
+      "binary_format_expected": "Format attendu : groupes de 8 bits séparés par des espaces",
+      "empty_key": "La clé ne peut pas être vide",
+      "filetime_invalid": "FILETIME invalide",
+      "hex_invalid": "Hexadécimal invalide",
+      "invalid_charcodes": "Codes de caractères invalides",
+      "invalid_hex_key": "Clé hexadécimale invalide : un nombre pair de chiffres hexadécimaux est attendu",
+      "invalid_iso_date": "Date invalide : format ISO 8601 attendu (ex. 2024-01-31T12:00:00Z)",
+      "invalid_key_single_byte": "Clé invalide : un seul octet en hexadécimal est attendu (ex. 0x41)",
+      "ipv4_dotted_expected": "Adresse IPv4 attendue au format a.b.c.d (0 à 255)",
+      "ipv4_integer_expected": "Entier attendu entre 0 et 4294967295",
+      "json_invalid": "JSON invalide : {{detail}}",
+      "jwt_expected": "JWT attendu au format en-tête.charge.signature",
+      "jwt_invalid": "JWT invalide : {{detail}}",
+      "key_must_contain_letters": "La clé doit contenir des lettres",
+      "regex_invalid": "Expression régulière invalide : {{detail}}",
+      "timestamp_invalid": "Horodatage invalide",
+      "input_not_text": "L’entrée n’est pas du texte UTF-8 valide ; convertissez-la d’abord (ex. Vers Hex)",
+      "octal_invalid": "Octal invalide",
+      "hexdump_empty": "Aucun octet hexadécimal trouvé dans le hexdump",
+      "ascii85_invalid": "Ascii85 invalide : {{char}}",
+      "aes_key_invalid": "Clé AES invalide : 16, 24 ou 32 octets attendus (128, 192 ou 256 bits)",
+      "aes_decrypt_failed": "Échec du déchiffrement AES (clé, IV, mode ou format incorrects ?) : {{detail}}",
+      "decompression_unsupported": "DecompressionStream n’est pas pris en charge par ce navigateur",
+      "decompression_failed": "Données compressées invalides ou format incorrect",
+      "ms_script_not_found": "Aucun bloc encodé #@~^…^#~@ détecté",
+      "unknown_operation": "Opération inconnue"
+    },
+    "outputs": {
+      "none_string": "(aucune chaîne)",
+      "none_url": "(aucune URL)",
+      "none_ip": "(aucune adresse IP)",
+      "none_email": "(aucun e-mail)",
+      "none_domain": "(aucun domaine)",
+      "none_hash": "(aucune empreinte)",
+      "none_windows_path": "(aucun chemin Windows)",
+      "none_linux_path": "(aucun chemin Linux)",
+      "none_guid": "(aucun GUID)",
+      "none_result": "(aucun résultat)"
+    },
+    "detect": {
+      "jwt": "Jeton JWT",
+      "defanged_ioc": "IOC neutralisé",
+      "ms_script": "Script encodé Microsoft (.jse/.vbe)",
+      "powershell": "PowerShell -EncodedCommand (Base64 + UTF-16LE)",
+      "base64": "Base64",
+      "base64_url": "Base64 URL-safe",
+      "base32": "Base32",
+      "base58": "Base58 (Bitcoin, clés)",
+      "hex_escapes": "Séquences \\xAB",
+      "hex_plain": "Hexadécimal brut",
+      "unicode_escape": "Échappements Unicode \\uXXXX",
+      "url_encoded": "Encodage URL (%XX)",
+      "html_entities": "Entités HTML",
+      "char_codes": "Codes de caractères",
+      "binary_8bit": "Binaire sur 8 bits",
+      "morse": "Code Morse",
+      "quoted_printable": "Quoted-Printable",
+      "ascii85": "Ascii85 / Base85",
+      "octal_escapes": "Échappements octaux \\NNN",
+      "gzip": "Gzip (signature 1f 8b)",
+      "zlib": "Zlib (en-tête 78)",
+      "decimal_ip": "IPv4 en décimal",
+      "high_entropy": "Entropie élevée ({{entropy}} bits/octet) : extraction de chaînes recommandée"
+    },
+    "ui": {
+      "operations_count": "{{count}} opérations",
+      "running": "calcul…",
+      "magic": "Magic",
+      "magic_title": "Magic : décode récursivement les couches d’obfuscation détectées",
+      "auto_detect": "Détection auto",
+      "reset": "Réinitialiser",
+      "detection": "DÉTECTION :",
+      "chain": "Chaîne : {{ops}}",
+      "no_detection": "Aucune obfuscation connue détectée",
+      "magic_none": "Magic : aucune couche décodable détectée",
+      "recipe_steps_one": "Recette · {{count}} étape",
+      "recipe_steps_other": "Recette · {{count}} étapes",
+      "add": "Ajouter",
+      "search_placeholder": "Rechercher une opération…",
+      "no_operation": "Aucune opération trouvée",
+      "empty_recipe": "Cliquez sur « Ajouter » pour construire une recette, ou collez une charge utile et lancez Magic.",
+      "drag_hint": "Glissez les étapes pour les réordonner. Dépliez une étape pour voir sa sortie.",
+      "auto_run": "Exécution automatique",
+      "input": "Entrée",
+      "input_stats": "{{count}} octets · entropie {{entropy}} bits/octet",
+      "high_entropy": "Entropie élevée",
+      "input_placeholder": "Collez la charge utile à analyser…\n\nLa recette s’applique automatiquement.\nUtilisez « Détection auto » pour une suggestion.",
+      "output": "Sortie",
+      "output_bytes": "{{count}} octets",
+      "copy": "Copier",
+      "copied": "Copié",
+      "output_placeholder": "La sortie apparaîtra ici une fois la recette construite…",
+      "output_empty": "(sortie vide)",
+      "step_output": "Sortie de l’étape",
+      "step_error": "Erreur",
+      "step_empty": "(vide)",
+      "step_stats": "{{count}} octets · {{entropy}} bits/octet",
+      "binary_notice": "Sortie binaire (UTF-8 invalide) : affichage en hexadécimal"
+    },
+    "expired": "(expiré)",
+    "jwt_claim_exp": "Expiration (exp)",
+    "jwt_claim_iat": "Émis le (iat)",
+    "jwt_claim_nbf": "Valide à partir de (nbf)",
+    "no_signature": "(aucune)",
+    "signature": "Signature",
+    "output_100ns_since_1601": "intervalles de 100 ns depuis 1601",
+    "output_decimal": "Décimal",
+    "output_entropy": "Entropie",
+    "output_filetime": "FILETIME",
+    "output_filetime_dec": "FILETIME (décimal)",
+    "output_filetime_hex": "FILETIME (hex)",
+    "output_hex": "Hexadécimal",
+    "output_high": "(élevée)",
+    "output_length": "Longueur",
+    "output_local": "Local",
+    "output_printable": "Imprimables",
+    "output_raw_value": "Valeur brute",
+    "output_top_bytes": "Octets les plus fréquents",
+    "output_unix": "Unix",
+    "output_unix_milliseconds": "Unix (millisecondes)",
+    "output_unix_seconds": "Unix (secondes)",
+    "output_utc": "UTC",
+    "output_bytes_count": "{{count}} octets",
+    "output_bits_per_byte": "{{value}} bits/octet",
+    "output_xor_key": "── clé 0x{{hex}} ({{dec}})  score {{score}} ──"
   }
 }
