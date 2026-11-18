@@ -1,6 +1,6 @@
 import { LIEN_MARKDOWN_RE, analyserSource, cheminSource } from '../../utils/notebookSource';
 
-const MONO = 'var(--f-mono, "JetBrains Mono", monospace)';
+const MONO = 'var(--f-mono, \'JetBrains Mono\', monospace)';
 const JETON = '\u0001';
 
 const STYLE_SOURCE = 'display:inline-flex;align-items:center;gap:4px;padding:1px 7px;border-radius:10px;'
@@ -16,7 +16,7 @@ function lienSourceHtml(libelle, cheminEchappe) {
 
 export function mdToHtml(md) {
   const liens = [];
-  const echappe = String(md || '')
+  const echappe = String(md || '').replace(/\u0001/g, '')
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
     .replace(LIEN_MARKDOWN_RE, (brut, libelle, chemin) => {
       const html = lienSourceHtml(libelle, chemin);
@@ -35,7 +35,6 @@ export function mdToHtml(md) {
     .replace(/^[-*] (.+)$/gm, '<li style="margin:.15em 0">$1</li>')
     .replace(/(<li[\s\S]*?<\/li>\n?)+/g, m => '<ul style="margin:.4em 0 .4em 1.2em;padding:0">'+m+'</ul>')
     .replace(/\n{2,}/g, '</p><p style="margin:.5em 0">')
-    .replace(/^(.+)$/gm, s => s.startsWith('<') ? s : s)
-    .replace(new RegExp(`${JETON}(\\d+)${JETON}`, 'g'), (_, i) => liens[Number(i)]);
+    .replace(new RegExp(`${JETON}(\\d+)${JETON}`, 'g'), (_, i) => liens[Number(i)] ?? '');
 }
 
