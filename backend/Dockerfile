@@ -4,7 +4,7 @@
 # This stage is Docker-layer-cached independently from the application code.
 # It only re-runs when tool URLs or versions change — not on every code edit.
 # ════════════════════════════════════════════════════════════════════════════
-FROM node:24.22.2-bookworm-slim@sha256:c86ecead9e55a5210ac1727de38a4ca840bf03dcaf34dc9749addbf383b1920c AS tool-fetcher
+FROM node:24.22.2-trixie-slim@sha256:0820eaa85e07d0490446dd01d14707e17e6108a36988cf374899cd057eb3812d AS tool-fetcher
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
@@ -115,12 +115,12 @@ RUN git clone --depth=1 --single-branch \
 # Installs system deps and the Node app. Rebuilds fast on code changes because
 # the heavy tool-fetcher stage above is pulled from cache.
 # ════════════════════════════════════════════════════════════════════════════
-FROM node:24.22.2-bookworm-slim@sha256:c86ecead9e55a5210ac1727de38a4ca840bf03dcaf34dc9749addbf383b1920c
+FROM node:24.22.2-trixie-slim@sha256:0820eaa85e07d0490446dd01d14707e17e6108a36988cf374899cd057eb3812d
 
 WORKDIR /app
 
 # ─── System runtime dependencies ───
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends \
     python3 \
     python3-pip \
     curl \
@@ -133,7 +133,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gzip \
     ca-certificates \
     gnupg \
-    libicu72 \
+    libicu76 \
     python3-libscca \
     yara \
     tshark \
@@ -175,7 +175,8 @@ ENV ZIMMERMAN_TOOLS_DIR=/app/zimmerman-tools
 # ─── Node.js application (production deps only) ───
 COPY --chown=node:node package*.json ./
 RUN npm install --omit=dev --no-audit --no-fund \
-    && chown -R node:node /app/node_modules
+    && chown -R node:node /app/node_modules \
+    && rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
 
 COPY --chown=node:node . .
 
