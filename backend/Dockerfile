@@ -4,24 +4,37 @@
 # This stage is Docker-layer-cached independently from the application code.
 # It only re-runs when tool URLs or versions change — not on every code edit.
 # ════════════════════════════════════════════════════════════════════════════
+ARG DOTNET_VERSION=10.0.15
+ARG DOTNET_SHA512=a90177d75bc891f71aa814dde3bcf76a356f5a506824669f1891754457954a3d13b72f3ca04c98fa0fe588514a5a781f8a87b17930ee802105c14f9edb28318a
+ARG HAYABUSA_VERSION=3.10.0
+ARG HAYABUSA_SHA256=9f2f2415c74e4dd8ddb0f0fd1fc240921cc0a91a5c07e66a4a75fe652a592861
+ARG HAYABUSA_RULES=4961
+ARG BMC_TOOLS_COMMIT=5a4cad32be78b3b874aeec910cb478e04ba3501e
+ARG BMC_TOOLS_SHA256=4f2453a968e0d0dc66dc0afdb2e79c1af36bfdbae5a06e3c8c89a616ad82ca92
+
 FROM node:24.22.2-trixie-slim@sha256:0820eaa85e07d0490446dd01d14707e17e6108a36988cf374899cd057eb3812d AS tool-fetcher
+ARG DOTNET_VERSION
+ARG DOTNET_SHA512
+ARG HAYABUSA_VERSION
+ARG HAYABUSA_SHA256
+ARG HAYABUSA_RULES
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
-    wget \
     unzip \
-    git \
     ca-certificates \
-    gnupg \
     && rm -rf /var/lib/apt/lists/*
 
 # ─── .NET 9 Runtime (required by all Zimmerman tools) ───
-RUN wget -q https://dot.net/v1/dotnet-install.sh -O /tmp/dotnet-install.sh \
-    && chmod +x /tmp/dotnet-install.sh \
-    && /tmp/dotnet-install.sh --channel 10.0 --runtime dotnet --install-dir /usr/share/dotnet \
-    && ln -s /usr/share/dotnet/dotnet /usr/local/bin/dotnet \
-    && rm /tmp/dotnet-install.sh \
-    && dotnet --info || echo "dotnet installed"
+RUN set -e; \
+    curl -fsSL --retry 3 --connect-timeout 30 -o /tmp/dotnet.tar.gz \
+        "https://builds.dotnet.microsoft.com/dotnet/Runtime/${DOTNET_VERSION}/dotnet-runtime-${DOTNET_VERSION}-linux-x64.tar.gz"; \
+    echo "${DOTNET_SHA512}  /tmp/dotnet.tar.gz" | sha512sum -c -; \
+    mkdir -p /usr/share/dotnet; \
+    tar -xzf /tmp/dotnet.tar.gz -C /usr/share/dotnet; \
+    rm /tmp/dotnet.tar.gz; \
+    ln -s /usr/share/dotnet/dotnet /usr/local/bin/dotnet; \
+    dotnet --list-runtimes | grep -q "Microsoft.NETCore.App ${DOTNET_VERSION} "
 
 # ─── Outils Eric Zimmerman (.NET 9), verrouilles par empreinte ───
 # La liste vient de zimmerman-tools.lock et de nulle part ailleurs : deux listes
@@ -74,40 +87,16 @@ RUN set -e; \
 COPY zimmerman-maps-retained/ /app/zimmerman-tools/Maps/EvtxeCmd/Maps/
 
 # ─── Hayabusa (Linux x64) ───
-RUN mkdir -p /app/hayabusa /tmp/hayabusa \
-    && cd /tmp/hayabusa \
-    && echo "Downloading Hayabusa..." \
-    && curl -fsSL -L -o hayabusa.zip \
-        "https://github.com/Yamato-Security/hayabusa/releases/download/v3.10.0/hayabusa-3.10.0-lin-x64-musl.zip" \
-    && unzip -o -q hayabusa.zip -d /app/hayabusa/ \
-    && chmod +x /app/hayabusa/hayabusa* 2>/dev/null || true \
-    && echo "=== Hayabusa installed ===" \
-    && ls -la /app/hayabusa/ \
-    && rm -rf /tmp/hayabusa
-
-# Normalise Hayabusa binary name → always /app/hayabusa/hayabusa
-RUN HAYABIN=$(ls /app/hayabusa/hayabusa-* 2>/dev/null | head -1) \
-    && if [ -n "$HAYABIN" ]; then \
-        chmod +x "$HAYABIN" \
-        && ln -sf "$HAYABIN" /app/hayabusa/hayabusa \
-        && echo "Hayabusa symlink: $(basename $HAYABIN) -> hayabusa"; \
-    elif [ -f /app/hayabusa/hayabusa ]; then \
-        chmod +x /app/hayabusa/hayabusa \
-        && echo "Hayabusa binary found directly"; \
-    else \
-        echo "WARNING: Hayabusa binary not found — fallback Sigma rules will be used"; \
-    fi
-
-# Bundle Hayabusa rules at build time via git clone (deterministic, no runtime network needed).
-# update-rules is unreliable in CI/offline builds — silently fails and leaves /rules empty.
-RUN git clone --depth=1 --single-branch \
-        https://github.com/Yamato-Security/hayabusa-rules.git \
-        /app/hayabusa/rules \
-    && echo "=== Hayabusa rules bundled: $(find /app/hayabusa/rules -name '*.yml' | wc -l) Sigma rules ===" \
-    || { echo "WARNING: git clone of hayabusa-rules failed — attempting update-rules fallback"; \
-         [ -x /app/hayabusa/hayabusa ] \
-           && cd /app/hayabusa && /app/hayabusa/hayabusa update-rules --no-wizard 2>&1 | tail -5 \
-           || echo "Binary unavailable — no rules installed"; }
+RUN set -e; \
+    mkdir -p /app/hayabusa /tmp/hayabusa; \
+    curl -fsSL --retry 3 --connect-timeout 30 -o /tmp/hayabusa/hayabusa.zip \
+        "https://github.com/Yamato-Security/hayabusa/releases/download/v${HAYABUSA_VERSION}/hayabusa-${HAYABUSA_VERSION}-lin-x64-musl.zip"; \
+    echo "${HAYABUSA_SHA256}  /tmp/hayabusa/hayabusa.zip" | sha256sum -c -; \
+    unzip -o -q /tmp/hayabusa/hayabusa.zip -d /app/hayabusa/; \
+    rm -rf /tmp/hayabusa; \
+    chmod +x "/app/hayabusa/hayabusa-${HAYABUSA_VERSION}-lin-x64-musl"; \
+    ln -sf "/app/hayabusa/hayabusa-${HAYABUSA_VERSION}-lin-x64-musl" /app/hayabusa/hayabusa; \
+    test "$(find /app/hayabusa/rules -name '*.yml' | wc -l)" -eq "${HAYABUSA_RULES}"
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -116,6 +105,10 @@ RUN git clone --depth=1 --single-branch \
 # the heavy tool-fetcher stage above is pulled from cache.
 # ════════════════════════════════════════════════════════════════════════════
 FROM node:24.22.2-trixie-slim@sha256:0820eaa85e07d0490446dd01d14707e17e6108a36988cf374899cd057eb3812d
+ARG DOTNET_VERSION
+ARG HAYABUSA_RULES
+ARG BMC_TOOLS_COMMIT
+ARG BMC_TOOLS_SHA256
 
 WORKDIR /app
 
@@ -142,20 +135,19 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-reco
     && rm -rf /var/lib/apt/lists/*
 
 # ─── Python forensic libraries ───
-RUN pip3 install --no-cache-dir --break-system-packages \
-    dissect \
-    "dissect.regf>=3" \
-    "dissect.esedb>=3" \
-    "dissect.cim>=3" \
-    Pillow \
-    && echo "=== dissect + dissect.regf + dissect.esedb + dissect.cim + Pillow installed ===" \
-    || echo "WARNING: dissect/Pillow install failed — some parsers may be unavailable"
+COPY python-build.lock python-tools.lock /tmp/
+RUN set -e; \
+    pip3 install --no-cache-dir --break-system-packages --require-hashes -r /tmp/python-build.lock; \
+    pip3 install --no-cache-dir --break-system-packages --require-hashes --no-build-isolation --use-pep517 --only-binary=:all: --no-binary=fusepy -r /tmp/python-tools.lock; \
+    pip3 uninstall -y --break-system-packages setuptools; \
+    rm /tmp/python-build.lock /tmp/python-tools.lock
 
 # ─── RDP Bitmap Cache reconstructor (ANSSI bmc-tools) — reconstructs RDP session tiles ───
-RUN mkdir -p /app/tools \
-    && wget -q https://raw.githubusercontent.com/ANSSI-FR/bmc-tools/master/bmc-tools.py -O /app/tools/bmc-tools.py \
-    && echo "=== bmc-tools installed ===" \
-    || echo "WARNING: bmc-tools download failed — RDP bitmap cache parsing unavailable"
+RUN set -e; \
+    mkdir -p /app/tools; \
+    curl -fsSL --retry 3 --connect-timeout 30 -o /app/tools/bmc-tools.py \
+        "https://raw.githubusercontent.com/ANSSI-FR/bmc-tools/${BMC_TOOLS_COMMIT}/bmc-tools.py"; \
+    echo "${BMC_TOOLS_SHA256}  /app/tools/bmc-tools.py" | sha256sum -c -
 
 # ─── Copy forensic tools from tool-fetcher (no re-download) ───
 COPY --from=tool-fetcher /usr/share/dotnet /usr/share/dotnet
@@ -202,6 +194,15 @@ RUN chmod +x /app/entrypoint.sh
 
 # Own tool directories (copied as root above, hand to node)
 RUN chown -R node:node /app/zimmerman-tools /app/hayabusa
+
+RUN set -e; \
+    /app/hayabusa/hayabusa help > /dev/null; \
+    test "$(find /app/hayabusa/rules -name '*.yml' | wc -l)" -eq "${HAYABUSA_RULES}"; \
+    dotnet --list-runtimes | grep -q "Microsoft.NETCore.App ${DOTNET_VERSION} "; \
+    python3 -c "import dissect.regf, dissect.esedb, dissect.cim, dissect.target, flow.record, psutil, Crypto, PIL"; \
+    test -s /app/tools/bmc-tools.py; \
+    tshark --version > /dev/null; \
+    test ! -e /usr/local/bin/npm
 
 # entrypoint.sh runs as root briefly to fix volume permissions, then drops to
 # the unprivileged `node` user via gosu. This is required because Docker named
