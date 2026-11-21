@@ -5,28 +5,78 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — Semantic Ve
 
 ---
 
-## [2026-11-21]
+## [0.10.0] — 2026-11-21
+
+Première version numérotée depuis 0.9.11. Elle regroupe tout ce qui a été livré du 14 août au 21 novembre 2026. La version est désormais unique : le fichier `VERSION` fait foi pour le backend, le frontend, l'API de santé, l'installeur et les README.
 
 ### Added
 
-- **Purge des fichiers temporaires** — la destruction d'un dossier efface aussi, en 8 passes, ses sorties de parsing, ses résultats Hayabusa et ses uploads mémoire laissés dans `/app/temp`. Un balayage tourne au démarrage puis toutes les 6 heures : il retire les restes des dossiers détruits, les sorties inactives depuis plus de 24 heures et les uploads mémoire abandonnés. Chaque retrait est inscrit au journal d'audit avant et après l'effacement
-- **Contrôle de parité du schéma** — à chaque mise à jour, `update.sh` compare les colonnes de la base à celles d'une installation neuve (`db/schema.columns`) et signale toute colonne absente
+- **Version applicative unique** — `VERSION` à la racine, reporté par `bash version.sh set X.Y.Z` et contrôlé par `bash version.sh check` : package.json, README, entrée du changelog et tag Git éventuel. `update.sh` s'arrête avant toute modification si la version est incohérente
+- **Mise à jour sans perte** — `update.sh` (et `update.ps1`) contrôle l'environnement, construit pendant que l'ancienne version tourne, vérifie la chaîne d'audit, sauvegarde et contrôle la base avant les migrations, puis inscrit la mise à jour au journal d'audit avec une ancre à vérifier la fois suivante
+- **Outil de sauvegarde restic** — `backup.sh` sauvegarde la base et les volumes de preuves, vérifie et restaure sans jamais toucher aux volumes de production
+- **Contrôles d'intégrité des preuves** — un contrôle se lance depuis un dossier ou une preuve, progresse en temps réel et s'inscrit dans la chaîne d'audit ; un contrôle nocturne est disponible (désactivé par défaut)
+- **Inventaire de stockage** — `backend/scripts/storageInventory.js` rapproche les fichiers sur disque des preuves en base et signale les orphelins, y compris dans `/app/temp`
+- **Purge des fichiers temporaires** — la destruction d'un dossier efface aussi, en 8 passes, ses sorties de parsing, ses résultats Hayabusa et ses uploads mémoire laissés dans `/app/temp`. Un balayage tourne au démarrage puis toutes les 6 heures et inscrit chaque retrait au journal d'audit avant et après l'effacement
+- **Contrôle de parité du schéma** — à chaque mise à jour, les colonnes de la base sont comparées à celles d'une installation neuve (`db/schema.columns`), et toute colonne absente est signalée
+- **Rédaction depuis le carnet** — l'écran de rédaction place le carnet à côté des sections du rapport ; le brouillon IA s'appuie sur le carnet ; le PDF porte une annexe « Sources » vérifiée en base
+- **Verdicts de chasse** — un verdict se pose sur le couple (dossier, règle), épingle l'empreinte de la règle et devient périmé si elle change ; les hits de chasse sont déposés de façon persistante sur les lignes de timeline
+- **Import plus robuste** — la chaîne d'import survit au rechargement de la page, plusieurs preuves s'envoient ensemble, le panneau d'import montre les vrais journaux du serveur, et un parsing interrompu par un redémarrage reprend
+- **Conservation des archives d'origine** — l'archive d'une collecte importée est gardée pour que son empreinte reste vérifiable
 
 ### Changed
 
-- **Retrait des utilisateurs au lieu de leur suppression** — supprimer un compte le retire définitivement : sessions et jetons révoqués, mot de passe rendu inutilisable, profil anonymisé, identifiant renommé et ancien nom libéré. Le journal d'audit et le travail d'enquête restent attribués au compte. Les noms commençant par `deleted-` sont réservés
-- **Outils Zimmerman 2026.11** — les quatorze outils passent en 2026.11.0, après comparaison de leur sortie sur des échantillons publics : sortie identique, MFTECmd ajoute une colonne `ResidentDataDecoded` et EvtxECmd deux maps
-- **CyberChef traduit** — la page s'affiche en français et en anglais, sans clé de traduction brute ni sélecteur vide
-- **README** — les liens vers la documentation locale ont été retirés ; le README indique que les tests et la CI restent sur les postes des mainteneurs
+- **Retrait des utilisateurs au lieu de leur suppression** — supprimer un compte le retire définitivement : sessions et jetons révoqués, mot de passe inutilisable, profil anonymisé, ancien nom libéré. L'audit et le travail d'enquête restent attribués au compte ; les noms commençant par `deleted-` sont réservés
+- **Les migrations SQL sont l'unique source du schéma** — le backend ne crée plus de table ni de colonne au démarrage ; `bash db/migrate.sh` est obligatoire à chaque mise à jour, ce que fait `update.sh`
+- **Image backend** — Debian 13, sans npm, chaque outil épinglé et vérifié par empreinte au build ; un téléchargement raté fait échouer le build
+- **Outils Zimmerman** — passage à .NET 10, puis à la version 2026.11 après comparaison de leur sortie sur des échantillons publics (sortie identique, une colonne `ResidentDataDecoded` en plus pour MFTECmd, deux maps EvtxECmd) ; le volume des outils est resynchronisé au démarrage et l'ancien jeu conservé
+- **Compilateur Sigma vers SQL** — la grammaire des conditions est analysée au lieu d'être reconnue par motif ; aucune règle ne compile plus vers `TRUE` ; une règle illisible est refusée, jamais exécutée ; l'attribution MITRE vient du YAML de la règle
+- **Carte réseau** — registre des liaisons, colonnes de zone déduites et déclarées, en-tête unifié ; le mode cas est toujours limité à une collecte
+- **Super Timeline** — le tri serveur couvre les 13 colonnes de la grille, la bascule « dédoublonner » est retirée, une troncature de facette se voit à l'écran
+- **Ingestion** — une ingestion CSV conserve toutes les colonnes ; une sous-famille d'artefact devient un type à part entière ; l'empreinte de déduplication identifie une ligne par son contenu (sauf EVTX et MFT), ce qui rend environ 9 300 événements perdus sur un dossier de référence
+- **Onglets des collectes** — les onglets qui ne tiennent pas passent dans un menu « Plus »
+- **CyberChef traduit** — la page s'affiche en français et en anglais
+- **README** — les liens vers la documentation locale sont retirés ; tests et CI restent sur les postes des mainteneurs
+
+### Security
+
+- **Accès par dossier sur chaque identifiant** — preuves, parsing, uploads, listes, triage, timeline, VolWeb et chat vérifient l'accès au dossier de l'objet visé, en lecture comme en écriture
+- **Sessions** — revalidées à chaque requête, révocation durable en base même pendant une panne Redis, utilisateurs révoqués déconnectés en temps réel
+- **Chaîne d'audit** — infalsifiable de bout en bout avec une clé dédiée (`AUDIT_HMAC_KEY`) et sa rotation ; les actions critiques sont auditées dans leur transaction
+- **Exports** — l'export anonymisé ne contient plus de table de ré-identification ; les formules sont neutralisées dans les exports CSV
+- **Durcissements** — uploads liés à leur propriétaire et à leur dossier, changement d'enquêteur réservé à admin et team_lead, serveur statique confiné à son répertoire, liens du chat IA et de VolWeb filtrés, Markdown du carnet échappé, lectures et recherches de fichiers de collecte auditées
+- **Conteneurs et dépendances** — images épinglées par digest, MinIO limité à l'hôte local, dépendances vulnérables mises à jour
+- **Effacement** — la destruction d'un dossier efface tout son stockage ; un fichier creux n'est réécrit que sur ses blocs réellement écrits
 
 ### Fixed
 
-- **Colonnes d'enrichissement des IOC** — six colonnes manquaient sur les installations existantes alors que leur migration était marquée comme appliquée. Elles sont rétablies, ce qui répare l'export du manifeste de legal hold et l'enrichissement des IOC
-- **Confirmation d'un IOC** — elle échouait toujours, faute de colonne `notes` ; la note est maintenant enregistrée
-- **Suppression d'un utilisateur** — elle échouait en erreur serveur dès que le compte avait servi une seule fois
-- **Erreurs visibles sur le tableau de bord et le triage** — une requête en échec renvoyait des zéros sans rien signaler ; elle renvoie maintenant une erreur, journalisée
-- **Résultats de CyberChef** — les opérations sur des octets bruts (NTLM, hachage de données décodées, décodages) donnaient des résultats faux sans erreur
-- **Effacement des fichiers creux** — un upload mémoire préalloué n'est plus réécrit sur toute sa taille apparente, seulement sur ses blocs réellement écrits
+- **Colonnes d'enrichissement des IOC** — absentes sur les installations existantes malgré leur migration ; elles sont rétablies, ce qui répare l'export du manifeste de legal hold et l'enrichissement des IOC
+- **Confirmation d'un IOC** — elle échouait toujours, faute de colonne `notes`
+- **Suppression d'un utilisateur** — elle échouait dès que le compte avait servi
+- **Tableau de bord et triage** — une requête en échec renvoyait des zéros sans rien signaler ; elle renvoie maintenant une erreur journalisée
+- **Rapport PDF** — il affirmait « Intégrité vérifiée » sans rien vérifier ; il affiche maintenant le dernier contrôle réel de chaque preuve
+- **Scans YARA** — un scan qui n'a lu aucun fichier n'est plus présenté comme « sain » ; 65 règles qui ne compilaient pas sont désactivées et les règles dépendantes réparées
+- **Parseurs** — un parseur qui sort en 0 sans écrire de CSV est en échec ; un parse CatScale sans preuve liée est refusé ; la source amcache est renseignée
+- **Elasticsearch** — la pagination PIT et l'export CSV en flux ne lisent plus un index incomplet
+- **Staging de parsing** — deux fichiers de même nom ne s'écrasent plus
+- **Résultats de CyberChef** — les opérations sur octets bruts (NTLM, hachage de données décodées, décodages) donnaient des résultats faux sans erreur
+
+### Migrations
+
+Version applicative et schéma évoluent séparément : ces migrations s'appliquent avec `bash db/migrate.sh` (lancé par `update.sh`), dans l'ordre de `db/migrations.manifest`.
+
+- `20260814090000_ingestion_files_coverage_status.sql`
+- `20260818150000_collection_timeline_nullable_timestamp.sql`
+- `20260910120000_catscale_state_event_time.sql`
+- `20260915160000_collection_timeline_proc_files_index.sql`
+- `20260915173000_case_deletion_operations.sql`
+- `20260917120000_ingestion_files_parsed_empty.sql`
+- `20260923150000_parse_queue.sql`
+- `20260924160000_case_notebooks.sql`
+- `20261103120000_runtime_schema_authority.sql`
+- `20261103130000_audit_key_version.sql`
+- `20261104100000_session_version.sql`
+- `20261121120000_users_deleted_at.sql`
+- `20261121130000_iocs_enrichment_and_notes.sql`
 
 ---
 

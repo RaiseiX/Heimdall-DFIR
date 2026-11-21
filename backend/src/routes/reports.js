@@ -1,5 +1,6 @@
 const express = require('express');
 const PDFDocument = require('pdfkit');
+const APP_VERSION = require('../../package.json').version;
 const { renderReport, buildDfiqReportData } = require('../services/reportRenderer');
 const fs = require('fs');
 const path = require('path');
@@ -467,7 +468,7 @@ router.post('/:caseId/generate', authenticate, async (req, res) => {
       Title: `Rapport Forensique - ${caseData.case_number}`,
       Author: req.user.full_name,
       Subject: caseData.title,
-      Creator: 'Heimdall DFIR v2.7.0'
+      Creator: `Heimdall DFIR v${APP_VERSION}`
     }});
 
     filePath = path.join(process.env.UPLOAD_DIR || '/app/uploads', `report-${caseData.case_number}-${Date.now()}-${crypto.randomUUID()}.pdf`);

@@ -4,6 +4,8 @@ Gestion de dossiers, analyse de preuves et threat hunting pour les équipes DFIR
 
 [English](README.md) · [Roadmap](ROADMAP.fr.md) · [Discord](https://discord.gg/sx7DnNYMNF)
 
+Version 0.10.0 · [Historique des changements](CHANGELOG.md)
+
 ![Tableau de bord Heimdall DFIR](shots/dashboard.webp)
 
 Heimdall rassemble les preuves importées, les timelines, les détections, les notes d'investigation et les rapports dans une même interface web. Le projet s'adresse aux laboratoires, aux SOC internes et aux équipes de réponse à incident qui souhaitent conserver leurs dossiers sur une infrastructure qu'ils maîtrisent.

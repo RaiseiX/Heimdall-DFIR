@@ -150,7 +150,8 @@ fi
 
 echo ""
 echo "╔══════════════════════════════════════════════╗"
-echo "║   Démarrage Heimdall DFIR API v1.1.0         ║"
+APP_VERSION="$(sed -n 's/^  "version": "\([^"]*\)".*/\1/p' /app/package.json | head -n 1)"
+printf '║   Démarrage Heimdall DFIR API v%-15s║\n' "${APP_VERSION:-inconnue}"
 echo "╚══════════════════════════════════════════════╝"
 echo ""
 
