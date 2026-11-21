@@ -309,6 +309,9 @@ router.post('/register', authenticate, requireRole('admin'), async (req, res) =>
     if (!username || !password || !full_name) {
       return res.status(400).json({ error: 'username, password et full_name requis' });
     }
+    if (typeof username !== 'string' || username.toLowerCase().startsWith('deleted-')) {
+      return res.status(400).json({ error: 'Nom d’utilisateur réservé' });
+    }
     const policy = await getSecurityPolicy();
     if (password.length < policy.passwordMinLength) {
       return res.status(400).json({ error: `Mot de passe : ${policy.passwordMinLength} caractères minimum` });

@@ -101,3 +101,4 @@ db/migrations/20260924160000_case_notebooks.sql
 db/migrations/20261103120000_runtime_schema_authority.sql
 db/migrations/20261103130000_audit_key_version.sql
 db/migrations/20261104100000_session_version.sql
+db/migrations/20261121120000_users_deleted_at.sql

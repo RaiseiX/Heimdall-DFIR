@@ -154,7 +154,7 @@ const USER_UPDATE_FIELDS = ['full_name', 'role', 'is_active'];
 router.get('/', authenticate, async (req, res) => {
   try {
     const result = await pool.query(
-      'SELECT id, username, full_name, role, is_active, last_login, created_at FROM users ORDER BY created_at'
+      'SELECT id, username, full_name, role, is_active, last_login, created_at FROM users WHERE deleted_at IS NULL ORDER BY created_at'
     );
     res.json(result.rows);
   } catch (err) {
@@ -166,8 +166,9 @@ router.put('/:id', authenticate, requireRole('admin'), async (req, res) => {
   try {
     const { full_name, role, is_active } = req.body;
     const outcome = await inTransaction(async (client) => {
-      const avant = await client.query('SELECT role, is_active FROM users WHERE id = $1 FOR UPDATE', [req.params.id]);
+      const avant = await client.query('SELECT role, is_active FROM users WHERE id = $1 AND deleted_at IS NULL FOR UPDATE', [req.params.id]);
       const anterieur = avant.rows && avant.rows[0];
+      if (!anterieur) return null;
       const revoquer = is_active === false || (role != null && anterieur && role !== anterieur.role) ? 1 : 0;
       const result = await client.query(
         `UPDATE users SET full_name = COALESCE($1, full_name),
@@ -215,13 +216,13 @@ router.put('/:id/password', authenticate, async (req, res) => {
     if (!password || password.length < minLen) return res.status(400).json({ error: `Min ${minLen} caractères` });
     const hash = await bcrypt.hash(password, 12);
     const maj = await inTransaction(async (client) => {
-      const updated = await client.query('UPDATE users SET password_hash = $1, session_version = session_version + 1, updated_at = NOW() WHERE id = $2 RETURNING id', [hash, req.params.id]);
-      if (updated.rows && updated.rows[0]) {
-        await client.query('UPDATE refresh_tokens SET revoked = TRUE WHERE user_id = $1 AND revoked = FALSE', [updated.rows[0].id]);
-      }
+      const updated = await client.query('UPDATE users SET password_hash = $1, session_version = session_version + 1, updated_at = NOW() WHERE id = $2 AND deleted_at IS NULL RETURNING id', [hash, req.params.id]);
+      if (!updated.rows || !updated.rows[0]) return null;
+      await client.query('UPDATE refresh_tokens SET revoked = TRUE WHERE user_id = $1 AND revoked = FALSE', [updated.rows[0].id]);
       await auditCritical(client, req.user.id, 'change_password', 'user', req.params.id, {}, req.ip);
       return updated;
     });
+    if (!maj) return res.status(404).json({ error: 'Utilisateur non trouvé' });
     if (maj.rows && maj.rows[0]) {
       const cible = maj.rows[0].id;
       await couperSessionsUtilisateur(req.app.locals.io, cible);
@@ -236,10 +237,25 @@ router.delete('/:id', authenticate, requireRole('admin'), async (req, res) => {
   try {
     if (normaliserId(req.user.id) === normaliserId(req.params.id)) return res.status(400).json({ error: 'Impossible de supprimer votre propre compte' });
     const deleted = await inTransaction(async (client) => {
-      const result = await client.query('DELETE FROM users WHERE id = $1 RETURNING id, username', [req.params.id]);
-      if (result.rows.length === 0) return null;
-      await auditCritical(client, req.user.id, 'delete_user', 'user', req.params.id, { deleted: result.rows[0].username }, req.ip);
-      return result.rows[0];
+      const avant = await client.query(
+        'SELECT id, username FROM users WHERE id = $1 AND deleted_at IS NULL FOR UPDATE', [req.params.id],
+      );
+      if (avant.rows.length === 0) return null;
+      const cible = avant.rows[0];
+      await client.query(
+        `UPDATE users SET deleted_at = NOW(), is_active = FALSE,
+           username = 'deleted-' || id::text, full_name = 'Utilisateur supprimé',
+           email = NULL, avatar_url = NULL, password_hash = $2, preferences = '{}'::jsonb,
+           session_version = session_version + 1, updated_at = NOW()
+         WHERE id = $1`,
+        [cible.id, `!retired:${crypto.randomBytes(32).toString('hex')}`],
+      );
+      await client.query('UPDATE refresh_tokens SET revoked = TRUE WHERE user_id = $1 AND revoked = FALSE', [cible.id]);
+      await client.query('DELETE FROM api_tokens WHERE user_id = $1', [cible.id]);
+      await auditCritical(client, req.user.id, 'delete_user', 'user', req.params.id, {
+        deleted: cible.username, mode: 'retired_anonymized',
+      }, req.ip);
+      return cible;
     });
     if (!deleted) return res.status(404).json({ error: 'Utilisateur non trouvé' });
     await couperSessionsUtilisateur(req.app.locals.io, deleted.id);
