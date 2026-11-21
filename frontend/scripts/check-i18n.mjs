@@ -137,6 +137,33 @@ export function pluralFamilyProblems(flatDict) {
   return problems.sort();
 }
 
+const CYBERCHEF_LITERAL_NAMESPACES = ['ops', 'errors', 'options', 'outputs', 'detect', 'ui', 'categories'];
+const CYBERCHEF_CALL_RE = /\b(?:tr|cyberchefError)\(\s*['"]([^'"]+)['"]/g;
+const CYBERCHEF_LITERAL_RE = new RegExp(`['"]((?:${CYBERCHEF_LITERAL_NAMESPACES.join('|')})\\.[A-Za-z0-9_]+(?:\\.[A-Za-z0-9_]+)*)['"]`, 'g');
+
+export function cyberchefKeysInSource(source) {
+  const keys = new Set();
+  for (const match of source.matchAll(CYBERCHEF_CALL_RE)) keys.add(match[1]);
+  for (const match of source.matchAll(CYBERCHEF_LITERAL_RE)) keys.add(match[1]);
+  return keys;
+}
+
+export function cyberchefMissingKeys(usedKeys, flatDict) {
+  const has = key => `cyberchef.${key}` in flatDict || `cyberchef.${key}_other` in flatDict;
+  return [...usedKeys].filter(key => !has(key)).sort();
+}
+
+function cyberchefSourceFiles() {
+  const files = [path.join(srcDir, 'pages', 'CyberChefPage.jsx')];
+  const libDir = path.join(srcDir, 'lib', 'cyberchef');
+  if (fs.existsSync(libDir)) {
+    for (const file of walk(libDir)) {
+      if (!/\.test\.(js|jsx)$/.test(file)) files.push(file);
+    }
+  }
+  return files.filter(file => fs.existsSync(file));
+}
+
 function main() {
   const auditHardcoded = process.argv.includes('--hardcoded');
 
@@ -210,6 +237,16 @@ function main() {
     failures.push(`Used translation keys missing from locale files:\n${missingUsed.join('\n')}`);
   }
 
+  const cyberchefUsed = new Set();
+  for (const file of cyberchefSourceFiles()) {
+    for (const key of cyberchefKeysInSource(fs.readFileSync(file, 'utf8'))) cyberchefUsed.add(key);
+  }
+  const cyberchefMissingFr = cyberchefMissingKeys(cyberchefUsed, fr).map(key => `fr: cyberchef.${key}`);
+  const cyberchefMissingEn = cyberchefMissingKeys(cyberchefUsed, en).map(key => `en: cyberchef.${key}`);
+  if (cyberchefMissingFr.length || cyberchefMissingEn.length) {
+    failures.push(`CyberChef keys used in code but missing from locale files:\n${[...cyberchefMissingFr, ...cyberchefMissingEn].join('\n')}`);
+  }
+
   if (auditHardcoded) {
     const frenchPattern = /[À-ÿ]|\b(Paramètres|Rechercher|Supprimer|Modifier|Sauvegarder|Annuler|Chargement|Erreur|Succès|Aucun|Toutes|Créer|Importer|Exporter|Analyse|Preuves|Collecte|Cas|Rapport|Utilisateur|Mot de passe|Connexion|Déconnexion|Clôturé|En cours|Fermer|Actualiser|Filtrer|Sélectionner|Détails|Échec|Terminé|Forensique|Sévérité|Menace|Réseau|Mémoire)\b/g;
     const ignored = [
@@ -247,7 +284,7 @@ function main() {
     process.exit(1);
   }
 
-  console.log(`i18n check passed: ${frKeys.size} French keys, ${enKeys.size} English keys, ${usedKeys.size} literal t() keys.`);
+  console.log(`i18n check passed: ${frKeys.size} French keys, ${enKeys.size} English keys, ${usedKeys.size} literal t() keys, ${cyberchefUsed.size} CyberChef keys.`);
 }
 
 // Guarded exactly like scripts/check-design-system.mjs: importing this module
