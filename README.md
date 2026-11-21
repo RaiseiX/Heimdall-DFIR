@@ -2,7 +2,7 @@
 
 Self-hosted case management, evidence review and threat-hunting for DFIR teams.
 
-[Français](README.fr.md) · [Roadmap](ROADMAP.md) · [Documentation](docs/README.md) · [Discord](https://discord.gg/sx7DnNYMNF)
+[Français](README.fr.md) · [Roadmap](ROADMAP.md) · [Discord](https://discord.gg/sx7DnNYMNF)
 
 ![Heimdall DFIR dashboard](shots/dashboard.webp)
 
@@ -171,7 +171,6 @@ cd backend
 npm install
 npm run dev
 npm run typecheck
-npm test
 ```
 
 Frontend:
@@ -182,9 +181,10 @@ npm install
 npm run dev
 npm run typecheck
 npm run i18n:check
-npm test
 npm run build
 ```
+
+The test suites and the CI workflow stay on the maintainers' machines and are not part of this repository, so `npm test` finds nothing to run on a fresh clone. Changes are verified against them locally before each release.
 
 Node.js 24 is used by the Docker images. Runtime changes should also be tested through Docker Compose because networks, health checks, volumes and proxy timeouts are part of the application.
 
@@ -195,17 +195,10 @@ backend/      API, services, workers and parsers
 frontend/     React application
 db/           schema, migrations and migration tooling
 docker/       Traefik and VolWeb support files
-docs/         maintained architecture and contributor documentation
-tasks/        implementation notes and engineering backlog
 ```
 
 Useful starting points:
 
-- [Architecture](docs/architecture.md)
-- [Backend](docs/backend.md)
-- [Infrastructure](docs/infra.md)
-- [Frontend](docs/ui.md)
-- [Design system](docs/design-system.md)
 - [Changelog](CHANGELOG.md)
 - [User tutorial](TUTORIAL.md)
 

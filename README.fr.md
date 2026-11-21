@@ -2,7 +2,7 @@
 
 Gestion de dossiers, analyse de preuves et threat hunting pour les équipes DFIR, sur une infrastructure auto-hébergée.
 
-[English](README.md) · [Roadmap](ROADMAP.fr.md) · [Documentation](docs/README.md) · [Discord](https://discord.gg/sx7DnNYMNF)
+[English](README.md) · [Roadmap](ROADMAP.fr.md) · [Discord](https://discord.gg/sx7DnNYMNF)
 
 ![Tableau de bord Heimdall DFIR](shots/dashboard.webp)
 
@@ -171,7 +171,6 @@ cd backend
 npm install
 npm run dev
 npm run typecheck
-npm test
 ```
 
 Frontend :
@@ -182,9 +181,10 @@ npm install
 npm run dev
 npm run typecheck
 npm run i18n:check
-npm test
 npm run build
 ```
+
+Les suites de tests et le workflow de CI restent sur les postes des mainteneurs et ne font pas partie de ce dépôt : sur un clone neuf, `npm test` ne trouve rien à exécuter. Les changements sont vérifiés en local avant chaque publication.
 
 Les images Docker utilisent Node.js 24. Les changements qui touchent l'exécution doivent aussi être testés avec Docker Compose, car les réseaux, les contrôles d'état, les volumes et les délais du proxy font partie de l'application.
 
@@ -195,17 +195,10 @@ backend/      API, services, workers et parseurs
 frontend/     application React
 db/           schéma, migrations et outils associés
 docker/       fichiers de support pour Traefik et VolWeb
-docs/         documentation maintenue pour l'architecture et les contributeurs
-tasks/        notes d'implémentation et backlog technique
 ```
 
 Pour aller plus loin :
 
-- [Architecture](docs/architecture.md)
-- [Backend](docs/backend.md)
-- [Infrastructure](docs/infra.md)
-- [Frontend](docs/ui.md)
-- [Système de design](docs/design-system.md)
 - [Historique des changements](CHANGELOG.md)
 - [Guide utilisateur](TUTORIAL.fr.md)
 
