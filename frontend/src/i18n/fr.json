@@ -1834,7 +1834,7 @@
     "loading_services": "Chargement des services…",
     "health_tab": "Santé Services",
     "loading_backups": "Chargement des sauvegardes…",
-    "no_backups": "Aucune sauvegarde",
+    "no_backups": "Aucune copie locale",
     "loading_jobs": "Chargement des jobs…",
     "no_jobs": "Aucun job",
     "status_ok": "OK",
@@ -1858,7 +1858,7 @@
     "tabs_feedback": "Feedback",
     "tabs_rgpd": "RGPD",
     "tabs_health": "Santé",
-    "tabs_backups": "Sauvegardes",
+    "tabs_backups": "Copie locale",
     "tabs_infra": "Infrastructure",
     "tabs_settings": "Paramètres",
     "sla_heading": "Dashboard · Seuils SLA",
@@ -1905,7 +1905,7 @@
     "empty_audit_sub": "Aucun événement ne correspond aux filtres sélectionnés.",
     "no_jobs_sub": "Aucun job de parsing ne correspond aux filtres sélectionnés.",
     "no_tickets_sub": "Aucun feedback soumis pour l'instant.",
-    "no_backups_sub": "Cliquez sur «Déclencher» pour créer la première sauvegarde.",
+    "no_backups_sub": "Cliquez sur « Faire une copie locale » pour copier la base.",
     "tabs_ai": "IA",
     "tabs_logs": "Journaux",
     "tabs_about": "À propos",
@@ -1931,15 +1931,16 @@
       "error_count_other": "{{count}} erreurs"
     },
     "backups": {
-      "title": "Sauvegardes",
-      "trigger": "Déclencher une sauvegarde",
+      "title": "Copie locale de la base",
+      "trigger": "Faire une copie locale",
       "col_file": "Fichier",
       "col_size": "Taille",
-      "created_msg": "✓ Sauvegarde créée : {{filename}} ({{size}} Mo)",
+      "created_msg": "✓ Copie locale créée : {{filename}} ({{size}} Mo)",
       "download": "Télécharger",
-      "error_msg": "✗ Sauvegarde impossible : {{error}}",
-      "storage_before": "Sauvegardes compressées (gzip) dans le volume",
-      "storage_after": ". Rétention manuelle recommandée."
+      "error_msg": "✗ Copie locale impossible : {{error}}",
+      "storage_before": "Copies compressées (gzip) dans le volume",
+      "storage_after": ". Rétention manuelle recommandée.",
+      "not_a_backup": "Copie de la base seule, gardée sur cette machine : ce n'est pas une sauvegarde. Les preuves n'y sont pas, et une panne de disque emporterait la copie avec l'original. Les sauvegardes passent par backup.sh (README › Sauvegardes)."
     },
     "docker": {
       "title": "Infrastructure Docker",
@@ -2166,7 +2167,10 @@
     "sev_critical": "Critique",
     "sev_high": "Élevée",
     "sev_medium": "Moyenne",
-    "sev_low": "Faible"
+    "sev_low": "Faible",
+    "backups_disabled": "Sauvegardes non activées : elles ne le sont pas par défaut. Une panne de disque ferait perdre les preuves et la base. Pour les activer, lance bash backup.sh setup sur le serveur, ou suis README › Sauvegardes.",
+    "backups_stale": "Sauvegardes en retard : la dernière réussite date du {{date}}, au-delà de {{hours}} h. Vérifie bash backup.sh status sur le serveur.",
+    "backups_unknown": "État des sauvegardes inconnu : impossible de le lire. Vérifie bash backup.sh status sur le serveur."
   },
   "casedetail": {
     "access_revoked": "Votre accès à ce dossier a été retiré (désassignation, changement d'enquêteur ou dossier supprimé). Si c'est une erreur, contactez le responsable du dossier.",

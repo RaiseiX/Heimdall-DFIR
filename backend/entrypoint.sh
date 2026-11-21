@@ -29,6 +29,7 @@ mkdir -p \
 chown -R node:node /app/uploads /app/collections /app/temp /app/evidence 2>/dev/null || true
 # Pour hayabusa et zimmerman-tools : seulement le répertoire racine (pas -R).
 chown node:node /app/zimmerman-tools /app/hayabusa 2>/dev/null || true
+mkdir -p /app/backups && chown node:node /app/backups 2>/dev/null || true
 # Ensure all directories under /app/collections are traversable (some tar archives
 # extract directories with mode 0o600, lacking the execute bit needed by the node user)
 chmod -R u+rX /app/collections 2>/dev/null || true

@@ -122,6 +122,7 @@ export const authAPI = {
 export const adminAPI = {
   health:           ()           => api.get('/admin/health'),
   listBackups:      ()           => api.get('/admin/backups'),
+  backupStatus:     ()           => api.get('/admin/backups/status'),
   triggerBackup:    ()           => api.post('/admin/backups/trigger'),
   downloadBackup:   (filename)   => `/api/admin/backups/${encodeURIComponent(filename)}`,
   getSchedule:      ()           => api.get('/admin/backups/schedule'),

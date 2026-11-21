@@ -153,6 +153,53 @@ bash db/migrate.sh
 
 `docker compose down -v` deletes the persistent volumes for the stack. On a non-disposable installation, take a tested backup before removing volumes or changing the storage layout.
 
+## Backups
+
+**Backups are not enabled by default.** Until you enable them, a disk failure loses the evidence and the database. The dashboard shows administrators a warning, `GET /api/health` reports `"backups": "disabled"`, and `start.sh` and `update.sh` remind you at the end of each run.
+
+`backup.sh` uses [restic](https://restic.net/) in a container. It backs up the PostgreSQL database, the evidence, collection, VolWeb and MinIO volumes, and `.env`. Backups are encrypted, and deduplicated from one run to the next. Measured on a lab installation, 37 GiB of data took 5.4 GiB in the repository, and a daily run added a few megabytes.
+
+### Guided setup
+
+`start.sh` offers to enable backups at the end of the installation. The default answer is no. You can also start it at any time:
+
+```bash
+bash backup.sh setup
+```
+
+It asks for the repository folder, the password file (created for you, mode 600), the daily time and the retention. It then writes `backup.env`, initialises the repository and schedules the daily run in your user crontab.
+
+### Manual setup, step by step
+
+1. Choose a destination **outside this machine** if you can: a mounted external disk, a NAS, or a remote `sftp:` or `s3:` repository.
+2. Create the repository password and keep a copy somewhere else. Without it, the repository cannot be read:
+   ```bash
+   mkdir -p ~/.config/heimdall
+   ( umask 077; od -An -N32 -tx1 /dev/urandom | tr -d ' \n' > ~/.config/heimdall/restic-password )
+   ```
+3. Copy `backup.env.example` to `backup.env`, set `RESTIC_REPOSITORY` and `RESTIC_PASSWORD_FILE`, then the retention (`KEEP_DAILY`, `KEEP_WEEKLY`, `KEEP_MONTHLY`). Without retention, nothing is ever removed from the repository. `bash backup.sh --help` describes every variable, including SFTP and S3.
+4. Initialise the repository, then try a dry run:
+   ```bash
+   bash backup.sh init
+   bash backup.sh run --dry-run
+   ```
+5. Run the first backup, then schedule it every day:
+   ```bash
+   bash backup.sh run --yes
+   bash backup.sh schedule 02:30
+   ```
+   Without `crontab`, call `bash backup.sh run --yes` from a systemd timer or from your own scheduler.
+6. Check the state, and test a restore regularly:
+   ```bash
+   bash backup.sh status
+   bash backup.sh check
+   bash backup.sh restore <snapshot> /path/to/empty/folder
+   ```
+
+`bash backup.sh unschedule` stops the daily run. Backups are reported late when the last successful one is older than `BACKUP_MAX_AGE_HOURS` (48 by default, set in `.env`). On Windows, run `backup.sh` from WSL.
+
+The "Local copy" tab of the Administration page makes a copy of the database only, kept on this machine. It is not a backup.
+
 ## Security and evidence handling
 
 - Keep the platform on a trusted network until the deployment has been reviewed for its environment.

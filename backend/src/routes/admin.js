@@ -97,6 +97,16 @@ router.get('/audit-health', authenticate, requireRole('admin'), (req, res) => {
   res.json(getAuditFailureStats());
 });
 
+router.get('/backups/status', authenticate, requireRole('admin'), async (req, res) => {
+  try {
+    const { readBackupStatus } = require('../services/backupStatus');
+    res.json(await readBackupStatus());
+  } catch (err) {
+    logger.error('[backup/status]', err);
+    res.status(500).json({ error: 'Erreur lecture état des sauvegardes' });
+  }
+});
+
 router.get('/backups', authenticate, requireRole('admin'), async (req, res) => {
   try {
     if (!fs.existsSync(BACKUP_DIR)) fs.mkdirSync(BACKUP_DIR, { recursive: true });

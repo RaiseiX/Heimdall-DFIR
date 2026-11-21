@@ -9,7 +9,8 @@ import { useTheme } from '../utils/theme';
 import { Settings, Plus, Shield, UserCheck, UserX, ScrollText, Trash2, Search, CheckCircle2, XCircle, RefreshCw, ShieldAlert, Activity, Database, Download, Cpu, MessageSquare, Bot, FileText , AlertTriangle, Check, X } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { usersAPI, authAPI, casesAPI, adminAPI, feedbackAPI, settingsAPI } from '../utils/api';
-import { Button, Modal, TabGroup, Spinner, EmptyState, Pagination } from '../components/ui';
+import { Button, Modal, TabGroup, Spinner, EmptyState, Pagination, Alert } from '../components/ui';
+import BackupStatusBanner from '../components/admin/BackupStatusBanner';
 import { fmtLocal } from '../utils/formatters';
 
 const INLINE_PICTO = { verticalAlign: '-1px' };
@@ -248,6 +249,8 @@ function BackupsTab() {
           color: msgOk ? 'var(--fl-ok)' : 'var(--fl-danger)' }}>{msg}</div>
       )}
 
+      <BackupStatusBanner style={{ marginBottom: 12 }} />
+      <Alert variant="accent" message={t('admin.backups.not_a_backup')} style={{ marginBottom: 12 }} />
       <p style={{ fontSize: 11.5, color: 'var(--fl-muted)', marginBottom: 14, fontFamily: 'var(--f-ui, sans-serif)' }}>
         {t('admin.backups.storage_before')} <code style={{ fontFamily: MONO, color: 'var(--fl-dim)' }}>backups_data</code>. {t('admin.backups.storage_after')}
       </p>

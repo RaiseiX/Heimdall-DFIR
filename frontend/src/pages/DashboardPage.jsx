@@ -9,6 +9,7 @@ import {
   Clock, HardDrive,
 } from 'lucide-react';
 import { casesAPI, playbooksAPI, settingsAPI } from '../utils/api';
+import BackupStatusBanner from '../components/admin/BackupStatusBanner';
 import { useSocket, useSocketEvent } from '../hooks/useSocket';
 
 const C = {
@@ -449,6 +450,7 @@ export default function DashboardPage() {
 
   return (
     <div style={{ padding: '18px 22px', background: C.bg, minHeight: '100%', display: 'flex', flexDirection: 'column', gap: 20 }}>
+      {currentUser.role === 'admin' && <BackupStatusBanner />}
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 320px', gap: 20, alignItems: 'start' }}>
         <div style={{ minWidth: 0 }}>

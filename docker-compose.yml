@@ -86,6 +86,7 @@ services:
       AUDIT_HMAC_KEY: "${AUDIT_HMAC_KEY:?AUDIT_HMAC_KEY is required, run start.sh or set a strong value in .env}"
       UPLOAD_DIR: /app/uploads
       INTEGRITY_CHECK_CRON: ${INTEGRITY_CHECK_CRON:-}
+      BACKUP_MAX_AGE_HOURS: ${BACKUP_MAX_AGE_HOURS:-48}
       INTEGRITY_RATE_LIMIT_MAX: ${INTEGRITY_RATE_LIMIT_MAX:-}
       ZIMMERMAN_TOOLS_DIR: /app/zimmerman-tools
       HAYABUSA_BIN: /app/hayabusa/hayabusa
@@ -117,6 +118,7 @@ services:
       - collections_data:/app/collections
       - temp_data:/app/temp
       - backups_data:/app/backups
+      - ./backups/backup-runs:/app/backup-runs:ro
       - ./logs/odin:/app/logs
       # Docker socket — read-write required for Ollama model pull from admin panel.
       # DOCKER_GID must match the host docker group: stat -c %g /var/run/docker.sock

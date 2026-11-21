@@ -1834,7 +1834,7 @@
     "loading_services": "Loading services…",
     "health_tab": "Service Health",
     "loading_backups": "Loading backups…",
-    "no_backups": "No backups",
+    "no_backups": "No local copy",
     "loading_jobs": "Loading jobs…",
     "no_jobs": "No jobs",
     "status_ok": "OK",
@@ -1858,7 +1858,7 @@
     "tabs_feedback": "Feedback",
     "tabs_rgpd": "GDPR",
     "tabs_health": "Health",
-    "tabs_backups": "Backups",
+    "tabs_backups": "Local copy",
     "tabs_infra": "Infrastructure",
     "tabs_settings": "Settings",
     "sla_heading": "Dashboard · SLA thresholds",
@@ -1905,7 +1905,7 @@
     "empty_audit_sub": "No events match the selected filters.",
     "no_jobs_sub": "No parsing jobs match the selected filters.",
     "no_tickets_sub": "No feedback submitted yet.",
-    "no_backups_sub": "Click «Trigger» to create the first backup.",
+    "no_backups_sub": "Click « Make a local copy » to copy the database.",
     "tabs_ai": "AI",
     "tabs_logs": "Logs",
     "tabs_about": "About",
@@ -1931,15 +1931,16 @@
       "error_count_other": "{{count}} errors"
     },
     "backups": {
-      "title": "Backups",
-      "trigger": "Trigger backup",
+      "title": "Local database copy",
+      "trigger": "Make a local copy",
       "col_file": "File",
       "col_size": "Size",
-      "created_msg": "✓ Backup created: {{filename}} ({{size}} MB)",
+      "created_msg": "✓ Local copy created: {{filename}} ({{size}} MB)",
       "download": "Download",
-      "error_msg": "✗ Backup failed: {{error}}",
-      "storage_before": "Compressed backups (gzip) in volume",
-      "storage_after": ". Manual retention recommended."
+      "error_msg": "✗ Local copy failed: {{error}}",
+      "storage_before": "Compressed copies (gzip) in volume",
+      "storage_after": ". Manual retention recommended.",
+      "not_a_backup": "A copy of the database only, kept on this machine: this is not a backup. Evidence is not included, and a disk failure would take the copy along with the original. Backups go through backup.sh (README › Backups)."
     },
     "docker": {
       "title": "Docker infrastructure",
@@ -2166,7 +2167,10 @@
     "sev_critical": "Critical",
     "sev_high": "High",
     "sev_medium": "Medium",
-    "sev_low": "Low"
+    "sev_low": "Low",
+    "backups_disabled": "Backups are not enabled: they are off by default. A disk failure would lose the evidence and the database. To enable them, run bash backup.sh setup on the server, or follow README › Backups.",
+    "backups_stale": "Backups are late: the last successful one dates from {{date}}, more than {{hours}} h ago. Check bash backup.sh status on the server.",
+    "backups_unknown": "Backup status unknown: it could not be read. Check bash backup.sh status on the server."
   },
   "casedetail": {
     "access_revoked": "Your access to this case was removed (unassigned, investigator changed or case deleted). If this is a mistake, contact the case lead.",
