@@ -314,6 +314,23 @@ async function start() {
     }
 
     try {
+      const { sweepTempStorage, sweepSettings } = require('./services/tempStorage');
+      const runTempSweep = () => sweepTempStorage(pool)
+        .then((summary) => {
+          if (summary.removed.length || summary.failed.length || summary.auditFailures) {
+            logger.info('[temp-sweep] done', {
+              removed: summary.removed.length, failed: summary.failed.length, audit_failures: summary.auditFailures,
+            });
+          }
+        })
+        .catch(e => logger.error('[temp-sweep] tick:', e.message));
+      setTimeout(runTempSweep, 2 * 60 * 1000);
+      setInterval(runTempSweep, sweepSettings().intervalMs);
+    } catch (e) {
+      logger.error('[temp-sweep] scheduler init failed:', e.message);
+    }
+
+    try {
       const { integrityQueue } = require('./config/queue');
       const { scheduleNightly } = require('./services/integrityScheduler');
       scheduleNightly(integrityQueue(), process.env.INTEGRITY_CHECK_CRON)

@@ -7,6 +7,10 @@ const COLLECTION_NAME_RE = new RegExp(`^case-(${UUID_SOURCE})(?:-|$)`, 'i');
 const RDP_CACHE = 'rdp-cache';
 const RDP_CACHE_NAME_RE = new RegExp(`^${RDP_CACHE}/(${UUID_SOURCE})$`, 'i');
 const IMPORT_PARSER = 'MagnetRESPONSE_Import';
+const ANY_UUID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
+const TEMP_CASE_OUTPUT_RE = new RegExp(`^(?:parse|hayabusa)-(${ANY_UUID})-`, 'i');
+const TEMP_MEMORY_RE = new RegExp(`^memory-(${ANY_UUID})$`, 'i');
+const TEMP_RUN_OUTPUT_RE = /^parse-\d+-[a-z0-9]+$/i;
 
 function isAbsent(err) {
   return err && (err.code === 'ENOENT' || err.code === 'ENOTDIR');
@@ -94,10 +98,43 @@ async function walkUploads(uploadRoot, dir, entries) {
   }
 }
 
-async function listStorageEntries({ collectionsRoot, uploadRoot }) {
+async function listTemp(tempRoot, entries) {
+  for (const name of await readdirOrEmpty(tempRoot)) {
+    const target = path.join(tempRoot, name);
+    const st = await lstatOrNull(target);
+    if (!st) continue;
+    if (st.isSymbolicLink()) entries.push(describe('temp', target, name, 'other', 0, st));
+    else if (st.isDirectory()) entries.push(describe('temp', target, name, 'dir', await treeSize(target), st));
+    else if (st.isFile()) entries.push(describe('temp', target, name, 'file', st.size, st));
+    else entries.push(describe('temp', target, name, 'other', 0, st));
+  }
+}
+
+async function listStorageEntries({ collectionsRoot, uploadRoot, tempRoot }) {
   const entries = await listCollections(collectionsRoot);
   await walkUploads(uploadRoot, uploadRoot, entries);
+  if (tempRoot) await listTemp(tempRoot, entries);
   return entries;
+}
+
+function classifyTempName(name) {
+  let match = TEMP_CASE_OUTPUT_RE.exec(name);
+  if (match) return { kind: 'case_output', id: match[1].toLowerCase() };
+  match = TEMP_MEMORY_RE.exec(name);
+  if (match) return { kind: 'memory_upload', id: match[1].toLowerCase() };
+  if (TEMP_RUN_OUTPUT_RE.test(name)) return { kind: 'run_output', id: null };
+  return null;
+}
+
+function classifyTempEntry(entry, caseById, uploadById) {
+  const known = classifyTempName(entry.name || '');
+  if (!known) return { ...entry, status: 'orphan_unattributed', case_id: null, evidence_id: null, legal_hold: null };
+  if (known.kind === 'run_output') return { ...entry, status: 'temp_output', case_id: null, evidence_id: null, legal_hold: null };
+  const caseId = known.kind === 'case_output' ? known.id : uploadById.get(known.id);
+  if (!caseId) return { ...entry, status: 'orphan_unattributed', case_id: null, evidence_id: null, legal_hold: null };
+  const owner = caseById.get(caseId);
+  if (!owner) return { ...entry, status: 'orphan_deleted_case', case_id: caseId, evidence_id: null, legal_hold: null };
+  return { ...entry, status: 'temp_output', case_id: caseId, evidence_id: null, legal_hold: owner.legal_hold };
 }
 
 function additionalList(value) {
@@ -140,7 +177,8 @@ function caseIdFromEntry(entry) {
 }
 
 function classifyEntries(entries, refs) {
-  const { evidence = [], importDirs = [], cases = [] } = refs || {};
+  const { evidence = [], importDirs = [], cases = [], memoryUploads = [] } = refs || {};
+  const uploadById = new Map(memoryUploads.map((row) => [String(row.id).toLowerCase(), String(row.case_id).toLowerCase()]));
   const evidenceByPath = new Map();
   for (const row of evidence) {
     for (const target of evidenceTargets(row)) {
@@ -159,6 +197,7 @@ function classifyEntries(entries, refs) {
   const classified = entries.map((entry) => {
     const key = path.resolve(entry.path);
     present.add(key);
+    if (entry.root === 'temp') return classifyTempEntry(entry, caseById, uploadById);
     const proof = evidenceByPath.get(key);
     if (proof) {
       const known = caseById.get(String(proof.case_id).toLowerCase());
@@ -216,4 +255,11 @@ async function collectRefs(db) {
   };
 }
 
-module.exports = { listStorageEntries, classifyEntries, collectRefs, isCaseCollectionName };
+async function collectTempRefs(db) {
+  const res = await db.query('SELECT id, case_id FROM memory_uploads');
+  return { memoryUploads: res.rows };
+}
+
+module.exports = {
+  listStorageEntries, classifyEntries, collectRefs, collectTempRefs, isCaseCollectionName, classifyTempName,
+};

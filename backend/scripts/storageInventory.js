@@ -1,14 +1,17 @@
-const { listStorageEntries, classifyEntries, collectRefs } = require('../src/services/storageInventory');
+const {
+  listStorageEntries, classifyEntries, collectRefs, collectTempRefs,
+} = require('../src/services/storageInventory');
 
 const EXIT_OK = 0;
 const EXIT_ERROR = 1;
 const EXIT_FINDINGS = 2;
 const EXIT_USAGE = 64;
 
-const CLEAN_STATUSES = new Set(['evidence', 'import_dir']);
+const CLEAN_STATUSES = new Set(['evidence', 'import_dir', 'temp_output']);
 
 async function inventory(db, out, roots) {
   const refs = await collectRefs(db);
+  if (roots.tempRoot) Object.assign(refs, await collectTempRefs(db));
   const listed = await listStorageEntries(roots);
   const { entries, missing } = classifyEntries(listed, refs);
   const counts = {};
@@ -44,6 +47,7 @@ if (require.main === module) {
   const roots = {
     collectionsRoot: process.env.COLLECTIONS_DIR || '/app/collections',
     uploadRoot: process.env.UPLOAD_DIR || '/app/uploads',
+    tempRoot: process.env.TEMP_DIR || '/app/temp',
   };
   main(process.argv.slice(2), { db: pool, roots, out: (l) => process.stdout.write(`${l}\n`) })
     .then(async (code) => {
