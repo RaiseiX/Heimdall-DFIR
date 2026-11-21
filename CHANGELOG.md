@@ -5,6 +5,31 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — Semantic Ve
 
 ---
 
+## [2026-11-21]
+
+### Added
+
+- **Purge des fichiers temporaires** — la destruction d'un dossier efface aussi, en 8 passes, ses sorties de parsing, ses résultats Hayabusa et ses uploads mémoire laissés dans `/app/temp`. Un balayage tourne au démarrage puis toutes les 6 heures : il retire les restes des dossiers détruits, les sorties inactives depuis plus de 24 heures et les uploads mémoire abandonnés. Chaque retrait est inscrit au journal d'audit avant et après l'effacement
+- **Contrôle de parité du schéma** — à chaque mise à jour, `update.sh` compare les colonnes de la base à celles d'une installation neuve (`db/schema.columns`) et signale toute colonne absente
+
+### Changed
+
+- **Retrait des utilisateurs au lieu de leur suppression** — supprimer un compte le retire définitivement : sessions et jetons révoqués, mot de passe rendu inutilisable, profil anonymisé, identifiant renommé et ancien nom libéré. Le journal d'audit et le travail d'enquête restent attribués au compte. Les noms commençant par `deleted-` sont réservés
+- **Outils Zimmerman 2026.11** — les quatorze outils passent en 2026.11.0, après comparaison de leur sortie sur des échantillons publics : sortie identique, MFTECmd ajoute une colonne `ResidentDataDecoded` et EvtxECmd deux maps
+- **CyberChef traduit** — la page s'affiche en français et en anglais, sans clé de traduction brute ni sélecteur vide
+- **README** — les liens vers la documentation locale ont été retirés ; le README indique que les tests et la CI restent sur les postes des mainteneurs
+
+### Fixed
+
+- **Colonnes d'enrichissement des IOC** — six colonnes manquaient sur les installations existantes alors que leur migration était marquée comme appliquée. Elles sont rétablies, ce qui répare l'export du manifeste de legal hold et l'enrichissement des IOC
+- **Confirmation d'un IOC** — elle échouait toujours, faute de colonne `notes` ; la note est maintenant enregistrée
+- **Suppression d'un utilisateur** — elle échouait en erreur serveur dès que le compte avait servi une seule fois
+- **Erreurs visibles sur le tableau de bord et le triage** — une requête en échec renvoyait des zéros sans rien signaler ; elle renvoie maintenant une erreur, journalisée
+- **Résultats de CyberChef** — les opérations sur des octets bruts (NTLM, hachage de données décodées, décodages) donnaient des résultats faux sans erreur
+- **Effacement des fichiers creux** — un upload mémoire préalloué n'est plus réécrit sur toute sa taille apparente, seulement sur ses blocs réellement écrits
+
+---
+
 ## [2026-08-13]
 
 ### Added (Ingestion & Forensic Coverage)
