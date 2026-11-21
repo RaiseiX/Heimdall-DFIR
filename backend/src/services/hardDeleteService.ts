@@ -10,6 +10,7 @@ const { deleteMinioLocator } = require('./deletionStorage');
 const { planEvidenceDeletion } = require('./evidenceDeletionPlan');
 const { racinesDeStockage, estSousUneRacine } = require('./storagePathGuard');
 const { isCaseCollectionName } = require('./storageInventory');
+const { planCaseTempTargets, tempRoot } = require('./tempStorage');
 const {
   withCaseDeletion,
   beginDeletionOperation,
@@ -177,6 +178,12 @@ async function deleteLockedCase(
   const evidenceKeys = new Set(targets.map(target => `${target.kind}:${target.locator}`));
 
   targets.push(...await planCollectionTargets(client, caseRes.rows[0].id || caseId));
+  const tempNames = await readDirectoryNames(tempRoot(), ['ENOENT', 'ENOTDIR']);
+  try {
+    targets.push(...await planCaseTempTargets(client, caseId, tempNames));
+  } catch (error) {
+    throw Object.assign(error as Error, { status: 502, code: 'DELETION_INCOMPLETE' });
+  }
 
   targets = Array.from(new Map(targets.map(target => [`${target.kind}:${target.locator}`, target])).values());
   const orphanTargets = targets.filter(target => !evidenceKeys.has(`${target.kind}:${target.locator}`)).length;
@@ -219,7 +226,7 @@ async function deleteLockedCase(
       } else {
         const absPath = path.isAbsolute(item.locator) ? item.locator : path.join(UPLOAD_DIR, item.locator);
         const resolved = path.resolve(absPath);
-        const storageRoot = estSousUneRacine(racinesDeStockage(), resolved);
+        const storageRoot = estSousUneRacine([...racinesDeStockage(), tempRoot()], resolved);
         if (!storageRoot) {
           throw Object.assign(new Error('Storage target outside configured roots'), { code: 'STORAGE_PATH_REJECTED' });
         }

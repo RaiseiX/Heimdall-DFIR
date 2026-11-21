@@ -18,6 +18,29 @@ function unsupportedStorageTarget(): Error {
   return Object.assign(new Error('Unsupported storage target'), { code: 'UNSUPPORTED_STORAGE_TARGET' });
 }
 
+const ZERO_CHUNK = Buffer.alloc(CHUNK_SIZE, 0x00);
+
+function isSparse(stat: fs.Stats): boolean {
+  return typeof stat.blocks === 'number' && stat.blocks * 512 < stat.size;
+}
+
+function allChunkOffsets(fileSize: number): number[] {
+  const offsets: number[] = [];
+  for (let offset = 0; offset < fileSize; offset += CHUNK_SIZE) offsets.push(offset);
+  return offsets;
+}
+
+async function writtenChunkOffsets(fd: fs.promises.FileHandle, fileSize: number): Promise<number[]> {
+  const offsets: number[] = [];
+  const buffer = Buffer.alloc(CHUNK_SIZE);
+  for (let offset = 0; offset < fileSize; offset += CHUNK_SIZE) {
+    const chunkLen = Math.min(CHUNK_SIZE, fileSize - offset);
+    const { bytesRead } = await fd.read(buffer, 0, chunkLen, offset);
+    if (!buffer.subarray(0, bytesRead).equals(ZERO_CHUNK.subarray(0, bytesRead))) offsets.push(offset);
+  }
+  return offsets;
+}
+
 async function nodeWipe(filePath: fs.PathLike): Promise<void> {
   const before = await fs.promises.lstat(filePath);
   if (!before.isFile() || before.isSymbolicLink()) throw unsupportedStorageTarget();
@@ -37,13 +60,12 @@ async function nodeWipe(filePath: fs.PathLike): Promise<void> {
     opened = await fd.stat();
     if (!opened.isFile() || opened.dev !== before.dev || opened.ino !== before.ino) throw unsupportedStorageTarget();
     const fileSize = opened.size;
+    const offsets = isSparse(opened) ? await writtenChunkOffsets(fd, fileSize) : allChunkOffsets(fileSize);
     for (const pass of NODE_PASSES) {
-      let offset = 0;
-      while (offset < fileSize) {
+      for (const offset of offsets) {
         const chunkLen = Math.min(CHUNK_SIZE, fileSize - offset);
         const buffer = pass === 'zeros' ? Buffer.alloc(chunkLen, 0x00) : crypto.randomBytes(chunkLen);
         await fd.write(buffer, 0, chunkLen, offset);
-        offset += chunkLen;
       }
       await fd.datasync();
     }
