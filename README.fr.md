@@ -153,6 +153,53 @@ bash db/migrate.sh
 
 `docker compose down -v` supprime les volumes persistants de la stack. Sur une installation non jetable, effectuez et testez une sauvegarde avant de supprimer des volumes ou de modifier le stockage.
 
+## Sauvegardes
+
+**Les sauvegardes ne sont pas activées par défaut.** Tant qu'elles ne le sont pas, une panne de disque fait perdre les preuves et la base. Le tableau de bord avertit les administrateurs, `GET /api/health` indique `"backups": "disabled"`, et `start.sh` comme `update.sh` le rappellent à la fin de chaque exécution.
+
+`backup.sh` s'appuie sur [restic](https://restic.net/), dans un conteneur. Il sauvegarde la base PostgreSQL, les volumes de preuves, de collectes, de VolWeb et de MinIO, ainsi que `.env`. Les sauvegardes sont chiffrées, et dédupliquées d'une fois sur l'autre. Mesuré sur une installation de laboratoire : 37 Gio de données occupent 5,4 Gio dans le dépôt, et une sauvegarde quotidienne ajoute quelques mégaoctets.
+
+### Activation guidée
+
+À la fin de l'installation, `start.sh` propose d'activer les sauvegardes. La réponse par défaut est non. Tu peux aussi lancer l'activation à tout moment :
+
+```bash
+bash backup.sh setup
+```
+
+Elle demande le dossier du dépôt, le fichier du mot de passe (créé pour toi, en mode 600), l'heure quotidienne et la rétention. Elle écrit ensuite `backup.env`, initialise le dépôt et planifie la sauvegarde quotidienne dans ta crontab.
+
+### Activation manuelle, pas à pas
+
+1. Choisis si possible une destination **hors de cette machine** : un disque externe monté, un NAS, ou un dépôt distant `sftp:` ou `s3:`.
+2. Crée le mot de passe du dépôt, et garde-en une copie ailleurs. Sans lui, le dépôt est illisible :
+   ```bash
+   mkdir -p ~/.config/heimdall
+   ( umask 077; od -An -N32 -tx1 /dev/urandom | tr -d ' \n' > ~/.config/heimdall/restic-password )
+   ```
+3. Copie `backup.env.example` en `backup.env`, renseigne `RESTIC_REPOSITORY` et `RESTIC_PASSWORD_FILE`, puis la rétention (`KEEP_DAILY`, `KEEP_WEEKLY`, `KEEP_MONTHLY`). Sans rétention, rien n'est jamais supprimé du dépôt. `bash backup.sh --help` décrit chaque variable, SFTP et S3 compris.
+4. Initialise le dépôt, puis fais un essai à blanc :
+   ```bash
+   bash backup.sh init
+   bash backup.sh run --dry-run
+   ```
+5. Lance la première sauvegarde, puis planifie-la chaque jour :
+   ```bash
+   bash backup.sh run --yes
+   bash backup.sh schedule 02:30
+   ```
+   Sans `crontab`, appelle `bash backup.sh run --yes` depuis un timer systemd ou ton propre planificateur.
+6. Vérifie l'état, et teste régulièrement une restauration :
+   ```bash
+   bash backup.sh status
+   bash backup.sh check
+   bash backup.sh restore <snapshot> /chemin/vers/un/dossier/vide
+   ```
+
+`bash backup.sh unschedule` arrête la sauvegarde quotidienne. Les sauvegardes sont signalées en retard quand la dernière réussite date de plus de `BACKUP_MAX_AGE_HOURS` (48 par défaut, à régler dans `.env`). Sous Windows, lance `backup.sh` depuis WSL.
+
+L'onglet « Copie locale » de la page Administration copie la base seule, sur cette machine. Ce n'est pas une sauvegarde.
+
 ## Sécurité et traitement des preuves
 
 - Conservez la plateforme sur un réseau de confiance tant que son déploiement n'a pas été revu pour votre environnement.

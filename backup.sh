@@ -22,6 +22,10 @@ usage() {
     echo "  check [--read-data-subset=N%]          vérifie l'intégrité du dépôt"
     echo "  snapshots                              liste les snapshots"
     echo "  restore <snapshot> <dossier_cible>     restaure dans un dossier hôte vide ou inexistant"
+    echo "  schedule HH:MM                         planifie run --yes chaque jour à cette heure (crontab de l'utilisateur)"
+    echo "  unschedule                             retire cette planification"
+    echo "  status                                 dit si les sauvegardes sont planifiées et la dernière réussite"
+    echo "  setup                                  activation guidée : demande la destination, la rétention et l'heure, puis planifie"
     echo "  --help                                 affiche cette aide"
     echo ""
     echo "Options de run :"
@@ -459,6 +463,127 @@ cmd_run() {
     info "Vérifie régulièrement avec « bash backup.sh check » et essaie une restauration."
 }
 
+CRONTAB_BIN="${HEIMDALL_CRONTAB:-crontab}"
+
+cron_marker() {
+    printf "cd '%s' && bash backup.sh run --yes" "$(pwd -P)"
+}
+
+current_crontab() {
+    "$CRONTAB_BIN" -l 2>/dev/null || true
+}
+
+cmd_schedule() {
+    [ "$#" -eq 1 ] && [[ "$1" =~ ^([01][0-9]|2[0-3]):([0-5][0-9])$ ]] \
+        || { echo -e "${RED}Usage : bash backup.sh schedule HH:MM (par exemple 02:30)${NC}"; exit 64; }
+    local hour=$((10#${BASH_REMATCH[1]})) minute=$((10#${BASH_REMATCH[2]})) marker others
+    load_config
+    validate_config
+    command -v "$CRONTAB_BIN" >/dev/null 2>&1 \
+        || fail "crontab est introuvable : planifie la sauvegarde à la main, voir la section Sauvegardes du README."
+    [[ "$(pwd -P)" != *"'"* ]] || fail "Le chemin du dépôt contient une apostrophe : planifie à la main, voir la section Sauvegardes du README."
+    ( umask 077; mkdir -p "$RUNS_DIR" ) || fail "Impossible de créer ${RUNS_DIR}."
+    chmod 700 "$RUNS_DIR"
+    marker="$(cron_marker)"
+    others="$(current_crontab | grep -vF "$marker")"
+    { [ -n "$others" ] && printf '%s\n' "$others"; printf '%s %s * * * %s >> %s/cron.log 2>&1\n' "$minute" "$hour" "$marker" "$RUNS_DIR"; } \
+        | "$CRONTAB_BIN" - || fail "Écriture de la crontab impossible."
+    ok "Sauvegardes planifiées chaque jour à $(printf '%02d:%02d' "$hour" "$minute")"
+    info "Journal : ${RUNS_DIR}/cron.log ; état : bash backup.sh status"
+}
+
+cmd_unschedule() {
+    local marker others
+    command -v "$CRONTAB_BIN" >/dev/null 2>&1 || fail "crontab est introuvable."
+    marker="$(cron_marker)"
+    others="$(current_crontab | grep -vF "$marker")"
+    if [ -n "$others" ]; then printf '%s\n' "$others" | "$CRONTAB_BIN" - || fail "Écriture de la crontab impossible."
+    else printf '' | "$CRONTAB_BIN" - || fail "Écriture de la crontab impossible."; fi
+    ok "Planification des sauvegardes retirée"
+}
+
+cmd_status() {
+    local marker line latest_ok f
+    marker="$(cron_marker)"
+    line=""
+    command -v "$CRONTAB_BIN" >/dev/null 2>&1 && line="$(current_crontab | grep -F "$marker" | head -n 1)"
+    if [ -n "$line" ]; then
+        read -r cron_min cron_hour _ <<< "$line"
+        ok "Sauvegardes planifiées chaque jour à $(printf '%02d:%02d' "$cron_hour" "$cron_min")"
+    else
+        warn "Sauvegardes non planifiées : elles ne sont pas activées par défaut (bash backup.sh schedule HH:MM, ou README › Sauvegardes)"
+    fi
+    latest_ok=""
+    if [ -d "$RUNS_DIR" ]; then
+        for f in $(ls -1 "$RUNS_DIR" 2>/dev/null | grep -E '^[0-9]{8}-[0-9]{6}-[0-9]+\.json$' | sort -r); do
+            if grep -q '"status":"ok"' "${RUNS_DIR}/${f}" 2>/dev/null; then
+                latest_ok="$(grep -o '"finished_at":"[^"]*"' "${RUNS_DIR}/${f}" | head -n 1 | cut -d'"' -f4)"
+                break
+            fi
+        done
+    fi
+    if [ -n "$latest_ok" ]; then ok "Dernière sauvegarde réussie : ${latest_ok}"
+    else warn "Aucune sauvegarde réussie à ce jour"; fi
+}
+
+ask() {
+    local prompt="$1" default="$2" answer=""
+    if [ -n "$default" ]; then read -r -p "  ${prompt} [${default}] : " answer || answer=""
+    else read -r -p "  ${prompt} : " answer || answer=""; fi
+    printf '%s' "${answer:-$default}"
+}
+
+cmd_setup() {
+    local file="${HEIMDALL_BACKUP_CONFIG:-backup.env}" answer repo password at keep_d keep_w keep_m
+    echo ""
+    warn "Les sauvegardes ne sont pas activées par défaut : sans elles, une panne de disque fait perdre les preuves et la base."
+    answer="$(ask "Activer les sauvegardes planifiées maintenant ? (o/N)" "")"
+    echo ""
+    if ! [[ "$answer" =~ ^[oOyY]$ ]]; then
+        warn "Sauvegardes non activées. Pour les activer plus tard : bash backup.sh setup, ou le tutoriel README › Sauvegardes."
+        return 0
+    fi
+    if [ -f "$file" ]; then
+        info "${file} existe déjà : la configuration est conservée telle quelle."
+    else
+        repo="$(ask "Dossier du dépôt de sauvegarde, chemin absolu, de préférence sur un autre disque" "")"
+        echo ""
+        [[ "$repo" == /* ]] || { echo -e "${RED}Le dépôt doit être un chemin absolu. Pour sftp ou s3, suis le tutoriel README › Sauvegardes.${NC}"; exit 64; }
+        password="$(ask "Fichier du mot de passe du dépôt" "${HOME}/.config/heimdall/restic-password")"
+        echo ""
+        at="$(ask "Heure de la sauvegarde quotidienne" "02:30")"
+        echo ""
+        [[ "$at" =~ ^([01][0-9]|2[0-3]):([0-5][0-9])$ ]] || { echo -e "${RED}Heure invalide : ${at} (attendu HH:MM)${NC}"; exit 64; }
+        keep_d="$(ask "Rétention : nombre de sauvegardes quotidiennes gardées" "7")"; echo ""
+        keep_w="$(ask "Rétention : hebdomadaires" "4")"; echo ""
+        keep_m="$(ask "Rétention : mensuelles" "6")"; echo ""
+        for n in "$keep_d" "$keep_w" "$keep_m"; do
+            [[ "$n" =~ ^[0-9]+$ ]] || { echo -e "${RED}Rétention invalide : ${n}${NC}"; exit 64; }
+        done
+        if [ ! -f "$password" ]; then
+            ( umask 077; mkdir -p "$(dirname "$password")" && od -An -N32 -tx1 /dev/urandom | tr -d ' \n' > "$password" && echo >> "$password" ) \
+                || fail "Impossible de créer ${password}."
+            chmod 600 "$password"
+            ok "Mot de passe du dépôt créé dans ${password}"
+        fi
+        ( umask 077; printf 'RESTIC_REPOSITORY=%s\nRESTIC_PASSWORD_FILE=%s\nKEEP_DAILY=%s\nKEEP_WEEKLY=%s\nKEEP_MONTHLY=%s\n' \
+            "$repo" "$password" "$keep_d" "$keep_w" "$keep_m" > "$file" ) || fail "Impossible d'écrire ${file}."
+        chmod 600 "$file"
+        ok "Configuration écrite dans ${file}"
+    fi
+    prepare
+    if [ "$REPO_LOCAL" -eq 1 ] && [ ! -d "$REPO_ABS" ]; then
+        ( umask 077; mkdir -p "$REPO_ABS" ) || fail "Impossible de créer ${REPO_ABS}."
+    fi
+    if repo_reachable; then ok "Dépôt existant réutilisé"
+    else run_restic -- init >/dev/null || fail "restic init a échoué."; ok "Dépôt initialisé"; fi
+    [ -n "${at:-}" ] || { at="$(ask "Heure de la sauvegarde quotidienne" "02:30")"; echo ""; }
+    cmd_schedule "$at"
+    echo ""
+    warn "Copie le fichier du mot de passe hors de cette machine (${RESTIC_PASSWORD_FILE}) : sans lui, le dépôt est illisible."
+    info "Vérifie la première sauvegarde demain avec : bash backup.sh status"
+}
+
 COMMAND="${1:-}"
 [ -n "$COMMAND" ] || { usage; exit 64; }
 shift
@@ -469,5 +594,9 @@ case "$COMMAND" in
     check) cmd_check "$@" ;;
     snapshots) cmd_snapshots "$@" ;;
     restore) cmd_restore "$@" ;;
+    schedule) cmd_schedule "$@" ;;
+    unschedule) cmd_unschedule "$@" ;;
+    status) cmd_status "$@" ;;
+    setup) cmd_setup "$@" ;;
     *) echo -e "${RED}Commande inconnue : ${COMMAND}${NC}"; usage; exit 64 ;;
 esac

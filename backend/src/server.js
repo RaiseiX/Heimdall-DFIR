@@ -11,6 +11,7 @@ require('ts-node').register({
 
 const express = require('express');
 const APP_VERSION = require('../package.json').version;
+const { readBackupStatus } = require('./services/backupStatus');
 const http = require('http');
 const { Server: IOServer } = require('socket.io');
 const cors = require('cors');
@@ -214,6 +215,7 @@ app.get('/api/health', async (req, res) => {
     res.json({
       status: 'healthy',
       version: APP_VERSION,
+      backups: (await readBackupStatus()).state,
       timestamp: new Date().toISOString(),
       features: ['chunked-upload', 'streaming-parsers', 'socket-io', 'bullmq-queue'],
       services: { database: 'connected', redis: 'connected' },

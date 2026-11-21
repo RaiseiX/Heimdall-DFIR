@@ -434,6 +434,7 @@ if [ "$DRY_RUN" -eq 0 ] && [ -f db/schema-parity.sh ]; then
 fi
 
 step 10 "Redémarrage, santé et inscription au journal d'audit"
+[ "$DRY_RUN" -eq 1 ] || { ( umask 077; mkdir -p backups/backup-runs ) && chmod 700 backups/backup-runs; }
 run docker compose up -d || { PHASE="started"; fail "docker compose up -d a échoué."; }
 PHASE="started"
 if [ "$DRY_RUN" -eq 1 ]; then
@@ -474,6 +475,9 @@ fi
 
 echo ""
 echo -e "${GREEN}${BOLD}  ✅ Mise à jour terminée${NC}"
+if [ -f backup.sh ]; then
+    bash backup.sh status 2>/dev/null || true
+fi
 info "Sauvegarde et contrôles : ${BACKUP_DIR}"
 info "Copie de .env (secrets, à garder à part du dump) : ${ENV_BACKUP}"
 info "Ancre d'audit de cette mise à jour (hmac de la ligne platform_update) : ${ANCHOR_AFTER}"

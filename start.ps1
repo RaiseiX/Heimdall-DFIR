@@ -176,6 +176,7 @@ if ($LASTEXITCODE -ne 0) {
 
 Write-Step "[4/7] Starting services..."
 
+New-Item -ItemType Directory -Force -Path (Join-Path $PSScriptRoot "backups\backup-runs") | Out-Null
 docker compose up -d
 if ($LASTEXITCODE -ne 0) {
     Write-Err "Failed to start services."
@@ -393,6 +394,8 @@ Write-Host "  Local AI (Ollama):" -ForegroundColor White
 Write-Host "    -> Set OLLAMA_URL=http://ollama:11434 in .env"
 Write-Host "    -> Then: docker compose up -d ollama"
 Write-Host "    -> Pull a model: docker exec ollama ollama pull qwen3:14b"
+Write-Host ""
+Write-Warn "Les sauvegardes ne sont pas activées par défaut. Pour les activer, suis le tutoriel README > Sauvegardes (bash backup.sh setup sous Linux ou WSL)."
 Write-Host ""
 Write-Host "  Useful commands:" -ForegroundColor Cyan
 Write-Host "    docker compose logs -f backend   # API logs"

@@ -154,6 +154,7 @@ docker compose build
 # ─── Start services ───────────────────────────────────────────────────────────
 
 echo -e "\n${CYAN}[4/7] Starting services...${NC}"
+( umask 077; mkdir -p "$(dirname "$0")/backups/backup-runs" )
 docker compose up -d
 
 echo -e "${YELLOW}  ⏳ Waiting for the database...${NC}"
@@ -349,6 +350,13 @@ echo -e "${BOLD}  Local AI (Ollama):${NC}"
 echo "    → Set OLLAMA_URL=http://ollama:11434 in .env"
 echo "    → Then: docker compose up -d ollama"
 echo "    → Pull a model: docker exec ollama ollama pull qwen3:14b"
+echo ""
+echo -e "${BOLD}  Sauvegardes :${NC}"
+if [ -t 0 ]; then
+    bash "$(dirname "$0")/backup.sh" setup || echo -e "${YELLOW}  ⚠ Activation des sauvegardes interrompue : relance bash backup.sh setup, ou suis README › Sauvegardes${NC}"
+else
+    echo -e "${YELLOW}  ⚠ Les sauvegardes ne sont pas activées par défaut. Active-les avec bash backup.sh setup, ou suis README › Sauvegardes${NC}"
+fi
 echo ""
 echo -e "${CYAN}  Useful commands:${NC}"
 echo "    docker compose logs -f backend   # API logs"

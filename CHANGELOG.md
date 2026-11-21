@@ -5,6 +5,22 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — Semantic Ve
 
 ---
 
+## [Unreleased]
+
+### Added
+
+- **Activation des sauvegardes** — `start.sh` propose d'activer les sauvegardes à la fin de l'installation (non par défaut). `bash backup.sh setup` fait la même chose à tout moment : destination, mot de passe, heure et rétention, puis initialisation du dépôt et planification quotidienne. Nouvelles commandes `schedule HH:MM`, `unschedule` et `status`
+- **État des sauvegardes visible** — les sauvegardes ne sont pas activées par défaut, et la plateforme le dit : bandeau pour les administrateurs sur le tableau de bord et dans l'Administration, champ `backups` dans `/api/health` (`disabled`, `stale` ou `ok`), rappel à la fin de `start.sh`, `start.ps1` et `update.sh`. L'état se fonde sur la dernière sauvegarde réussie, pas sur un réglage ; le délai de retard se règle par `BACKUP_MAX_AGE_HOURS` (48 h par défaut)
+- **Tutoriel « Sauvegardes »** dans les deux README
+
+### Changed
+
+- **Copie locale de la base** — l'onglet « Sauvegardes » de l'Administration devient « Copie locale » : il copie la base seule, sur la même machine, et dit clairement que ce n'est pas une sauvegarde
+
+### Fixed
+
+- **Copie locale de la base** — le dossier `/app/backups` appartenait à root alors que le backend tourne sous `node` : la copie ne pouvait pas être écrite
+
 ## [0.10.0] — 2026-11-21
 
 Première version numérotée depuis 0.9.11. Elle regroupe tout ce qui a été livré du 14 août au 21 novembre 2026. La version est désormais unique : le fichier `VERSION` fait foi pour le backend, le frontend, l'API de santé, l'installeur et les README.
