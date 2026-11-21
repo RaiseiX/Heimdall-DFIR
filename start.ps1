@@ -1,6 +1,6 @@
 #Requires -Version 5.1
 # ╔══════════════════════════════════════════════════════════════════════╗
-# ║              Heimdall DFIR — Installation script v0.9.6             ║
+# ║              Heimdall DFIR — Installation script                    ║
 # ║              Windows (PowerShell 5.1+)                              ║
 # ╚══════════════════════════════════════════════════════════════════════╝
 #
@@ -17,6 +17,9 @@ function Write-Ok  ($msg) { Write-Host "  [OK] $msg" -ForegroundColor Green  }
 function Write-Warn($msg) { Write-Host "  [!!] $msg" -ForegroundColor Yellow }
 function Write-Err ($msg) { Write-Host "  [XX] $msg" -ForegroundColor Red    }
 function Write-Step($msg) { Write-Host "`n$msg"      -ForegroundColor Cyan   }
+
+$AppVersionFile = Join-Path $PSScriptRoot "VERSION"
+$AppVersion = if (Test-Path $AppVersionFile) { (Get-Content -Raw $AppVersionFile).Trim() } else { "inconnue" }
 
 function New-RandomHex([int]$bytes) {
     $buf = [byte[]]::new($bytes)
@@ -47,10 +50,11 @@ function Get-EnvValue([string]$key) {
 Write-Host ""
 Write-Host "╔══════════════════════════════════════════════════════════════╗" -ForegroundColor Cyan
 Write-Host "║                                                              ║" -ForegroundColor Cyan
-Write-Host "║          H E I M D A L L   D F I R   v 0 . 9 . 6           ║" -ForegroundColor Cyan
+Write-Host "║          H E I M D A L L   D F I R                           ║" -ForegroundColor Cyan
 Write-Host "║          DFIR & Threat Hunting Platform                      ║" -ForegroundColor Cyan
 Write-Host "║                                                              ║" -ForegroundColor Cyan
 Write-Host "╚══════════════════════════════════════════════════════════════╝" -ForegroundColor Cyan
+Write-Host "  Version $AppVersion"
 Write-Host ""
 
 # ─── [1/7] Prerequisites ──────────────────────────────────────────────────────

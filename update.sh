@@ -205,6 +205,10 @@ command -v sha256sum >/dev/null 2>&1 || fail "sha256sum est requis pour contrôl
 [ -f docker-compose.yml ] || fail "docker-compose.yml introuvable : lance le script depuis la racine du dépôt."
 [ -f .env ] || fail "Fichier .env introuvable. Une mise à jour a besoin du .env de l'installation existante ; pour une première installation, utilise start.sh."
 ok "Docker, Docker Compose, .env présents"
+if [ -f version.sh ]; then
+    VERSION_OUT="$(bash version.sh check 2>&1)" || fail "Version incohérente, mise à jour arrêtée avant toute modification : $(printf '%s' "$VERSION_OUT" | tr '\n' ' ')"
+    ok "Version $(tr -d '[:space:]' < VERSION 2>/dev/null) cohérente"
+fi
 
 step 2 "Variables d'environnement"
 REQUIRED=(DB_PASSWORD REDIS_PASSWORD JWT_SECRET VOLWEB_DJANGO_SECRET VOLWEB_PASSWORD MINIO_ROOT_USER MINIO_ROOT_PASSWORD)

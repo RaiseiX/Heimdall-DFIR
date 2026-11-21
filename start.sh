@@ -1,6 +1,6 @@
 #!/bin/bash
 # ╔══════════════════════════════════════════════════════════════════════╗
-# ║              Heimdall DFIR — Installation script v0.9.6             ║
+# ║              Heimdall DFIR — Installation script                    ║
 # ╚══════════════════════════════════════════════════════════════════════╝
 
 set -e
@@ -15,11 +15,12 @@ NC='\033[0m'
 echo -e "${CYAN}"
 echo "╔══════════════════════════════════════════════════════════════╗"
 echo "║                                                              ║"
-echo "║          H E I M D A L L   D F I R   v 1 . 1 . 0           ║"
+echo "║          H E I M D A L L   D F I R                           ║"
 echo "║          DFIR & Threat Hunting Platform                      ║"
 echo "║                                                              ║"
 echo "╚══════════════════════════════════════════════════════════════╝"
 echo -e "${NC}"
+echo -e "  Version $(tr -d '[:space:]' < "$(dirname "$0")/VERSION" 2>/dev/null || echo inconnue)\n"
 
 # ─── Prerequisites ────────────────────────────────────────────────────────────
 

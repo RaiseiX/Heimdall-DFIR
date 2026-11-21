@@ -10,6 +10,7 @@ require('ts-node').register({
 });
 
 const express = require('express');
+const APP_VERSION = require('../package.json').version;
 const http = require('http');
 const { Server: IOServer } = require('socket.io');
 const cors = require('cors');
@@ -212,7 +213,7 @@ app.get('/api/health', async (req, res) => {
     await pool.query('SELECT 1');
     res.json({
       status: 'healthy',
-      version: '2.7.0',
+      version: APP_VERSION,
       timestamp: new Date().toISOString(),
       features: ['chunked-upload', 'streaming-parsers', 'socket-io', 'bullmq-queue'],
       services: { database: 'connected', redis: 'connected' },
@@ -293,7 +294,7 @@ async function start() {
 
     server.listen(PORT, '0.0.0.0', () => {
       logger.info('Heimdall DFIR API démarrée', {
-        version: '2.7.0',
+        version: APP_VERSION,
         port: PORT,
         mode: 'Streaming + Chunked Upload',
       });

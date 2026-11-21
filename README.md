@@ -4,6 +4,8 @@ Self-hosted case management, evidence review and threat-hunting for DFIR teams.
 
 [Français](README.fr.md) · [Roadmap](ROADMAP.md) · [Discord](https://discord.gg/sx7DnNYMNF)
 
+Version 0.10.0 · [Changelog](CHANGELOG.md)
+
 ![Heimdall DFIR dashboard](shots/dashboard.webp)
 
 Heimdall brings imported evidence, timelines, detections, investigation notes and reports into one web interface. It is intended for labs, internal SOCs and incident-response teams that want to keep case data on infrastructure they control.
