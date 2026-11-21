@@ -243,7 +243,7 @@ router.get('/stats/dashboard', authenticate, async (req, res) => {
           GROUP BY d
         ) ioc ON ioc.d = days.day
         ORDER BY days.day
-      `, acc.params).catch(() => ({ rows: [] })),
+      `, acc.params),
       pool.query(`
         SELECT
           COUNT(DISTINCT artifact_type) AS artifact_types,
@@ -259,7 +259,7 @@ router.get('/stats/dashboard', authenticate, async (req, res) => {
           WHERE TRUE${acc.sql}
           GROUP BY ct.artifact_type
         ) t
-      `, acc.params).catch(() => ({ rows: [{ artifact_types: 0, total_lines: 0, breakdown: [] }] })),
+      `, acc.params),
       // Findings by severity — aggregate over persisted threat-engine detections (JSONB array per row)
       pool.query(`
         SELECT lower(COALESCE(d->>'severity','')) AS sev, COUNT(*)::int AS cnt
@@ -268,7 +268,7 @@ router.get('/stats/dashboard', authenticate, async (req, res) => {
         CROSS JOIN LATERAL jsonb_array_elements(ct.detections) AS d
         WHERE ct.detections IS NOT NULL AND jsonb_typeof(ct.detections) = 'array'${acc.sql}
         GROUP BY lower(COALESCE(d->>'severity',''))
-      `, acc.params).catch(() => ({ rows: [] })),
+      `, acc.params),
       // Scan health — evidence scan_status distribution
       pool.query(`
         SELECT COALESCE(NULLIF(e.scan_status, ''), 'pending') AS st, COUNT(*)::int AS cnt
@@ -276,14 +276,14 @@ router.get('/stats/dashboard', authenticate, async (req, res) => {
         JOIN cases c ON c.id = e.case_id
         WHERE TRUE${acc.sql}
         GROUP BY COALESCE(NULLIF(e.scan_status, ''), 'pending')
-      `, acc.params).catch(() => ({ rows: [] })),
+      `, acc.params),
       // Parse coverage — evidence that produced at least one timeline row
       pool.query(`
         SELECT COUNT(DISTINCT ct.evidence_id)::int AS parsed
         FROM collection_timeline ct
         JOIN cases c ON c.id = ct.case_id
         WHERE ct.evidence_id IS NOT NULL${acc.sql}
-      `, acc.params).catch(() => ({ rows: [{ parsed: 0 }] })),
+      `, acc.params),
     ]);
 
     // ── Findings by severity (greyware folds into low) ──────────────────────
