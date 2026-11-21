@@ -40,14 +40,14 @@ router.get('/', authenticate, async (req, res) => {
           AND c.report_deadline <= NOW() + ($1 || ' hours')::interval
           AND c.status <> 'closed'${accEch.sql}
         ORDER BY c.report_deadline ASC
-      `, [String(sla.upcomingH), ...accEch.params]).catch(() => ({ rows: [] })),
+      `, [String(sla.upcomingH), ...accEch.params]),
       pool.query(`
         SELECT e.id, e.name, c.id AS case_id, c.case_number, c.title
         FROM evidence e JOIN cases c ON c.id = e.case_id
         WHERE e.scan_status = 'quarantined'${acc.sql}
         ORDER BY e.created_at DESC NULLS LAST
         LIMIT 100
-      `, acc.params).catch(() => ({ rows: [] })),
+      `, acc.params),
       pool.query(`
         SELECT ct.case_id, c.case_number, c.title,
                COUNT(*) FILTER (WHERE lower(d->>'severity') = 'critical')::int AS crit,
@@ -58,7 +58,7 @@ router.get('/', authenticate, async (req, res) => {
         WHERE ct.detections IS NOT NULL AND jsonb_typeof(ct.detections) = 'array'${acc.sql}
         GROUP BY ct.case_id, c.case_number, c.title
         HAVING COUNT(*) FILTER (WHERE lower(d->>'severity') IN ('critical','high')) > 0
-      `, acc.params).catch(() => ({ rows: [] })),
+      `, acc.params),
     ]);
 
     const items = [];
