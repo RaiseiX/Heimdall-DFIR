@@ -420,6 +420,14 @@ step 9 "Migrations"
 PHASE="migrating"
 run bash db/migrate.sh || fail "Les migrations ont échoué."
 done_ok "Schéma à jour"
+if [ "$DRY_RUN" -eq 0 ] && [ -f db/schema-parity.sh ]; then
+    PARITY_OUT="$(bash db/schema-parity.sh 2>&1)"
+    case "$?" in
+        0) ok "Schéma conforme à une installation neuve" ;;
+        1) warn "Colonnes absentes par rapport à une installation neuve : $(printf '%s' "$PARITY_OUT" | tr '\n' ' ')" ;;
+        *) warn "Contrôle de parité du schéma impossible : $(printf '%s' "$PARITY_OUT" | tr '\n' ' ')" ;;
+    esac
+fi
 
 step 10 "Redémarrage, santé et inscription au journal d'audit"
 run docker compose up -d || { PHASE="started"; fail "docker compose up -d a échoué."; }
