@@ -16,10 +16,12 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — Semantic Ve
 ### Changed
 
 - **Copie locale de la base** — l'onglet « Sauvegardes » de l'Administration devient « Copie locale » : il copie la base seule, sur la même machine, et dit clairement que ce n'est pas une sauvegarde
+- **Chat IA sur un hôte sans GPU** — les délais « aucun jeton reçu » (`AI_STREAM_IDLE_MS`) et de génération (`AI_GEN_TIMEOUT_MS`) passent de 2 et 3 minutes à 10 minutes : un processeur seul peut mettre plusieurs minutes à produire le premier jeton. Le modèle reste choisi automatiquement parmi ceux installés ; `.env.example` propose désormais `qwen2.5:3b`, plus rapide sur processeur.
 
 ### Fixed
 
 - **Copie locale de la base** — le dossier `/app/backups` appartenait à root alors que le backend tourne sous `node` : la copie ne pouvait pas être écrite
+- **Réglages de l'IA ignorés** — `docker-compose.yml` ne transmettait au backend que `OLLAMA_URL` : les variables `AI_MODEL`, `AI_MAX_HISTORY_MESSAGES`, `AI_TEMPERATURE` et les délais du `.env` n'avaient aucun effet. Elles sont maintenant transmises. Sur un hôte lent, le chat IA était coupé après 2 minutes sans réponse et l'interface restait en chargement.
 
 ## [0.10.0] — 2026-11-21
 
