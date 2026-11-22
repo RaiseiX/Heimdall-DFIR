@@ -23,6 +23,10 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — Semantic Ve
 - **Copie locale de la base** — le dossier `/app/backups` appartenait à root alors que le backend tourne sous `node` : la copie ne pouvait pas être écrite
 - **Réglages de l'IA ignorés** — `docker-compose.yml` ne transmettait au backend que `OLLAMA_URL` : les variables `AI_MODEL`, `AI_MAX_HISTORY_MESSAGES`, `AI_TEMPERATURE` et les délais du `.env` n'avaient aucun effet. Elles sont maintenant transmises. Sur un hôte lent, le chat IA était coupé après 2 minutes sans réponse et l'interface restait en chargement.
 
+### Security
+
+- **Outils de développement à jour** — `vite` passe en 6, `vitest` en 3, et `handlebars`, `brace-expansion`, `browserslist`, `postcss` et `source-map-js` sont rafraîchis dans les fichiers de verrouillage. Ces paquets ne sont pas livrés dans l'application. Alertes Dependabot du frontend : 13 → 6, plus aucune haute. Backend : 17 → 13, plus aucune critique. Il reste deux alertes critiques sur `vitest` et `tinypool` : leur correctif demande `vitest` 5, une version majeure non décidée.
+
 ## [0.10.0] — 2026-11-21
 
 Première version numérotée depuis 0.9.11. Elle regroupe tout ce qui a été livré du 14 août au 21 novembre 2026. La version est désormais unique : le fichier `VERSION` fait foi pour le backend, le frontend, l'API de santé, l'installeur et les README.
