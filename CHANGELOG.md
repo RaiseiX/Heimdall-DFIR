@@ -29,6 +29,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — Semantic Ve
 - **Outils de développement à jour** — `vite` passe en 6, `vitest` en 3, et `handlebars`, `brace-expansion`, `browserslist`, `postcss` et `source-map-js` sont rafraîchis dans les fichiers de verrouillage. Ces paquets ne sont pas livrés dans l'application. Alertes Dependabot du frontend : 13 → 6, plus aucune haute. Backend : 17 → 13, plus aucune critique. Il reste deux alertes critiques sur `vitest` et `tinypool` : leur correctif demande `vitest` 5, une version majeure non décidée.
 - **Journaux et analyse des requêtes à jour** — `morgan` passe en 1.12.1 : un guillemet ou un séparateur de ligne glissé dans un champ fourni par le client, comme le user-agent, ne peut plus fausser une ligne de journal. `qs` passe en 6.17.1, imposé par un `overrides` car Express exigeait la série 6.15. `npm audit` du backend : 13 → 11 alertes, `qs` et `morgan` n'y figurent plus.
 - **Lecture protobuf et XML à jour** — `protobufjs` passe en 7.6.6 et `fast-xml-parser` en 5.12.1, utilisé par le client `minio` pour lire les réponses S3. Deux paquets transitifs s'ajoutent (`anynum`, `is-unsafe`). `npm audit` du backend : 11 → 9 alertes.
+- **Routeur de l'interface à jour** — `react-router-dom` passe en 6.30.6, qui corrige une redirection ouverte pouvant mener à du XSS. `react-router` et `@remix-run/router` montent avec lui. Deux alertes sur `react-router` restent ouvertes : leur correctif demande la version 7, non décidée.
 
 ## [0.10.0] — 2026-11-21
 
