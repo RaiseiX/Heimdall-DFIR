@@ -513,7 +513,6 @@ export default function CaseDetailPage({ user }) {
 
   useEffect(() => {
     let cancelled = false;
-    console.log('[CaseDetail] useEffect triggered, id =', id);
     setLoading(true);
     setCaseData(null);
     setEvidence([]);
@@ -521,9 +520,7 @@ export default function CaseDetailPage({ user }) {
 
     const loadCase = async () => {
       try {
-        console.log('[CaseDetail] Calling casesAPI.get(' + id + ')...');
         const caseRes = await casesAPI.get(id);
-        console.log('[CaseDetail] API response:', caseRes.data);
         if (cancelled) return;
         setCaseData(caseRes.data);
 

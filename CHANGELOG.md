@@ -17,6 +17,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — Semantic Ve
 
 - **Copie locale de la base** — l'onglet « Sauvegardes » de l'Administration devient « Copie locale » : il copie la base seule, sur la même machine, et dit clairement que ce n'est pas une sauvegarde
 - **Chat IA sur un hôte sans GPU** — les délais « aucun jeton reçu » (`AI_STREAM_IDLE_MS`) et de génération (`AI_GEN_TIMEOUT_MS`) passent de 2 et 3 minutes à 10 minutes : un processeur seul peut mettre plusieurs minutes à produire le premier jeton. Le modèle reste choisi automatiquement parmi ceux installés ; `.env.example` propose désormais `qwen2.5:3b`, plus rapide sur processeur.
+- **Console du navigateur** — l'ouverture d'une affaire n'écrit plus de messages de débogage dans la console. L'un d'eux affichait l'objet complet de l'affaire. Le message d'erreur en cas d'échec du chargement est conservé.
 
 ### Fixed
 
